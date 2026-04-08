@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_e499f2a6",
+  "note_type": "component",
+  "name": "Arc SED",
+  "brief": "Arc SED | Inputs: S, E, D → A, P, R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Arc SED. Inputs: S (Point), E (Point), D (Vector). Outputs: A (Geometry), P (Plane), R (Number).",
+  "keywords": [
+    "arc sed",
+    "arc",
+    "sed",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "arc sed",
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Arc SED"
+  ],
+  "solution_principle": "Create an arc defined by start point, end point and a tangent vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_8340a347",
+    "comp_abdf444b",
+    "comp_bd64fa41",
+    "comp_ba658789",
+    "comp_919aeca8",
+    "comp_7dee6c13",
+    "comp_f3627a5f",
+    "comp_ffa26615",
+    "comp_9d38d8da",
+    "comp_36410bd6",
+    "comp_9b552c69",
+    "comp_ea88730a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9d2583dd-6cf5-497c-8c40-c9a290598396",
+    "category": "curves",
+    "inputs": {
+      "S": "Point",
+      "E": "Point",
+      "D": "Vector"
+    },
+    "outputs": {
+      "A": "Geometry",
+      "P": "Plane",
+      "R": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "bb59bffc-f54c-4682-9778-f6c3fe74fce3"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|arc sed"
+  }
+}

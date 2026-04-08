@@ -1,0 +1,92 @@
+{
+  "note_id": "tutorial_863e019d",
+  "note_type": "teaching",
+  "name": "Intermediate 5-4: Map to Surface \u00e2\u20ac\u201d Triangle Panels Remapped Between Surfaces",
+  "brief": "Triangle Panels C (U=33, V=9) \u00e2\u2020\u2019 Scale at centroid (0.8) \u00e2\u2020\u2019 Map to Surface (source\u00e2\u2020\u2019target) \u00c3\u2014 2 \u00e2\u2020\u2019 Entwine (Flatten) \u00e2\u2020\u2019 Flip Matrix \u00e2\u2020\u2019 Loft. Panel transfer between surfaces.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.221094Z",
+  "context": "Demonstrates the Map to Surface component for transferring geometry between surfaces. Source Surface \u00e2\u2020\u2019 Triangle Panels C (U Divisions=33, V Divisions=9) \u00e2\u2020\u2019 Panels. Curve (extract from panels) \u00e2\u2020\u2019 Area (centroid) \u00e2\u2020\u2019 Scale (Factor=0.8). Two Map to Surface components: Map #1: Curve (scaled panels), Source surface \u00e2\u2020\u2019 Target surface #1 \u00e2\u2020\u2019 mapped curves. Map #2: Same curves, Source surface \u00e2\u2020\u2019 Target surface #2 \u00e2\u2020\u2019 mapped curves. Both mapped outputs \u00e2\u2020\u2019 Entwine (with Flatten) \u00e2\u2020\u2019 Flip Matrix \u00e2\u2020\u2019 Loft. Result: triangular panel pattern from one surface transferred to two target surfaces, then lofted between corresponding panels.",
+  "keywords": [
+    "map to surface",
+    "triangle panels",
+    "surface remapping",
+    "panel transfer",
+    "uv mapping",
+    "pattern transfer",
+    "surface correspondence"
+  ],
+  "category": "Intermediate - List Manipulation and Panelization",
+  "tags": [
+    "intermediate",
+    "map-to-surface",
+    "panelization",
+    "triangle-panels",
+    "surface-remapping",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "map to surface grasshopper",
+    "transfer panels between surfaces",
+    "triangle panels map surface",
+    "remap geometry to surface",
+    "surface to surface mapping",
+    "pattern transfer between surfaces"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Triangle Panels C",
+    "Curve",
+    "Area",
+    "Scale",
+    "Map to Surface",
+    "Entwine",
+    "Flip Matrix",
+    "Loft",
+    "Number Slider"
+  ],
+  "solution_principle": "Map to Surface transfers 2D geometry from one surface's parameter space to another surface. Source surface defines the UV coordinates of the input geometry. Target surface receives the geometry at corresponding UV positions. This enables defining a pattern once and applying it to different surface shapes. Scale at centroid before mapping adjusts panel gap/overlap. Entwine + Flip Matrix + Loft connects corresponding panels between surfaces.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_24373789",
+    "tutorial_819fd073",
+    "tutorial_31ac118b",
+    "tutorial_bbfbb85e",
+    "tutorial_20a9ede0",
+    "tutorial_c3407a36"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.221094Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "5-4.jpg",
+    "lesson_number": 5,
+    "step_number": 4,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Surface": 1,
+      "Triangle Panels C": 1,
+      "Curve": 1,
+      "Area": 1,
+      "Scale": 1,
+      "Map to Surface": 1,
+      "Entwine": 1,
+      "Flip Matrix": 1,
+      "Loft": 1,
+      "Number Slider": 1
+    }
+  }
+}

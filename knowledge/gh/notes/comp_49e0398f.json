@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_49e0398f",
+  "note_type": "component",
+  "name": "Tensor Display",
+  "brief": "Tensor Display | Inputs: F, S, N → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Tensor Display. Inputs: F (Field), S (Rectangle), N (Integer).",
+  "keywords": [
+    "tensor display",
+    "tensor",
+    "display",
+    "field_ops"
+  ],
+  "category": "field_ops",
+  "tags": [
+    "field_ops"
+  ],
+  "trigger_intents": [
+    "tensor display",
+    "tensor",
+    "display"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Tensor Display"
+  ],
+  "solution_principle": "Display the tensor vectors of a field section",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_39792588",
+    "comp_4cf29e02",
+    "comp_e41980d1",
+    "comp_f84b6af5",
+    "teaching_0f847371"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "08619b6d-f9c4-4cb2-adcd-90959f08dc0d",
+    "category": "field_ops",
+    "inputs": {
+      "F": "Field",
+      "S": "Rectangle",
+      "N": "Integer"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "55f9ce6a-490c-4f25-a536-a3d47b794752",
+      "5ba20fab-6d71-48ea-a98f-cb034db6bbdc"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|field|tensor display"
+  }
+}

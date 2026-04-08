@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_9b552c69",
+  "note_type": "component",
+  "name": "PolyArc",
+  "brief": "PolyArc | Inputs: V, T, C → Crv",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: PolyArc. Inputs: V (Point), T (Vector), C (Boolean). Outputs: Crv (Curve).",
+  "keywords": [
+    "polyarc",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "polyarc",
+    "poly",
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "PolyArc"
+  ],
+  "solution_principle": "Create a polycurve consisting of arc and line segments.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7159ef59-e4ef-44b8-8cb2-91231e278292",
+    "category": "curves",
+    "inputs": {
+      "V": "Point",
+      "T": "Vector",
+      "C": "Boolean"
+    },
+    "outputs": {
+      "Crv": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "75eb156d-d023-42f9-a85e-2f2456b8bcce"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|polyarc"
+  }
+}

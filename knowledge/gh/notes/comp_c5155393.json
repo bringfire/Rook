@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_c5155393",
+  "note_type": "component",
+  "name": "Twisted Box",
+  "brief": "Twisted Box | Inputs: A, B, C, D → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Twisted Box. Inputs: A (Point), B (Point), C (Point), D (Point), E (Point), F (Point), G (Point), H (Point). Outputs: B (Twisted Box).",
+  "keywords": [
+    "twisted box",
+    "twisted",
+    "box",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "twisted box",
+    "twisted",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Twisted Box"
+  ],
+  "solution_principle": "Create a twisted box from corner points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_18607aa4",
+    "comp_5838b874",
+    "comp_bce12009",
+    "comp_47a89531",
+    "teaching_0abb40f1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "124de0f5-65f8-4ae0-8f61-8fb066e2ba02",
+    "category": "morphing",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point",
+      "D": "Point",
+      "E": "Point",
+      "F": "Point",
+      "G": "Point",
+      "H": "Point"
+    },
+    "outputs": {
+      "B": "Twisted Box"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "transform|morph|twisted box"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_3b4270b2",
+  "note_type": "component",
+  "name": "SolidPlaneCollide",
+  "brief": "SolidPlaneCollide | Inputs: Solid, SolidPlane, CollisionPlane, Strength → SP",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: SolidPlaneCollide. Inputs: Solid (Mesh), SolidPlane (Plane), CollisionPlane (Plane), Strength (Number). Outputs: SP (Generic Data).",
+  "keywords": [
+    "solidplanecollide",
+    "kangaroo2_goals-6dof"
+  ],
+  "category": "kangaroo2_goals-6dof",
+  "tags": [
+    "kangaroo2_goals-6dof"
+  ],
+  "trigger_intents": [
+    "solidplanecollide",
+    "solid",
+    "plane",
+    "collide"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SolidPlaneCollide"
+  ],
+  "solution_principle": "Collision between a plane and a solid",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "81cc6201-6cda-4954-8503-66be5363aac8",
+    "category": "kangaroo2_goals-6dof",
+    "inputs": {
+      "Solid": "Mesh",
+      "SolidPlane": "Plane",
+      "CollisionPlane": "Plane",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "SP": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0b3b7956-f88b-4ca3-99f6-b6508a8dac3f",
+      "76b38cca-507d-409e-a773-044b2577d0b4"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-6dof|solidplanecollide"
+  }
+}

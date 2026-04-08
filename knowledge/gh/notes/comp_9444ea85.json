@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_9444ea85",
+  "note_type": "component",
+  "name": "IsoVist Ray",
+  "brief": "IsoVist Ray | Inputs: S, R, O → P, D, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: IsoVist Ray. Inputs: S (Line), R (Number), O (Geometry). Outputs: P (Point), D (Number), I (Integer).",
+  "keywords": [
+    "isovist ray",
+    "isovist",
+    "ray",
+    "intersection_math"
+  ],
+  "category": "intersection_math",
+  "tags": [
+    "intersection_math"
+  ],
+  "trigger_intents": [
+    "isovist ray",
+    "iso",
+    "vist",
+    "ray"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "IsoVist Ray"
+  ],
+  "solution_principle": "Compute a single isovist sample at a location",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1c230cb3",
+    "comp_337d7af3",
+    "comp_60b57767",
+    "comp_146ffa0d",
+    "comp_a8a23ec6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "93d0dcbc-6207-4745-aaf7-fe57a880f959",
+    "category": "intersection_math",
+    "inputs": {
+      "S": "Line",
+      "R": "Number",
+      "O": "Geometry"
+    },
+    "outputs": {
+      "P": "Point",
+      "D": "Number",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4c02a168-9aba-4f42-8951-2719f24d391f"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|mathematical|isovist ray"
+  }
+}

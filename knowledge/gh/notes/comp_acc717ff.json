@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_acc717ff",
+  "note_type": "component",
+  "name": "Query Render Options",
+  "brief": "Query Render Options | Inputs: none → S, Sk",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Query Render Options. Outputs: S (Model Content), Sk (Model Content).",
+  "keywords": [
+    "query render options",
+    "query",
+    "render",
+    "options",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "query render options",
+    "query",
+    "render",
+    "options"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Render Options"
+  ],
+  "solution_principle": "Query a Rhino document for its render options",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f462047",
+    "comp_580fe1e1",
+    "comp_1662c3ae",
+    "comp_d83bab54",
+    "comp_07e6e9b8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9067a37e-1b6b-4f94-bcd0-b2843bb936f9",
+    "category": "rhino_render",
+    "inputs": {},
+    "outputs": {
+      "S": "Model Content",
+      "Sk": "Model Content"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|render|query render options"
+  }
+}

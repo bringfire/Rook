@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_09d68cd9",
+  "note_type": "component",
+  "name": "Number",
+  "brief": "Number | Inputs: none \u00e2\u2020\u2019 output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Number.",
+  "keywords": [
+    "number",
+    "number"
+  ],
+  "category": "primitive_params",
+  "tags": [
+    "component",
+    "input",
+    "parameter",
+    "number",
+    "grasshopper",
+    "basic"
+  ],
+  "trigger_intents": [
+    "number"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Number"
+  ],
+  "solution_principle": "Contains a collection of floating point numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_48613be3",
+    "comp_8cc313fd",
+    "comp_52a7679a",
+    "comp_cb2615cb",
+    "teaching_47c6c682"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312",
+    "category": "primitive_params",
+    "inputs": [],
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 849,
+    "stable_key": "params|primitive|number",
+    "family": "primitive_params",
+    "similar_to": [
+      "29fa3b21-fe33-43aa-95ec-8bda10536e46",
+      "4ad6703b-84cd-4957-a1b3-f1c6ec270d9c",
+      "476c0cf8-bc3c-4f1c-a61a-6e91e1f8b91e"
+    ]
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

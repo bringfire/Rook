@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_8b416bb8",
+  "note_type": "component",
+  "name": "Zoom Extents",
+  "brief": "Zoom Extents | Inputs: V, E, B → V, E, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Zoom Extents. Inputs: V (View), E (Geometry), B (Number). Outputs: V (View), E (Geometry), B (Number).",
+  "keywords": [
+    "zoom extents",
+    "zoom",
+    "extents",
+    "rhino_viewports"
+  ],
+  "category": "rhino_viewports",
+  "tags": [
+    "rhino_viewports"
+  ],
+  "trigger_intents": [
+    "zoom extents",
+    "zoom",
+    "extents"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Zoom Extents"
+  ],
+  "solution_principle": "Zoom view to show all objects",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f805e573",
+    "comp_49b94bb0",
+    "comp_ccfa6e09"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "218d6810-99a9-4e39-89a1-a11560cfdbc5",
+    "category": "rhino_viewports",
+    "inputs": {
+      "V": "View",
+      "E": "Geometry",
+      "B": "Number"
+    },
+    "outputs": {
+      "V": "View",
+      "E": "Geometry",
+      "B": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "17f44ecd-76b0-4074-87f0-d96aa62a13ac"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|viewports|zoom extents"
+  }
+}

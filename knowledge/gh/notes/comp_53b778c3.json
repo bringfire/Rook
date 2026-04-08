@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_53b778c3",
+  "note_type": "component",
+  "name": "Triangle Panels C",
+  "brief": "Triangle Panels C | Inputs: Srf, U, V → Panels",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Triangle Panels C. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: Panels (Generic Data).",
+  "keywords": [
+    "triangle panels c",
+    "triangle",
+    "panels",
+    "c",
+    "lunchbox_panels"
+  ],
+  "category": "lunchbox_panels",
+  "tags": [
+    "lunchbox_panels"
+  ],
+  "trigger_intents": [
+    "triangle panels c",
+    "triangle",
+    "panels"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Triangle Panels C"
+  ],
+  "solution_principle": "Creates triangular panels on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6ae4ed88",
+    "comp_bcbf180c",
+    "comp_a204d663",
+    "comp_d184690d",
+    "teaching_97771130",
+    "comp_2d0b8a1b",
+    "comp_fb66c313",
+    "comp_b1640d53"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "04b95f89-44fd-4b85-9739-65b88b19d9c4",
+    "category": "lunchbox_panels",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "Panels": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5474b0d2-3c33-4d37-b60a-498b95c6e227",
+      "a1b5310f-eb7d-4534-9ca1-c0acad970a28",
+      "797e3a90-16e6-4cfc-9a0b-d0d494d9d598"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|panels|triangle panels c"
+  }
+}

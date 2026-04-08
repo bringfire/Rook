@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_0b96a579",
+  "note_type": "component",
+  "name": "Mesh Extrude",
+  "brief": "Mesh Extrude | Inputs: Mesh, Dir, Solid?, Both Sides? \u2192 Mesh",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Mesh Extrude. Inputs: Mesh (Mesh), Dir (Vector), Solid? (Boolean), Both Sides? (Boolean). Outputs: Mesh (Generic Data).",
+  "keywords": [
+    "mesh extrude",
+    "mesh",
+    "extrude",
+    "lunchbox_mesh"
+  ],
+  "category": "lunchbox_mesh",
+  "tags": [
+    "lunchbox_mesh"
+  ],
+  "trigger_intents": [
+    "mesh extrude",
+    "mesh",
+    "extrude"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Extrude"
+  ],
+  "solution_principle": "Extrudes a mesh object along a specified vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_0ae1e0de",
+    "teaching_0f847371",
+    "teaching_22255d24",
+    "teaching_2a15f208",
+    "teaching_4f2b9009",
+    "comp_85134c60",
+    "comp_ead277e0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75245842-a7ba-497b-83df-2fc9aa2e8c54",
+    "category": "lunchbox_mesh",
+    "inputs": {
+      "Mesh": "Mesh",
+      "Dir": "Vector",
+      "Solid?": "Boolean",
+      "Both Sides?": "Boolean"
+    },
+    "outputs": {
+      "Mesh": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2daea094-2b19-4961-b22d-1df0e4beb0f5",
+      "a3c33654-0db2-4aeb-8551-d7a48b763128",
+      "55bd2794-8fb8-4752-9014-8ecea132a611"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|mesh|mesh extrude",
+    "family": "lunchbox_mesh"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

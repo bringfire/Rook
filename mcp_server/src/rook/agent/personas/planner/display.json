@@ -1,0 +1,8 @@
+{
+  "label": "Planner",
+  "description": "Decomposes tasks into worker assignments",
+  "color": "#7856ff",
+  "model_role": "planner",
+  "tool_access": "readonly",
+  "avatar": null
+}

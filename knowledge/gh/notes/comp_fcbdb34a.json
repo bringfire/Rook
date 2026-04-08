@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_fcbdb34a",
+  "note_type": "component",
+  "name": "Rotate",
+  "brief": "Rotate | Inputs: G, A, P â†’ G, X",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Rotate. Inputs: G (Geometry), A (Number), P (Plane). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "rotate",
+    "rotate"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transformation",
+    "geometry-manipulation",
+    "fundamental-operation",
+    "angle-based",
+    "component"
+  ],
+  "trigger_intents": [
+    "rotate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate"
+  ],
+  "solution_principle": "Rotate an object in a plane.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_68356bcb",
+    "comp_6cf612f1",
+    "teaching_035b3907",
+    "teaching_567ea1e1",
+    "teaching_836d6f1c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "b7798b74-037e-4f0c-8ac7-dc1043d093e0",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "A": "Number",
+      "P": "Plane"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "usage_count": 205,
+    "stable_key": "transform|euclidean|rotate"
+  }
+}

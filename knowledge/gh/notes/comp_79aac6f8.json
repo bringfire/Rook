@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_79aac6f8",
+  "note_type": "component",
+  "name": "Flip Matrix",
+  "brief": "Flip Matrix | Inputs: D → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Flip Matrix. Inputs: D (Generic Data). Outputs: D (Generic Data).",
+  "keywords": [
+    "flip matrix",
+    "flip",
+    "matrix",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "flip matrix",
+    "flip",
+    "matrix"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Flip Matrix"
+  ],
+  "solution_principle": "Flip a matrix-like data tree by swapping rows and columns.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e163e947",
+    "comp_9390569c",
+    "comp_6e8f5e48",
+    "teaching_e8ddc722",
+    "teaching_220e8091",
+    "comp_2ea906f3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "41aa4112-9c9b-42f4-847e-503b9d90e4c7",
+    "category": "tree_operations",
+    "inputs": {
+      "D": "Generic Data"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|tree|flip matrix"
+  }
+}

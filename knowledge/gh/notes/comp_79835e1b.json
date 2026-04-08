@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_79835e1b",
+  "note_type": "component",
+  "name": "Loft",
+  "brief": "Loft | Inputs: C, O â†’ L",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Loft. Inputs: C (Curve), O (Loft Options). Outputs: L (Brep).",
+  "keywords": [
+    "loft",
+    "loft"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "component",
+    "surface-creation",
+    "curve-based",
+    "parametric",
+    "geometry-generation",
+    "foundational"
+  ],
+  "trigger_intents": [
+    "loft"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Loft"
+  ],
+  "solution_principle": "Create a lofted surface through a set of section curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "recipe_1da6cd21",
+    "recipe_020ae70c",
+    "recipe_4e5321a1",
+    "recipe_7cb10c17",
+    "comp_b121cc41",
+    "comp_d3a0b860"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850",
+    "category": "surface_ops",
+    "inputs": {
+      "C": "Curve",
+      "O": "Loft Options"
+    },
+    "outputs": {
+      "L": "Brep"
+    },
+    "typical_wiring": [],
+    "usage_count": 163,
+    "stable_key": "surface|freeform|loft"
+  }
+}

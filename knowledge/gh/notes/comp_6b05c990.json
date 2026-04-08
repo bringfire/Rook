@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_6b05c990",
+  "note_type": "component",
+  "name": "Intersection Filter",
+  "brief": "Intersection Filter | Inputs: F → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Intersection Filter. Inputs: F (Predicate). Outputs: F (Predicate).",
+  "keywords": [
+    "intersection filter",
+    "intersection",
+    "filter",
+    "rhino_content"
+  ],
+  "category": "rhino_content",
+  "tags": [
+    "rhino_content"
+  ],
+  "trigger_intents": [
+    "intersection filter",
+    "intersection",
+    "filter"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Intersection Filter"
+  ],
+  "solution_principle": "Combine multiple filters together into an intersection which returns true only if all input filters evaluate to true.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1174796c",
+    "comp_55a4641e",
+    "comp_fc56ae97",
+    "comp_338ff4b1",
+    "comp_a09a423a",
+    "comp_8d583f78",
+    "comp_d5800ab0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4f4fc2ac-98ac-485a-b88b-f23965e16de8",
+    "category": "rhino_content",
+    "inputs": {
+      "F": "Predicate"
+    },
+    "outputs": {
+      "F": "Predicate"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "63781bc9-6705-4a8c-8704-010655dcad76"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|content|intersection filter"
+  }
+}

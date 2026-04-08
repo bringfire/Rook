@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_c2c88f4e",
+  "note_type": "component",
+  "name": "Contour (ex)",
+  "brief": "Contour (ex) | Inputs: C, P, O, D → C, t",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Contour (ex). Inputs: C (Curve), P (Plane), O (Number), D (Number). Outputs: C (Point), t (Number).",
+  "keywords": [
+    "contour (ex)",
+    "contour",
+    "(ex)",
+    "curve_division"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "curve_division"
+  ],
+  "trigger_intents": [
+    "contour (ex)",
+    "contour",
+    "(ex)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Contour (ex)"
+  ],
+  "solution_principle": "Create a set of Curve contours",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e75be450",
+    "comp_2c4dae60",
+    "comp_a8a23ec6",
+    "comp_5e4d7011",
+    "comp_ac081276",
+    "comp_2de0f8a7",
+    "comp_ca7b6f99",
+    "comp_37b6066a",
+    "comp_1bcc2572"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3e7e4827-6edd-4e10-93ac-cc234414d2b9",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "P": "Plane",
+      "O": "Number",
+      "D": "Number"
+    },
+    "outputs": {
+      "C": "Point",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "88cff285-7f5e-41b3-96d5-9588ff9a52b1"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|contour (ex)"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "name": "divided_boulevard_with_service",
+  "version": 1,
+  "description": "Divided boulevard with median, 3-lane main carriageway, raised separator, service road, bike lane, and sidewalk. 40m total ROW. Typical urban arterial with service access.",
+  "source": {
+    "project": "Riyadh",
+    "file": "civil_cad_export",
+    "extractedAt": "2026-03-10T11:20:00Z",
+    "centerlineId": "b8e7cb29-ba25-46bd-aca3-fb6058f54fe5",
+    "chainage": 24.07
+  },
+  "symmetric": true,
+  "totalWidth": 40.0,
+  "features": [
+    {
+      "type": "median",
+      "offset": 1.8,
+      "width": 1.8,
+      "label": "Median curb"
+    },
+    {
+      "type": "carriageway_edge",
+      "offset": 10.7,
+      "width": 8.9,
+      "label": "Main carriageway (3 lanes)"
+    },
+    {
+      "type": "carriageway_edge",
+      "offset": 10.9,
+      "width": 0.2,
+      "label": "Raised separator island"
+    },
+    {
+      "type": "bike_lane_inner",
+      "offset": 14.1,
+      "width": 3.2,
+      "label": "Service road"
+    },
+    {
+      "type": "sidewalk_inner",
+      "offset": 14.4,
+      "width": 0.3,
+      "label": "Buffer"
+    },
+    {
+      "type": "sidewalk_outer",
+      "offset": 15.4,
+      "width": 1.0,
+      "label": "Sidewalk"
+    },
+    {
+      "type": "carriageway_edge",
+      "offset": 15.6,
+      "width": 0.2,
+      "label": "Outer curb"
+    },
+    {
+      "type": "row",
+      "offset": 20.0,
+      "width": 4.4,
+      "label": "Setback to right-of-way"
+    }
+  ],
+  "layerMap": {
+    "CPCNTRNL": "centerline",
+    "CPCURBNL": "carriageway_edge",
+    "MIC_sidewalk": "sidewalk",
+    "MIC_bike": "bike_lane",
+    "APBLROW": "row"
+  },
+  "intersectionDefaults": {
+    "armLengthOuterEnvelopeMultiplier": 2.25,
+    "armLengthCarriagewayMultiplier": 3.5,
+    "armLengthDiagonalMultiplier": 0.72,
+    "armLengthRadiusMultiplier": 2.4,
+    "armLengthMin": 10.0,
+    "armLengthMax": 48.0
+  },
+  "tags": ["boulevard", "divided", "median", "service_road", "sidewalk", "bike_lane", "urban", "arterial", "riyadh"]
+}

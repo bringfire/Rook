@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_b8042dc1",
+  "note_type": "component",
+  "name": "Model Material",
+  "brief": "Model Material | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Model Material.",
+  "keywords": [
+    "model material",
+    "model",
+    "material",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "model material",
+    "model",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Material"
+  ],
+  "solution_principle": "Contains a collection of model materials",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3c75688e",
+    "comp_e21ff2c8",
+    "comp_cdd4f70a",
+    "comp_cd53e543",
+    "comp_59eaa50b",
+    "comp_49b94bb0",
+    "comp_3520863d",
+    "comp_faffb0cf",
+    "comp_6dead45e",
+    "comp_a2ecb4e5",
+    "comp_8028a5b0",
+    "comp_fdbe5275",
+    "comp_77883b08",
+    "comp_68560ebb",
+    "comp_465b7428",
+    "comp_a20aebfb",
+    "comp_67503b50",
+    "comp_47d03593",
+    "comp_97fcaa21",
+    "comp_3799e465"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0b0088b7-9572-4e07-8f79-bff2dee3978a",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "1c0601b4-7b16-4712-b764-18751be7298a"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|rhino|model material"
+  }
+}

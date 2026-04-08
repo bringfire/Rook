@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_ce7f5782",
+  "note_type": "component",
+  "name": "Solver",
+  "brief": "Solver | Inputs: GoalObjects, Reset, Threshold, Tolerance → I, V, O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Solver. Inputs: GoalObjects (Generic Data), Reset (Boolean), Threshold (Number), Tolerance (Number), On (Boolean). Outputs: I (Integer), V (Point), O (Generic Data).",
+  "keywords": [
+    "solver",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "solver"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Solver"
+  ],
+  "solution_principle": "The main component where Goals are combined and applied",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_012865d1",
+    "recipe_08d50032",
+    "recipe_197f9935",
+    "recipe_220a9e75",
+    "recipe_36b862a1",
+    "comp_fc845a73"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8f9f19c0-207a-419d-90f6-2fcadaa845f9",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "GoalObjects": "Generic Data",
+      "Reset": "Boolean",
+      "Threshold": "Number",
+      "Tolerance": "Number",
+      "On": "Boolean"
+    },
+    "outputs": {
+      "I": "Integer",
+      "V": "Point",
+      "O": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "313490f5-8e38-4dde-9e9a-05e4d739b35d"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|solver"
+  },
+  "deprecated": true,
+  "deprecated_by": "313490f5-8e38-4dde-9e9a-05e4d739b35d"
+}

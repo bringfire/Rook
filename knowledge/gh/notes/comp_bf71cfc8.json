@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_bf71cfc8",
+  "note_type": "component",
+  "name": "Perp Frame",
+  "brief": "Perp Frame | Inputs: C, t → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Perp Frame. Inputs: C (Curve), t (Number). Outputs: F (Plane).",
+  "keywords": [
+    "perp frame",
+    "perp",
+    "frame",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "perp frame",
+    "perp",
+    "frame"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Perp Frame"
+  ],
+  "solution_principle": "Solve the perpendicular (zero-twisting) frame at a specified curve parameter.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_262f1d29",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "69f3e5ee-4770-44b3-8851-ae10ae555398",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "t": "Number"
+    },
+    "outputs": {
+      "F": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "fc6979e4-7e91-4508-8e05-37c680779751",
+      "6b021f56-b194-4210-b9a1-6cef3b7d0848"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|perp frame"
+  }
+}

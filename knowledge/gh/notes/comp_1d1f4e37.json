@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_1d1f4e37",
+  "note_type": "component",
+  "name": "RigidBody",
+  "brief": "RigidBody | Inputs: Part, Points, Strength → RB",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: RigidBody. Inputs: Part (Mesh), Points (Point), Strength (Number). Outputs: RB (Generic Data).",
+  "keywords": [
+    "rigidbody",
+    "kangaroo2_goals"
+  ],
+  "category": "kangaroo2_goals",
+  "tags": [
+    "kangaroo2_goals"
+  ],
+  "trigger_intents": [
+    "rigidbody",
+    "rigid",
+    "body"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "RigidBody"
+  ],
+  "solution_principle": "RigidBody",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "559ec10e-2671-4bba-b5a7-11816e8fb17b",
+    "category": "kangaroo2_goals",
+    "inputs": {
+      "Part": "Mesh",
+      "Points": "Point",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "RB": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals|rigidbody"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "note_id": "comp_wasp_conndir",
+  "note_type": "component",
+  "name": "Wasp_Connection From Direction",
+  "brief": "Wasp_Connection From Direction | Inputs: GEO, CEN, UP, T \u2192 CONN, PLN_OUT",
+  "version": "1.0",
+  "created": "2026-03-19T13:30:00.000000Z",
+  "context": "Wasp plugin component: creates connection objects from part geometry, center points, and X-axis direction curves. Z direction determined from geometry normals. Connection IDs assigned sequentially (0-based) by input order. These IDs are referenced by Wasp_Rule.",
+  "keywords": [
+    "wasp",
+    "connection",
+    "direction",
+    "discrete",
+    "aggregation",
+    "connection face",
+    "conndir"
+  ],
+  "category": "wasp",
+  "tags": [
+    "wasp",
+    "discrete-design",
+    "connections",
+    "part-setup"
+  ],
+  "trigger_intents": [
+    "wasp connection",
+    "connection from direction",
+    "wasp connection face",
+    "define connection",
+    "wasp conndir",
+    "create wasp connection",
+    "part connection"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Wasp_Connection From Direction"
+  ],
+  "solution_principle": "Create connections on part geometry from center points and X-axis direction. Z direction is inferred from geometry normals. Each input point creates one WaspConnection with a sequential 0-based ID. These IDs are what Wasp_Rule references. Feed the same Brep to both this component's GEO and Wasp_Basic Part's GEO.",
+  "anti_patterns": [
+    "Do not reorder input points after rules are defined \u00e2\u20ac\u201d connection IDs will shift and silently break rules"
+  ],
+  "preconditions": [
+    "Part geometry (Brep or Mesh) must be available",
+    "Center points positioned at connection face centers",
+    "Direction curves/lines defining X-axis orientation"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_wasp_part",
+    "comp_wasp_rule"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "wasp_learning",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "25da0b35-0c41-4969-aa73-1508dc7c4456",
+    "category": "wasp",
+    "inputs": {
+      "GEO": "Generic Data",
+      "CEN": "Generic Data",
+      "UP": "Generic Data",
+      "T": "Generic Data"
+    },
+    "outputs": {
+      "CONN": "Generic Data",
+      "PLN_OUT": "Generic Data"
+    },
+    "typical_wiring": [
+      "Param_Brep \u2192 GEO",
+      "Param_Point \u2192 CEN",
+      "Param_Curve \u2192 UP",
+      "CONN \u2192 Wasp_Basic Part.CONN"
+    ],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "wasp|1 | elements|wasp_connection from direction"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

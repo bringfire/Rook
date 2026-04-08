@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_c98d2517",
+  "note_type": "component",
+  "name": "Plane",
+  "brief": "Plane | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Plane.",
+  "keywords": [
+    "plane",
+    "geometry_params"
+  ],
+  "category": "geometry_params",
+  "tags": [
+    "geometry_params"
+  ],
+  "trigger_intents": [
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane"
+  ],
+  "solution_principle": "Contains a collection of three-dimensional axis-systems",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6da45012",
+    "comp_5db06631",
+    "comp_46e1edc0",
+    "comp_4a4d2518",
+    "comp_90d674a0",
+    "comp_799b0366",
+    "comp_a5543b5b",
+    "comp_fe0e6d93",
+    "comp_24f5d9b6",
+    "comp_71e3784b",
+    "comp_5838b874",
+    "comp_f10ac307",
+    "comp_0e13055a",
+    "comp_b60cd0bf",
+    "comp_631dfbb4",
+    "comp_c0206926",
+    "comp_5ea55c31",
+    "comp_afaac638",
+    "comp_4fb712d2",
+    "comp_99827e5a",
+    "comp_b9fdbf6a",
+    "comp_79896597",
+    "comp_4fb5656f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4f8984c4-7c7a-4d69-b0a2-183cbb330d20",
+    "category": "geometry_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|geometry|plane"
+  }
+}

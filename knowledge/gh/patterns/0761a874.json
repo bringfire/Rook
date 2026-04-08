@@ -1,0 +1,490 @@
+{
+  "pattern_id": "0761a874",
+  "name": "parametric_surface-creation_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T19:37:45.565715Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Sphere",
+      "slider",
+      "Populate Geometry",
+      "Facet Dome",
+      "Scale",
+      "Area",
+      "slider",
+      "Merge",
+      "Loft",
+      "Weaverbird's Mesh Thicken",
+      "Flatten Tree",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "Weaverbird's Mesh Thicken",
+      "Flatten Tree",
+      "Negative",
+      "slider",
+      "Simple Mesh",
+      "Merge",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Deconstruct Mesh",
+      "Construct Point",
+      "Distance",
+      "Bounds",
+      "Remap Numbers",
+      "Gradient",
+      "Construct Mesh",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a sphere",
+      "surface from curves",
+      "parametric sphere",
+      "loft curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:29:19.391104Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 36 wires -> 31 components, 36 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 0.1
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 50
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Porous Fruit.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            239,
+            145
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            12,
+            167
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            333,
+            158
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_FacetDome",
+          "nick": "Facet",
+          "name": "Facet Dome",
+          "pos": [
+            434,
+            162
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            653,
+            137
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            533,
+            90
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            398.1,
+            229.8
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.1
+        },
+        {
+          "id": "R8",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            767,
+            95
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            902,
+            141
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1221,
+            105
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            955,
+            32
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1041,
+            1
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            1139,
+            27
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1223,
+            205
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            1058,
+            166
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            1046,
+            223
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            761.4,
+            255.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R18",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            992,
+            113
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1329,
+            168
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1433,
+            168
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            1526,
+            178
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1654,
+            199
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            1372.8,
+            270
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R24",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1762,
+            182
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            1650,
+            80
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            1854,
+            109
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1950,
+            146
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2041,
+            148
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2058,
+            42
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            2324,
+            210
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            145.9,
+            254.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 50
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R31.O0>R3.I1",
+        "R3.O0>R4.I0",
+        "R4.O0>R5.I0",
+        "R6.O1>R5.I1",
+        "R7.O0>R5.I2",
+        "R4.O0>R6.I0",
+        "R4.O0>R8.I0",
+        "R5.O0>R8.I1",
+        "R8.O0>R9.I0",
+        "R13.O1>R10.I0",
+        "R18.O0>R11.I0",
+        "R11.O0>R12.I0",
+        "R12.O0>R13.I0",
+        "R15.O0>R14.I0",
+        "R16.O0>R14.I1",
+        "R18.O0>R15.I0",
+        "R17.O0>R16.I0",
+        "R9.O0>R18.I0",
+        "R10.O0>R19.I0",
+        "R14.O0>R19.I1",
+        "R19.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R21.O1>R22.I0",
+        "R23.O0>R22.I1",
+        "R22.O0>R24.I0",
+        "R25.O0>R26.I0",
+        "R24.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R26.O0>R28.I0",
+        "R27.O0>R28.I1",
+        "R28.O0>R29.I2",
+        "R24.O0>R30.I0",
+        "R24.O1>R30.I1",
+        "R29.O0>R30.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_59eaa50b",
+  "note_type": "component",
+  "name": "Model Object",
+  "brief": "Model Object | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Model Object.",
+  "keywords": [
+    "model object",
+    "model",
+    "object",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "model object",
+    "model",
+    "object"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Object"
+  ],
+  "solution_principle": "Contains a collection of model objects",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b8042dc1",
+    "comp_e21ff2c8",
+    "comp_cdd4f70a",
+    "comp_cd53e543",
+    "comp_faffb0cf",
+    "comp_6dead45e",
+    "comp_fdbe5275",
+    "comp_c65b6b32",
+    "comp_77883b08",
+    "comp_465b7428",
+    "comp_8c1d7fca",
+    "comp_31b79208",
+    "comp_97fcaa21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1c30cbca-3907-4e28-9003-b06352f5459c",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "39304976-7d5b-4dbc-b913-147bc3340e32"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|rhino|model object"
+  }
+}

@@ -1,0 +1,708 @@
+{
+  "note_id": "recipe_36b862a1",
+  "note_type": "recipe",
+  "name": "Basic Torque",
+  "brief": "Basic Torque: Circle \u00e2\u2020\u2019 EvaluateCurve \u00e2\u2020\u2019 KangarooGH \u00e2\u2020\u2019 toggle \u00e2\u2020\u2019 Move +26 more (63 components, 9 sliders, 78 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:18.155329Z",
+  "context": "Extracted from: Basic Torque.gh",
+  "keywords": [
+    "parametric_surface-creation",
+    "parametric",
+    "surface-creation"
+  ],
+  "category": "parametric",
+  "tags": [
+    "anchor-component",
+    "area-properties_-o",
+    "boundary",
+    "button-object",
+    "c-s-n",
+    "circle",
+    "color-preview",
+    "colour",
+    "complexity-spectrum",
+    "curve-analysis",
+    "curve-boolean-union",
+    "curve-evaluation",
+    "curves",
+    "custom-preview",
+    "custom-preview-component",
+    "data-display",
+    "debugging",
+    "end-points",
+    "endpoint-extraction",
+    "explode-tree-component",
+    "extrude",
+    "extrusion-compatible",
+    "geometry-component",
+    "kangaroo-g-h",
+    "line",
+    "list-item-variable",
+    "loft-based",
+    "loft-surface",
+    "measurable-output",
+    "merge-variable",
+    "move",
+    "offset-curve",
+    "on-curve-component",
+    "operator-sign",
+    "operator_-division",
+    "operator_-modulus",
+    "placeholder-component",
+    "post-creation-analysis",
+    "prerequisite-curve-component",
+    "spring-by-line",
+    "surface-creation",
+    "surface-output",
+    "timer",
+    "unit-vector-x",
+    "unit-vector-z",
+    "visualization",
+    "workflow"
+  ],
+  "trigger_intents": [
+    "loft curves",
+    "surface from curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Circle",
+    "Number Slider",
+    "Evaluate Curve",
+    "Number Slider",
+    "Solver",
+    "Boolean Toggle",
+    "Move",
+    "Unit X",
+    "Number Slider",
+    "Evaluate Curve",
+    "Number Slider",
+    "Line",
+    "Length(Line)",
+    "Merge",
+    "Show",
+    "Anchor",
+    "OnCurve",
+    "List Item",
+    "Number Slider",
+    "Timer",
+    "Counter",
+    "Boolean Toggle",
+    "Division",
+    "Number Slider",
+    "Modulus",
+    "Panel",
+    "C# Script",
+    "Panel",
+    "Area",
+    "Boolean Toggle",
+    "Number Slider",
+    "Number Slider",
+    "Explode Tree",
+    "Button",
+    "Offset",
+    "Merge",
+    "Number Slider",
+    "Negative",
+    "Offset",
+    "Merge",
+    "Loft",
+    "Extrude",
+    "Unit Z",
+    "Offset",
+    "Number",
+    "Offset",
+    "Negative",
+    "End Points",
+    "Merge",
+    "Circle",
+    "Merge",
+    "Loft",
+    "Curve",
+    "Merge",
+    "Region Union",
+    "Boundary Surfaces",
+    "Move",
+    "Unit Z",
+    "Extrude",
+    "Custom Preview",
+    "Colour Swatch",
+    "Custom Preview",
+    "Colour Swatch"
+  ],
+  "solution_principle": "Processing chain: Circle \u00e2\u2020\u2019 EvaluateCurve \u00e2\u2020\u2019 KangarooGH \u00e2\u2020\u2019 toggle \u00e2\u2020\u2019 Move \u00e2\u2020\u2019 UnitVectorX \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 colour.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_48613be3",
+    "comp_79adb5f1",
+    "comp_8cc313fd",
+    "comp_a87bd296",
+    "comp_b121cc41",
+    "comp_ba6a3f1a",
+    "comp_bb3b6d27",
+    "recipe_91aa15f3",
+    "recipe_acd022b1",
+    "recipe_6ba5ea93",
+    "recipe_e5da5e21",
+    "comp_acae6fd1",
+    "comp_ce7f5782",
+    "tutorial_7de24433"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "batch_extraction",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "44ea444d-09e6-4762-88c0-3a3fe5a76967",
+        "from_param": "Number Slider",
+        "to": "0e64a0a3-f5a8-44fc-84e2-83aaaa04d587",
+        "to_param": "R"
+      },
+      {
+        "from": "0e64a0a3-f5a8-44fc-84e2-83aaaa04d587",
+        "from_param": "C",
+        "to": "85358129-a161-4585-a57f-9f1af999c61c",
+        "to_param": "C"
+      },
+      {
+        "from": "901976f5-91b6-4d77-b883-6dbb7bf18955",
+        "from_param": "R",
+        "to": "85358129-a161-4585-a57f-9f1af999c61c",
+        "to_param": "t"
+      },
+      {
+        "from": "329251a5-140a-457a-a849-9712b230d3f1",
+        "from_param": "R",
+        "to": "b3bde5fc-7dbb-43d0-93a6-685e9f93b2fc",
+        "to_param": "GoalObjects"
+      },
+      {
+        "from": "11868362-9635-4a9c-bb41-b6b70131a20f",
+        "from_param": "Button",
+        "to": "b3bde5fc-7dbb-43d0-93a6-685e9f93b2fc",
+        "to_param": "Reset"
+      },
+      {
+        "from": "19684c95-5a5c-4bcf-a6ee-5fc765eb8bf4",
+        "from_param": "Toggle",
+        "to": "b3bde5fc-7dbb-43d0-93a6-685e9f93b2fc",
+        "to_param": "On"
+      },
+      {
+        "from": "0e64a0a3-f5a8-44fc-84e2-83aaaa04d587",
+        "from_param": "C",
+        "to": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "to_param": "G"
+      },
+      {
+        "from": "a9577e30-1627-4c77-abf4-16c5ff47ef1f",
+        "from_param": "V",
+        "to": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "to_param": "T"
+      },
+      {
+        "from": "5ba49cee-b48f-49a9-a5eb-41c786307a7e",
+        "from_param": "Number Slider",
+        "to": "a9577e30-1627-4c77-abf4-16c5ff47ef1f",
+        "to_param": "F"
+      },
+      {
+        "from": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "from_param": "G",
+        "to": "3d1646bf-2365-45e2-911b-edade312ddb0",
+        "to_param": "C"
+      },
+      {
+        "from": "52bb101a-74f4-41be-87aa-7508d04be9ca",
+        "from_param": "Number Slider",
+        "to": "3d1646bf-2365-45e2-911b-edade312ddb0",
+        "to_param": "t"
+      },
+      {
+        "from": "85358129-a161-4585-a57f-9f1af999c61c",
+        "from_param": "P",
+        "to": "885483c6-f0ca-445a-9c38-3d46b466ecc3",
+        "to_param": "A"
+      },
+      {
+        "from": "3d1646bf-2365-45e2-911b-edade312ddb0",
+        "from_param": "P",
+        "to": "885483c6-f0ca-445a-9c38-3d46b466ecc3",
+        "to_param": "B"
+      },
+      {
+        "from": "885483c6-f0ca-445a-9c38-3d46b466ecc3",
+        "from_param": "L",
+        "to": "fa72b424-7193-4302-9404-fe1503d9448e",
+        "to_param": "Line"
+      },
+      {
+        "from": "5ba49cee-b48f-49a9-a5eb-41c786307a7e",
+        "from_param": "Number Slider",
+        "to": "fa72b424-7193-4302-9404-fe1503d9448e",
+        "to_param": "Length"
+      },
+      {
+        "from": "1a29c1fe-6981-4864-b440-e9c5b1dba353",
+        "from_param": "G",
+        "to": "329251a5-140a-457a-a849-9712b230d3f1",
+        "to_param": "D1"
+      },
+      {
+        "from": "fa72b424-7193-4302-9404-fe1503d9448e",
+        "from_param": "S",
+        "to": "329251a5-140a-457a-a849-9712b230d3f1",
+        "to_param": "D2"
+      },
+      {
+        "from": "f5c7e31a-55d5-4857-bd69-32de8971d776",
+        "from_param": "A",
+        "to": "329251a5-140a-457a-a849-9712b230d3f1",
+        "to_param": "D3"
+      },
+      {
+        "from": "297ec739-26dd-4a03-b21c-d463b174d3a5",
+        "from_param": "P",
+        "to": "329251a5-140a-457a-a849-9712b230d3f1",
+        "to_param": "D4"
+      },
+      {
+        "from": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "from_param": "A",
+        "to": "329251a5-140a-457a-a849-9712b230d3f1",
+        "to_param": "D5"
+      },
+      {
+        "from": "885483c6-f0ca-445a-9c38-3d46b466ecc3",
+        "from_param": "L",
+        "to": "1a29c1fe-6981-4864-b440-e9c5b1dba353",
+        "to_param": "G"
+      },
+      {
+        "from": "85358129-a161-4585-a57f-9f1af999c61c",
+        "from_param": "P",
+        "to": "f5c7e31a-55d5-4857-bd69-32de8971d776",
+        "to_param": "P"
+      },
+      {
+        "from": "3d1646bf-2365-45e2-911b-edade312ddb0",
+        "from_param": "P",
+        "to": "297ec739-26dd-4a03-b21c-d463b174d3a5",
+        "to_param": "Points"
+      },
+      {
+        "from": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "from_param": "G",
+        "to": "297ec739-26dd-4a03-b21c-d463b174d3a5",
+        "to_param": "Curve"
+      },
+      {
+        "from": "755f37ef-1e59-40f2-b7a0-b8fdfbc31973",
+        "from_param": "Number Slider",
+        "to": "297ec739-26dd-4a03-b21c-d463b174d3a5",
+        "to_param": "Strength"
+      },
+      {
+        "from": "b3bde5fc-7dbb-43d0-93a6-685e9f93b2fc",
+        "from_param": "O",
+        "to": "029dffda-efa9-40a7-8461-8a08842d75e9",
+        "to_param": "L"
+      },
+      {
+        "from": "712a4123-acc9-4561-aff7-8fe6ef4c607b",
+        "from_param": "Toggle",
+        "to": "f1b7aaa4-9187-4394-b540-ebb7252e3c74",
+        "to_param": ""
+      },
+      {
+        "from": "f1b7aaa4-9187-4394-b540-ebb7252e3c74",
+        "from_param": "",
+        "to": "696fe14b-0ba9-457f-b5fe-022a7f1af102",
+        "to_param": "A"
+      },
+      {
+        "from": "15e1dde9-99b9-4104-ad95-400e25dfc234",
+        "from_param": "Number Slider",
+        "to": "696fe14b-0ba9-457f-b5fe-022a7f1af102",
+        "to_param": "B"
+      },
+      {
+        "from": "696fe14b-0ba9-457f-b5fe-022a7f1af102",
+        "from_param": "R",
+        "to": "901976f5-91b6-4d77-b883-6dbb7bf18955",
+        "to_param": "A"
+      },
+      {
+        "from": "56fd1b85-a6b5-4970-a7ce-7770918c1588",
+        "from_param": "Panel",
+        "to": "901976f5-91b6-4d77-b883-6dbb7bf18955",
+        "to_param": "B"
+      },
+      {
+        "from": "3d1646bf-2365-45e2-911b-edade312ddb0",
+        "from_param": "P",
+        "to": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "to_param": "pt"
+      },
+      {
+        "from": "d3b2d334-1d6d-4ddf-b0c1-04d473d398ea",
+        "from_param": "C",
+        "to": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "to_param": "center"
+      },
+      {
+        "from": "44ea444d-09e6-4762-88c0-3a3fe5a76967",
+        "from_param": "Number Slider",
+        "to": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "to_param": "radius"
+      },
+      {
+        "from": "0d36ba7f-f132-4abc-87e7-b3a7f0abc87f",
+        "from_param": "Toggle",
+        "to": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "to_param": "clockwise"
+      },
+      {
+        "from": "c49cc87f-bc5d-4574-9d30-a38386082428",
+        "from_param": "Number Slider",
+        "to": "e72dac11-e2c3-435f-8f6d-5f913b207c1a",
+        "to_param": "strength"
+      },
+      {
+        "from": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "from_param": "G",
+        "to": "d3b2d334-1d6d-4ddf-b0c1-04d473d398ea",
+        "to_param": "G"
+      },
+      {
+        "from": "b3bde5fc-7dbb-43d0-93a6-685e9f93b2fc",
+        "from_param": "O",
+        "to": "73c6ebff-6f5c-4963-bd0b-a13e2a6214a8",
+        "to_param": "D"
+      },
+      {
+        "from": "bd4efba0-cc68-4b6e-9520-2efaca623a5f",
+        "from_param": "R",
+        "to": "994dfe0a-f8ff-4cb7-95f3-8d5182980628",
+        "to_param": "C"
+      },
+      {
+        "from": "79f6d706-f18b-48c9-9d1c-a0f395d8d73d",
+        "from_param": "Number Slider",
+        "to": "994dfe0a-f8ff-4cb7-95f3-8d5182980628",
+        "to_param": "D"
+      },
+      {
+        "from": "0e64a0a3-f5a8-44fc-84e2-83aaaa04d587",
+        "from_param": "C",
+        "to": "bd4efba0-cc68-4b6e-9520-2efaca623a5f",
+        "to_param": "D1"
+      },
+      {
+        "from": "b69d0299-54d4-45e9-89e9-805c96ce8d32",
+        "from_param": "G",
+        "to": "bd4efba0-cc68-4b6e-9520-2efaca623a5f",
+        "to_param": "D2"
+      },
+      {
+        "from": "79f6d706-f18b-48c9-9d1c-a0f395d8d73d",
+        "from_param": "Number Slider",
+        "to": "6b5d6742-f052-4a3c-945a-3b9e134f8547",
+        "to_param": "x"
+      },
+      {
+        "from": "bd4efba0-cc68-4b6e-9520-2efaca623a5f",
+        "from_param": "R",
+        "to": "96ff3681-5bb0-4985-885e-156345db548c",
+        "to_param": "C"
+      },
+      {
+        "from": "6b5d6742-f052-4a3c-945a-3b9e134f8547",
+        "from_param": "y",
+        "to": "96ff3681-5bb0-4985-885e-156345db548c",
+        "to_param": "D"
+      },
+      {
+        "from": "96ff3681-5bb0-4985-885e-156345db548c",
+        "from_param": "C",
+        "to": "362837f6-0124-401f-8a18-f7d33105e0a1",
+        "to_param": "D1"
+      },
+      {
+        "from": "994dfe0a-f8ff-4cb7-95f3-8d5182980628",
+        "from_param": "C",
+        "to": "362837f6-0124-401f-8a18-f7d33105e0a1",
+        "to_param": "D2"
+      },
+      {
+        "from": "362837f6-0124-401f-8a18-f7d33105e0a1",
+        "from_param": "R",
+        "to": "91aa5600-5dcd-4175-8779-86292db5661e",
+        "to_param": "C"
+      },
+      {
+        "from": "91aa5600-5dcd-4175-8779-86292db5661e",
+        "from_param": "L",
+        "to": "b4be2385-82a5-428c-a1b1-84655461126f",
+        "to_param": "B"
+      },
+      {
+        "from": "ed7c325d-3525-4516-abc7-aa2e1fbd542e",
+        "from_param": "V",
+        "to": "b4be2385-82a5-428c-a1b1-84655461126f",
+        "to_param": "D"
+      },
+      {
+        "from": "79f6d706-f18b-48c9-9d1c-a0f395d8d73d",
+        "from_param": "Number Slider",
+        "to": "ed7c325d-3525-4516-abc7-aa2e1fbd542e",
+        "to_param": "F"
+      },
+      {
+        "from": "029dffda-efa9-40a7-8461-8a08842d75e9",
+        "from_param": "i",
+        "to": "243c4460-b70f-4a39-bafb-4b01f329258d",
+        "to_param": "C"
+      },
+      {
+        "from": "34b8bf3d-de0f-42d0-8471-5bd6001ead35",
+        "from_param": "y",
+        "to": "243c4460-b70f-4a39-bafb-4b01f329258d",
+        "to_param": "D"
+      },
+      {
+        "from": "029dffda-efa9-40a7-8461-8a08842d75e9",
+        "from_param": "i",
+        "to": "f65b6946-2ffb-4975-ac45-70e16ebcc69e",
+        "to_param": "C"
+      },
+      {
+        "from": "49e2fe09-4062-49df-857e-82c4184d13c3",
+        "from_param": "Num",
+        "to": "f65b6946-2ffb-4975-ac45-70e16ebcc69e",
+        "to_param": "D"
+      },
+      {
+        "from": "49e2fe09-4062-49df-857e-82c4184d13c3",
+        "from_param": "Num",
+        "to": "34b8bf3d-de0f-42d0-8471-5bd6001ead35",
+        "to_param": "x"
+      },
+      {
+        "from": "029dffda-efa9-40a7-8461-8a08842d75e9",
+        "from_param": "i",
+        "to": "1516fe8c-d249-40b8-91dd-d57e994586c7",
+        "to_param": "C"
+      },
+      {
+        "from": "1516fe8c-d249-40b8-91dd-d57e994586c7",
+        "from_param": "S",
+        "to": "355e8dd6-7b54-48d6-a018-558c7f38ea6b",
+        "to_param": "D1"
+      },
+      {
+        "from": "1516fe8c-d249-40b8-91dd-d57e994586c7",
+        "from_param": "E",
+        "to": "355e8dd6-7b54-48d6-a018-558c7f38ea6b",
+        "to_param": "D2"
+      },
+      {
+        "from": "355e8dd6-7b54-48d6-a018-558c7f38ea6b",
+        "from_param": "R",
+        "to": "2a2426bc-14b9-4b24-bfdc-5eb8558dc776",
+        "to_param": "P"
+      },
+      {
+        "from": "49e2fe09-4062-49df-857e-82c4184d13c3",
+        "from_param": "Num",
+        "to": "2a2426bc-14b9-4b24-bfdc-5eb8558dc776",
+        "to_param": "R"
+      },
+      {
+        "from": "243c4460-b70f-4a39-bafb-4b01f329258d",
+        "from_param": "C",
+        "to": "11996687-0c8b-4d9e-a16a-e8edc59ce0ad",
+        "to_param": "D1"
+      },
+      {
+        "from": "f65b6946-2ffb-4975-ac45-70e16ebcc69e",
+        "from_param": "C",
+        "to": "11996687-0c8b-4d9e-a16a-e8edc59ce0ad",
+        "to_param": "D2"
+      },
+      {
+        "from": "11996687-0c8b-4d9e-a16a-e8edc59ce0ad",
+        "from_param": "R",
+        "to": "f5f33253-e13c-42f9-8048-634ae4849df6",
+        "to_param": "C"
+      },
+      {
+        "from": "2a2426bc-14b9-4b24-bfdc-5eb8558dc776",
+        "from_param": "C",
+        "to": "56595ca2-a7b1-4cb0-8e90-495b78923885",
+        "to_param": "D1"
+      },
+      {
+        "from": "3788d230-14a0-427a-b077-e2392fb021b8",
+        "from_param": "Crv",
+        "to": "56595ca2-a7b1-4cb0-8e90-495b78923885",
+        "to_param": "D2"
+      },
+      {
+        "from": "56595ca2-a7b1-4cb0-8e90-495b78923885",
+        "from_param": "R",
+        "to": "7581c1ac-0e5b-4ee6-a0c3-6e92dc62823a",
+        "to_param": "C"
+      },
+      {
+        "from": "6bbe4ed5-e579-419e-9594-7bb3c93683c5",
+        "from_param": "G",
+        "to": "65816869-ffc3-4d5c-b046-2a6bc31ca97e",
+        "to_param": "E"
+      },
+      {
+        "from": "7581c1ac-0e5b-4ee6-a0c3-6e92dc62823a",
+        "from_param": "R",
+        "to": "6bbe4ed5-e579-419e-9594-7bb3c93683c5",
+        "to_param": "G"
+      },
+      {
+        "from": "7037f558-b03e-45d9-ac8d-3e41e23cd072",
+        "from_param": "V",
+        "to": "6bbe4ed5-e579-419e-9594-7bb3c93683c5",
+        "to_param": "T"
+      },
+      {
+        "from": "49e2fe09-4062-49df-857e-82c4184d13c3",
+        "from_param": "Num",
+        "to": "7037f558-b03e-45d9-ac8d-3e41e23cd072",
+        "to_param": "F"
+      },
+      {
+        "from": "65816869-ffc3-4d5c-b046-2a6bc31ca97e",
+        "from_param": "S",
+        "to": "d115dac3-e2f5-45fe-abef-4e5311438759",
+        "to_param": "B"
+      },
+      {
+        "from": "7037f558-b03e-45d9-ac8d-3e41e23cd072",
+        "from_param": "V",
+        "to": "d115dac3-e2f5-45fe-abef-4e5311438759",
+        "to_param": "D"
+      },
+      {
+        "from": "d115dac3-e2f5-45fe-abef-4e5311438759",
+        "from_param": "E",
+        "to": "d9d645c8-f811-4cdf-b1ac-c2cb33b1f115",
+        "to_param": "G"
+      },
+      {
+        "from": "5898ecc5-cec4-4c35-b6ff-88a7f435fb5c",
+        "from_param": "Swatch",
+        "to": "d9d645c8-f811-4cdf-b1ac-c2cb33b1f115",
+        "to_param": "S"
+      },
+      {
+        "from": "b4be2385-82a5-428c-a1b1-84655461126f",
+        "from_param": "E",
+        "to": "d208e932-3a6b-4cb2-ba54-884828dc6688",
+        "to_param": "G"
+      },
+      {
+        "from": "07c756a4-64ca-4ebe-8b5b-bda036918039",
+        "from_param": "Swatch",
+        "to": "d208e932-3a6b-4cb2-ba54-884828dc6688",
+        "to_param": "S"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "44ea444d-09e6-4762-88c0-3a3fe5a76967",
+          "role": "radius",
+          "connected_to": "Circle",
+          "param": "R"
+        },
+        {
+          "guid": "d5d7a63b-baa2-4759-9b57-aa7a5f837121",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "5ba49cee-b48f-49a9-a5eb-41c786307a7e",
+          "role": "parameter",
+          "connected_to": "Unit X",
+          "param": "F"
+        },
+        {
+          "guid": "52bb101a-74f4-41be-87aa-7508d04be9ca",
+          "role": "parameter",
+          "connected_to": "Evaluate Curve",
+          "param": "t"
+        },
+        {
+          "guid": "0525c2eb-f620-45e5-a78e-87650e6a63ec",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "15e1dde9-99b9-4104-ad95-400e25dfc234",
+          "role": "domain_end",
+          "connected_to": "Division",
+          "param": "B"
+        },
+        {
+          "guid": "c49cc87f-bc5d-4574-9d30-a38386082428",
+          "role": "parameter",
+          "connected_to": "C# Script",
+          "param": "strength"
+        },
+        {
+          "guid": "755f37ef-1e59-40f2-b7a0-b8fdfbc31973",
+          "role": "parameter",
+          "connected_to": "OnCurve",
+          "param": "Strength"
+        },
+        {
+          "guid": "79f6d706-f18b-48c9-9d1c-a0f395d8d73d",
+          "role": "parameter",
+          "connected_to": "Offset",
+          "param": "D"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "56fd1b85-a6b5-4970-a7ce-7770918c1588",
+          "role": "text",
+          "connected_to": "901976f5-91b6-4d77-b883-6dbb7bf18955",
+          "param": "B"
+        },
+        {
+          "guid": "913358fe-d946-4778-8de3-e8997112d5b2",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Basic Torque.gh",
+    "pattern_type": "recipe",
+    "verification_test": "",
+    "verification_expected": "",
+    "component_count": 63
+  }
+}

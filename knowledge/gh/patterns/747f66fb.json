@@ -1,0 +1,1058 @@
+{
+  "pattern_id": "747f66fb",
+  "name": "trigonometric_parametric_surface-creation",
+  "version": "1.0",
+  "created": "2026-02-02T20:16:11.865829Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Polygon",
+      "slider",
+      "slider",
+      "Construct Point",
+      "Control Points",
+      "removeDuplicatePts",
+      "Line",
+      "Divide Curve",
+      "Graph Mapper",
+      "Remap Numbers",
+      "Bounds",
+      "slider",
+      "Unit Z",
+      "Move",
+      "Explode",
+      "Divide Curve",
+      "Multiplication",
+      "panel",
+      "Radians",
+      "Sine",
+      "Multiplication",
+      "slider",
+      "Rotate",
+      "Unit Z",
+      "panel",
+      "Amplitude",
+      "Unit Z",
+      "Addition",
+      "Move",
+      "Nurbs Curve",
+      "Nurbs Curve",
+      "MidPoint",
+      "Line",
+      "List Item",
+      "Divide Curve",
+      "Graph Mapper",
+      "Remap Numbers",
+      "Bounds",
+      "slider",
+      "Unit Z",
+      "Move",
+      "Nurbs Curve",
+      "Flatten Tree",
+      "Shift List",
+      "Graft Tree",
+      "Merge",
+      "Loft",
+      "Brep Join",
+      "Evaluate Length",
+      "panel",
+      "Deconstruct Vector",
+      "Vector XYZ",
+      "Rotate",
+      "Unit Z",
+      "panel",
+      "Construct Plane",
+      "Contour",
+      "Deconstruct Plane",
+      "slider",
+      "slider",
+      "Group",
+      "Shift Paths",
+      "Sub List",
+      "slider",
+      "Ungroup",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "List Length",
+      "Range",
+      "Gradient",
+      "Custom Preview",
+      "Shift Paths",
+      "Negative"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "loft curves",
+      "sine wave",
+      "oscillation",
+      "sinusoidal",
+      "surface from curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "curve-division"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:31:54.534133Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 87 wires -> 74 components, 87 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 23
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 37
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R64",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 18
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R18",
+          "nick": "",
+          "content": "180"
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "content": "Rad(90)"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "0.5"
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "content": "Rad(90)"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Starfish Dome.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            565,
+            163
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            258.4,
+            140.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            304.6,
+            173
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R4",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            445,
+            41
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_ControlPoints",
+          "nick": "CP",
+          "name": "Control Points",
+          "pos": [
+            663,
+            143
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            754,
+            112
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            851,
+            25
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            984,
+            45
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1073,
+            9.8
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1412,
+            99
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1291,
+            112
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            1167.9,
+            195.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R13",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1500,
+            76
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1602,
+            45
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            607,
+            468
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            732,
+            478
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            828,
+            650
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "panel",
+          "pos": [
+            694.5,
+            660.8
+          ],
+          "content": "180"
+        },
+        {
+          "id": "R19",
+          "type": "FuncToRadians",
+          "nick": "Rad",
+          "name": "Radians",
+          "pos": [
+            918,
+            650
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            1018,
+            650
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1113,
+            660
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            887.9,
+            741.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 23
+        },
+        {
+          "id": "R23",
+          "type": "Component_VectorRotate",
+          "nick": "VRot",
+          "name": "Rotate",
+          "pos": [
+            997,
+            531
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            913,
+            532
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "pos": [
+            873.9,
+            566.2
+          ],
+          "content": "Rad(90)"
+        },
+        {
+          "id": "R26",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            1203,
+            541
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1199,
+            601
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            1288,
+            589
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1389,
+            505
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            1504,
+            538
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            1711,
+            51
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Cluster",
+          "name": "MidPoint",
+          "pos": [
+            1614,
+            518
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1734,
+            492
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1645,
+            452
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            1846,
+            474
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1917,
+            468.2
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2268,
+            547
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2154,
+            553
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            2041,
+            642
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 37
+        },
+        {
+          "id": "R40",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2362,
+            532
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2448,
+            460
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            2545,
+            470
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            1816,
+            95
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1910,
+            119
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1998,
+            119
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2257,
+            91
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2366,
+            82
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            2461,
+            69
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_ArcLengthPoint",
+          "nick": "Eval",
+          "name": "Evaluate Length",
+          "pos": [
+            1819,
+            -19
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            1670,
+            -28.1
+          ],
+          "content": "0.5"
+        },
+        {
+          "id": "R51",
+          "type": "Component_DeconstructVector",
+          "nick": "DeVec",
+          "name": "Deconstruct Vector",
+          "pos": [
+            1875,
+            -253
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_ConstructVector",
+          "nick": "Vec",
+          "name": "Vector XYZ",
+          "pos": [
+            1970,
+            -253
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_VectorRotate",
+          "nick": "VRot",
+          "name": "Rotate",
+          "pos": [
+            2076,
+            -194
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1975,
+            -194
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "panel",
+          "pos": [
+            1919.1,
+            -171.7
+          ],
+          "content": "Rad(90)"
+        },
+        {
+          "id": "R56",
+          "type": "Component_ConstructPlane",
+          "nick": "Pl",
+          "name": "Construct Plane",
+          "pos": [
+            2202,
+            -104
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_Contour1",
+          "name": "Contour",
+          "pos": [
+            2623,
+            -36
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_DeconstructPlane",
+          "nick": "DePlane",
+          "name": "Deconstruct Plane",
+          "pos": [
+            2308,
+            -112
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            2364,
+            -227
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R60",
+          "type": "slider",
+          "pos": [
+            1566.3,
+            -151.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R61",
+          "type": "GroupGeometryComponent",
+          "name": "Group",
+          "pos": [
+            2723,
+            -36
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            2830,
+            -26
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_SubList",
+          "nick": "SubSet",
+          "name": "Sub List",
+          "pos": [
+            2964,
+            6
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "slider",
+          "pos": [
+            2699,
+            39.1
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 18
+        },
+        {
+          "id": "R65",
+          "type": "UngroupGeometryComponent",
+          "name": "Ungroup",
+          "pos": [
+            3063,
+            -21
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            3182,
+            -4
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            3093,
+            20
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "slider",
+          "pos": [
+            2795.8,
+            106.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R69",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2943,
+            -157
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            3062,
+            -167
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            3108,
+            -219
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3449,
+            -67
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            3271,
+            6
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            3023,
+            108
+          ]
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R2.O0>R1.I1",
+        "R3.O0>R1.I2",
+        "R1.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R6.O0>R7.I0",
+        "R4.O0>R7.I1",
+        "R7.O0>R8.I0",
+        "R9.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R12.O0>R10.I2",
+        "R9.O0>R11.I0",
+        "R10.O0>R13.I0",
+        "R8.O0>R14.I0",
+        "R13.O0>R14.I1",
+        "R1.O0>R15.I0",
+        "R15.O0>R16.I0",
+        "R16.O2>R17.I0",
+        "R18.O0>R17.I1",
+        "R17.O0>R19.I0",
+        "R19.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R16.O1>R23.I0",
+        "R24.O0>R23.I1",
+        "R25.O0>R23.I2",
+        "R23.O0>R26.I0",
+        "R21.O0>R26.I1",
+        "R21.O0>R27.I0",
+        "R26.O0>R28.I0",
+        "R27.O0>R28.I1",
+        "R16.O0>R29.I0",
+        "R28.O0>R29.I1",
+        "R29.O0>R30.I0",
+        "R14.O0>R31.I0",
+        "R30.O0>R32.I0",
+        "R32.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R14.O0>R34.I0",
+        "R33.O0>R35.I0",
+        "R36.O0>R37.I0",
+        "R38.O0>R37.I1",
+        "R39.O0>R37.I2",
+        "R36.O0>R38.I0",
+        "R37.O0>R40.I0",
+        "R35.O0>R41.I0",
+        "R40.O0>R41.I1",
+        "R41.O0>R42.I0",
+        "R31.O0>R43.I0",
+        "R43.O0>R44.I0",
+        "R44.O0>R45.I0",
+        "R31.O0>R46.I0",
+        "R42.O0>R46.I1",
+        "R45.O0>R46.I2",
+        "R46.O0>R47.I0",
+        "R47.O0>R48.I0",
+        "R31.O0>R49.I0",
+        "R60.O0>R49.I1",
+        "R49.O1>R51.I0",
+        "R51.O0>R52.I0",
+        "R51.O1>R52.I1",
+        "R52.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R55.O0>R53.I2",
+        "R49.O0>R56.I0",
+        "R49.O1>R56.I1",
+        "R53.O0>R56.I2",
+        "R48.O0>R57.I0",
+        "R49.O0>R57.I1",
+        "R58.O3>R57.I2",
+        "R59.O0>R57.I3",
+        "R56.O0>R58.I0",
+        "R57.O0>R61.I0",
+        "R61.O0>R62.I0",
+        "R62.O0>R63.I0",
+        "R64.O0>R63.I1",
+        "R63.O0>R65.I0",
+        "R65.O0>R66.I0",
+        "R67.O0>R66.I1",
+        "R74.O0>R67.I0",
+        "R63.O0>R69.I0",
+        "R69.O0>R70.I1",
+        "R70.O0>R71.I2",
+        "R73.O0>R72.I0",
+        "R71.O0>R72.I1",
+        "R66.O0>R73.I0",
+        "R68.O0>R74.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

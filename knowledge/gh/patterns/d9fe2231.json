@@ -1,0 +1,65 @@
+{
+  "pattern_id": "d9fe2231",
+  "name": "wasp_02_rule_grammar_teaching_0_02_MultiPart_Aggre",
+  "version": "1.0",
+  "created": "2026-03-19T17:21:10.495973Z",
+  "solution": {
+    "brief": "0_02_MultiPart_Aggregation",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "0_02_multipart_aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "rules",
+    "grammar",
+    "beginner"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

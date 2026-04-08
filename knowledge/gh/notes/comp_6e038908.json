@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_6e038908",
+  "note_type": "component",
+  "name": "Annotation Text Overrides",
+  "brief": "Annotation Text Overrides | Inputs: A, T, Vo → A, T, Vo",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Annotation Text Overrides. Inputs: A (Geometry), T (Text), Vo (Boolean). Outputs: A (Geometry), T (Text), Vo (Boolean).",
+  "keywords": [
+    "annotation text overrides",
+    "annotation",
+    "text",
+    "overrides",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation text overrides",
+    "annotation",
+    "text",
+    "overrides"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Text Overrides"
+  ],
+  "solution_principle": "Manage annotation text attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_226ccb6f",
+    "comp_c02c11a2",
+    "comp_f427ada5",
+    "comp_375a03ab",
+    "comp_8bf7b320",
+    "comp_737a969f",
+    "comp_1b8d5f48",
+    "comp_2cd7d271",
+    "comp_50399de9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "08877dc8-0192-4052-aa81-eb9092bc2b9d",
+    "category": "rhino_annotations",
+    "inputs": {
+      "A": "Geometry",
+      "T": "Text",
+      "Vo": "Boolean"
+    },
+    "outputs": {
+      "A": "Geometry",
+      "T": "Text",
+      "Vo": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "55fb8124-766b-4d36-935a-ebb182d867dc"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation text overrides"
+  }
+}

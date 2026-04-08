@@ -1,0 +1,84 @@
+{
+  "note_id": "tutorial_dbee65d5",
+  "note_type": "teaching",
+  "name": "Intermediate 5-3.: Weave vs Merge \u00e2\u20ac\u201d Interleaving vs Concatenating Lists",
+  "brief": "Five rows comparing Merge (concatenates: A,B,C,D,E,1,2,3,4,5) vs Weave (interleaves: A,1,B,2,C,3...). Practical applications with Polygon and Loft.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.221094Z",
+  "context": "Five rows comparing Merge and Weave operations. Row 1: Two panels (A-E and 1-5) \u00e2\u2020\u2019 Merge gives (A,B,C,D,E,1,2,3,4,5) vs Weave gives (A,1,B,2,C,3,D,4,E,5). Row 2: Similar with different data showing concatenation vs interleaving. Row 3: Weave with 3 inputs showing more complex interleaving (A,1,\u00ce\u00b1,B,2,\u00ce\u00b2,...). Row 4: Weave output \u00e2\u2020\u2019 Polygon. Weave interleaves point sets so polygons alternate between sources. Row 5: Weave \u00e2\u2020\u2019 Loft. Interleaved curves create a loft that weaves between two curve sets. Key insight: Merge puts all of list A first, then all of list B. Weave alternates: one from A, one from B, one from A, etc.",
+  "keywords": [
+    "weave",
+    "merge",
+    "interleave",
+    "concatenate",
+    "alternating lists",
+    "weave vs merge",
+    "list combination"
+  ],
+  "category": "Intermediate - List Manipulation and Panelization",
+  "tags": [
+    "intermediate",
+    "comparison",
+    "weave",
+    "merge",
+    "interleave",
+    "list-operations",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "weave vs merge grasshopper",
+    "interleave lists",
+    "weave component",
+    "alternate items from two lists",
+    "merge concatenate vs weave interleave",
+    "weave for alternating pattern"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge",
+    "Weave",
+    "Panel",
+    "Polygon",
+    "Loft",
+    "Point"
+  ],
+  "solution_principle": "Merge CONCATENATES: all items from input 1, then all from input 2. Order: A,A,A,B,B,B. Weave INTERLEAVES: alternates items from each input. Order: A,B,A,B,A,B. Weave with 3+ inputs interleaves cyclically. Use Weave when you need alternating patterns from two data sources. Use Merge when you need all items from one source followed by all from another.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_1afdc366",
+    "tutorial_c3407a36",
+    "tutorial_2ea87e9f",
+    "tutorial_36e3a473",
+    "recipe_02f0af8b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.221094Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "5-3..jpg",
+    "lesson_number": 5,
+    "step_number": 3,
+    "cluster_type": "comparison",
+    "components_demonstrated": {
+      "Merge": 1,
+      "Weave": 1,
+      "Panel": 1,
+      "Polygon": 1,
+      "Loft": 1,
+      "Point": 1
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_49e4b5da",
+  "note_type": "component",
+  "name": "Evaluate",
+  "brief": "Evaluate | Inputs: E, x, y → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Evaluate. Inputs: E (Expression), x (Expression Variant), y (Expression Variant). Outputs: R (Generic Data).",
+  "keywords": [
+    "evaluate",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "evaluate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Evaluate"
+  ],
+  "solution_principle": "Evaluate an expression with a flexible number of variables.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1866ccd7",
+    "comp_3c3e5309",
+    "comp_0cfc313f",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_314da057"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "cc2b626f-6eff-4d08-9829-2877560693f4",
+    "category": "scripting",
+    "inputs": {
+      "E": "Expression",
+      "x": "Expression Variant",
+      "y": "Expression Variant"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9df5e896-552d-4c8c-b9ca-4fc147ffa022"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|script|evaluate"
+  }
+}

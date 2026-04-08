@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_e287c18b",
+  "note_type": "component",
+  "name": "Nurbs Curve PWK",
+  "brief": "Nurbs Curve PWK | Inputs: P, W, K → C, L, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Nurbs Curve PWK. Inputs: P (Point), W (Number), K (Number). Outputs: C (Curve), L (Number), D (Domain).",
+  "keywords": [
+    "nurbs curve pwk",
+    "nurbs",
+    "curve",
+    "pwk",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "nurbs curve pwk",
+    "nurbs",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Nurbs Curve PWK"
+  ],
+  "solution_principle": "Construct a nurbs curve from control points, weights and knots.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8868d815",
+    "comp_a78fa17f",
+    "comp_938cfcaf",
+    "comp_67ac1d47",
+    "comp_f1747a84"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1f8e1ff7-8278-4421-b39d-350e71d85d37",
+    "category": "curves",
+    "inputs": {
+      "P": "Point",
+      "W": "Number",
+      "K": "Number"
+    },
+    "outputs": {
+      "C": "Curve",
+      "L": "Number",
+      "D": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "30ce59ce-22a1-49ee-9e21-e6d16b3684a8"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|nurbs curve pwk"
+  }
+}

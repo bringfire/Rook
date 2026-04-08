@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_00a1c393",
+  "note_type": "component",
+  "name": "Digit Scroller",
+  "brief": "Digit Scroller | Inputs: none \u2192 output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Digit Scroller.",
+  "keywords": [
+    "digit scroller",
+    "digit",
+    "scroller",
+    "input_params"
+  ],
+  "category": "input_params",
+  "tags": [
+    "input_params"
+  ],
+  "trigger_intents": [
+    "digit scroller",
+    "digit",
+    "scroller"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Digit Scroller"
+  ],
+  "solution_principle": "Numeric scroller for single numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_fab85179",
+    "comp_b4f8e5de",
+    "comp_ed53587c",
+    "comp_8ab6343c",
+    "comp_b0f5c835"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "33bcf975-a0b2-4b54-99fd-585c893b9e88",
+    "category": "input_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "57da07bd-ecab-415d-9d86-af36d7073abc",
+      "318dacd7-9073-4ede-b043-a0c132eb77e0",
+      "339c0ee1-cf11-444f-8e10-65c9150ea755",
+      "5dcad41a-2cc6-4f24-a0e2-fbe949e0a7ee"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|input|digit scroller",
+    "family": "input_params"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,90 @@
+{
+  "note_id": "tutorial_99dd197c",
+  "note_type": "teaching",
+  "name": "Beginner 1-2: Connecting Points \u00e2\u20ac\u201d Lines vs Polyline vs Merge",
+  "brief": "Four alternative ways to connect 3 points: individual Lines, Polyline+BooleanToggle, open Polyline, Merge\u00e2\u2020\u2019Polyline",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.948613Z",
+  "context": "Four clusters showing alternative approaches to connect 3 Construct Point components (coords: 1.2,3.7 / 3.5,0.4 / 5.0,5.0). Cluster 1: Each consecutive pair feeds a Line component (3 Lines total). Naive pair-wise approach. Cluster 2: All 3 points \u00e2\u2020\u2019 Polyline Vertices input. Boolean Toggle (True) \u00e2\u2020\u2019 Closed input. Creates closed polyline. Cluster 3: Same Polyline setup but Closed is unchecked (False). Open polyline. Cluster 4: 3 Construct Points \u00e2\u2020\u2019 Merge (D1,D2,D3) \u00e2\u2020\u2019 Result \u00e2\u2020\u2019 Polyline Vertices. Panel shows merged data: {1.2, 3.7, 0}, {3.5, 0.4, 0}, {5, 5, 0}. Cleanest approach using data aggregation.",
+  "keywords": [
+    "construct point",
+    "polyline",
+    "merge",
+    "boolean toggle",
+    "closed curve",
+    "data aggregation",
+    "alternatives"
+  ],
+  "category": "Beginner - Data Fundamentals",
+  "tags": [
+    "beginner",
+    "alternatives",
+    "polyline",
+    "merge",
+    "data-aggregation",
+    "point-connection",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "how to connect points",
+    "polyline from points",
+    "merge component grasshopper",
+    "boolean toggle closed curve",
+    "alternatives for connecting points",
+    "line vs polyline"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Point",
+    "Number Slider",
+    "Line",
+    "Polyline",
+    "Boolean Toggle",
+    "Merge",
+    "Panel"
+  ],
+  "solution_principle": "Multiple ways exist to connect points into curves. Individual Line components work but don't scale. Polyline takes a list of vertices directly. Boolean Toggle controls open/closed. Merge component combines separate data streams into one ordered list \u00e2\u20ac\u201d the preferred approach for collecting multiple inputs.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_04081616",
+    "recipe_2f310f59",
+    "recipe_6ba5ea93",
+    "tutorial_5cbe092b",
+    "tutorial_6c3edd2d",
+    "tutorial_b245b646",
+    "tutorial_f8931ded",
+    "tutorial_6faa7cbb",
+    "tutorial_0e7af367"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.948613Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "1-2.jpg",
+    "lesson_number": 1,
+    "step_number": 2,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Construct Point": 1,
+      "Number Slider": 1,
+      "Line": 1,
+      "Polyline": 1,
+      "Boolean Toggle": 1,
+      "Merge": 1,
+      "Panel": 1
+    }
+  }
+}

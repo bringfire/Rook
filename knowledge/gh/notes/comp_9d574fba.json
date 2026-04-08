@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_9d574fba",
+  "note_type": "component",
+  "name": "Model Linetype",
+  "brief": "Model Linetype | Inputs: L, N, S, Cs → L, N, S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Model Linetype. Inputs: L (Model Linetype), N (Text), S (Number), Cs (Integer), Js (Integer), W (Number), Wu (Unit System). Outputs: L (Model Linetype), N (Text), S (Number), Cs (Integer), Js (Integer), W (Number), Wu (Unit System).",
+  "keywords": [
+    "model linetype",
+    "model",
+    "linetype",
+    "rhino_drafting"
+  ],
+  "category": "rhino_drafting",
+  "tags": [
+    "rhino_drafting"
+  ],
+  "trigger_intents": [
+    "model linetype",
+    "model",
+    "linetype"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Linetype"
+  ],
+  "solution_principle": "Model Linetype",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_93098ea1",
+    "comp_6578d009",
+    "comp_21bfc521",
+    "comp_e924254a",
+    "comp_83d9e778"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "40abbc84-7bc1-4b05-bb32-10976d2e7157",
+    "category": "rhino_drafting",
+    "inputs": {
+      "L": "Model Linetype",
+      "N": "Text",
+      "S": "Number",
+      "Cs": "Integer",
+      "Js": "Integer",
+      "W": "Number",
+      "Wu": "Unit System"
+    },
+    "outputs": {
+      "L": "Model Linetype",
+      "N": "Text",
+      "S": "Number",
+      "Cs": "Integer",
+      "Js": "Integer",
+      "W": "Number",
+      "Wu": "Unit System"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7e266319-a439-481e-afa5-daa09ab97417"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|drafting|model linetype"
+  }
+}

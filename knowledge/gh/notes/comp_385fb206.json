@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_385fb206",
+  "note_type": "component",
+  "name": "Weaverbird's Offset Mesh",
+  "brief": "Weaverbird's Offset Mesh | Inputs: M, D, T → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.463899Z",
+  "context": "Grasshopper component: Weaverbird's Offset Mesh. Inputs: M (Geometry), D (Number), T (OffsetTypeEnum). Outputs: O (Geometry).",
+  "keywords": [
+    "weaverbird's offset mesh",
+    "weaverbird's",
+    "offset",
+    "mesh",
+    "wb_transform"
+  ],
+  "category": "wb_transform",
+  "tags": [
+    "wb_transform"
+  ],
+  "trigger_intents": [
+    "weaverbird's offset mesh",
+    "weaverbird's",
+    "offset",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Offset Mesh"
+  ],
+  "solution_principle": "Computes an offset of meshes. The result is open is the input is open.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_191f4d10",
+    "comp_62987cca",
+    "comp_a5f10ae4",
+    "comp_c0d78da2",
+    "comp_8a2fd1bb",
+    "comp_5d97934c",
+    "comp_3cec3031",
+    "comp_76a19d1a",
+    "comp_a2e04faf",
+    "comp_f61dad98",
+    "comp_31d184dc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0ff5e731-aeca-3892-3e46-01b02810e968",
+    "category": "wb_transform",
+    "inputs": {
+      "M": "Geometry",
+      "D": "Number",
+      "T": "OffsetTypeEnum"
+    },
+    "outputs": {
+      "O": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "761c4e3d-141b-9770-6525-2303925136c3"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|transform|weaverbird's offset mesh"
+  }
+}

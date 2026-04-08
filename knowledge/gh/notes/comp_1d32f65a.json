@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_1d32f65a",
+  "note_type": "component",
+  "name": "Merge Group",
+  "brief": "Merge Group | Inputs: A, B → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Merge Group. Inputs: A (Group), B (Group). Outputs: G (Group).",
+  "keywords": [
+    "merge group",
+    "merge",
+    "group",
+    "transform_utilities"
+  ],
+  "category": "transform_utilities",
+  "tags": [
+    "transform_utilities"
+  ],
+  "trigger_intents": [
+    "merge group",
+    "merge",
+    "group"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge Group"
+  ],
+  "solution_principle": "Merge two geometry sets",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_598dbb71",
+    "comp_efb4e927",
+    "comp_75c18312",
+    "comp_7112fbb5",
+    "comp_15bf21c0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "15204c6d-bba8-403d-9e8f-6660ab8e0df5",
+    "category": "transform_utilities",
+    "inputs": {
+      "A": "Group",
+      "B": "Group"
+    },
+    "outputs": {
+      "G": "Group"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "874eebe7-835b-4f4f-9811-97e031c41597"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|util|merge group"
+  }
+}

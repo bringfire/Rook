@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_a87bd296",
+  "note_type": "component",
+  "name": "Gradient",
+  "brief": "Gradient | Inputs: L0, L1, t â†’ C",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Gradient. Inputs: L0 (Number), L1 (Number), t (Number). Outputs: C (Colour).",
+  "keywords": [
+    "gradient",
+    "gradient"
+  ],
+  "category": "input_params",
+  "tags": [
+    "gradient-component",
+    "color-mapping",
+    "value-mapping",
+    "visualization",
+    "grasshopper-component"
+  ],
+  "trigger_intents": [
+    "gradient"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Gradient"
+  ],
+  "solution_principle": "Represents a multiple colour gradient",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_90de351e",
+    "recipe_1c4628ff",
+    "teaching_64feecee",
+    "comp_48613be3",
+    "recipe_36b862a1",
+    "comp_bb3b6d27"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6da9f120-3ad0-4b6e-9fe0-f8cde3a649b7",
+    "category": "input_params",
+    "inputs": {
+      "L0": "Number",
+      "L1": "Number",
+      "t": "Number"
+    },
+    "outputs": {
+      "C": "Colour"
+    },
+    "typical_wiring": [],
+    "usage_count": 200,
+    "stable_key": "params|input|gradient"
+  }
+}

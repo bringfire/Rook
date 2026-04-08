@@ -1,0 +1,58 @@
+{
+  "name": "collector_one_side_bike",
+  "version": 1,
+  "description": "Two-lane collector road with a separated bike lane on one side. 7.6m carriageway, 1m buffer, 3m bike lane, 3.5m shoulder to ROW on the bike side. Which side gets the bike lane is determined at application time.",
+  "source": {
+    "project": "Riyadh",
+    "file": "civil_cad_export",
+    "extractedAt": "2026-03-10T11:10:00Z",
+    "centerlineId": "cb5d7020-c8bb-4878-ab61-0dc7951b5464",
+    "chainage": 15.27
+  },
+  "symmetric": false,
+  "totalWidth": 15.1,
+  "features": [
+    {
+      "type": "carriageway_edge",
+      "offset": 3.8,
+      "width": 3.8,
+      "label": "Curb line"
+    },
+    {
+      "type": "bike_lane_inner",
+      "offset": 4.8,
+      "width": 1.0,
+      "label": "Buffer (curb to bike lane)",
+      "bilateral": false
+    },
+    {
+      "type": "bike_lane_outer",
+      "offset": 7.8,
+      "width": 3.0,
+      "label": "Bike lane",
+      "bilateral": false
+    },
+    {
+      "type": "row",
+      "offset": 11.3,
+      "width": 3.5,
+      "label": "Shoulder to right-of-way",
+      "bilateral": false
+    }
+  ],
+  "layerMap": {
+    "CPCNTRAV": "centerline",
+    "CPCURBNL": "carriageway_edge",
+    "MIC_bike": "bike_lane",
+    "APBLROW": "row"
+  },
+  "intersectionDefaults": {
+    "armLengthOuterEnvelopeMultiplier": 2.25,
+    "armLengthCarriagewayMultiplier": 3.5,
+    "armLengthDiagonalMultiplier": 0.72,
+    "armLengthRadiusMultiplier": 2.4,
+    "armLengthMin": 10.0,
+    "armLengthMax": 48.0
+  },
+  "tags": ["collector", "two_lane", "bike_lane", "asymmetric", "one_side_bike", "riyadh"]
+}

@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_23f54b6c",
+  "note_type": "component",
+  "name": "SphereCollide",
+  "brief": "SphereCollide | Inputs: Points, R, Strength → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: SphereCollide. Inputs: Points (Point), R (Number), Strength (Number). Outputs: S (Generic Data).",
+  "keywords": [
+    "spherecollide",
+    "kangaroo2_goals-col"
+  ],
+  "category": "kangaroo2_goals-col",
+  "tags": [
+    "kangaroo2_goals-col"
+  ],
+  "trigger_intents": [
+    "spherecollide",
+    "sphere",
+    "collide"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SphereCollide"
+  ],
+  "solution_principle": "Collisions between large numbers of equal sized spheres",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4b106d6a-0e09-4edc-941c-27d734ac4d59",
+    "category": "kangaroo2_goals-col",
+    "inputs": {
+      "Points": "Point",
+      "R": "Number",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "02b1c69b-b3f7-4528-988e-449a59963e5e",
+      "763c5b56-3dc6-4fe0-be7b-6b60cd27f744"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-col|spherecollide"
+  }
+}

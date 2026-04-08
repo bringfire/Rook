@@ -1,0 +1,74 @@
+{
+  "pattern_id": "22e02a00",
+  "name": "wasp_16_teaching_4._Aggregate!",
+  "version": "1.0",
+  "created": "2026-03-19T18:02:50.054389Z",
+  "solution": {
+    "brief": "4. Aggregate!\r\nField Aggregation adds at every step one part that is the closest to\r\nthe highest reachable value point in the field. The component adds parts\r\nadditively over the already aggregated parts. If a new aggregation has\r\nto be created, the RESET button allows to reset the aggregation and restart.\r\n\r\nNB: the FieldAggregation undelying algorithm is not probabilistic, but exact.\r\nThis means that, unless you change the parts, rules, or field, you will always\r\nget the same result from the compoent.",
+    "principle": "",
+    "components_needed": [
+      "PARTS_NUM",
+      "Wasp_Rule From Text",
+      "Button",
+      "Wasp_Field-driven Aggregation"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "closest",
+      "every",
+      "part",
+      "aggregate!",
+      "highest",
+      "that",
+      "step",
+      "adds",
+      "aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

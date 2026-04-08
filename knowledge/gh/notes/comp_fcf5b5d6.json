@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_fcf5b5d6",
+  "note_type": "component",
+  "name": "Round",
+  "brief": "Round | Inputs: x → N, F, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Round. Inputs: x (Number). Outputs: N (Integer), F (Integer), C (Integer).",
+  "keywords": [
+    "round",
+    "math_utilities"
+  ],
+  "category": "math_utilities",
+  "tags": [
+    "math_utilities"
+  ],
+  "trigger_intents": [
+    "round"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Round"
+  ],
+  "solution_principle": "Round a floating point value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_82720415",
+    "comp_d1d2324d",
+    "comp_4d2f94f0",
+    "comp_139f0061",
+    "comp_2be9cd7c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a50c4a3b-0177-4c91-8556-db95de6c56c8",
+    "category": "math_utilities",
+    "inputs": {
+      "x": "Number"
+    },
+    "outputs": {
+      "N": "Integer",
+      "F": "Integer",
+      "C": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|util|round"
+  }
+}

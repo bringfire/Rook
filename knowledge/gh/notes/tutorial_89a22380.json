@@ -1,0 +1,92 @@
+{
+  "note_id": "tutorial_89a22380",
+  "note_type": "teaching",
+  "name": "Expert 8-4: TriRemesh with Triangle Mapping \u00e2\u20ac\u201d TriRemesh, Face Boundaries, Triangle Mapping",
+  "brief": "Remeshes a surface into triangles using TriRemesh, extracts face boundaries, then maps geometry onto each triangular face using Triangle Mapping for panelization",
+  "version": "1.0",
+  "created": "2026-02-23T05:01:41.587558Z",
+  "context": "Surface feeds TriRemesh (Iterations=3). Triangulation output connects to Face Boundaries which extracts boundary curves. Two parallel Triangle Mapping setups: each has Geometry param (object to map), Curve param (source triangle), and Face Boundaries (target triangles). Triangle Mapping maps content from source to every target face. Output goes to Custom Preview with white material.",
+  "keywords": [
+    "triremesh",
+    "triangle mapping",
+    "panelization",
+    "triangulation",
+    "face boundaries",
+    "remesh",
+    "digital fabrication",
+    "triangular panels"
+  ],
+  "category": "Expert - Mesh Operations and Digital Fabrication",
+  "tags": [
+    "expert",
+    "mesh",
+    "triremesh",
+    "panelization",
+    "triangle-mapping",
+    "fabrication",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "triangular panelization with TriRemesh",
+    "map geometry onto triangular mesh faces",
+    "TriRemesh and Triangle Mapping workflow",
+    "remesh surface into triangles for fabrication",
+    "panel design on triangulated surface",
+    "triangle mapping for consistent face paneling"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "TriRemesh",
+    "Face Boundaries",
+    "Triangle Mapping",
+    "Geometry",
+    "Curve",
+    "Custom Preview",
+    "Number Slider",
+    "Panel"
+  ],
+  "solution_principle": "TriRemesh creates high-quality triangulations of arbitrary surfaces, and Triangle Mapping enables mapping any geometry from a source triangle onto every face \u00e2\u20ac\u201d the foundation for triangular panelization and digital fabrication patterns.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_18838ff5",
+    "tutorial_7845ddec",
+    "tutorial_0202adf1",
+    "tutorial_87b90594",
+    "tutorial_04dd90e6",
+    "tutorial_c6b48c62"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T05:01:41.587558Z",
+  "citations": [],
+  "created_from": "expert_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Expert",
+    "image": "8-4.jpg",
+    "lesson_number": 8,
+    "step_number": 4,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Surface": 1,
+      "TriRemesh": 1,
+      "Face Boundaries": 1,
+      "Triangle Mapping": 1,
+      "Geometry": 1,
+      "Curve": 1,
+      "Custom Preview": 1,
+      "Number Slider": 1,
+      "Panel": 1
+    }
+  }
+}

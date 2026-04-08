@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_6059f3dc",
+  "note_type": "component",
+  "name": "Construct Domain²",
+  "brief": "Construct Domain² | Inputs: U0, U1, V0, V1 → I²",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Construct Domain². Inputs: U0 (Number), U1 (Number), V0 (Number), V1 (Number). Outputs: I² (Domain²).",
+  "keywords": [
+    "construct domain²",
+    "construct",
+    "domain²",
+    "domain_ops"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "domain_ops"
+  ],
+  "trigger_intents": [
+    "construct domain²",
+    "construct",
+    "domain²"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Domain²"
+  ],
+  "solution_principle": "Create a two-dimensinal domain from four numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8368fa19",
+    "comp_21348da4",
+    "comp_de61777e",
+    "comp_b68c5872",
+    "comp_0a8cb426"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9083b87f-a98c-4e41-9591-077ae4220b19",
+    "category": "domain_ops",
+    "inputs": {
+      "U0": "Number",
+      "U1": "Number",
+      "V0": "Number",
+      "V1": "Number"
+    },
+    "outputs": {
+      "I²": "Domain²"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8555a743-36c1-42b8-abcc-06d9cb94519f"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|domain|construct domain²"
+  },
+  "deprecated": true,
+  "deprecated_by": "8555a743-36c1-42b8-abcc-06d9cb94519f"
+}

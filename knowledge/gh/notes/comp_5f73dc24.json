@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_5f73dc24",
+  "note_type": "component",
+  "name": "Revolution",
+  "brief": "Revolution | Inputs: P, A, D → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Revolution. Inputs: P (Curve), A (Line), D (Domain). Outputs: S (Brep).",
+  "keywords": [
+    "revolution",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "revolution"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Revolution"
+  ],
+  "solution_principle": "Create a surface of revolution.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b",
+    "comp_5df6692e",
+    "comp_d543dc52",
+    "comp_99f96b5f",
+    "comp_44745d46",
+    "comp_c67f95be",
+    "comp_a27c5163"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "cdee962f-4202-456b-a1b4-f3ed9aa0dc29",
+    "category": "surface_ops",
+    "inputs": {
+      "P": "Curve",
+      "A": "Line",
+      "D": "Domain"
+    },
+    "outputs": {
+      "S": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d8d68c35-f869-486d-adf3-69ee3cc2d501"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|revolution"
+  }
+}

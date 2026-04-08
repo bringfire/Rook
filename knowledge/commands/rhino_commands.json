@@ -1,0 +1,4465 @@
+{
+  "rhino_version": "8.26.25349.19001",
+  "source": "Rhino.Commands.Command.GetCommandNames()",
+  "note": "Parameter information is NOT available via Rhino API. Parameters must be learned through command execution and dialogue observation using rhino_command_learn tool.",
+  "total_commands": 1114,
+  "commands": [
+    {
+      "id": "c2bdfa0b-1300-46b9-a634-91b2948d5bb5",
+      "name": "3DFace"
+    },
+    {
+      "id": "fcb17983-15a4-4f47-8a69-711e4b81ab91",
+      "name": "3View"
+    },
+    {
+      "id": "3a164142-2c06-4050-aac6-eb4679d294ac",
+      "name": "4View"
+    },
+    {
+      "id": "15dfa949-186c-3624-8d8f-b324b9e2558f",
+      "name": "About"
+    },
+    {
+      "id": "6de32743-a8af-3dd0-a562-69829a6b3057",
+      "name": "AboutRhino"
+    },
+    {
+      "id": "ddb31545-30dc-4c37-8f7c-9f6591ad8e0c",
+      "name": "AddGuide"
+    },
+    {
+      "id": "1fcc3c84-045f-3566-b8f7-e3eac0c603e7",
+      "name": "AddMissingBlockAttributeKeys"
+    },
+    {
+      "id": "fa9234da-1ae7-4a87-bdc9-9111ef425e67",
+      "name": "AddNextU"
+    },
+    {
+      "id": "b36b66ed-aae3-437c-9141-700363efe388",
+      "name": "AddNextV"
+    },
+    {
+      "id": "336fb361-2b50-4a99-ba5e-951ddd5e51da",
+      "name": "AddNgonsToMesh"
+    },
+    {
+      "id": "da749616-1c89-3c57-ba37-e0bf948e3615",
+      "name": "AddObjectsToBlock"
+    },
+    {
+      "id": "ae26704a-677c-4634-ac22-a48759c5ce37",
+      "name": "AddPrevU"
+    },
+    {
+      "id": "2b29b0f9-0b89-4cad-9546-94460c0a7b90",
+      "name": "AddPrevV"
+    },
+    {
+      "id": "a59f3f7f-cd05-41e4-87b5-ff046b44c6eb",
+      "name": "AddToGroup"
+    },
+    {
+      "id": "3bf0ac96-13c7-3b58-93bf-bc8bdbb2db54",
+      "name": "Alerter"
+    },
+    {
+      "id": "6911b779-6294-407f-828a-8bf831aab15b",
+      "name": "Align"
+    },
+    {
+      "id": "b8dc121a-e246-4938-b739-bae352a267bf",
+      "name": "AlignProfiles"
+    },
+    {
+      "id": "df414539-116c-4fd5-960a-e21734888135",
+      "name": "Angle"
+    },
+    {
+      "id": "2e8e5c10-29c4-44ba-ac35-1f68b3b61950",
+      "name": "AppendFace"
+    },
+    {
+      "id": "719ea05d-ac29-42eb-a6c5-db931b1ff69c",
+      "name": "ApplyBoxMapping"
+    },
+    {
+      "id": "b43c25af-9686-46e4-a6c0-12e66abb3199",
+      "name": "ApplyCrv"
+    },
+    {
+      "id": "4be06c76-d288-42e1-9ab3-7c30329f124d",
+      "name": "ApplyCustomMapping"
+    },
+    {
+      "id": "e2ae837a-d3e1-4808-8b41-28ed435b2da1",
+      "name": "ApplyCylindricalMapping"
+    },
+    {
+      "id": "8e5fac1a-e89d-4b82-83f9-71c9e3abfc20",
+      "name": "ApplyMesh"
+    },
+    {
+      "id": "7c5c1ec9-1d28-44ff-8287-95b2df69e42a",
+      "name": "ApplyOcsMapping"
+    },
+    {
+      "id": "ff6f040b-a8b3-4d9f-b0cd-23369f1e0bd0",
+      "name": "ApplyPlanarMapping"
+    },
+    {
+      "id": "ef3f2817-8b20-4010-a99c-a2c04456b740",
+      "name": "ApplySphericalMapping"
+    },
+    {
+      "id": "07a8a6d6-524c-4785-a040-6755e0f92f16",
+      "name": "ApplySurfaceMapping"
+    },
+    {
+      "id": "7467ddb7-68c1-350c-839c-29692dabd867",
+      "name": "Arc"
+    },
+    {
+      "id": "829fb1fc-a502-45fb-99ee-19246c87b7a8",
+      "name": "ArcBlend"
+    },
+    {
+      "id": "85a4dbda-ad04-4673-bc01-85e961997fcf",
+      "name": "Area"
+    },
+    {
+      "id": "66084a64-01af-4aef-ac0b-873f6d75f6b0",
+      "name": "AreaCentroid"
+    },
+    {
+      "id": "48c6ab18-8df0-494a-bc9a-3a3926561d95",
+      "name": "AreaMoments"
+    },
+    {
+      "id": "6d216ac3-b07e-3bf5-a24b-57d44d2fa0b0",
+      "name": "AreaSchedule"
+    },
+    {
+      "id": "06623d1f-a50c-3f3e-a454-4061d13bd688",
+      "name": "AreaScheduleFromFiles"
+    },
+    {
+      "id": "d72824b2-cb8f-44a7-8c11-58e6e03dcb7d",
+      "name": "Array"
+    },
+    {
+      "id": "25d60078-561e-443d-9745-2f6ae8af2e0d",
+      "name": "ArrayCrv"
+    },
+    {
+      "id": "813808b6-b657-4e98-a3fb-0e3ee25539ac",
+      "name": "ArrayCrvOnSrf"
+    },
+    {
+      "id": "c48d824a-4ed6-4dab-b0a8-2b6ce98dabbf",
+      "name": "ArrayPolar"
+    },
+    {
+      "id": "6a1de9a3-3259-4018-a399-14e8a1f4ca52",
+      "name": "ArraySrf"
+    },
+    {
+      "id": "ba74cc5e-284b-3fc6-9f7c-1a068d2866fe",
+      "name": "Arrow"
+    },
+    {
+      "id": "3ef9e048-93a9-3efa-a53b-59399e7780a1",
+      "name": "Arrowhead"
+    },
+    {
+      "id": "0a19a423-aeca-4239-8ddc-7ebeba44e1cf",
+      "name": "AssignBlankTexture"
+    },
+    {
+      "id": "41f0a8a8-7288-45c7-bce7-b6cd4852964f",
+      "name": "Audit"
+    },
+    {
+      "id": "835e0fe9-86e6-4b94-aa6c-4235f46eeb21",
+      "name": "Audit3dmFile"
+    },
+    {
+      "id": "16447b6e-7c84-46ea-ba70-d9d5fc0f114d",
+      "name": "AutoAlignCPlane"
+    },
+    {
+      "id": "52c98f51-b45c-45aa-a980-93602a051531",
+      "name": "AutomaticSubDFromMesh"
+    },
+    {
+      "id": "d665849c-d003-4ef1-bd8a-784972702b5d",
+      "name": "Autosave"
+    },
+    {
+      "id": "6b64edc7-ed23-41de-97a1-b2ef326e999d",
+      "name": "BackgroundBitmap"
+    },
+    {
+      "id": "8a572caf-7f49-4d84-926a-ebc61a8a811b",
+      "name": "Bake"
+    },
+    {
+      "id": "e2ca6f23-8b85-44ed-898b-8c1faf464774",
+      "name": "BakeMapping"
+    },
+    {
+      "id": "592e5bb8-281d-3f12-b79c-742b91509241",
+      "name": "BatchRenderNamedViews"
+    },
+    {
+      "id": "ede7711f-58d6-40f5-b10e-dd7f5f2c9db5",
+      "name": "Bend"
+    },
+    {
+      "id": "b4fe5942-4a5b-45ef-b56a-0cf91137d01a",
+      "name": "Bevel"
+    },
+    {
+      "id": "ac1a4ffa-2ff8-4ddc-ab17-57f2cf5bc20a",
+      "name": "BlendCrv"
+    },
+    {
+      "id": "b451d35f-bbbb-4fed-b731-fadc5095fbc0",
+      "name": "BlendEdge"
+    },
+    {
+      "id": "03cba331-633b-4524-85e1-f77311726ace",
+      "name": "BlendSrf"
+    },
+    {
+      "id": "9a7cbf0b-f308-4ca5-9aca-7fe244753cb9",
+      "name": "Block"
+    },
+    {
+      "id": "d209a41b-cf56-494d-a65f-1760dac4c21d",
+      "name": "BlockManager"
+    },
+    {
+      "id": "a1395f43-59e6-3d3e-856c-745711b4fcca",
+      "name": "BlockResetScale"
+    },
+    {
+      "id": "e6e6da89-2e03-4744-8837-e0544f357011",
+      "name": "BooleanDifference"
+    },
+    {
+      "id": "0b1645f2-21b5-4f37-ac53-1036fa81a43a",
+      "name": "BooleanIntersection"
+    },
+    {
+      "id": "d2e23ecb-e346-4dc2-87f2-db657ce63e2c",
+      "name": "BooleanSplit"
+    },
+    {
+      "id": "faf36338-df38-40e7-9def-280973d8a90a",
+      "name": "BooleanUnion"
+    },
+    {
+      "id": "fe5331d2-3849-4c75-ba4b-b132b7092696",
+      "name": "Bounce"
+    },
+    {
+      "id": "4c055299-adb9-4500-923d-ffb3a71dc1ac",
+      "name": "BoundingBox"
+    },
+    {
+      "id": "b7ae0927-a79c-468b-a8eb-b300bc970d68",
+      "name": "Box"
+    },
+    {
+      "id": "a53a1404-244d-34cd-bbf5-374c78354c75",
+      "name": "BoxEdit"
+    },
+    {
+      "id": "a647d568-7ae1-4931-9cbd-8194a48f4ee2",
+      "name": "Bridge"
+    },
+    {
+      "id": "cab8c4cc-4fa5-46b7-9334-93ecd83080bf",
+      "name": "BringForward"
+    },
+    {
+      "id": "12036e4c-7782-44ea-90bf-587707a07fd7",
+      "name": "BringToFront"
+    },
+    {
+      "id": "2a5eb0d1-d69b-4196-b5ac-d3d513d1fdec",
+      "name": "BringViewportToTop"
+    },
+    {
+      "id": "91848b51-3465-4aaa-ba5e-0bf6609a63b2",
+      "name": "CPlane"
+    },
+    {
+      "id": "72dfd2ca-9b43-31bb-bbe9-a970a9593af9",
+      "name": "CPlaneFromLine"
+    },
+    {
+      "id": "aa3114d6-81df-4fc5-848a-2a8881b8e561",
+      "name": "CSec"
+    },
+    {
+      "id": "284913de-58db-4810-8ed7-e33680c14d17",
+      "name": "Cage"
+    },
+    {
+      "id": "d62efbcd-3bc2-40fd-818e-ef50962ebbff",
+      "name": "CageEdit"
+    },
+    {
+      "id": "08c7043c-c8fe-3358-94ea-7721ad640ced",
+      "name": "Camera"
+    },
+    {
+      "id": "c33b398f-80fc-4a49-a1d3-353d3c574a18",
+      "name": "Cancel"
+    },
+    {
+      "id": "28335d69-7e46-4f15-a82a-905fc5ace168",
+      "name": "Cap"
+    },
+    {
+      "id": "0a236e5d-6673-4be1-8881-f31fdc5f1480",
+      "name": "Catenary"
+    },
+    {
+      "id": "d9e64007-d89b-4863-817b-95343e09760e",
+      "name": "Centermark"
+    },
+    {
+      "id": "bb6b3863-df9c-4b73-b08b-42cc0c23ba19",
+      "name": "Chamfer"
+    },
+    {
+      "id": "49b6e3d5-2f60-4ab6-8108-bb55481236a5",
+      "name": "ChamferEdge"
+    },
+    {
+      "id": "9046131c-f5f9-4882-a2c9-d219d7f39e32",
+      "name": "ChamferSrf"
+    },
+    {
+      "id": "68cd1d9c-5b56-4aa4-823d-5ffc7a29faeb",
+      "name": "ChangeDegree"
+    },
+    {
+      "id": "0b0b5fdc-bb9e-4541-ba4d-4ee93e60f32c",
+      "name": "ChangeLayer"
+    },
+    {
+      "id": "387599a2-9b52-4b7b-b5c4-4938c687d818",
+      "name": "ChangeToCurrentLayer"
+    },
+    {
+      "id": "8a2fb740-e860-4e08-aff9-ffb64faf41af",
+      "name": "Check"
+    },
+    {
+      "id": "cc9d84ec-786d-490f-bbac-3bec22d05fc4",
+      "name": "CheckInLicense"
+    },
+    {
+      "id": "606e6154-7afb-4eb5-a5c8-38ea52e3c017",
+      "name": "CheckNewObjects"
+    },
+    {
+      "id": "ec485406-4017-4187-9198-e1ac76858e22",
+      "name": "CheckOutLicense"
+    },
+    {
+      "id": "783f3e13-89d6-3dba-8de8-809edde40b53",
+      "name": "Circle"
+    },
+    {
+      "id": "07331f67-c2b0-4f59-a438-4af73c38ee43",
+      "name": "Clash"
+    },
+    {
+      "id": "080f4d62-ef17-4193-ac7d-3012688ae15a",
+      "name": "ClearAllMeshes"
+    },
+    {
+      "id": "c127c602-4805-4419-9a7e-6e949b91a56c",
+      "name": "ClearAllObjectDisplayModes"
+    },
+    {
+      "id": "deff2b97-45fd-4ca2-9453-9d79aa185c5a",
+      "name": "ClearAnalysisMeshes"
+    },
+    {
+      "id": "26306250-2070-428d-b7fb-1a49bb35d205",
+      "name": "ClearClippingSections"
+    },
+    {
+      "id": "9243a69c-0598-374b-b501-e42a0c026075",
+      "name": "ClearDrawOrder"
+    },
+    {
+      "id": "0b663846-b8b8-3cb3-8329-a36d178d22d5",
+      "name": "ClearEmbeddedWorksession"
+    },
+    {
+      "id": "a200e6a0-f676-4acc-9e8b-00c1a1c27e05",
+      "name": "ClearUndo"
+    },
+    {
+      "id": "0ca531ee-6235-4ba8-8776-3db7feaba2d3",
+      "name": "ClippingDrawings"
+    },
+    {
+      "id": "b66bb6c8-b672-489a-b6fc-cf539caf5370",
+      "name": "ClippingPlane"
+    },
+    {
+      "id": "b5be2266-7ee8-33cf-9a99-c9a07fc5f4a4",
+      "name": "ClippingPlaneProperties"
+    },
+    {
+      "id": "980b1655-fd57-4ed7-9105-c8bf737ef60f",
+      "name": "ClippingSections"
+    },
+    {
+      "id": "9ef7891c-ba70-441d-ade7-b7da4afd272b",
+      "name": "CloseCrv"
+    },
+    {
+      "id": "c67a3011-735d-3377-ad1f-3ed45d2a8b76",
+      "name": "CloseRenderWindow"
+    },
+    {
+      "id": "2b5de5e8-dac0-4c4d-ad3a-4c6a541f99e7",
+      "name": "CloseViewport"
+    },
+    {
+      "id": "642ac333-5997-40d3-a28d-2ea08ddcc944",
+      "name": "ClosestPt"
+    },
+    {
+      "id": "8e2db1c8-a59c-3ae7-8725-6892bb52908d",
+      "name": "CollapseMeshFacesByArea"
+    },
+    {
+      "id": "6f91fbdd-40f2-36de-831c-f66f09be50e0",
+      "name": "CollapseMeshFacesByAspectRatio"
+    },
+    {
+      "id": "599a48f9-baf7-3450-becc-4a69d54500d7",
+      "name": "CollapseMeshFacesByEdgeLength"
+    },
+    {
+      "id": "4a8420b3-f54a-4cf1-8458-3dd04635b54f",
+      "name": "CommandHelp"
+    },
+    {
+      "id": "784a2f10-708a-4ac3-8510-2fe59ef8cc51",
+      "name": "CommandHistory"
+    },
+    {
+      "id": "7f561d39-0ac9-417a-9ffd-79a8bd91400b",
+      "name": "CommandList"
+    },
+    {
+      "id": "1d987250-b277-4f5e-8623-6eace8219afc",
+      "name": "CommandPrompt"
+    },
+    {
+      "id": "b0e65cc4-4572-443c-b053-830de8b8c958",
+      "name": "Commands"
+    },
+    {
+      "id": "e286796e-95ed-3bb5-a75c-f1c19f4a9e18",
+      "name": "Cone"
+    },
+    {
+      "id": "06ba5c2d-57ae-4765-b219-0e742997616f",
+      "name": "Conic"
+    },
+    {
+      "id": "63be578d-c709-4dab-950f-c9ce6eef8054",
+      "name": "Connect"
+    },
+    {
+      "id": "1e133460-e34f-3fc2-9d9a-09457e4bf6b9",
+      "name": "ConnectAll"
+    },
+    {
+      "id": "7ecf6a13-1ded-36ad-8e31-d3dac13c228b",
+      "name": "ConnectNearest"
+    },
+    {
+      "id": "f2be0cdb-8953-3957-ae90-7ef5d5796dac",
+      "name": "Containers"
+    },
+    {
+      "id": "f8a6e6e2-93d7-49ff-ac41-cda71fda07d0",
+      "name": "ContinueCurve"
+    },
+    {
+      "id": "dc8922f0-6967-477d-835c-0cb77d014495",
+      "name": "ContinueInterpCrv"
+    },
+    {
+      "id": "9e48cd67-e656-4c9d-b4c7-cb8632622da9",
+      "name": "Contour"
+    },
+    {
+      "id": "fcf16dff-daee-42fc-8c12-ad89018e98f7",
+      "name": "Convert"
+    },
+    {
+      "id": "495b7bf3-0ba6-4236-aa71-ed7274d340c6",
+      "name": "ConvertExtrusion"
+    },
+    {
+      "id": "73de7ec1-34de-3370-98fa-49a686849c5b",
+      "name": "ConvertTextToBlockAttribute"
+    },
+    {
+      "id": "be54d771-ca57-4c30-8ec0-3974680415f1",
+      "name": "ConvertToBeziers"
+    },
+    {
+      "id": "cc22a03c-0898-4c07-ac8a-bfa9671b6593",
+      "name": "ConvertToSingleSpans"
+    },
+    {
+      "id": "f0da0f22-c150-4290-85b2-b701b5e396d2",
+      "name": "Copy"
+    },
+    {
+      "id": "55ee625c-a80e-4cc6-8dd6-3f39004826be",
+      "name": "CopyCPlaneSettingsToAll"
+    },
+    {
+      "id": "d82635ca-e7dc-4142-a9b2-50d7965f76eb",
+      "name": "CopyCPlaneToAll"
+    },
+    {
+      "id": "2299b695-7c63-47d2-9e90-af269daa8301",
+      "name": "CopyDetailToViewport"
+    },
+    {
+      "id": "fbfd289d-7741-4b2b-8c98-505613de5ac8",
+      "name": "CopyLayout"
+    },
+    {
+      "id": "ea420652-a2bc-47d8-825b-632105a3665b",
+      "name": "CopyLinkedBlockDefinition"
+    },
+    {
+      "id": "f54c5410-346b-436c-916d-c0bf5962a541",
+      "name": "CopyRenderWindowToClipboard"
+    },
+    {
+      "id": "596ecb35-7fcf-4fa7-8b0b-83c6c170a29f",
+      "name": "CopyToClipboard"
+    },
+    {
+      "id": "e8e26036-1936-4a00-b780-cb5c6674d157",
+      "name": "CopyToLayer"
+    },
+    {
+      "id": "0800b963-adb0-4b3f-bbd0-018fc28075ad",
+      "name": "CopyViewportToDetail"
+    },
+    {
+      "id": "5b7d9cd0-cca5-48f0-976f-0fa46508bb45",
+      "name": "Crease"
+    },
+    {
+      "id": "4cbdf399-3a89-4403-a3de-5bec9f588b06",
+      "name": "CreaseSplitting"
+    },
+    {
+      "id": "7639e953-320b-4621-9400-3cd341543a62",
+      "name": "CreateRegions"
+    },
+    {
+      "id": "9147a1eb-3577-4d8a-9c49-0981fdb7e361",
+      "name": "CreateSolid"
+    },
+    {
+      "id": "d67dd46f-66e2-4022-8bd8-804a09fa923f",
+      "name": "CreateUVCrv"
+    },
+    {
+      "id": "d476381a-d36e-3384-9993-ff7506106323",
+      "name": "CreateUniqueBlock"
+    },
+    {
+      "id": "eecd4035-8cb6-49ee-afb1-23047e9ab4d2",
+      "name": "Crv2View"
+    },
+    {
+      "id": "0a51d407-7754-4f63-8a3f-6020b9672aa4",
+      "name": "CrvDeviation"
+    },
+    {
+      "id": "d7d0ac3a-5e48-47da-8c2c-1cf4c57a0d21",
+      "name": "CrvEnd"
+    },
+    {
+      "id": "d58a3519-d44d-407c-9514-03a121ea7b53",
+      "name": "CrvSeam"
+    },
+    {
+      "id": "1c5d8221-52d2-4bb8-8e5c-8daa841a48ef",
+      "name": "CrvStart"
+    },
+    {
+      "id": "f8bc5a7c-bc4d-4e83-bc54-d5487b33fdc5",
+      "name": "CullControlPolygon"
+    },
+    {
+      "id": "de69af30-3ebc-4929-bd4e-744416baf544",
+      "name": "Curvature"
+    },
+    {
+      "id": "5849539d-04d2-45a8-9195-65beed505ccf",
+      "name": "CurvatureAnalysis"
+    },
+    {
+      "id": "bf4ac0da-5887-4baf-a3ef-4b8995bf10dd",
+      "name": "CurvatureAnalysisOff"
+    },
+    {
+      "id": "101e1210-a864-4457-acb9-03b0b5cafc97",
+      "name": "CurvatureGraph"
+    },
+    {
+      "id": "0e109b76-8bcb-4ef5-be2d-75b8c10ee390",
+      "name": "CurvatureGraphOff"
+    },
+    {
+      "id": "46bf6456-5839-4c2f-b25e-ecb6f106ade7",
+      "name": "Curve"
+    },
+    {
+      "id": "f6226ca4-a9b2-415c-a055-5281b5d74773",
+      "name": "CurveBoolean"
+    },
+    {
+      "id": "81bb7b99-4de3-4b6b-9175-795f1e61455a",
+      "name": "CurveThroughPolyline"
+    },
+    {
+      "id": "775590e4-9f62-4b07-b428-7894973be7fc",
+      "name": "CurveThroughPt"
+    },
+    {
+      "id": "64417927-b8b4-4f40-a891-09776718ff82",
+      "name": "CurveThroughSrfControlPt"
+    },
+    {
+      "id": "d1e80fc9-96c2-4a4e-8a35-611864819e62",
+      "name": "Cut"
+    },
+    {
+      "id": "b9e81c45-2928-42ee-89df-1d4bc238c527",
+      "name": "CutPlane"
+    },
+    {
+      "id": "fb657498-f3bf-4c90-a760-e759e6b445d0",
+      "name": "CutVolume"
+    },
+    {
+      "id": "2414929c-8a56-3135-b42c-abe37b2e0c97",
+      "name": "Cylinder"
+    },
+    {
+      "id": "c05ae608-6afc-3ed7-936d-7edbc3213453",
+      "name": "DarkMode"
+    },
+    {
+      "id": "743d7266-b08e-3cc4-9f04-f0691cdf9507",
+      "name": "DatasmithDirectLinkConnections"
+    },
+    {
+      "id": "8919ea95-f3ad-338b-9737-745027f381a1",
+      "name": "DatasmithDirectLinkSync"
+    },
+    {
+      "id": "1861eb86-daa3-3611-905d-ef64db5e8987",
+      "name": "DatasmithExport"
+    },
+    {
+      "id": "381ba89d-e105-332d-a683-4dd09b8ac599",
+      "name": "DatasmithMessages"
+    },
+    {
+      "id": "3020f0d9-06d0-3f2d-af65-128453b186b2",
+      "name": "DatasmithToggleAutoSync"
+    },
+    {
+      "id": "171c9316-33da-43fe-bbbe-12668915d194",
+      "name": "DecimalPoint"
+    },
+    {
+      "id": "da12cd84-99f3-4092-a221-9dd9d947c088",
+      "name": "Delete"
+    },
+    {
+      "id": "e838f3a3-2d15-4f17-ab45-50b1a99d2b30",
+      "name": "DeleteFaces"
+    },
+    {
+      "id": "9d14a7c6-fbbf-4e33-87e8-0150de1a8f88",
+      "name": "DeleteMeshNgons"
+    },
+    {
+      "id": "3e18f651-6348-49a2-85cf-f9593c1a3f8e",
+      "name": "DeleteSubCrv"
+    },
+    {
+      "id": "0b661643-493f-4865-8d98-c502bc1b9347",
+      "name": "Detail"
+    },
+    {
+      "id": "4ad060fa-3a2c-307b-b8fa-7682278a1d37",
+      "name": "DevLoft"
+    },
+    {
+      "id": "55b07290-cf0f-473c-aa13-358099edc7d8",
+      "name": "Diameter"
+    },
+    {
+      "id": "c9ad4c9f-f718-411f-9ac9-35250c16d045",
+      "name": "DigBeep"
+    },
+    {
+      "id": "86916660-f09a-4dfa-99ce-f3e65f72a303",
+      "name": "DigCalibrate"
+    },
+    {
+      "id": "4fa3dbf0-cda2-4e55-b2cd-dba9d6880037",
+      "name": "DigCamera"
+    },
+    {
+      "id": "e5c2cdf5-5767-4669-a246-9699660412b8",
+      "name": "DigClick"
+    },
+    {
+      "id": "0d171769-7233-49db-9ac9-3f6f8332da84",
+      "name": "DigDisconnect"
+    },
+    {
+      "id": "6f23b8b4-c260-457d-b7dc-467bf8c0e70c",
+      "name": "DigLine"
+    },
+    {
+      "id": "9f7aee9b-3eea-499b-b148-7185564cc05e",
+      "name": "DigPause"
+    },
+    {
+      "id": "59456d58-8bad-44e2-99e2-af13dfba615f",
+      "name": "DigScale"
+    },
+    {
+      "id": "6e55a9db-1fa9-4b05-be42-0e148491bcca",
+      "name": "DigSection"
+    },
+    {
+      "id": "7d235330-61d0-4e43-a964-43512e4b754b",
+      "name": "DigSketch"
+    },
+    {
+      "id": "29722c57-8ecb-45a0-806e-32d0d9321365",
+      "name": "Digitize"
+    },
+    {
+      "id": "da8c401e-3a2a-47ca-b0f1-3f70e4d9dff2",
+      "name": "Dim"
+    },
+    {
+      "id": "c6ee254b-5bda-4a44-925b-306008095487",
+      "name": "DimAligned"
+    },
+    {
+      "id": "f3149a6f-0c27-46d3-84c5-65dcb9b2ad80",
+      "name": "DimAngle"
+    },
+    {
+      "id": "a68f9eb1-dc04-36a4-9667-68473a0a4a9c",
+      "name": "DimArea"
+    },
+    {
+      "id": "6b26a09b-489e-4597-b185-8354d8bb1d8a",
+      "name": "DimCreaseAngle"
+    },
+    {
+      "id": "ca3dd6da-8706-37ac-86fe-221c9259ebea",
+      "name": "DimCurveLength"
+    },
+    {
+      "id": "e26336e2-7ad7-47a9-ad4f-6a38340728df",
+      "name": "DimDiameter"
+    },
+    {
+      "id": "102ddc2b-c568-47f6-95fe-1678e881dbeb",
+      "name": "DimOrdinate"
+    },
+    {
+      "id": "76526fc1-ce5f-4bea-8a9d-a15ee004256a",
+      "name": "DimRadius"
+    },
+    {
+      "id": "c41c830c-1d0f-446b-a4b3-794a33965a1e",
+      "name": "DimRecenterText"
+    },
+    {
+      "id": "1ee588a9-dcde-45fb-9c35-3dbf22d31c5e",
+      "name": "DimRotated"
+    },
+    {
+      "id": "9056d6b2-9649-38a6-889f-430f4b70ea81",
+      "name": "DimVolume"
+    },
+    {
+      "id": "95c20180-3e1f-4124-b097-699c0b4cd317",
+      "name": "Dir"
+    },
+    {
+      "id": "6e170de8-08cd-4f3f-95d6-70c43114bff6",
+      "name": "DirectionalLight"
+    },
+    {
+      "id": "3671ada2-0e30-4eee-a905-d03d23ee4677",
+      "name": "DisableClippingPlane"
+    },
+    {
+      "id": "44f7a1e8-815d-41a8-8e3c-bc327c440399",
+      "name": "DisableOsnap"
+    },
+    {
+      "id": "e0bde41a-8b31-33b2-8a66-10633640762a",
+      "name": "DisplayColorByLayer"
+    },
+    {
+      "id": "1533ac5b-1917-3305-84e2-2fee9bd2c70a",
+      "name": "DisplayColorByMaterial"
+    },
+    {
+      "id": "993fd2e0-1d27-47d9-bd6d-8b7218ddb762",
+      "name": "DisplayCommandPrompt"
+    },
+    {
+      "id": "ac0fdcea-c1f1-43c9-b322-b752042588e1",
+      "name": "DisplayProperties"
+    },
+    {
+      "id": "8fc5c316-9200-42d9-9b42-74386ae797d6",
+      "name": "Distance"
+    },
+    {
+      "id": "01ef70b1-76d6-4087-8b75-93a6f117200f",
+      "name": "Distribute"
+    },
+    {
+      "id": "c56d523c-c008-4681-b87c-e952e5ecf552",
+      "name": "Divide"
+    },
+    {
+      "id": "53dbc080-aa9b-4e84-803c-a605f94a8bfe",
+      "name": "DivideAlongCreases"
+    },
+    {
+      "id": "eacb433e-5484-4c2d-a08f-94ce923d7d4d",
+      "name": "DocumentProperties"
+    },
+    {
+      "id": "65339bb9-0a86-45f6-80d6-bb65707a8ef0",
+      "name": "DocumentPropertiesPage"
+    },
+    {
+      "id": "28788da6-1016-3cff-b7af-4e91e9df5168",
+      "name": "DocumentText"
+    },
+    {
+      "id": "c9e90c99-cce9-4d04-b633-992baa98ecd7",
+      "name": "DollyZoom"
+    },
+    {
+      "id": "82e19d82-2b88-4afc-ad05-91ad1f5f7228",
+      "name": "Domain"
+    },
+    {
+      "id": "20a9a8f2-554e-3d1c-bce3-99d7ef99ba5e",
+      "name": "Dot"
+    },
+    {
+      "id": "cbd56c1c-9915-35eb-8ac1-5fc714b56ed6",
+      "name": "DotElevation"
+    },
+    {
+      "id": "74bd1e55-e645-3e96-b396-a6b256aec173",
+      "name": "DownloadLibraryTextures"
+    },
+    {
+      "id": "fba29da3-c90c-36b5-8ea3-a345983a5bf3",
+      "name": "DraftAngleAnalysis"
+    },
+    {
+      "id": "26e7b5c2-2cc6-40ec-96ec-59f430e09da6",
+      "name": "DraftAngleAnalysisOff"
+    },
+    {
+      "id": "7a4d3bc0-d87c-4d4f-a024-a66a0ca2bf53",
+      "name": "DraftAnglePoint"
+    },
+    {
+      "id": "460617de-a11b-4a4d-bd44-65981a8000e0",
+      "name": "DragCopy"
+    },
+    {
+      "id": "166ab0ec-52b9-4fb0-9fba-1da246f037eb",
+      "name": "DragMode"
+    },
+    {
+      "id": "ef0dd6de-2655-3999-bfe0-434fcf0435f0",
+      "name": "DragStrength"
+    },
+    {
+      "id": "dade3a38-b2b2-47d7-9a1d-2badf0ea7659",
+      "name": "Drape"
+    },
+    {
+      "id": "3bb6edae-eedf-4827-9c0a-cc32cd3368bb",
+      "name": "DrapePt"
+    },
+    {
+      "id": "71aa0ceb-0ee1-32bb-9447-470b5660fce7",
+      "name": "Drop"
+    },
+    {
+      "id": "a430621b-bd42-4bd6-ac51-88b046c5c197",
+      "name": "DupBorder"
+    },
+    {
+      "id": "b9505702-a9ca-4b96-ad93-ccb31bf6114f",
+      "name": "DupEdge"
+    },
+    {
+      "id": "8ad1fa68-1909-43c5-ac6f-5e4a1f95e48e",
+      "name": "DupFaceBorder"
+    },
+    {
+      "id": "370f7383-f37e-4ff2-83e6-a36ef909f282",
+      "name": "EMap"
+    },
+    {
+      "id": "dbe53eb3-c4bf-4cc9-b7d6-bb4d0f26fe48",
+      "name": "EMapOff"
+    },
+    {
+      "id": "809987f0-2797-4703-82f3-4f59b15df5af",
+      "name": "EarthAnchorPoint"
+    },
+    {
+      "id": "adca9486-b21f-43b4-8257-36798e6d5420",
+      "name": "Echo"
+    },
+    {
+      "id": "b5f72e99-0300-497d-98cb-11a4d43283c7",
+      "name": "EdgeContinuity"
+    },
+    {
+      "id": "fe8073ea-2c64-42c9-9620-3e144cbc49e5",
+      "name": "EdgeSrf"
+    },
+    {
+      "id": "cc2f2d88-9309-488c-b192-946e8c4e3126",
+      "name": "EditClippingDrawings"
+    },
+    {
+      "id": "afc6a02d-00e1-4730-b502-44f481f37630",
+      "name": "EditLightByHighlight"
+    },
+    {
+      "id": "239fd914-54e1-4fd7-b91e-52c3682809ea",
+      "name": "EditLightByLooking"
+    },
+    {
+      "id": "61279e89-6288-4afd-b78f-a0a1dee2cbbf",
+      "name": "EditPtOn"
+    },
+    {
+      "id": "eca7249f-23ab-4e2f-a493-01f45bece851",
+      "name": "EditPythonScript"
+    },
+    {
+      "id": "7e15175e-a38c-42ed-a47e-60f3dd03c0db",
+      "name": "Ellipse"
+    },
+    {
+      "id": "6ed7a210-612e-4624-9586-9e983b880392",
+      "name": "Ellipsoid"
+    },
+    {
+      "id": "1923d4dd-94e6-3dbc-bea3-353e1c196426",
+      "name": "EmbedWorksession"
+    },
+    {
+      "id": "9154dbed-a0bc-47de-a111-99970cfcde86",
+      "name": "EnableClippingPlane"
+    },
+    {
+      "id": "c067f92f-6313-4931-a5f4-c747a139b81b",
+      "name": "EndBulge"
+    },
+    {
+      "id": "9d3628fb-ad25-471e-b2ed-90e4ffc2dde2",
+      "name": "EndUVEditor"
+    },
+    {
+      "id": "f89a337b-6ed8-3368-9913-a1c94a7350b4",
+      "name": "EnscapeAboutCommand"
+    },
+    {
+      "id": "0eead84f-a972-3711-bfe6-e7ec1ce87204",
+      "name": "EnscapeBlocksFromRevit"
+    },
+    {
+      "id": "6a994308-7d2a-3007-a620-aaac5496d1f6",
+      "name": "EnscapeBlocksFromSketchup"
+    },
+    {
+      "id": "245f118e-2ea4-351d-ba8a-0bf7003f9e62",
+      "name": "EnscapeEnableOrDisableCameraSyncCommand"
+    },
+    {
+      "id": "5ca962f1-336a-36bd-acd8-fc04be598689",
+      "name": "EnscapeEnableOrDisableLiveUpdatesCommand"
+    },
+    {
+      "id": "081710fa-3092-3c3b-ade4-58e0ef266782",
+      "name": "EnscapeFeedbackCommand"
+    },
+    {
+      "id": "d5a8b80a-3ebe-376e-a36c-a8c662681522",
+      "name": "EnscapeOpenAssetLibraryBrowserCommand"
+    },
+    {
+      "id": "ca79a4db-43b1-3c5a-ac41-f07fb929179b",
+      "name": "EnscapeOpenGeneralSettingsCommand"
+    },
+    {
+      "id": "61eeecf9-90ec-39be-864b-e41b0bdeab9a",
+      "name": "EnscapeOpenMaterialEditorCommand"
+    },
+    {
+      "id": "1b205b62-da38-37e7-86ab-a42b506e1a43",
+      "name": "EnscapeOpenMaterialLibraryCommand"
+    },
+    {
+      "id": "0fc8810f-f88c-3bb4-a7b2-500ce4b907d4",
+      "name": "EnscapeOpenUploadsManagerCommand"
+    },
+    {
+      "id": "d080d2ab-e607-3513-b92b-1da02e702323",
+      "name": "EnscapeStartCommand"
+    },
+    {
+      "id": "fae55862-cb54-388f-8ae3-ca1eb0742b69",
+      "name": "EnscapeUserAreaCommand"
+    },
+    {
+      "id": "0ec501cf-a06a-4520-ba49-bc356bdb4fa9",
+      "name": "Enter"
+    },
+    {
+      "id": "fcd3a5ff-eb2a-4b7a-84f4-2b589e06f22e",
+      "name": "EnterEnd"
+    },
+    {
+      "id": "93b7b6d8-6789-4e2f-ad9e-2f576fc68bd7",
+      "name": "Environments"
+    },
+    {
+      "id": "fcae17d2-8658-46dd-a160-02da57e7b7bf",
+      "name": "EvaluatePt"
+    },
+    {
+      "id": "fbd22525-f56a-4cc4-8d8f-136bbe955f8a",
+      "name": "EvaluateUVPt"
+    },
+    {
+      "id": "a880e0e1-8e87-442b-a139-a3afe85768bc",
+      "name": "Exit"
+    },
+    {
+      "id": "fc4c787f-c566-4789-8f97-1e8d231c82a4",
+      "name": "Explode"
+    },
+    {
+      "id": "b693c8ee-a2f2-429b-91a6-b26a3261de12",
+      "name": "Export"
+    },
+    {
+      "id": "772e0327-be3e-3bfd-8960-b4dbdc156105",
+      "name": "ExportAreasToTSV"
+    },
+    {
+      "id": "6cdcc3ae-3cff-4b81-a263-ee1c9d53b591",
+      "name": "ExportBitmaps"
+    },
+    {
+      "id": "154d3010-d8af-4d39-9d5e-eb7ac9a71573",
+      "name": "ExportClippingDrawings"
+    },
+    {
+      "id": "fc91ac23-693e-40b3-bd59-ce9f42548847",
+      "name": "ExportClippingSectionInfo"
+    },
+    {
+      "id": "d64b83fc-ac98-36ed-b5ff-85782572ffea",
+      "name": "ExportHatchesToTSV"
+    },
+    {
+      "id": "f8c735ec-5618-3b21-9aec-92b0f95e26c1",
+      "name": "ExportLinkedBlocks"
+    },
+    {
+      "id": "7128dff9-820d-3d45-9535-afea1725c1d5",
+      "name": "ExportRuiFile"
+    },
+    {
+      "id": "aba97152-6ad9-4490-baab-733fc5f5efd5",
+      "name": "ExportWithOrigin"
+    },
+    {
+      "id": "81e58d41-63cd-49d4-a686-58b5225da99d",
+      "name": "Extend"
+    },
+    {
+      "id": "7caa4777-9825-49c0-a6e3-9e91f70a1beb",
+      "name": "ExtendCrvOnSrf"
+    },
+    {
+      "id": "25a4658c-15dd-4264-ace9-27697e67ee8c",
+      "name": "ExtendDynamic"
+    },
+    {
+      "id": "fdb19f7d-80fc-4bd3-8571-eef4682d0a33",
+      "name": "ExtractAnalysisMesh"
+    },
+    {
+      "id": "75070f9a-2048-417d-a7ac-52b38166bfb5",
+      "name": "ExtractBadSrf"
+    },
+    {
+      "id": "393a99f2-c35b-49c1-92cf-69769b419e1a",
+      "name": "ExtractClippingSections"
+    },
+    {
+      "id": "6674a18d-8368-4880-bb9a-7bc3a8faeefc",
+      "name": "ExtractClippingSlices"
+    },
+    {
+      "id": "0a2f7485-9dfe-3c4b-b0f1-bf06dcbe0613",
+      "name": "ExtractConnectedMeshFaces"
+    },
+    {
+      "id": "c306d085-5a3e-4bae-8ac3-c885fab38f81",
+      "name": "ExtractControlPolygon"
+    },
+    {
+      "id": "d47e9b2a-3ec5-43e1-a79e-b456b3aa9650",
+      "name": "ExtractCurvatureGraph"
+    },
+    {
+      "id": "ec1fbc4a-201c-4a54-a1c0-b6ad2c51f75c",
+      "name": "ExtractCustomMappingObject"
+    },
+    {
+      "id": "5991aa27-381f-4ad1-b9ed-742724bad551",
+      "name": "ExtractIsocurve"
+    },
+    {
+      "id": "d98c1bfa-6d50-4a2f-8911-6926f57068fe",
+      "name": "ExtractLineTypeSegments"
+    },
+    {
+      "id": "7fc7aecb-5224-3e47-ba5b-be6b0fac66a6",
+      "name": "ExtractMeshEdges"
+    },
+    {
+      "id": "07e33dbf-bba0-34d5-a8f5-e05c68910754",
+      "name": "ExtractMeshFacesByArea"
+    },
+    {
+      "id": "7f375ae5-2305-3f23-95b9-391a59beb39a",
+      "name": "ExtractMeshFacesByAspectRatio"
+    },
+    {
+      "id": "b9bfa1e8-f8be-3504-bac2-afbaf69cd07c",
+      "name": "ExtractMeshFacesByDraftAngle"
+    },
+    {
+      "id": "db1690cd-aedb-3aac-973f-bb61929139d7",
+      "name": "ExtractMeshFacesByEdgeLength"
+    },
+    {
+      "id": "ef84385d-3c42-3e5d-8615-93fe7cf807f9",
+      "name": "ExtractMeshPart"
+    },
+    {
+      "id": "df909dad-0c54-4b36-a3e3-15e36d568242",
+      "name": "ExtractOriginalCaptives"
+    },
+    {
+      "id": "bb43f93e-2a25-44ac-9c52-4906d1c69e4f",
+      "name": "ExtractPipedCurve"
+    },
+    {
+      "id": "efaf87ee-ecae-43ff-b373-7089525e0645",
+      "name": "ExtractPt"
+    },
+    {
+      "id": "80473841-bf7f-4317-af58-03fa2cb5c356",
+      "name": "ExtractRenderMesh"
+    },
+    {
+      "id": "7cdae1bc-881f-4926-b917-bf4d6f2d2ea9",
+      "name": "ExtractSrf"
+    },
+    {
+      "id": "bcebbdf4-1c40-4807-8e30-63efbc8bc6e7",
+      "name": "ExtractSubCrv"
+    },
+    {
+      "id": "bff298c5-38a3-4d0e-9d2b-dd1e72d4c3df",
+      "name": "ExtractUVMesh"
+    },
+    {
+      "id": "7c611f63-f479-4593-a23a-36fc4e89799f",
+      "name": "ExtractWireframe"
+    },
+    {
+      "id": "08b199e7-9e20-364f-ae88-4ffda06f7445",
+      "name": "ExtractWireframeFromHatches"
+    },
+    {
+      "id": "678fb7a1-76ae-45c5-abff-c79b053ca759",
+      "name": "ExtrudeCrv"
+    },
+    {
+      "id": "9120b146-edf4-437b-90d5-e8761660026c",
+      "name": "ExtrudeCrvAlongCrv"
+    },
+    {
+      "id": "166bf1e3-3cd8-4d72-93ac-f61dfc48db76",
+      "name": "ExtrudeCrvTapered"
+    },
+    {
+      "id": "246801b5-7e18-4f39-a075-3b242bfbfd6b",
+      "name": "ExtrudeCrvToPoint"
+    },
+    {
+      "id": "c0c044ea-c55c-4add-bc94-9ce3db4c86b3",
+      "name": "ExtrudeMesh"
+    },
+    {
+      "id": "8fab4285-1c61-3017-8522-ed149f0f28b6",
+      "name": "ExtrudePts"
+    },
+    {
+      "id": "d37993d1-7d8e-4702-a328-776b1f49068d",
+      "name": "ExtrudeSrf"
+    },
+    {
+      "id": "fd31a1a8-6941-40e8-97e1-3e336a8b29de",
+      "name": "ExtrudeSrfAlongCrv"
+    },
+    {
+      "id": "5e7d9ff0-0cbe-4292-b670-f7badd286a05",
+      "name": "ExtrudeSrfTapered"
+    },
+    {
+      "id": "02c0f726-3e13-4964-a46b-350e4737445d",
+      "name": "ExtrudeSrfToPoint"
+    },
+    {
+      "id": "740113f7-970a-40d5-943a-237d675195ac",
+      "name": "ExtrudeSubD"
+    },
+    {
+      "id": "eddf60b6-eff4-33b6-88e6-5cd15903b063",
+      "name": "ExtrusionsFromBox"
+    },
+    {
+      "id": "9777b3ab-a060-3f3c-b01a-c9a9f43e7ec6",
+      "name": "ExtrusionsFromBrepNested"
+    },
+    {
+      "id": "55bdd6be-d4e6-332f-a081-00c90a0b0933",
+      "name": "ExtrusionsFromPipe"
+    },
+    {
+      "id": "693fc77a-611b-4364-a6db-d16db1591f9a",
+      "name": "Fair"
+    },
+    {
+      "id": "03b7cae1-9fce-4018-9221-f544f32b9451",
+      "name": "FileExplorer"
+    },
+    {
+      "id": "2920aff8-e66e-48db-a112-74cd6ffe8e7b",
+      "name": "Fill"
+    },
+    {
+      "id": "2fb1e107-e2a3-414a-bd38-730713a2ad3d",
+      "name": "Fillet"
+    },
+    {
+      "id": "a621f78d-cd6f-473f-ba3f-38722fd90215",
+      "name": "FilletCorners"
+    },
+    {
+      "id": "120db23f-6660-4f20-98c1-4e15c60ac5fc",
+      "name": "FilletEdge"
+    },
+    {
+      "id": "be136e73-82f9-428c-9b82-76cd913496ed",
+      "name": "FilletSrf"
+    },
+    {
+      "id": "ccc5c7f7-e53e-4471-9621-c88f02a08b05",
+      "name": "FilletSrfCrv"
+    },
+    {
+      "id": "6da13d8a-5b3a-45c7-9b3b-16c4f95517f1",
+      "name": "FilletSrfToRail"
+    },
+    {
+      "id": "c7bce5a8-5ce7-7a72-9059-7d76957b2ef0",
+      "name": "Fin"
+    },
+    {
+      "id": "8f5b4b41-2031-34f6-b160-4887df5e26ce",
+      "name": "FindText"
+    },
+    {
+      "id": "9ed13910-b466-414d-ac04-2716e0abbd9a",
+      "name": "FitCrv"
+    },
+    {
+      "id": "93b9e79c-010f-33bb-add4-024bc593a476",
+      "name": "FitCurveToSurface"
+    },
+    {
+      "id": "113b48a7-4471-42ef-b983-4ff0e71a8133",
+      "name": "FitSrf"
+    },
+    {
+      "id": "1772ec2c-e34c-4c92-add7-ea7cef1e224e",
+      "name": "FlatShade"
+    },
+    {
+      "id": "c04d827d-65f3-467f-bfe4-b5ee3cbf7539",
+      "name": "FlattenSrf"
+    },
+    {
+      "id": "894bd996-6eeb-4fc9-8dc6-bf1c6d188b89",
+      "name": "Flip"
+    },
+    {
+      "id": "f22dde3e-57c8-4cb8-a4e3-3b3b1dc5bf2d",
+      "name": "Flow"
+    },
+    {
+      "id": "525a51a3-ca79-4ca0-a2b1-31e90f8c91ca",
+      "name": "FlowAlongSrf"
+    },
+    {
+      "id": "9299bb99-7858-380d-bc9a-16a824c4f1a6",
+      "name": "ForceJoin"
+    },
+    {
+      "id": "ac4788ff-d7a1-4008-9073-43eeecc78982",
+      "name": "Fullscreen"
+    },
+    {
+      "id": "c53ecd58-de80-440c-ab26-5b4f72308e67",
+      "name": "GCon"
+    },
+    {
+      "id": "d1fedab8-a4e1-4038-af3f-8f7fad7800d3",
+      "name": "GetDocumentUserText"
+    },
+    {
+      "id": "b9ecf2a5-7dfe-3c0c-a293-4bcdecb5bfee",
+      "name": "GetIssueState"
+    },
+    {
+      "id": "1a1e7a41-c921-4089-a968-0a23b8e13f1c",
+      "name": "GetUserText"
+    },
+    {
+      "id": "3ef46489-ae9b-4264-9a23-215b16390fb2",
+      "name": "Grid"
+    },
+    {
+      "id": "ed65ac51-c824-49ca-99d0-95ae04d9fa31",
+      "name": "GroundPlane"
+    },
+    {
+      "id": "c39b543a-04e6-4fca-a6d4-8e3d2c148212",
+      "name": "Group"
+    },
+    {
+      "id": "be7bc3c0-c818-4ea8-8ff2-c3d749fd762c",
+      "name": "Gumball"
+    },
+    {
+      "id": "5a8e9531-a8b1-4f50-9fe5-6b8ad6ceb5d7",
+      "name": "GumballAlignment"
+    },
+    {
+      "id": "77d36da4-19f5-47d7-bf3f-b8e6f15056eb",
+      "name": "GumballAutoReset"
+    },
+    {
+      "id": "cbab8be3-bbf5-461d-a218-4ffd68a06a7a",
+      "name": "GumballDynamicRelocate"
+    },
+    {
+      "id": "67a35416-60ac-40f7-8070-02d3a43734f7",
+      "name": "GumballRelocate"
+    },
+    {
+      "id": "dbfd7df4-19ad-4768-bbf4-97744a1510b1",
+      "name": "GumballReset"
+    },
+    {
+      "id": "74adada0-52d1-4b4e-ab78-d0c531c0274a",
+      "name": "GumballScaleMode"
+    },
+    {
+      "id": "60d8bdbf-ca57-431b-964d-88bfff6957bf",
+      "name": "GumballSettings"
+    },
+    {
+      "id": "21480eb9-2997-45be-a306-ecdc1c2ae0d8",
+      "name": "HBar"
+    },
+    {
+      "id": "8ae6dd3c-be1f-4e19-ad99-c5fd6666eda9",
+      "name": "HandleCurve"
+    },
+    {
+      "id": "3551bf16-2d73-4dfb-9f94-110436ff1571",
+      "name": "Hatch"
+    },
+    {
+      "id": "9602c7f4-41e8-6554-4fa6-95c883e8d8bc",
+      "name": "HatchBase"
+    },
+    {
+      "id": "5e9dc5fe-6a99-47ec-bc4d-1ebb75d27207",
+      "name": "HatchScale"
+    },
+    {
+      "id": "9bc10030-f85c-3aeb-a41b-4feb2b52de1b",
+      "name": "HatchToSrf"
+    },
+    {
+      "id": "5593cf8a-ecfe-428d-a6ab-66c286fa3e83",
+      "name": "Heightfield"
+    },
+    {
+      "id": "3ab26135-d675-4215-b053-08686895d6b8",
+      "name": "Helix"
+    },
+    {
+      "id": "f0e67255-adc8-4991-b7e5-024991689846",
+      "name": "Help"
+    },
+    {
+      "id": "0dd840b7-95e2-4b8b-b8ca-c44304b775dd",
+      "name": "Hide"
+    },
+    {
+      "id": "a6e2b37a-4d99-44ee-a702-2d123c787f57",
+      "name": "HideInDetail"
+    },
+    {
+      "id": "8db22ada-753c-4d67-8d71-6fdd352b5a8f",
+      "name": "HidePt"
+    },
+    {
+      "id": "52e4a07c-9687-4681-99c6-8eac7181936b",
+      "name": "HideRenderMesh"
+    },
+    {
+      "id": "228354d7-b362-44f7-a0b6-291838acc948",
+      "name": "HideSwap"
+    },
+    {
+      "id": "34e5da30-ada1-39b9-a6ad-4784a7ff1d57",
+      "name": "HighlightObjectLayers"
+    },
+    {
+      "id": "4b224107-87df-4723-8226-2937ae09771f",
+      "name": "History"
+    },
+    {
+      "id": "c5299f91-c4b6-4a38-af54-85170e0c89c5",
+      "name": "HistoryPurge"
+    },
+    {
+      "id": "b32c4969-e60f-4790-ba79-fccd331c44da",
+      "name": "HistoryUpdate"
+    },
+    {
+      "id": "35c06260-18e0-43c8-ab7f-ff9add9cf6af",
+      "name": "Hydrostatics"
+    },
+    {
+      "id": "4556bf56-6d24-46e5-af15-f184af2eea4b",
+      "name": "Hyperbola"
+    },
+    {
+      "id": "d1c5d186-b788-4290-89f9-79e328aa3e1c",
+      "name": "IPlane"
+    },
+    {
+      "id": "0148b1ee-d92a-4271-9b1c-a79ffeb2b790",
+      "name": "Import"
+    },
+    {
+      "id": "09dc4e1a-3807-47f6-b4f1-03d62dbbb257",
+      "name": "ImportAnnotationStyles"
+    },
+    {
+      "id": "485d8089-0255-34d7-97ab-4b4e9705b522",
+      "name": "ImportEarthAnchorPoint"
+    },
+    {
+      "id": "4379c133-5af1-3bd0-9191-6b73bba44065",
+      "name": "ImportLAS"
+    },
+    {
+      "id": "49687a86-6b6c-483b-9cbb-06974fece51b",
+      "name": "ImportLayout"
+    },
+    {
+      "id": "c4d2e520-4509-398a-874d-99f045882b98",
+      "name": "ImportOSM"
+    },
+    {
+      "id": "a20116b3-9575-3ec7-9f6b-95a13a2ae6af",
+      "name": "ImportOsmFile"
+    },
+    {
+      "id": "051860d4-b830-3c6c-904e-cfb453062b85",
+      "name": "ImportXYZ"
+    },
+    {
+      "id": "a2f8cca9-5c71-4964-8f0f-9b551efc8dd1",
+      "name": "IncrementalSave"
+    },
+    {
+      "id": "41669f67-300d-3f75-b52d-373c4bdb1b24",
+      "name": "Insert"
+    },
+    {
+      "id": "f3d0b19f-af97-4944-ada8-72d03de53302",
+      "name": "InsertEdge"
+    },
+    {
+      "id": "e8fc3ea1-aa50-4344-883e-f7b1d397ab46",
+      "name": "InsertEditPoint"
+    },
+    {
+      "id": "b2bd9722-0a33-4a04-9a51-30ff1b002b56",
+      "name": "InsertKink"
+    },
+    {
+      "id": "ef2fdee3-5848-4bdc-864c-f9c262a9dbda",
+      "name": "InsertKnot"
+    },
+    {
+      "id": "7f353671-3360-49d3-a2a8-17686eb799db",
+      "name": "InsertLineIntoCrv"
+    },
+    {
+      "id": "ec20e213-832f-40d7-92a0-fd873a0dfbd4",
+      "name": "InsertPoint"
+    },
+    {
+      "id": "a103dd35-fcdf-4dd3-a055-bdbf3c89d78c",
+      "name": "Inset"
+    },
+    {
+      "id": "94f058e1-6dfb-3dbd-87c2-d787c2090ca2",
+      "name": "Insulation"
+    },
+    {
+      "id": "889ea7e2-5d18-4f49-98f6-e0e8f8a60a23",
+      "name": "InterpCrv"
+    },
+    {
+      "id": "d794e2aa-4165-4367-8dd9-2f3200f35e66",
+      "name": "InterpCrvOnSrf"
+    },
+    {
+      "id": "82ae6067-e058-4a0c-9f09-7266527cbb4f",
+      "name": "Intersect"
+    },
+    {
+      "id": "9d23a769-262d-4186-9333-d32888c0bdb8",
+      "name": "IntersectSelf"
+    },
+    {
+      "id": "27cc9e2b-974e-4de2-a36f-11e9d691804a",
+      "name": "IntersectTwoSets"
+    },
+    {
+      "id": "2bbb4873-6f1b-4511-b765-083b12e2723d",
+      "name": "Invert"
+    },
+    {
+      "id": "e870625b-3c36-4d70-879b-30662355a6c7",
+      "name": "InvertPt"
+    },
+    {
+      "id": "b677e212-7251-33c3-918f-563b6d54f851",
+      "name": "IsocurvesOff"
+    },
+    {
+      "id": "8894b3cf-1831-3bfd-923f-bfb48dc5f855",
+      "name": "Isolate"
+    },
+    {
+      "id": "e7e9d644-c7ac-3076-b05c-14875a01e877",
+      "name": "IsolateLock"
+    },
+    {
+      "id": "3bfabbf6-d45f-4993-a273-6e4acb2277b7",
+      "name": "Join"
+    },
+    {
+      "id": "e6547459-07d7-4fe9-87e0-ce2671013c7b",
+      "name": "JoinCopy"
+    },
+    {
+      "id": "177771c8-2937-4585-ac8f-5eb2c910e396",
+      "name": "JoinEdge"
+    },
+    {
+      "id": "e7388403-48ee-4377-a3ff-24ea5f765cc9",
+      "name": "Lasso"
+    },
+    {
+      "id": "85f8bfdf-abb0-4ea0-aa75-b1f0ee2ddfd7",
+      "name": "Layer"
+    },
+    {
+      "id": "ce2552a5-5244-4cbe-9899-fdb31a26cc2a",
+      "name": "LayerBook"
+    },
+    {
+      "id": "22df044a-d105-3379-a9fa-57895e61560b",
+      "name": "LayerHideAttached"
+    },
+    {
+      "id": "e513eee8-6ce9-3576-9fdb-ee3539097ac4",
+      "name": "LayerStateManager"
+    },
+    {
+      "id": "f4ef749f-6fe7-4391-9fc5-cc6260965764",
+      "name": "Layout"
+    },
+    {
+      "id": "e46d96cb-e823-4d86-8ce2-5304dd74bebe",
+      "name": "LayoutProperties"
+    },
+    {
+      "id": "3086e8be-a02e-3980-bc2c-fd8911440aa2",
+      "name": "Layouts"
+    },
+    {
+      "id": "98280924-2f66-349b-8877-3e9811e4dc2a",
+      "name": "Leader"
+    },
+    {
+      "id": "7a204c15-2bc9-4799-9a51-f82a99a3ded7",
+      "name": "Length"
+    },
+    {
+      "id": "e4e7c0f9-0181-4987-92bb-a4d9f9807dfb",
+      "name": "Libraries"
+    },
+    {
+      "id": "d726fdbc-eb87-365d-8641-92b4dc81516f",
+      "name": "LightMode"
+    },
+    {
+      "id": "27401324-cc53-47dd-848b-621d1b8ae78c",
+      "name": "Lights"
+    },
+    {
+      "id": "9ff3e3c5-9818-4e31-96bd-dfc8213b8897",
+      "name": "LimitReferenceModel"
+    },
+    {
+      "id": "3e85b54a-42aa-4ce1-87c9-3a5d7091d0bd",
+      "name": "Line"
+    },
+    {
+      "id": "2cb1bf3b-2a4e-3bab-aea5-eb1b78c30be2",
+      "name": "LineOfSight"
+    },
+    {
+      "id": "c3546497-e4e7-4709-816f-f7e6eb67bccc",
+      "name": "LineThroughPt"
+    },
+    {
+      "id": "c37e1c1b-241f-4dfb-b2c1-6cc05f84b043",
+      "name": "LinearLight"
+    },
+    {
+      "id": "a0344a25-9be5-4da7-a457-f5d8145e5eec",
+      "name": "Lines"
+    },
+    {
+      "id": "8e4076b3-4fd3-4ded-acc2-f2a83fe9d7d3",
+      "name": "LinetypeDisplay"
+    },
+    {
+      "id": "ac6aedf8-8bf8-3933-a21f-b80c0c753f13",
+      "name": "Linetypes"
+    },
+    {
+      "id": "afe4f161-e2bc-42f3-b250-e2ef84872e50",
+      "name": "List"
+    },
+    {
+      "id": "f386d8c6-4a0c-4e75-9f63-fd6dab08d761",
+      "name": "Lock"
+    },
+    {
+      "id": "e061fd72-1029-45f2-8c30-7f138e983ade",
+      "name": "LockSwap"
+    },
+    {
+      "id": "e6a539e0-6b90-4978-acd7-896b193da266",
+      "name": "LockViewport"
+    },
+    {
+      "id": "1dd68b44-f04a-49a5-9732-545396545ff5",
+      "name": "Loft"
+    },
+    {
+      "id": "f7fe4286-e031-394b-868b-d9cf83517d92",
+      "name": "Login"
+    },
+    {
+      "id": "e552aea2-759f-3327-ba1e-fd738ec53d48",
+      "name": "Logout"
+    },
+    {
+      "id": "a2b6fe36-461d-4260-a892-493eac72cdfd",
+      "name": "MacroEditor"
+    },
+    {
+      "id": "1bb8d51d-b084-3081-b5d8-05b5573ca409",
+      "name": "Macros"
+    },
+    {
+      "id": "e7179e89-a787-4553-9379-e427d5378cfb",
+      "name": "Maelstrom"
+    },
+    {
+      "id": "e7a3e3f1-3203-33c1-8186-6754cf48b75c",
+      "name": "Make2D"
+    },
+    {
+      "id": "c2e93d5f-124f-48cf-a6fa-749b9f37fbf6",
+      "name": "MakeNonPeriodic"
+    },
+    {
+      "id": "51cdc746-ae9c-4223-97ce-8d27b3b9a410",
+      "name": "MakePeriodic"
+    },
+    {
+      "id": "6be5d99d-f8d4-48d4-b99b-74356662ad96",
+      "name": "MakeSubDFriendly"
+    },
+    {
+      "id": "fa7b88c8-1fba-43ee-a218-7a7823c1a2ff",
+      "name": "MakeUniform"
+    },
+    {
+      "id": "5c0c50e2-1afc-4107-92f5-cf55e1a11dd6",
+      "name": "MakeUniformUV"
+    },
+    {
+      "id": "6964418e-f6bd-4592-aefa-51a1e1ccc8d5",
+      "name": "MappingWidget"
+    },
+    {
+      "id": "2af60a0b-9d5e-490a-9957-aade0917af28",
+      "name": "MappingWidgetOff"
+    },
+    {
+      "id": "85a57ab9-9913-48df-b1f4-ac1e182939ac",
+      "name": "MarkFoci"
+    },
+    {
+      "id": "4eb429ab-dd5b-42f2-8cfb-f660dabfbc3a",
+      "name": "Match"
+    },
+    {
+      "id": "d7cad614-2862-4654-afaf-ce9ae2f1b032",
+      "name": "MatchAnnotation"
+    },
+    {
+      "id": "3aa7f64c-f4b2-4968-a6a9-d9a11e389994",
+      "name": "MatchLayer"
+    },
+    {
+      "id": "e69b6a0b-a57b-4ab4-b553-336e5608d73e",
+      "name": "MatchMapping"
+    },
+    {
+      "id": "c35abee8-0ff5-473a-94cd-fb9e372c581e",
+      "name": "MatchProperties"
+    },
+    {
+      "id": "30197725-25e8-4b21-8626-87cc4243d48c",
+      "name": "MatchSrf"
+    },
+    {
+      "id": "82b93b59-18dc-47b8-8d00-875173a561e1",
+      "name": "Materials"
+    },
+    {
+      "id": "17bb5ee8-8cab-45cb-9936-349cc3b69d30",
+      "name": "MaxViewport"
+    },
+    {
+      "id": "65e6591c-c155-49ca-acf6-5b9bc67c1064",
+      "name": "Maximize"
+    },
+    {
+      "id": "8ed15f6e-163d-33a8-aae7-3197e2662b6d",
+      "name": "Menus"
+    },
+    {
+      "id": "58c2e53b-b98f-4acd-abcc-fa8b04730897",
+      "name": "MergeAllCoplanarFaces"
+    },
+    {
+      "id": "57989c3d-f854-4a1d-adb8-796cf63fc650",
+      "name": "MergeAllEdges"
+    },
+    {
+      "id": "4a84ac09-964b-4e17-98c8-5e7c9be7153e",
+      "name": "MergeCoplanarFace"
+    },
+    {
+      "id": "01f2e499-72bd-4e0b-9fae-cfb14de85af4",
+      "name": "MergeCrv"
+    },
+    {
+      "id": "26736ce4-f998-4074-9ffd-49452d00647c",
+      "name": "MergeEdge"
+    },
+    {
+      "id": "4a5620ed-0e34-45ef-be06-259864643bfe",
+      "name": "MergeFaces"
+    },
+    {
+      "id": "10ba75c3-0ed7-4d7c-8299-7bf1f879a3c5",
+      "name": "MergeSrf"
+    },
+    {
+      "id": "572fb17e-e74b-49b9-b721-d45e71ab385d",
+      "name": "Mesh"
+    },
+    {
+      "id": "08c48721-4c23-3b8a-85b1-ff89f33534cc",
+      "name": "MeshBooleanDifference"
+    },
+    {
+      "id": "98a9c210-8256-3bdf-ae2d-62c944d9574d",
+      "name": "MeshBooleanIntersection"
+    },
+    {
+      "id": "fe20c7e4-0e4d-317e-8cb5-ef36386d079a",
+      "name": "MeshBooleanSplit"
+    },
+    {
+      "id": "2831a94e-0647-32d4-a315-e57df9cb2120",
+      "name": "MeshBooleanUnion"
+    },
+    {
+      "id": "8ffe0070-1685-32f1-aa7e-5b15544da179",
+      "name": "MeshBox"
+    },
+    {
+      "id": "bc75ce07-5610-423a-b613-78cc69182d37",
+      "name": "MeshCone"
+    },
+    {
+      "id": "1c9f663c-4986-4b4b-a306-0bac01ca72da",
+      "name": "MeshCylinder"
+    },
+    {
+      "id": "c4a72cb8-5b97-42a2-8316-bea039b72f96",
+      "name": "MeshEllipsoid"
+    },
+    {
+      "id": "a17c3feb-2bb3-32a6-aafc-ddb8de0030ea",
+      "name": "MeshFromLines"
+    },
+    {
+      "id": "58c28f00-3327-3c54-9a0e-7b4d171718a7",
+      "name": "MeshIntersect"
+    },
+    {
+      "id": "8e044eef-63e7-45cc-a269-1b87c845a84e",
+      "name": "MeshOutline"
+    },
+    {
+      "id": "b82353f4-3c3c-4539-a644-7b621401b9c4",
+      "name": "MeshPatch"
+    },
+    {
+      "id": "77e49f41-6c38-354f-a9b8-68efccf87d8a",
+      "name": "MeshPlane"
+    },
+    {
+      "id": "d81a9715-82be-45b2-8f9a-9f0b705be029",
+      "name": "MeshPolyline"
+    },
+    {
+      "id": "6a248ed0-95c3-4d59-899b-9d9969d00392",
+      "name": "MeshRepair"
+    },
+    {
+      "id": "d9e83af3-1964-3b22-b911-1786b2500c80",
+      "name": "MeshSelfIntersect"
+    },
+    {
+      "id": "4daa5315-f55a-4688-a210-c546704393b1",
+      "name": "MeshSphere"
+    },
+    {
+      "id": "c8d98626-ba78-3fcc-b4d5-03652916a208",
+      "name": "MeshSplit"
+    },
+    {
+      "id": "2d271ba5-ac92-4088-8e11-7e67d3d5507e",
+      "name": "MeshToNURB"
+    },
+    {
+      "id": "6b05863d-900e-4f84-a05a-aa43b6f1b93f",
+      "name": "MeshTorus"
+    },
+    {
+      "id": "30dcd7a1-5b55-4646-a93f-8047ec58e8ca",
+      "name": "MeshTrim"
+    },
+    {
+      "id": "7f2dd3b2-61b6-40cc-95db-792dfdccc1a7",
+      "name": "MeshTruncatedCone"
+    },
+    {
+      "id": "0b68b5a9-3453-39dd-b909-78897c9710c1",
+      "name": "MigratePlugIns"
+    },
+    {
+      "id": "c096331a-64f7-4585-aa0a-23c77adca5f0",
+      "name": "Minimize"
+    },
+    {
+      "id": "9633741c-0065-400a-8439-83a550c7d4df",
+      "name": "Mirror"
+    },
+    {
+      "id": "f03a0420-dd7c-4cfe-9a35-01ad81adbc8e",
+      "name": "ModelBasepoint"
+    },
+    {
+      "id": "4a660200-5003-4ff4-b245-49ef2a6fc6d9",
+      "name": "Move"
+    },
+    {
+      "id": "2cce8425-c27a-4cbd-a026-1109f16fb099",
+      "name": "MoveExtractedIsocurve"
+    },
+    {
+      "id": "8bcb2831-ce52-479b-a4d7-71e8a9f58501",
+      "name": "MoveTargetToObjects"
+    },
+    {
+      "id": "7aa63058-540e-36f6-bf0b-934f22734678",
+      "name": "MoveToCPlane"
+    },
+    {
+      "id": "af0c7207-286f-375b-9c7a-fc5d010929a7",
+      "name": "MoveToSrf"
+    },
+    {
+      "id": "26f85442-2d8c-3636-abc3-628057f6911e",
+      "name": "MoveUVN"
+    },
+    {
+      "id": "31fdb529-468b-4242-b36f-cad1bb824287",
+      "name": "MultiPause"
+    },
+    {
+      "id": "33b00d05-4d7b-3f53-9684-579598e892f2",
+      "name": "MultiPipe"
+    },
+    {
+      "id": "df18efa5-42ef-4ae4-8b61-84fa5f6abd79",
+      "name": "NamedCPlane"
+    },
+    {
+      "id": "9ccafdc8-82cf-3424-ab30-6281a829b382",
+      "name": "NamedSelections"
+    },
+    {
+      "id": "364ad3eb-cd47-415a-9b46-2026bae926f6",
+      "name": "NamedView"
+    },
+    {
+      "id": "31fdf3e2-15a7-4002-aa55-82390e5651d9",
+      "name": "NestedClippingDrawing"
+    },
+    {
+      "id": "e452a0bb-4547-4111-b143-7bd31c19f60b",
+      "name": "NetworkSrf"
+    },
+    {
+      "id": "041e97d4-20c0-4704-9938-93ad15b4bca5",
+      "name": "New"
+    },
+    {
+      "id": "af631aa6-6ea7-4303-924b-c254a96c8c82",
+      "name": "NewFloatingViewport"
+    },
+    {
+      "id": "d62f0852-79cc-4955-998f-38b38a1a7e3b",
+      "name": "NewViewport"
+    },
+    {
+      "id": "34f4b4dc-fa8c-456e-8860-1722236e4f3f",
+      "name": "NextOrthoViewport"
+    },
+    {
+      "id": "052325cc-caae-4cc7-afd6-a6af03ca7777",
+      "name": "NextPerspectiveViewport"
+    },
+    {
+      "id": "5e5d2200-65cd-4b2c-b888-31be7b8df116",
+      "name": "NextU"
+    },
+    {
+      "id": "1832bb53-501e-497e-98eb-b4a8ef3d4ade",
+      "name": "NextV"
+    },
+    {
+      "id": "bfc38ec8-61f2-4009-9ec3-aa59fd8cbb06",
+      "name": "NextViewport"
+    },
+    {
+      "id": "ad47a1c3-d25a-494e-bae4-aad07e8ff7f4",
+      "name": "NextViewportToTop"
+    },
+    {
+      "id": "5d392474-9e59-4c63-ad9c-e345fdf12293",
+      "name": "NoEcho"
+    },
+    {
+      "id": "d958d935-869a-48b6-b1e5-4a306970dccc",
+      "name": "NonmanifoldMerge"
+    },
+    {
+      "id": "89ac476d-1f0e-467e-a786-5d45836b12d4",
+      "name": "Notes"
+    },
+    {
+      "id": "c851a52a-d2d0-3913-bac8-ed117c59a91a",
+      "name": "Notifications"
+    },
+    {
+      "id": "c48b770d-5cf2-48c9-b835-65b6da1a1667",
+      "name": "Offset"
+    },
+    {
+      "id": "5a2d2f8f-6f87-4df1-97ab-bef8fc6e8e7f",
+      "name": "OffsetCrvOnSrf"
+    },
+    {
+      "id": "51e2d823-e66c-32fd-bd25-d1d48eba0525",
+      "name": "OffsetMesh"
+    },
+    {
+      "id": "69efb221-b7eb-4482-b76d-74b81e9e75a7",
+      "name": "OffsetMultiple"
+    },
+    {
+      "id": "c3bce5a8-5ce7-3a32-9059-3d76953b2ef0",
+      "name": "OffsetNormal"
+    },
+    {
+      "id": "d833bf81-e144-4bb1-977d-47bb7ec29ca6",
+      "name": "OffsetSrf"
+    },
+    {
+      "id": "12a6e19e-8eb5-4926-86a1-0a8169d35355",
+      "name": "OffsetSubD"
+    },
+    {
+      "id": "7e270620-0567-42f1-811a-73afaf5b9fc2",
+      "name": "OneLayerOff"
+    },
+    {
+      "id": "a132ffb5-f6f2-46f4-b911-c6d82bc0e1f5",
+      "name": "OneLayerOn"
+    },
+    {
+      "id": "3ce43053-7c71-3531-86f9-86b1175eb118",
+      "name": "OneView"
+    },
+    {
+      "id": "00a431ae-26ce-402b-bdb7-913a959455e8",
+      "name": "Open"
+    },
+    {
+      "id": "8cebf667-053a-3d01-a041-cdcbcee3c71d",
+      "name": "OpenEmbeddedWorksession"
+    },
+    {
+      "id": "8f046da0-8e44-364d-b4d4-7bafebf3c009",
+      "name": "OpenFromCentral"
+    },
+    {
+      "id": "a3b75f81-58a2-4c73-98e0-fdefb935e2c5",
+      "name": "OpenURL"
+    },
+    {
+      "id": "a847e78c-c040-3cfd-a27a-c5a6b6c34bca",
+      "name": "OpenWorksessionSpecify"
+    },
+    {
+      "id": "3bdfdbf9-85c4-4416-b621-d951a7e213c4",
+      "name": "Options"
+    },
+    {
+      "id": "6a6a5c78-3736-3acc-aef1-8c35e9aeab20",
+      "name": "OptionsExport"
+    },
+    {
+      "id": "073230b5-19c5-3959-8781-50093073ddc3",
+      "name": "OptionsImport"
+    },
+    {
+      "id": "b86babd9-161a-4e8a-a66c-39f2ea1581a3",
+      "name": "OptionsPage"
+    },
+    {
+      "id": "49ecae3b-c932-4f2e-98b9-5c9d6b5f01e5",
+      "name": "Orient"
+    },
+    {
+      "id": "acedc68f-d51f-42e6-b72e-1e7c9529391a",
+      "name": "Orient3Pt"
+    },
+    {
+      "id": "13d58677-468a-3fdb-ae74-c61fc19aed58",
+      "name": "OrientCameraToClippingPlane"
+    },
+    {
+      "id": "cd2ef810-2023-409f-b291-1a8fc6bdd8e9",
+      "name": "OrientCameraToSrf"
+    },
+    {
+      "id": "709c1e3e-6c69-4bcc-b0ba-d28b88cc4d51",
+      "name": "OrientCrvToEdge"
+    },
+    {
+      "id": "c4b43434-3b43-4db2-9f7b-de1c567d066c",
+      "name": "OrientOnCrv"
+    },
+    {
+      "id": "2be93f97-4107-426b-8ec1-5b491fadbdff",
+      "name": "OrientOnSrf"
+    },
+    {
+      "id": "09c10b5f-02e5-3662-919f-3979713a79a6",
+      "name": "OrientToNamedCplane"
+    },
+    {
+      "id": "1ab123dd-3048-32e2-8ca3-9403f643a51a",
+      "name": "OrientToObjects"
+    },
+    {
+      "id": "98e50225-89d7-4e7f-90fb-9061b1e2d9cf",
+      "name": "Ortho"
+    },
+    {
+      "id": "9c1c97c6-71eb-4926-9246-0c49fa885cd8",
+      "name": "OrthoAngle"
+    },
+    {
+      "id": "624edfc9-77ce-409d-80c5-ccec68b4b01f",
+      "name": "OrthoSnapToCPlaneZ"
+    },
+    {
+      "id": "7e22daeb-3ae6-44f5-8b36-ce2fe6c5b981",
+      "name": "Osnap"
+    },
+    {
+      "id": "d740eb78-e167-4edd-8d14-476a70cd3e91",
+      "name": "PackSubDFaces"
+    },
+    {
+      "id": "81bd0883-c30d-4c0e-9e2e-4af3eff70a26",
+      "name": "PackTextures"
+    },
+    {
+      "id": "04ddba84-3dc1-36ab-bf4a-0d46180dbc8a",
+      "name": "PackageManager"
+    },
+    {
+      "id": "b9af6114-0b4b-489c-8745-6b584d5a9953",
+      "name": "Pan"
+    },
+    {
+      "id": "8e4bd184-272a-4647-8da0-e89f24aaf45c",
+      "name": "Parabola"
+    },
+    {
+      "id": "db244c8b-8fb2-4c84-9b61-7b1f6bae226c",
+      "name": "Parabola3Pt"
+    },
+    {
+      "id": "ce247694-2c1b-4a1e-9111-e13dae9d1767",
+      "name": "Paraboloid"
+    },
+    {
+      "id": "a54d576c-65dd-44f7-b2f8-1d1009e06d7c",
+      "name": "Paste"
+    },
+    {
+      "id": "8027f680-3645-4efa-a3c1-34768c386ba6",
+      "name": "PasteToCplane"
+    },
+    {
+      "id": "cdef68ad-fb2c-4c95-b581-7a932f0d09fb",
+      "name": "Patch"
+    },
+    {
+      "id": "fa082656-0ec1-47d3-89ee-978010640bca",
+      "name": "PatchSingleFace"
+    },
+    {
+      "id": "1982efaf-e638-4a75-8e09-0ed1f39ae023",
+      "name": "Pause"
+    },
+    {
+      "id": "da4d4037-5b66-3ad9-9eb9-df7129ba7210",
+      "name": "Perforations"
+    },
+    {
+      "id": "b548168e-588c-4de1-9b08-d980027cf685",
+      "name": "PerspectiveAngle"
+    },
+    {
+      "id": "302c9cf5-fbd5-4edf-9225-df17254be050",
+      "name": "PerspectiveMatch"
+    },
+    {
+      "id": "d43d9f77-17f3-4275-9822-7e0119ff9498",
+      "name": "Picture"
+    },
+    {
+      "id": "1f920a90-d1f3-4db6-979a-37c45e59fa7a",
+      "name": "Pipe"
+    },
+    {
+      "id": "8cf7c875-e221-447a-bbbd-42e78b607f47",
+      "name": "Plan"
+    },
+    {
+      "id": "80b96e1f-d63c-4231-8ffa-3e71280f4976",
+      "name": "Planar"
+    },
+    {
+      "id": "4e23e45a-fdb6-30d5-8c76-9dda78188f3e",
+      "name": "PlanarDifference"
+    },
+    {
+      "id": "f5472562-b54b-300f-94db-51c706fc95b3",
+      "name": "PlanarIntersection"
+    },
+    {
+      "id": "986aef2e-9167-450a-a969-6a65b5b51f18",
+      "name": "PlanarMesh"
+    },
+    {
+      "id": "100fe229-a357-472a-9a2d-ae837cc48883",
+      "name": "PlanarSrf"
+    },
+    {
+      "id": "a44e182a-1928-3533-89c4-27e0f0b3051c",
+      "name": "PlanarUnion"
+    },
+    {
+      "id": "16c101af-b297-4821-bee0-1abbbb310e40",
+      "name": "Plane"
+    },
+    {
+      "id": "e729805f-cfdf-4692-83a9-15a6aacd8c8d",
+      "name": "PlaneThroughPt"
+    },
+    {
+      "id": "e9f9d678-54e2-36f9-84e6-f910eae6d460",
+      "name": "PlansFromLines"
+    },
+    {
+      "id": "4820dbe8-0116-3a20-8803-0f37c54246b7",
+      "name": "PlansFromNamedCPlanes"
+    },
+    {
+      "id": "f92edb3b-069f-3e98-aa20-fd045d77391d",
+      "name": "PlansFromRectangles"
+    },
+    {
+      "id": "a3c50de9-4a11-3eea-9c75-30285f9b6c5c",
+      "name": "Point"
+    },
+    {
+      "id": "96821a98-c746-4062-b570-277e724a8e83",
+      "name": "PointCloud"
+    },
+    {
+      "id": "c34484d8-0d11-3039-9746-eedb5357a58a",
+      "name": "PointCloudColor"
+    },
+    {
+      "id": "1a16e4bb-a733-4ff1-a78e-3ad199226f4b",
+      "name": "PointCloudContour"
+    },
+    {
+      "id": "b85aca64-3eb6-4bb1-99cb-c8c6f916d77e",
+      "name": "PointCloudSection"
+    },
+    {
+      "id": "b89250bb-dfc2-323b-98f9-b10b72360fda",
+      "name": "PointDeviation"
+    },
+    {
+      "id": "3787b86c-f4e3-3b15-80da-1a003dcf8ac6",
+      "name": "PointGrid"
+    },
+    {
+      "id": "7dd6383b-b9e0-4413-989e-2b82ac7fbffb",
+      "name": "PointLight"
+    },
+    {
+      "id": "e326435d-7a9a-353d-914b-80aa05c797ab",
+      "name": "Points"
+    },
+    {
+      "id": "ab7a8009-c1f5-4fa4-b0a4-9897c23e6cb8",
+      "name": "PointsFromUV"
+    },
+    {
+      "id": "c353c249-219c-4d57-ac72-5dca35c493d6",
+      "name": "PointsOff"
+    },
+    {
+      "id": "4ef3aaf7-ff4c-41af-881a-4920f9530c2b",
+      "name": "PointsOn"
+    },
+    {
+      "id": "c76fbeb0-26d7-335a-ad12-f96d950f0beb",
+      "name": "Polygon"
+    },
+    {
+      "id": "faa467b7-6730-455e-b4e6-aba91dab64b0",
+      "name": "PolygonCount"
+    },
+    {
+      "id": "1ddf1462-eb0b-4e59-9975-0d810a00192c",
+      "name": "Polyline"
+    },
+    {
+      "id": "6deedd80-a80e-49e8-ae2f-9aa6df68c1d5",
+      "name": "PolylineOnMesh"
+    },
+    {
+      "id": "3cbd9aea-81f3-44fb-a883-b3242a0a599d",
+      "name": "PopupMenu"
+    },
+    {
+      "id": "e3b2567d-eae5-4d15-972f-b1b60222b3e8",
+      "name": "PopupPopular"
+    },
+    {
+      "id": "b2d7d0db-4345-3e37-87a8-5bcc29691d2f",
+      "name": "PopupToolbar"
+    },
+    {
+      "id": "199c9ad6-421c-4319-912e-f45b4f972385",
+      "name": "PrevU"
+    },
+    {
+      "id": "48a3cdc7-354b-4b25-bea7-8eb2e057c5ad",
+      "name": "PrevV"
+    },
+    {
+      "id": "39710f6f-9d20-4873-ae1b-ce3faf0d1aa1",
+      "name": "PrevViewport"
+    },
+    {
+      "id": "0bf80f53-bd10-417b-b179-76db532db91f",
+      "name": "Print"
+    },
+    {
+      "id": "8ab1adcc-bc9f-4dbb-8623-d1d57a40c506",
+      "name": "PrintDisplay"
+    },
+    {
+      "id": "9cf297b4-0241-31a8-a804-609566d49212",
+      "name": "PrintLayerStatesPDF"
+    },
+    {
+      "id": "d14324fc-0b27-3da5-ad53-a1faae1d6ec9",
+      "name": "PrintLayerStatesPNG"
+    },
+    {
+      "id": "1ea249e6-de0f-3d97-92fb-37cb84ff6dfe",
+      "name": "PrintSections"
+    },
+    {
+      "id": "99074925-7be3-43bb-9c61-4a4db2401169",
+      "name": "Project"
+    },
+    {
+      "id": "1e04c6cd-f46e-36be-ad22-135b716b94ca",
+      "name": "ProjectCornersToMesh"
+    },
+    {
+      "id": "59be2804-4cbc-48dd-afab-e5efa9504eeb",
+      "name": "ProjectOsnap"
+    },
+    {
+      "id": "129ae62d-9d7f-4c9d-84c7-c525f37b3c5d",
+      "name": "ProjectToCPlane"
+    },
+    {
+      "id": "b18709bd-dae1-4b39-a8b5-d759f3c99a70",
+      "name": "Properties"
+    },
+    {
+      "id": "52acf138-b8b8-477d-a30a-fdf3befb1c55",
+      "name": "PropertiesPage"
+    },
+    {
+      "id": "5538ec4a-eb45-4de0-9f74-2b6f4062b8d2",
+      "name": "PtOffSelected"
+    },
+    {
+      "id": "1d6a1bfe-a10f-400c-b8fe-72cc346493de",
+      "name": "Pull"
+    },
+    {
+      "id": "5b239350-0fa5-4760-9ab5-d32c9a5712f0",
+      "name": "Purge"
+    },
+    {
+      "id": "ac36b8df-5739-48c5-82a3-40345f4632e8",
+      "name": "PurgeRefObjects"
+    },
+    {
+      "id": "af5bcf07-2e7a-45cd-a560-7aad1cbe9c49",
+      "name": "PushPull"
+    },
+    {
+      "id": "9bdf52b6-5917-4de1-b714-3aa3d659be17",
+      "name": "PushViewportToBack"
+    },
+    {
+      "id": "d987f94f-56d3-4a27-b17f-46edf4f2c0f1",
+      "name": "Pyramid"
+    },
+    {
+      "id": "b75061a0-88e1-312e-8806-700017072985",
+      "name": "QuadrangulateMesh"
+    },
+    {
+      "id": "83681faf-b25a-3d10-9c48-57e0367e3c88",
+      "name": "RLeaderEdit"
+    },
+    {
+      "id": "00e92652-2407-3dd4-8a8f-7c7f1fceae2f",
+      "name": "RTextEdit"
+    },
+    {
+      "id": "bac9577d-4ed2-4733-a81d-1b72fcd0170b",
+      "name": "Radiate"
+    },
+    {
+      "id": "d3497b6c-7853-442d-a190-29eb3134459d",
+      "name": "RadiateFind"
+    },
+    {
+      "id": "66dbdb87-488e-4003-b02c-f67c5167d553",
+      "name": "Radius"
+    },
+    {
+      "id": "4ba7336e-b3a3-4229-aa78-8f6281cee3fb",
+      "name": "RailRevolve"
+    },
+    {
+      "id": "15572f31-6b5d-312d-8aca-9bbcdf3002d8",
+      "name": "RampToStairs"
+    },
+    {
+      "id": "eb2522fd-be3f-391b-bcd3-7586023237bc",
+      "name": "RandomMaterial"
+    },
+    {
+      "id": "1484fe14-3240-4a86-bea7-6cc9860ea1a0",
+      "name": "ReadCommandFile"
+    },
+    {
+      "id": "3c285771-ddf9-4825-b104-189229d9d535",
+      "name": "ReadViewportsFromFile"
+    },
+    {
+      "id": "38b1b57f-e62b-4d8e-82df-563d34671a67",
+      "name": "Rebuild"
+    },
+    {
+      "id": "8e3b94f7-0fc1-455c-accb-ac9a7cce6c1d",
+      "name": "RebuildCrvNonUniform"
+    },
+    {
+      "id": "e23d82ec-9782-4548-b77a-d077dc8d190d",
+      "name": "RebuildEdges"
+    },
+    {
+      "id": "501e595c-0bca-4b99-96bb-929b001c36cb",
+      "name": "RebuildUV"
+    },
+    {
+      "id": "d9d05a87-6b41-3d41-9bb6-60c402917761",
+      "name": "RecordAnimation"
+    },
+    {
+      "id": "33c7ab1c-6916-4df5-af3a-0b7ee70fb226",
+      "name": "Rectangle"
+    },
+    {
+      "id": "72f62635-81f9-4216-9c0f-6ec8a9058fa4",
+      "name": "RectangularLight"
+    },
+    {
+      "id": "ef0c2bc3-94da-403e-894d-f36b6ffe7cea",
+      "name": "Redo"
+    },
+    {
+      "id": "210866de-d204-4c27-8dd1-830e9a8f5a69",
+      "name": "RedoMultiple"
+    },
+    {
+      "id": "b4cbc72f-4953-4366-9df3-0c5a21594d4e",
+      "name": "RedoView"
+    },
+    {
+      "id": "91e01b95-304d-3597-ae93-d4494fc49051",
+      "name": "ReduceMesh"
+    },
+    {
+      "id": "fb862d60-8ed4-3800-a399-e84fae6400f8",
+      "name": "ReducePointCloud"
+    },
+    {
+      "id": "d189e440-f500-32e2-bb48-926190cb8dd1",
+      "name": "ReducePolyline"
+    },
+    {
+      "id": "5297eadf-c62a-3256-b99e-c8b212ab082f",
+      "name": "ReducePolysrf"
+    },
+    {
+      "id": "6fa15380-6ed6-3aca-a830-3e0816707c41",
+      "name": "RefitTrim"
+    },
+    {
+      "id": "05db4edc-1883-4385-956c-e57503c6ba8a",
+      "name": "Reflect"
+    },
+    {
+      "id": "c6c227bc-2964-4700-8824-6254a0636f71",
+      "name": "RefreshAllTextures"
+    },
+    {
+      "id": "14da71dd-214a-4127-9b3b-463414be7cfd",
+      "name": "RefreshShade"
+    },
+    {
+      "id": "ec22cd3a-f0a7-3de5-9117-9e65d0c4f004",
+      "name": "Regen"
+    },
+    {
+      "id": "9e761fc1-12cd-421c-812a-8034f25b5155",
+      "name": "ReleaseFromCage"
+    },
+    {
+      "id": "dcb9bae8-9740-495d-bd2d-e81ecaeb2c87",
+      "name": "RemapCPlane"
+    },
+    {
+      "id": "a34acd14-d254-4a62-b8f9-712bb32fb214",
+      "name": "RememberCopyOptions"
+    },
+    {
+      "id": "f14d5757-34ec-412f-a2a0-e2d146f1203a",
+      "name": "RemoveAllNakedMicroEdges"
+    },
+    {
+      "id": "8505cdbb-2c0f-47c7-b481-9e5a7a0c949c",
+      "name": "RemoveCrease"
+    },
+    {
+      "id": "4fc79b95-888c-4d43-b8e2-83666c25b6b7",
+      "name": "RemoveFromGroup"
+    },
+    {
+      "id": "ab1792d6-4762-4fa8-a5d0-eed0a817d046",
+      "name": "RemoveGuide"
+    },
+    {
+      "id": "8b0c6f6e-7bf8-4aaf-b02a-eccf5fb7d836",
+      "name": "RemoveKnot"
+    },
+    {
+      "id": "5fe0a7ce-d08e-4286-8bed-5fb117494db9",
+      "name": "RemoveMappingChannel"
+    },
+    {
+      "id": "afb7cc1b-02cb-4288-a36e-335a732dcfa0",
+      "name": "RemoveMultiKnot"
+    },
+    {
+      "id": "8b288380-5175-40ca-9e2e-f889694f23cd",
+      "name": "RemovePerFaceColors"
+    },
+    {
+      "id": "fec0dd91-ee41-4b95-85c9-7526fb3b4af0",
+      "name": "RemoveSymmetry"
+    },
+    {
+      "id": "f7dbdc88-b6a6-4ff1-ab51-692e849053de",
+      "name": "Render"
+    },
+    {
+      "id": "dd34e1ac-eab1-4720-b9b4-112e0f561097",
+      "name": "RenderArctic"
+    },
+    {
+      "id": "8ac06c54-0c8f-4904-8cab-0c27df88420b",
+      "name": "RenderAssignMaterialToLayer"
+    },
+    {
+      "id": "75bdbfb1-96d0-4814-9a0b-dedbf8fa47e9",
+      "name": "RenderAssignMaterialToLayersOfObjects"
+    },
+    {
+      "id": "6d8fdae8-b5d3-4559-8999-9b8aa084fa22",
+      "name": "RenderAssignMaterialToObjects"
+    },
+    {
+      "id": "5f8dc4e0-2f1f-44aa-813c-4784f58e7f8a",
+      "name": "RenderBlowup"
+    },
+    {
+      "id": "5cd4a1bd-f7ec-4bb0-8133-247f895be72c",
+      "name": "RenderInWindow"
+    },
+    {
+      "id": "ce1cce1c-01db-415d-844e-49b8d94d0e9a",
+      "name": "RenderMergeIdenticalMaterials"
+    },
+    {
+      "id": "8b618dc6-a2e1-463f-ada0-30573049dc8a",
+      "name": "RenderOpenLastRendering"
+    },
+    {
+      "id": "5c11077b-4ae2-4432-a4a8-9c904159959f",
+      "name": "RenderOpenRenderImage"
+    },
+    {
+      "id": "2368dbf1-aef3-44fd-ba9a-cec84ea30e0a",
+      "name": "RenderPreview"
+    },
+    {
+      "id": "b1950030-0441-49a6-8375-f3d7295c7971",
+      "name": "RenderPreviewInWindow"
+    },
+    {
+      "id": "f6b340e4-4773-45d5-826f-9712a4752092",
+      "name": "RenderPreviewWindow"
+    },
+    {
+      "id": "88ce1eae-69c5-4d4f-813b-7cf8b1099595",
+      "name": "RenderReportImageFiles"
+    },
+    {
+      "id": "327c48df-ee1e-4d50-865a-2ae03ea23472",
+      "name": "RenderReportMissingImageFiles"
+    },
+    {
+      "id": "7ae57776-d34e-4491-9c05-cc28b82bf9b1",
+      "name": "RenderWindow"
+    },
+    {
+      "id": "91a3301a-adde-445e-b664-9f9d215e87ac",
+      "name": "Rendering"
+    },
+    {
+      "id": "0b6f01df-08a3-4c65-99e1-489d494f69ea",
+      "name": "RepairSubD"
+    },
+    {
+      "id": "a7a13322-ffea-45e2-9949-337b23b8b2d4",
+      "name": "Reparameterize"
+    },
+    {
+      "id": "fe301b67-64b9-40ee-8396-dde013efd4a2",
+      "name": "Repeat"
+    },
+    {
+      "id": "9aa26c49-f803-4607-a35d-6a5d8fe456dc",
+      "name": "ReplaceBlock"
+    },
+    {
+      "id": "16ca8c0d-a010-40a9-a119-f4d0c05948f5",
+      "name": "ReportProblem"
+    },
+    {
+      "id": "d212b954-d2ea-477c-99c3-43d34e88edcb",
+      "name": "Rescue3dmFile"
+    },
+    {
+      "id": "d7801261-4209-49e8-a172-016f52aa3a64",
+      "name": "RescueBlockOrphans"
+    },
+    {
+      "id": "cb96e10b-b069-33c4-b577-c91d91d670d6",
+      "name": "Reset"
+    },
+    {
+      "id": "25cdac0d-a01a-40aa-b11b-f4dcc05928c5",
+      "name": "ResetMessageBoxes"
+    },
+    {
+      "id": "d531ea17-2878-47d5-bd4c-de3cc8e232e8",
+      "name": "Restore"
+    },
+    {
+      "id": "9228c46e-2f7e-4873-a5d7-0a697a2b03fd",
+      "name": "Revolve"
+    },
+    {
+      "id": "668d14e6-70b6-4d67-a9e4-9cfb06161ca2",
+      "name": "Ribbon"
+    },
+    {
+      "id": "5c53390d-caf0-3fbc-a9d4-243aed94cf99",
+      "name": "RibbonMultiple"
+    },
+    {
+      "id": "2adbfedf-42c3-3475-a2e4-0fb4a69d4e7e",
+      "name": "RibbonOffset"
+    },
+    {
+      "id": "20c0fdd2-a047-3f87-bbf4-92bf11561e57",
+      "name": "RoadwayRamp"
+    },
+    {
+      "id": "59fa8823-e16d-4f27-8af7-9c8232ce7638",
+      "name": "Rotate"
+    },
+    {
+      "id": "c09faa6a-4163-4ad0-bb16-70e5451181f7",
+      "name": "Rotate3D"
+    },
+    {
+      "id": "7cda1cc0-e781-40e2-a08d-3613a06cb936",
+      "name": "RotateCamera"
+    },
+    {
+      "id": "99709485-0650-4e8b-a165-376d6c4bc54e",
+      "name": "RotateView"
+    },
+    {
+      "id": "3293c70c-b8dc-4065-9a9a-c663e2c72c39",
+      "name": "Run"
+    },
+    {
+      "id": "bfe3f21f-66b1-4c7d-8b1f-eb8bc93507e7",
+      "name": "RunPythonScript"
+    },
+    {
+      "id": "ff934ab0-6d16-46d6-8820-0f14599ba8e3",
+      "name": "Save"
+    },
+    {
+      "id": "6b3d62f0-4dba-3685-a1e3-ddc6c84554e5",
+      "name": "SaveACopy"
+    },
+    {
+      "id": "3af5d201-0f88-4704-82a6-7e2744be2a07",
+      "name": "SaveAs"
+    },
+    {
+      "id": "4c95260d-308d-447b-aed8-b0c2490f22f1",
+      "name": "SaveAsTemplate"
+    },
+    {
+      "id": "b9b5fde0-ca9d-4614-994e-89bd8606ef7f",
+      "name": "SaveClippingSectionCPlanes"
+    },
+    {
+      "id": "94b9057f-ff60-473d-abd2-5ce535dadac0",
+      "name": "SaveClippingSectionViews"
+    },
+    {
+      "id": "64adfffa-e1cb-4a7d-8a50-2fbcf674f177",
+      "name": "SaveRenderWindowAs"
+    },
+    {
+      "id": "e5ae78ca-83d9-4223-9ed8-0442487962b6",
+      "name": "SaveSmall"
+    },
+    {
+      "id": "513535fc-dc51-35b4-85b3-9f46984f945f",
+      "name": "SaveWindowLayout"
+    },
+    {
+      "id": "511f317d-3917-435f-b33b-005c12630a8c",
+      "name": "Scale"
+    },
+    {
+      "id": "eefdc81a-154c-48b1-b881-c5ac637ce808",
+      "name": "Scale1D"
+    },
+    {
+      "id": "e988887d-681d-4686-b76e-55fec2ef72e2",
+      "name": "Scale2D"
+    },
+    {
+      "id": "d9b5df1c-d2fc-33a6-a67d-bd0e93df282c",
+      "name": "ScaleBox"
+    },
+    {
+      "id": "262a1ddd-450d-4de1-a355-a632fd36d301",
+      "name": "ScaleByPlane"
+    },
+    {
+      "id": "f2ccc4e5-0553-46d3-be3f-13b3bb509f5c",
+      "name": "ScaleNU"
+    },
+    {
+      "id": "4fe499a1-df70-421b-a035-d56b7c4afb8a",
+      "name": "ScalePositions"
+    },
+    {
+      "id": "c5c84ed7-e2d0-444d-a55a-582ea3d5480f",
+      "name": "ScaleTextHeight"
+    },
+    {
+      "id": "1530d16c-72ad-4f28-b47a-0529ef33c5dc",
+      "name": "ScreenCaptureToClipboard"
+    },
+    {
+      "id": "1133c95b-f84b-48e6-ab20-383106415b3c",
+      "name": "ScreenCaptureToFile"
+    },
+    {
+      "id": "7bf92859-b71a-4822-9215-617a51709d96",
+      "name": "Section"
+    },
+    {
+      "id": "82361dc8-9680-3645-8c74-585999312410",
+      "name": "SectionBox"
+    },
+    {
+      "id": "0395ed63-eb87-3eeb-ab29-5a1a4b1917ab",
+      "name": "SectionsFromLines"
+    },
+    {
+      "id": "732a1dfd-9a8f-4dd6-b721-96f5411cbf2f",
+      "name": "SelAll"
+    },
+    {
+      "id": "f93e17b8-776a-3320-934f-31176b454ffc",
+      "name": "SelArc"
+    },
+    {
+      "id": "40bb3505-c7f6-3baf-a022-dbe887d76e26",
+      "name": "SelArrow"
+    },
+    {
+      "id": "cbae24c3-f329-4a03-a976-9ec71bcf799b",
+      "name": "SelBadObjects"
+    },
+    {
+      "id": "0f1983b4-750d-421b-8f5b-d8f4b23b6246",
+      "name": "SelBlockInstance"
+    },
+    {
+      "id": "ecf2b0be-4edc-438e-ab94-2e8a239c52fa",
+      "name": "SelBlockInstanceNamed"
+    },
+    {
+      "id": "56b2dc53-df70-4466-b0f5-933f56690970",
+      "name": "SelBoundary"
+    },
+    {
+      "id": "3e54af81-c288-404a-8847-ee7fabac7550",
+      "name": "SelBox"
+    },
+    {
+      "id": "300e1649-4906-4cb8-a2df-b7941a419c62",
+      "name": "SelBrush"
+    },
+    {
+      "id": "eea6f907-8dd1-4b4a-8d08-3483ed0a717c",
+      "name": "SelBrushPoints"
+    },
+    {
+      "id": "f7cc0e97-692a-4d68-9cb7-3de66b04f7ae",
+      "name": "SelCaptives"
+    },
+    {
+      "id": "9f862e03-11de-4706-994e-6fb24b687e2c",
+      "name": "SelChain"
+    },
+    {
+      "id": "cc07a7d8-b9e5-4776-85e4-51206800d5fe",
+      "name": "SelChildren"
+    },
+    {
+      "id": "705f9939-84b4-426b-a1bf-d2a586d3fc93",
+      "name": "SelCircular"
+    },
+    {
+      "id": "2cf17d71-87a2-48b3-b25c-55a92fdf69c8",
+      "name": "SelClippingPlane"
+    },
+    {
+      "id": "c653ff46-486c-4137-8ee4-53d9bfdcdde1",
+      "name": "SelClippingPlaneInViewport"
+    },
+    {
+      "id": "a8373b9c-589a-457b-b67f-01b9d6e92da5",
+      "name": "SelClosedCrv"
+    },
+    {
+      "id": "d8e7e3b0-6537-44ad-b489-ba902e540cec",
+      "name": "SelClosedMesh"
+    },
+    {
+      "id": "cdf11974-bf99-41db-aba8-47cf98ae6031",
+      "name": "SelClosedPolysrf"
+    },
+    {
+      "id": "e4a305af-5cc1-436f-8d36-ec2e47561ad1",
+      "name": "SelClosedSrf"
+    },
+    {
+      "id": "61dabef5-9298-4afd-a444-0434a4acb0ad",
+      "name": "SelClosedSubD"
+    },
+    {
+      "id": "6b1781df-28fd-4c52-8d60-fa0b9929c99b",
+      "name": "SelColor"
+    },
+    {
+      "id": "b32f5d1c-44c5-4c6f-a231-dff3c02b0021",
+      "name": "SelConnected"
+    },
+    {
+      "id": "8c28c7d6-72c0-3daa-9ff2-28c0e67ae34a",
+      "name": "SelConnectedMeshFaces"
+    },
+    {
+      "id": "5aef4142-1d47-497f-b210-5798f86d38ed",
+      "name": "SelControlPoint"
+    },
+    {
+      "id": "ca26e0de-ae58-47d2-b6e4-3685c69d1d27",
+      "name": "SelControlPointRegion"
+    },
+    {
+      "id": "d6cf6f4a-7a99-4579-8006-0b906de69a35",
+      "name": "SelControls"
+    },
+    {
+      "id": "e8baa0b5-7dca-41db-8e54-634617a4edd3",
+      "name": "SelCrossing"
+    },
+    {
+      "id": "a5f969d0-7714-4537-ad7c-95eb0011616d",
+      "name": "SelCrv"
+    },
+    {
+      "id": "ed63f08e-1110-40ef-b27f-25a420736fd5",
+      "name": "SelDetail"
+    },
+    {
+      "id": "c6e0ad25-dc2b-4ea6-a446-d2be97fb50d6",
+      "name": "SelDim"
+    },
+    {
+      "id": "4c52d093-7e10-441f-ae1d-ecbe6cef513c",
+      "name": "SelDimAngular"
+    },
+    {
+      "id": "d499764f-f470-444e-912b-a149966040e9",
+      "name": "SelDimCentermark"
+    },
+    {
+      "id": "1a12018f-6e47-4d15-b43b-913e94b8c6fb",
+      "name": "SelDimLinear"
+    },
+    {
+      "id": "1bc828bd-a6a0-4f7b-892d-b0f023efaf04",
+      "name": "SelDimOrdinate"
+    },
+    {
+      "id": "e2931848-0d3b-4193-9ac2-9cd204d8765f",
+      "name": "SelDimOverride"
+    },
+    {
+      "id": "a26e0ef5-052a-4a99-89f9-8f620f75807c",
+      "name": "SelDimRadial"
+    },
+    {
+      "id": "35c37f1c-3fd5-4fd1-b927-17cc8816c658",
+      "name": "SelDimTextOverride"
+    },
+    {
+      "id": "4d91a05c-99d7-466a-9448-04e2b9360670",
+      "name": "SelDot"
+    },
+    {
+      "id": "5e352d2d-4e7f-4753-8bb2-fe7f15e5bd76",
+      "name": "SelDup"
+    },
+    {
+      "id": "1a7b104e-3d96-431d-8242-586d98b17e3d",
+      "name": "SelDupAll"
+    },
+    {
+      "id": "efc13811-3b7c-432f-a189-ddb2f12eaa18",
+      "name": "SelEdgeLoop"
+    },
+    {
+      "id": "8c2540d8-c5df-48f3-94cf-87d98b1d8ae3",
+      "name": "SelEdgeRing"
+    },
+    {
+      "id": "c1539608-2dbe-486a-bdbf-e3cd1ed06d7a",
+      "name": "SelExtrusion"
+    },
+    {
+      "id": "16817da1-31f9-4f9b-b7af-0ac9b81a21ec",
+      "name": "SelFaceLoop"
+    },
+    {
+      "id": "fe7b5a4b-aef6-4101-9cb2-a5390a6f17e3",
+      "name": "SelFacesToBoundary"
+    },
+    {
+      "id": "6b06b9ad-0510-4c65-a56d-928da43718a1",
+      "name": "SelFence"
+    },
+    {
+      "id": "0bc47584-e225-49b2-ad67-846abe95f135",
+      "name": "SelFontUse"
+    },
+    {
+      "id": "bf0b9a05-f181-4525-b1f2-af836a2b886c",
+      "name": "SelGroup"
+    },
+    {
+      "id": "a69e2d4b-65d4-4e89-a2eb-89db12c9a117",
+      "name": "SelHatch"
+    },
+    {
+      "id": "138bcaa3-9d16-40ae-aa51-6d0cebe41688",
+      "name": "SelID"
+    },
+    {
+      "id": "718239d8-328c-32fc-a966-a9270d3b26e7",
+      "name": "SelKey"
+    },
+    {
+      "id": "6b3bc8bf-d6e5-3f30-9ddb-fc026b1bedfc",
+      "name": "SelKeyValue"
+    },
+    {
+      "id": "e71aafaa-8a74-4545-8e20-0beed197fe79",
+      "name": "SelLast"
+    },
+    {
+      "id": "26d826c5-03b3-4a6c-82a6-6f966fb67faf",
+      "name": "SelLayer"
+    },
+    {
+      "id": "c09dd4cc-d2c5-4afd-9853-b04c99cb2b71",
+      "name": "SelLayerNumber"
+    },
+    {
+      "id": "cdc09f93-0ba0-471e-92a6-167f6e8c572c",
+      "name": "SelLeader"
+    },
+    {
+      "id": "10d62dc5-918a-47ad-8c1e-18f4a417becf",
+      "name": "SelLight"
+    },
+    {
+      "id": "1e59d4fe-fdec-4cda-8755-e06beca653a7",
+      "name": "SelLine"
+    },
+    {
+      "id": "1385f126-9053-438e-9198-30e2a7aa5b3d",
+      "name": "SelLinetype"
+    },
+    {
+      "id": "ba4ea786-2343-4f32-923e-0a63b25c6f26",
+      "name": "SelMappingWidget"
+    },
+    {
+      "id": "35f44a85-8333-4d8f-b0ea-6dcdf3fb5dc5",
+      "name": "SelMaterialName"
+    },
+    {
+      "id": "2cc3ec7c-507b-4740-83e1-be9512221651",
+      "name": "SelMesh"
+    },
+    {
+      "id": "42ff2c5f-0cca-3664-8166-118945b7d41c",
+      "name": "SelMeshEdges"
+    },
+    {
+      "id": "7d88eada-f697-31b5-acb9-ad84c1752723",
+      "name": "SelMeshFacesByArea"
+    },
+    {
+      "id": "48260438-c7ed-3f09-965f-60e5349a06fb",
+      "name": "SelMeshFacesByAspectRatio"
+    },
+    {
+      "id": "7e228371-dfb1-337f-8b92-687b3676bdfd",
+      "name": "SelMeshFacesByDraftAngle"
+    },
+    {
+      "id": "94b89a2b-c4b3-349d-9fa0-1116827f5257",
+      "name": "SelMeshFacesByEdgeLength"
+    },
+    {
+      "id": "9e27adde-c873-3b0b-8c28-b4dac7c99db2",
+      "name": "SelMeshPart"
+    },
+    {
+      "id": "714f904e-03d8-36ab-9275-38569fdc26a4",
+      "name": "SelMirroredBlocks"
+    },
+    {
+      "id": "ac5262cf-71e4-4f8b-be3c-1af99349c4d6",
+      "name": "SelNakedMeshEdgePt"
+    },
+    {
+      "id": "973c2d4b-5f7a-442d-9b83-b6ad991c6b1c",
+      "name": "SelName"
+    },
+    {
+      "id": "2c7bb2a0-6495-4a9a-ac76-a43e4d219373",
+      "name": "SelNamedViewWidget"
+    },
+    {
+      "id": "1f19f492-76de-4152-ade4-95f559a1489c",
+      "name": "SelNone"
+    },
+    {
+      "id": "d250fdf2-29fc-3dcd-a6c9-3d02a160fe04",
+      "name": "SelObjectsOnLayer"
+    },
+    {
+      "id": "30515024-c224-4408-b5d4-dade6b4dba06",
+      "name": "SelObjectsWithHistory"
+    },
+    {
+      "id": "465d0142-432a-4688-ba76-a0f3725b1f88",
+      "name": "SelOpenCrv"
+    },
+    {
+      "id": "409d7951-89a4-4da6-b959-023a25adddca",
+      "name": "SelOpenMesh"
+    },
+    {
+      "id": "75d25ab5-8ff4-4c24-b429-4d7f248515f8",
+      "name": "SelOpenPolysrf"
+    },
+    {
+      "id": "8bf485be-3f61-4615-9df8-a71a98beefd0",
+      "name": "SelOpenSrf"
+    },
+    {
+      "id": "78428672-b0fb-4515-8b82-2f73927192fe",
+      "name": "SelOpenSubD"
+    },
+    {
+      "id": "d5b69f22-0981-417b-92f2-9ff84e0daedb",
+      "name": "SelParents"
+    },
+    {
+      "id": "281d581a-9b0f-4a0e-980f-b95fa052467b",
+      "name": "SelPicture"
+    },
+    {
+      "id": "9336a06a-0924-4cb5-ab92-1c6532814867",
+      "name": "SelPlanarCrv"
+    },
+    {
+      "id": "e8dd7474-a6fa-41a3-95e2-94f1916721d9",
+      "name": "SelPlanarSrf"
+    },
+    {
+      "id": "59b13ae5-4c33-4fda-a6f7-d60e4c982f93",
+      "name": "SelPolyline"
+    },
+    {
+      "id": "3bb30d75-434b-409a-a020-1b04c56ad826",
+      "name": "SelPolysrf"
+    },
+    {
+      "id": "a96fc2fc-2f41-4ac9-b45d-411d2c165616",
+      "name": "SelPrev"
+    },
+    {
+      "id": "16026a22-46ff-423e-84fb-36a3e84b28c0",
+      "name": "SelPt"
+    },
+    {
+      "id": "66e6b95b-a35e-4187-b42e-38a14854a3bf",
+      "name": "SelPtCloud"
+    },
+    {
+      "id": "a900a7c0-a94b-4058-a0d2-329bf1cf82ae",
+      "name": "SelRectangular"
+    },
+    {
+      "id": "f82fc91c-99f7-3897-a7ae-b58f02da3041",
+      "name": "SelSameBlock"
+    },
+    {
+      "id": "3adf9c91-5a76-4bce-aa88-19af301fece8",
+      "name": "SelSelfIntersectingCrv"
+    },
+    {
+      "id": "62f0bef8-9d29-43d7-b280-298e6339c743",
+      "name": "SelShortCrv"
+    },
+    {
+      "id": "076ba25c-e84c-4010-8379-41aa2e53a3e5",
+      "name": "SelSmall"
+    },
+    {
+      "id": "9d743086-b810-4689-a564-c7fdf7e9f167",
+      "name": "SelSrf"
+    },
+    {
+      "id": "0882e8b7-181a-4aa5-a4ad-58f0bccb418a",
+      "name": "SelSubD"
+    },
+    {
+      "id": "fb41a45c-0592-43dd-8809-48aba84d3a72",
+      "name": "SelSubDEdges"
+    },
+    {
+      "id": "364ad7d7-7538-4c4f-896b-253caa53d658",
+      "name": "SelSubDFriendlyCrv"
+    },
+    {
+      "id": "9bd07f90-25a5-31ec-bcd3-2d01a875d300",
+      "name": "SelTag"
+    },
+    {
+      "id": "982b80bc-2646-4bc5-a996-96bb68f3cfad",
+      "name": "SelText"
+    },
+    {
+      "id": "e8fd2b0f-9262-3d26-a5e1-99c4e78ab430",
+      "name": "SelTop"
+    },
+    {
+      "id": "bd45f152-7e96-4404-b0ea-e131a4564cbc",
+      "name": "SelTrimmedSrf"
+    },
+    {
+      "id": "a5c33fee-51fb-4975-a73e-15cba95fcb22",
+      "name": "SelU"
+    },
+    {
+      "id": "21510ad0-a857-4f22-9d2f-676948b60e6f",
+      "name": "SelUV"
+    },
+    {
+      "id": "0d8b64b8-415d-4148-a041-0d46da153ce0",
+      "name": "SelUntrimmedSrf"
+    },
+    {
+      "id": "ba20f0fe-34f7-35a5-9bf0-34278a29ba18",
+      "name": "SelUserText"
+    },
+    {
+      "id": "606c2de8-7b90-4c77-8b5d-2007df85b77f",
+      "name": "SelV"
+    },
+    {
+      "id": "82b9576e-ab1b-3bde-a569-3b0555bca9a6",
+      "name": "SelValue"
+    },
+    {
+      "id": "4f31fa6c-7fa5-4a32-9b61-e7c24e21a45a",
+      "name": "SelVisible"
+    },
+    {
+      "id": "fb03e0f1-03f3-4277-92d1-211fcea9753d",
+      "name": "SelVolumeObject"
+    },
+    {
+      "id": "00f94f05-8abd-4a33-bf60-016d1d9db9da",
+      "name": "SelVolumePipe"
+    },
+    {
+      "id": "57fdb058-c33b-49e2-b9fe-e31bdcef1504",
+      "name": "SelVolumeSphere"
+    },
+    {
+      "id": "87705e1c-f53c-42ee-9188-932273319c24",
+      "name": "SelWindow"
+    },
+    {
+      "id": "93144f04-694d-4318-ab4f-e82a78140bbc",
+      "name": "Select"
+    },
+    {
+      "id": "d6c9b2a8-044d-4ed9-b041-7d8f5680fed9",
+      "name": "SelectionFilter"
+    },
+    {
+      "id": "ffd17150-694e-4237-b30b-9cbbccc6170d",
+      "name": "SelectionFilterEdges"
+    },
+    {
+      "id": "5a509138-aa71-416c-a4dc-75daa1967454",
+      "name": "SelectionFilterEnable"
+    },
+    {
+      "id": "9049b3ef-490f-4a8e-b054-d56a35b431a0",
+      "name": "SelectionFilterFaces"
+    },
+    {
+      "id": "f0b217aa-dd03-4f64-a1dd-1a26933f12e2",
+      "name": "SelectionFilterNone"
+    },
+    {
+      "id": "38a33596-cf37-4834-8512-3e1776f5dcbf",
+      "name": "SelectionFilterToggle"
+    },
+    {
+      "id": "d46b558f-3342-41e4-ba5e-168d5d1d2c52",
+      "name": "SelectionFilterVertices"
+    },
+    {
+      "id": "67cab16f-c62f-4596-bbc7-fc32d5e9defe",
+      "name": "SendBackward"
+    },
+    {
+      "id": "1148bdfc-2946-41fa-9ec0-9871a8e53faf",
+      "name": "SendToBack"
+    },
+    {
+      "id": "18e30c70-2169-42b3-8921-657bf28ab0fd",
+      "name": "SetActiveViewport"
+    },
+    {
+      "id": "5bcc2c46-7fc9-48e3-8b8d-da7aeb2459d5",
+      "name": "SetCurrentAnnotationStyle"
+    },
+    {
+      "id": "7fa61568-a96e-4fbc-8999-5929ce87064c",
+      "name": "SetCurrentRenderPlugIn"
+    },
+    {
+      "id": "1c8c594c-5c15-3065-b241-65b274d96386",
+      "name": "SetCustomLinetype"
+    },
+    {
+      "id": "0131a367-4d1c-408a-ac28-e267b76dc40c",
+      "name": "SetDimensionLayer"
+    },
+    {
+      "id": "b34febc5-5412-42f8-ba01-30cae80073c7",
+      "name": "SetDisplayMode"
+    },
+    {
+      "id": "87b71951-1a97-487c-99a0-34f29de5b924",
+      "name": "SetDocumentUserText"
+    },
+    {
+      "id": "65541154-87b8-3b52-a205-16a9eb1a70cb",
+      "name": "SetDotNetRuntime"
+    },
+    {
+      "id": "35f7e4e2-7e47-394f-992a-b889e7ba9823",
+      "name": "SetEarthAnchorPointFromName"
+    },
+    {
+      "id": "435f25dc-a005-4445-a4bd-7c203bdfcad0",
+      "name": "SetGroupName"
+    },
+    {
+      "id": "41a76906-bdff-4caa-a4bb-f0eb856f239e",
+      "name": "SetLayerLinetype"
+    },
+    {
+      "id": "facf9405-6c98-45bf-aef8-6738a4f2211b",
+      "name": "SetLayerToObject"
+    },
+    {
+      "id": "2e634fa8-32e2-40a3-aefd-1613846ef02a",
+      "name": "SetLinetype"
+    },
+    {
+      "id": "7b6114d3-d488-4cc2-aa92-f17ce3d54fba",
+      "name": "SetLinetypeScale"
+    },
+    {
+      "id": "2bb0bc40-5d3a-441a-8780-0155295d72b6",
+      "name": "SetMaximizedViewport"
+    },
+    {
+      "id": "8dc6cb57-0dd6-3396-b983-e0ebc272cec3",
+      "name": "SetMeshSurfaceParameters"
+    },
+    {
+      "id": "5d3ef95d-d87b-47b9-8910-0998de51a759",
+      "name": "SetObjectDisplayMode"
+    },
+    {
+      "id": "cdd3e7fc-c929-4b07-ace9-1f040bb4b141",
+      "name": "SetObjectName"
+    },
+    {
+      "id": "9e656ebd-3523-4346-a54a-708604b58cb8",
+      "name": "SetOrtho"
+    },
+    {
+      "id": "42e19b2d-749d-40e5-bbfe-0a1deae8abda",
+      "name": "SetPerFaceColorByFacePack"
+    },
+    {
+      "id": "431fa840-8dbb-48d1-9f24-c3d908cd083a",
+      "name": "SetPlanar"
+    },
+    {
+      "id": "f6f523ae-20d0-4b1b-a139-373f822d299a",
+      "name": "SetPt"
+    },
+    {
+      "id": "d949e120-c1f1-40ef-9942-0673aabf8973",
+      "name": "SetRedrawOff"
+    },
+    {
+      "id": "49a23bbb-6499-449b-aa5b-39f25bc24d60",
+      "name": "SetRedrawOn"
+    },
+    {
+      "id": "236576a8-ca96-4549-94f2-f06ae39cd30f",
+      "name": "SetSnap"
+    },
+    {
+      "id": "5890003f-8629-43df-9cbf-7f28baf60a8e",
+      "name": "SetSpotlightToView"
+    },
+    {
+      "id": "e99237c2-cd0d-4a30-8d6b-cae6ae2208e2",
+      "name": "SetSurfaceTangent"
+    },
+    {
+      "id": "0243d8c8-deb7-45c1-b7f9-a3c2683aa4e6",
+      "name": "SetUserText"
+    },
+    {
+      "id": "487f0021-0ab5-40ad-9102-184cba6a50e5",
+      "name": "SetView"
+    },
+    {
+      "id": "e5812872-2bf8-44cf-9e67-bbd3f78aa6d6",
+      "name": "SetViewToSpotlight"
+    },
+    {
+      "id": "af368be3-3b6e-4793-96be-b785a164af42",
+      "name": "SetWorkingFolder"
+    },
+    {
+      "id": "f7439279-5aba-44c6-b86f-8aad31e94326",
+      "name": "SetZoomExtentsBorder"
+    },
+    {
+      "id": "996be0a9-b888-49be-980d-3cd72b146803",
+      "name": "Shade"
+    },
+    {
+      "id": "97bf4505-e629-4202-9eb3-68854ec3cfee",
+      "name": "ShadeSelected"
+    },
+    {
+      "id": "a1b6122c-4794-45b2-ace4-96bda47eaa21",
+      "name": "Shear"
+    },
+    {
+      "id": "fde402c9-3ff5-4854-be14-5ed3f4254fba",
+      "name": "Shell"
+    },
+    {
+      "id": "866b89a3-1453-4cda-8aba-188b525678bf",
+      "name": "ShortPath"
+    },
+    {
+      "id": "7654bfab-3672-4255-b399-82070ee594b8",
+      "name": "Show"
+    },
+    {
+      "id": "33d8ecb6-9002-45d5-88ed-569bd8315446",
+      "name": "ShowDir"
+    },
+    {
+      "id": "349fb97a-4e3d-42cf-8213-4e821103fa1f",
+      "name": "ShowDirOff"
+    },
+    {
+      "id": "8c288482-ecb8-448b-a67a-494ae1b46a5e",
+      "name": "ShowEdges"
+    },
+    {
+      "id": "f9b81ee8-8fcf-4b57-b840-fcb06c12bcf2",
+      "name": "ShowEdgesOff"
+    },
+    {
+      "id": "703e2a9a-54b3-4d4e-91f1-e78173b7f72a",
+      "name": "ShowEnds"
+    },
+    {
+      "id": "00432774-0329-4ac6-8ddc-7eb2b8caaff0",
+      "name": "ShowEndsOff"
+    },
+    {
+      "id": "bf3121e2-a6ac-4146-b0c4-e0693a33686a",
+      "name": "ShowInDetail"
+    },
+    {
+      "id": "0d63081e-8f77-408e-b611-d243e86efa58",
+      "name": "ShowOsnap"
+    },
+    {
+      "id": "6e8d4b55-f662-41e6-9a06-36a180d367f2",
+      "name": "ShowPt"
+    },
+    {
+      "id": "8508790c-e70f-464e-807f-3e1fa1c26035",
+      "name": "ShowRenderMesh"
+    },
+    {
+      "id": "7e3080eb-afdb-4a61-ad96-00f269c68d70",
+      "name": "ShowSelected"
+    },
+    {
+      "id": "f6ce6f9a-4d11-3207-88ce-52bb8cff2948",
+      "name": "ShowToolBar"
+    },
+    {
+      "id": "2e0ffbac-3d0a-4b3d-b272-cf2f71f59445",
+      "name": "ShowZBuffer"
+    },
+    {
+      "id": "14ff8bbb-345b-4422-9b85-c57cf60b9043",
+      "name": "ShrinkTrimmedSrf"
+    },
+    {
+      "id": "bba9897f-d953-46b4-82c0-81d0fc18578e",
+      "name": "ShrinkTrimmedSrfToEdge"
+    },
+    {
+      "id": "d7819eed-c0b7-3acc-b24f-28ca98fd19e9",
+      "name": "Silhouette"
+    },
+    {
+      "id": "1c96ca17-f2c7-4600-ab82-06be117f2f00",
+      "name": "SimplifyCrv"
+    },
+    {
+      "id": "0d3ba2b7-4eec-46d6-afce-bed4ebb2c89d",
+      "name": "Sketch"
+    },
+    {
+      "id": "b07dc8ed-7407-41a9-a874-540ad774ccba",
+      "name": "Slab"
+    },
+    {
+      "id": "437b35de-3f72-45fe-b7a7-a91d0dba4dfc",
+      "name": "Slide"
+    },
+    {
+      "id": "34bfba5c-3cdd-3774-a3bf-1e84a409b704",
+      "name": "Slope"
+    },
+    {
+      "id": "9a4a04cf-8109-36bc-97c3-516c71df509b",
+      "name": "SlopeCrv"
+    },
+    {
+      "id": "75e62520-1878-43a2-9a64-2a4fabd2761c",
+      "name": "SmartTrack"
+    },
+    {
+      "id": "85e6d4cc-49eb-10eb-f2bb-eeac10674ecc",
+      "name": "Smash"
+    },
+    {
+      "id": "159673b2-0279-4578-9fba-3e5c942d9b53",
+      "name": "Smooth"
+    },
+    {
+      "id": "23db427c-fc5e-487a-9e3f-a997df41ddfc",
+      "name": "Snap"
+    },
+    {
+      "id": "78deccd6-9423-4b61-bc35-7e5ffd1adbc9",
+      "name": "SnapSize"
+    },
+    {
+      "id": "87e18943-6633-4b0b-8106-ad077b504856",
+      "name": "SnapToLocked"
+    },
+    {
+      "id": "847a5f58-709b-4069-b9df-1b171baa5aff",
+      "name": "SnapToMeshObject"
+    },
+    {
+      "id": "b39360f8-0f8d-4fe4-8994-cfb551d8008a",
+      "name": "SnapToMeshes"
+    },
+    {
+      "id": "adcf479d-e297-4d25-a157-d7225e30400f",
+      "name": "SnapToOccluded"
+    },
+    {
+      "id": "2103843e-8941-4e62-9fcc-0c5cf2d58e63",
+      "name": "SnapToSubDObject"
+    },
+    {
+      "id": "f5ce6314-b10a-411d-9143-0d906c7d7aef",
+      "name": "Snapshots"
+    },
+    {
+      "id": "6132d4ad-e48e-49a6-baee-889171d592e7",
+      "name": "SoftTransform"
+    },
+    {
+      "id": "5a469721-c5ac-42a6-8541-413c41ff9a71",
+      "name": "SpaceMouse"
+    },
+    {
+      "id": "5ac841e4-ec48-4490-b76e-2f0c4f881343",
+      "name": "Sphere"
+    },
+    {
+      "id": "14f88056-f7f9-4740-90a0-5fc36c14b067",
+      "name": "SphereTangentToThreeSurfaces"
+    },
+    {
+      "id": "d7ca4e09-dc29-4325-936b-a42a6d1154fc",
+      "name": "Spiral"
+    },
+    {
+      "id": "f9fede66-cab5-4887-9a2a-2c56fc1ffc39",
+      "name": "Split"
+    },
+    {
+      "id": "a1b19e33-557e-4875-a130-513256878023",
+      "name": "SplitDisjointMesh"
+    },
+    {
+      "id": "441e5d83-b21d-4e0a-99ec-740b3dd616ca",
+      "name": "SplitEdge"
+    },
+    {
+      "id": "fba0cc7a-e844-4d6d-9304-a8416ad9a5f6",
+      "name": "SplitMeshWithCurve"
+    },
+    {
+      "id": "05a86f2f-0f6a-3fbf-8bf4-0a59041c60a3",
+      "name": "SplitRefitSurface"
+    },
+    {
+      "id": "ad0d34e7-0b02-4d86-a7f9-fdc616e47a2d",
+      "name": "SplitViewportHorizontal"
+    },
+    {
+      "id": "0fec741c-6677-4364-8fab-c41fd63fb945",
+      "name": "SplitViewportVertical"
+    },
+    {
+      "id": "44859c79-8a56-4b03-a4fd-161d7141a19f",
+      "name": "Splop"
+    },
+    {
+      "id": "8ba61215-a989-4bf6-b18a-e94afc707f1b",
+      "name": "Spotlight"
+    },
+    {
+      "id": "e7bf2d0b-23af-3758-9136-5a662b314bfd",
+      "name": "SquarePipe"
+    },
+    {
+      "id": "c1db1d12-7ae3-41c5-8992-c491abd8405a",
+      "name": "SrfControlPtGrid"
+    },
+    {
+      "id": "226b644a-277f-41e3-85a2-ad40e576cbb6",
+      "name": "SrfPt"
+    },
+    {
+      "id": "86280368-ade6-4340-9877-3d7da3b85fae",
+      "name": "SrfPtGrid"
+    },
+    {
+      "id": "f30560d1-abb7-426e-b481-343abd127331",
+      "name": "SrfSeam"
+    },
+    {
+      "id": "c4f9876d-45cc-3d5c-ab88-e061f374b46c",
+      "name": "SrfToHatch"
+    },
+    {
+      "id": "9a155abe-ff94-4400-b6e3-22026d907a2f",
+      "name": "Stitch"
+    },
+    {
+      "id": "71a60015-5314-4478-a7e6-05f8c7d28227",
+      "name": "Stretch"
+    },
+    {
+      "id": "3a93705f-0e3f-408d-ac8e-f47413b95050",
+      "name": "SubCrv"
+    },
+    {
+      "id": "565da498-90c4-3414-97dc-216ce9b37c9f",
+      "name": "SubDBox"
+    },
+    {
+      "id": "6c78c49d-7c7f-3836-b98a-4960302966e4",
+      "name": "SubDCone"
+    },
+    {
+      "id": "a5681159-f096-4836-8599-03766093b864",
+      "name": "SubDCrease"
+    },
+    {
+      "id": "04bc38ee-fdb3-32a5-84dc-2cbc7134ac4f",
+      "name": "SubDCylinder"
+    },
+    {
+      "id": "7492039a-0c66-439d-81eb-0d1fb8774173",
+      "name": "SubDDisplayToggle"
+    },
+    {
+      "id": "8b39ee6f-1690-3ea9-ae1d-cdfcfb787bf9",
+      "name": "SubDEllipsoid"
+    },
+    {
+      "id": "ce90583b-1b23-455c-8c04-793ba43f8f7b",
+      "name": "SubDExpandEdges"
+    },
+    {
+      "id": "aa210563-6d82-4210-a6d5-16e735c89e24",
+      "name": "SubDFaceEdgeVertexToggle"
+    },
+    {
+      "id": "48ed7661-4c16-912a-5398-662b167a76bf",
+      "name": "SubDLoft"
+    },
+    {
+      "id": "221403ff-04cb-312b-aaf3-242608f6291b",
+      "name": "SubDPlane"
+    },
+    {
+      "id": "5c0cb029-ed84-40e7-bc3f-91840ebdf96d",
+      "name": "SubDSphere"
+    },
+    {
+      "id": "83e73d8d-1e7e-4091-9eeb-58a44bc08a8a",
+      "name": "SubDSpinEdge"
+    },
+    {
+      "id": "63c9ba99-ba2d-4348-b7c7-006322123e7e",
+      "name": "SubDSweep1"
+    },
+    {
+      "id": "6c7a8887-1d53-4000-88fe-46a1b982d4b6",
+      "name": "SubDSweep2"
+    },
+    {
+      "id": "0b02bb0e-d2f6-320c-a980-50f2912a752f",
+      "name": "SubDTorus"
+    },
+    {
+      "id": "e30d3b04-1af5-3c3f-9160-461aa16b16f4",
+      "name": "SubDTruncatedCone"
+    },
+    {
+      "id": "cde23041-85f2-4bf6-a7d5-5d7716f11549",
+      "name": "SubDUnfriend"
+    },
+    {
+      "id": "01dcbd5a-d372-4738-b906-73a06bbe4390",
+      "name": "SubDivide"
+    },
+    {
+      "id": "6f5a7975-176f-4d37-b9da-64f4387c90cf",
+      "name": "Sun"
+    },
+    {
+      "id": "e3d49df3-67ca-4f0a-90fd-1807b22f1045",
+      "name": "SunLight"
+    },
+    {
+      "id": "7e446c6f-5650-41b3-ac63-3df557639c4b",
+      "name": "SwapView"
+    },
+    {
+      "id": "d9da5d1b-55da-4c10-bf71-1c45350a2c87",
+      "name": "Sweep1"
+    },
+    {
+      "id": "359d483f-3041-4a8c-ac69-5cf8b7d99340",
+      "name": "Sweep2"
+    },
+    {
+      "id": "2d4ce8ce-c6e2-3ca9-94e3-541d6e953af3",
+      "name": "SweepProfile"
+    },
+    {
+      "id": "a9cce4e3-9210-4934-b5d4-240184917505",
+      "name": "Symmetry"
+    },
+    {
+      "id": "41a4516a-141a-3e75-a11a-959a6f498c53",
+      "name": "SyncHash"
+    },
+    {
+      "id": "dd6ac2fb-893b-3bc1-aabd-c4481c7cbc68",
+      "name": "SyncToCentral"
+    },
+    {
+      "id": "cf9be96b-cf2e-4137-9500-1bd7bb3d4f24",
+      "name": "SynchronizeCPlanes"
+    },
+    {
+      "id": "dfb1b040-92f3-4980-9d86-e73567ec0d54",
+      "name": "SynchronizeViews"
+    },
+    {
+      "id": "86ca8c0d-a070-40a9-a1c9-f4d0c05948f5",
+      "name": "SystemInfo"
+    },
+    {
+      "id": "c1a56998-c755-3d94-a79b-68df71873b62",
+      "name": "Tag"
+    },
+    {
+      "id": "538d6d4e-3e0e-3c4c-9360-6df06ec51b8e",
+      "name": "TagName"
+    },
+    {
+      "id": "b89ab34e-088a-3b45-8a1b-5aa3f8a0f681",
+      "name": "TagUpdate"
+    },
+    {
+      "id": "f109fc6c-ca05-4ae4-a70f-758a2ca5bfc8",
+      "name": "Taper"
+    },
+    {
+      "id": "2a4f3db8-4c5f-3994-8791-73796d851a04",
+      "name": "Text"
+    },
+    {
+      "id": "2dff6f41-5f2a-36c9-8de6-535ce7383ae7",
+      "name": "TextObject"
+    },
+    {
+      "id": "1735effc-3990-4f1e-bc39-f342121cdf3d",
+      "name": "TextProperties"
+    },
+    {
+      "id": "71b22954-c719-4196-9670-248d8cd41254",
+      "name": "Textures"
+    },
+    {
+      "id": "b88862bd-6363-4c7a-a796-745c94e75d2f",
+      "name": "ThicknessAnalysis"
+    },
+    {
+      "id": "24a36a27-fcf6-4f36-ac38-3e8e5c0280da",
+      "name": "ThicknessAnalysisOff"
+    },
+    {
+      "id": "01dd56c2-ef09-4a94-8c9b-3bd96f66062c",
+      "name": "TiltView"
+    },
+    {
+      "id": "5712bae3-584d-45ed-ab8f-205a69de51af",
+      "name": "ToNURBS"
+    },
+    {
+      "id": "7b8bfce2-c831-46a6-9bfb-d251391e7daa",
+      "name": "ToSubD"
+    },
+    {
+      "id": "197209be-464b-41d6-aba1-a4be36734054",
+      "name": "ToggleFloatingViewport"
+    },
+    {
+      "id": "58cf01d8-88bf-4e24-aeec-0c0922514fc5",
+      "name": "ToggleGpuProcedurals"
+    },
+    {
+      "id": "dced5651-85e5-3040-b0cc-f7c2dd7f88d1",
+      "name": "ToggleLeftSidebar"
+    },
+    {
+      "id": "98475348-6ae8-394e-a819-6666b9854943",
+      "name": "ToggleLockedActiveRealtimeViewport"
+    },
+    {
+      "id": "defcf54d-4f73-3e74-aad5-6f204778ed9b",
+      "name": "TogglePausedActiveRealtimeViewport"
+    },
+    {
+      "id": "1821ae16-f2ac-4d99-8408-02a8d66e3bbf",
+      "name": "ToggleRenderMesh"
+    },
+    {
+      "id": "42017293-d6fa-3cbe-a7e4-407103abcf98",
+      "name": "ToggleRightSidebar"
+    },
+    {
+      "id": "8024a4fe-d1e3-35ba-8e90-5858b43fdd25",
+      "name": "Toolbar"
+    },
+    {
+      "id": "931766a9-9f42-4662-b1ad-d0f0c71961d9",
+      "name": "ToolbarLock"
+    },
+    {
+      "id": "6d5b2f72-0a45-42ce-af26-6692d54f209b",
+      "name": "Torus"
+    },
+    {
+      "id": "82e74fac-70f9-49ba-9b0a-97ad988c077e",
+      "name": "TriangulateMesh"
+    },
+    {
+      "id": "eb87cff4-fe31-37aa-8175-8144cb732ee1",
+      "name": "TriangulateNonPlanarQuads"
+    },
+    {
+      "id": "133da062-5ce9-4ee9-a11a-7297ea73c10f",
+      "name": "TriangulateRenderMeshes"
+    },
+    {
+      "id": "b77d8f39-4207-4eee-b437-5e04c0d054bb",
+      "name": "Trim"
+    },
+    {
+      "id": "c03cae6e-3a7b-43ec-9786-12e398f027ca",
+      "name": "TruncatedCone"
+    },
+    {
+      "id": "37324798-1813-4731-ab02-2fd73a2d83f7",
+      "name": "TruncatedPyramid"
+    },
+    {
+      "id": "1b2a89a9-5883-32f2-bbef-5e242a17bd9a",
+      "name": "Truss"
+    },
+    {
+      "id": "b4976dff-0a74-49bc-b2d2-94970006be29",
+      "name": "Tube"
+    },
+    {
+      "id": "11605604-de2e-434e-bc62-f083c42d046f",
+      "name": "Turntable"
+    },
+    {
+      "id": "a8193173-5fd9-3a82-aee7-9c44a15d0655",
+      "name": "Tutorials"
+    },
+    {
+      "id": "aaa353a9-18ae-45e2-9669-8cc8eea18637",
+      "name": "TweenCurves"
+    },
+    {
+      "id": "dbea4f3a-9ba7-4683-9d73-b1fdf7d1a544",
+      "name": "TweenSurfaces"
+    },
+    {
+      "id": "7701669c-8930-4786-a8be-f8b5a2680070",
+      "name": "Twist"
+    },
+    {
+      "id": "b0c7c50d-382f-470c-b734-8ca99d43a803",
+      "name": "UVEditor"
+    },
+    {
+      "id": "6736dbd4-b57d-354a-be7a-982fdf036875",
+      "name": "UnSectionBox"
+    },
+    {
+      "id": "8179e01c-8574-42df-8eae-210abf0adcf9",
+      "name": "Undo"
+    },
+    {
+      "id": "dedf7212-5903-40df-b59f-795c9e783315",
+      "name": "UndoMultiple"
+    },
+    {
+      "id": "80f06ac7-55c5-4a0b-bc3e-3edbd951b042",
+      "name": "UndoSelected"
+    },
+    {
+      "id": "85d0a2d2-0034-49c3-9f25-1245ae6da149",
+      "name": "UndoView"
+    },
+    {
+      "id": "0b5b95b7-5c9f-4c45-b2a6-10f31601e127",
+      "name": "Ungroup"
+    },
+    {
+      "id": "e46f3032-a3cd-4942-b291-26af25da87f3",
+      "name": "UngroupAll"
+    },
+    {
+      "id": "98411738-9bd9-43b3-aeed-c87c40055d6d",
+      "name": "UnifyMeshNormals"
+    },
+    {
+      "id": "6ff33e2b-6844-3ca0-bba2-406b99ff208f",
+      "name": "Unisolate"
+    },
+    {
+      "id": "678dccc4-5640-35a5-a6eb-f53952622a27",
+      "name": "UnisolateLock"
+    },
+    {
+      "id": "264edeca-5255-4d4a-bb90-7d71e1b39f79",
+      "name": "UnjoinEdge"
+    },
+    {
+      "id": "b1cff5ab-d79a-4144-ad26-222d3b7e7e5c",
+      "name": "Unlock"
+    },
+    {
+      "id": "dde68456-6c7f-3986-ba52-da6c2ffc3207",
+      "name": "UnlockFromCentral"
+    },
+    {
+      "id": "05e6dc46-ccbb-4cac-a37b-d3ef8dc6b1a2",
+      "name": "UnlockSelected"
+    },
+    {
+      "id": "906d3bdb-a083-4a2c-81f1-7590f51bd09c",
+      "name": "UnpackTextures"
+    },
+    {
+      "id": "d2b8935d-f276-4852-9904-b2a6c199bdf1",
+      "name": "UnrollSrf"
+    },
+    {
+      "id": "85e6d4cc-10eb-49eb-bbee-67f210ac4ecc",
+      "name": "UnrollSrfUV"
+    },
+    {
+      "id": "3a837e90-1e7d-4acd-84ee-dce5cb02c824",
+      "name": "Unweld"
+    },
+    {
+      "id": "73a13096-ad96-412d-a612-3e0b70b85cf3",
+      "name": "UnweldEdge"
+    },
+    {
+      "id": "3eabeef5-6f8a-489e-91b1-b2e61019e803",
+      "name": "UnweldVertex"
+    },
+    {
+      "id": "6f6943b0-0ec1-4337-a97e-0410ca7d7070",
+      "name": "Unwrap"
+    },
+    {
+      "id": "6e891507-15dc-4cc8-b732-6300767589de",
+      "name": "UpdateClippingDrawings"
+    },
+    {
+      "id": "f08fcdf4-8955-3e7a-b03e-e5d4d659366b",
+      "name": "UpdateLinkedBlocks"
+    },
+    {
+      "id": "3e740c12-13ee-4825-b6cc-4bef4d6858fd",
+      "name": "UseExtrusions"
+    },
+    {
+      "id": "e81f0b57-0cd8-42fd-9126-0a5366d2ac5e",
+      "name": "VariableBlendSrf"
+    },
+    {
+      "id": "46b067f3-5843-4d09-b25c-ec408500557b",
+      "name": "VariableChamferSrf"
+    },
+    {
+      "id": "15077102-be63-4ac9-94a8-b8df8a376b35",
+      "name": "VariableFilletSrf"
+    },
+    {
+      "id": "82ad90bd-866b-450e-abd4-8d0e25aad9d9",
+      "name": "VariableOffsetSrf"
+    },
+    {
+      "id": "9fd5c50f-5ce7-3041-b14a-72058a9de96f",
+      "name": "ViewCaptureToClipboard"
+    },
+    {
+      "id": "15411042-387a-36bc-b9f8-f2717c770c6e",
+      "name": "ViewCaptureToFile"
+    },
+    {
+      "id": "1353e780-aaac-4cba-84f6-cd77e93e5d4e",
+      "name": "ViewClippingSections"
+    },
+    {
+      "id": "3073b585-b2a3-4b20-be53-82fe978d75c1",
+      "name": "ViewportProperties"
+    },
+    {
+      "id": "8fd1635b-c75d-4946-bcb8-035b68a433e1",
+      "name": "ViewportTabs"
+    },
+    {
+      "id": "25f142cd-a79b-4d8d-9daa-e27db730619d",
+      "name": "Volume"
+    },
+    {
+      "id": "2bb6f8e2-0280-4269-88f1-bd8ee493b53e",
+      "name": "VolumeCentroid"
+    },
+    {
+      "id": "441e0ee8-f83d-431d-8eed-802b3a5e611f",
+      "name": "VolumeMoments"
+    },
+    {
+      "id": "01d6b1e7-13b9-4dc6-93a7-b59564cc1c5d",
+      "name": "WebBrowser"
+    },
+    {
+      "id": "84239650-4721-3e38-9f19-a33287617400",
+      "name": "WebPage"
+    },
+    {
+      "id": "2f19b2b5-2e55-45a7-8589-aa3799d2a1fc",
+      "name": "Weight"
+    },
+    {
+      "id": "21369601-3aca-4410-a742-e2303c0e861b",
+      "name": "Weld"
+    },
+    {
+      "id": "2ce8dc00-fd6d-4099-8b7e-a103e77926c8",
+      "name": "WeldEdge"
+    },
+    {
+      "id": "08968599-0b34-4105-9b73-31f8246ba032",
+      "name": "WeldVertices"
+    },
+    {
+      "id": "b1ae953e-cfd0-4c4d-af9e-f081cf8e3c20",
+      "name": "What"
+    },
+    {
+      "id": "655d0804-d2d3-33d1-abc9-10556ed6390d",
+      "name": "WindowLayout"
+    },
+    {
+      "id": "296f51a2-9e51-4314-b73e-0d2397ca7a1c",
+      "name": "Worksession"
+    },
+    {
+      "id": "6812f916-21b7-3cd7-a82d-c2ffc3851b69",
+      "name": "ZBuffer"
+    },
+    {
+      "id": "fde5a3ad-b920-4315-b451-a5ac8fc7b191",
+      "name": "Zebra"
+    },
+    {
+      "id": "6c1f09bc-19a1-4476-b6dd-4b20b9255de8",
+      "name": "ZebraOff"
+    },
+    {
+      "id": "cf9f4813-93e2-4907-8e31-9639e8a2bede",
+      "name": "Zoom"
+    },
+    {
+      "id": "18ba1b56-e753-4602-8dea-66ca3950a45e",
+      "name": "Zoom1To1Calibrate"
+    },
+    {
+      "id": "91b23f59-da8f-3d50-8aca-2846544a9dac",
+      "name": "ZoomDetailExtents"
+    },
+    {
+      "id": "fb435138-d05c-4980-9ece-8189d9d85138",
+      "name": "ZoomEnds"
+    },
+    {
+      "id": "68a8c0e9-f4fc-3ef1-8b90-8595a3e9d340",
+      "name": "ZoomLayoutExtents"
+    },
+    {
+      "id": "b6d35ba4-4163-494a-9b4d-e6513ead76f3",
+      "name": "ZoomLens"
+    },
+    {
+      "id": "04a30b7a-fef3-4fe6-bf8e-314576819c20",
+      "name": "ZoomNaked"
+    },
+    {
+      "id": "7b1f5e67-0d4d-4050-b162-0bfece948ed3",
+      "name": "ZoomNonManifold"
+    },
+    {
+      "id": "5ad73d34-00da-33d6-a850-b9233bf48f74",
+      "name": "ZoomWalkthrough"
+    },
+    {
+      "id": "09707023-0628-4723-bf7d-da86862817ad",
+      "name": "ZoomZeroToOne"
+    },
+    {
+      "id": "475040f5-4534-4f15-b343-3449067fbc0d",
+      "name": "oldFilletSrf"
+    },
+    {
+      "id": "409fb612-f554-3b05-8037-5a68b9fae57e",
+      "name": "pointCloudDeleteInside"
+    },
+    {
+      "id": "17f86552-a2fb-33c1-adcf-5aecbedf1a9e",
+      "name": "pointCloudDeleteOutside"
+    },
+    {
+      "id": "55564919-ec3f-3141-a822-4324e6c8c096",
+      "name": "syncExamineFile"
+    },
+    {
+      "id": "761f5c35-ca5d-4f47-bc4f-7ad2008fe4a4",
+      "name": "vrayBatchRender"
+    },
+    {
+      "id": "c5130621-d360-4a53-b12a-bf9c172043a0",
+      "name": "vrayCamClipping"
+    },
+    {
+      "id": "78bbd6f4-878a-4d2a-bb3a-d6731a1e85fa",
+      "name": "vrayCamFocus"
+    },
+    {
+      "id": "354f6bd1-c727-4f77-aa98-252a440c4ef5",
+      "name": "vrayCamGuessVertical"
+    },
+    {
+      "id": "53f65029-8c8b-459c-a5a3-ece0e90ef982",
+      "name": "vrayCamOrientation"
+    },
+    {
+      "id": "08dae62b-a2ef-4be1-8d3d-23b93710aef4",
+      "name": "vrayChangeDefaultScene"
+    },
+    {
+      "id": "91286b02-6e84-4591-b818-4c838b84f38c",
+      "name": "vrayClipper"
+    },
+    {
+      "id": "759b9cd2-350f-44dd-a147-9710cd0f9fac",
+      "name": "vrayCosmos"
+    },
+    {
+      "id": "72530d4b-099a-42c4-b1a0-a2cf96c5f4b5",
+      "name": "vrayDEV"
+    },
+    {
+      "id": "8f3d0dca-768b-4ef2-815f-b9b6dd8d57c7",
+      "name": "vrayDecal"
+    },
+    {
+      "id": "3fae6f2e-3e16-478c-b715-baa0437f3551",
+      "name": "vrayDisplacement"
+    },
+    {
+      "id": "0e0a46f7-1882-472a-9a2f-556cac967c46",
+      "name": "vrayEdit"
+    },
+    {
+      "id": "a1c77b9a-a7d7-4ad7-80cc-c25fc21ed464",
+      "name": "vrayEnmesh"
+    },
+    {
+      "id": "9be870a4-7601-4d92-837d-ef303b8ce487",
+      "name": "vrayEnscape"
+    },
+    {
+      "id": "0ca75b49-b0ff-4b0e-bbbd-87a73a624036",
+      "name": "vrayExportVRScene"
+    },
+    {
+      "id": "ecfc9a0b-259a-4072-b43f-bc7d090d6c5a",
+      "name": "vrayFur"
+    },
+    {
+      "id": "037dbf4f-bdcc-48d6-9b77-3afd5bcd76ec",
+      "name": "vrayImportMaterial"
+    },
+    {
+      "id": "ada9d1ca-7245-436b-a773-5236a25728f1",
+      "name": "vrayInfinitePlane"
+    },
+    {
+      "id": "1215c655-4361-4f03-bcbf-9697b4a2dd89",
+      "name": "vrayLight"
+    },
+    {
+      "id": "c7b48f5e-935e-4445-8de6-dcb55f0e5c21",
+      "name": "vrayLightMesh"
+    },
+    {
+      "id": "4b576177-4144-4260-8ed7-cfa4d1cf00e6",
+      "name": "vrayLightSunFromDirect"
+    },
+    {
+      "id": "e84ee386-1c28-46ba-a69c-82aab05e24ac",
+      "name": "vrayLiveLink"
+    },
+    {
+      "id": "cb09774e-15a1-4b39-b04c-bfb465574bbf",
+      "name": "vrayLoadSettings"
+    },
+    {
+      "id": "e32b5e68-f500-45dc-a728-383946f74760",
+      "name": "vrayMtlFromRhino"
+    },
+    {
+      "id": "fdd5947b-cc43-4d34-a16d-1b54bc2b49a9",
+      "name": "vrayProxyExport"
+    },
+    {
+      "id": "013be7d5-af20-40f9-b048-549f36dabef3",
+      "name": "vrayProxyImport"
+    },
+    {
+      "id": "1d279ee3-a3a9-4ef9-bee8-226c19b2df90",
+      "name": "vrayRender"
+    },
+    {
+      "id": "ba459992-7d23-4aee-ae18-91ea6691ad4c",
+      "name": "vrayRenderWindow"
+    },
+    {
+      "id": "9a4f1abb-f446-479b-95cf-4d7795508d50",
+      "name": "vrayScatter"
+    },
+    {
+      "id": "ec301b42-35cb-42ae-8ced-e6ca6f344bd6",
+      "name": "vraySelID"
+    },
+    {
+      "id": "62610fe0-4684-4532-9f8c-391878c62998",
+      "name": "vraySetMtlID"
+    },
+    {
+      "id": "4aabad77-51e5-4a63-9ea3-117e01aa05bd",
+      "name": "vraySetObjectID"
+    },
+    {
+      "id": "4a38d618-62e0-45db-b283-91c7451ab38e",
+      "name": "vrayShowAssetEditor"
+    },
+    {
+      "id": "3859681e-a271-4ce9-924a-84bef61ef4ff",
+      "name": "vrayShowCollaboration"
+    },
+    {
+      "id": "84058fd3-de31-4fc1-a186-f9f7c4c6ba9d",
+      "name": "vrayShowCosmos"
+    },
+    {
+      "id": "594a6d73-fadc-4249-9d81-00e34f69258f",
+      "name": "vrayShowFilePathEditor"
+    },
+    {
+      "id": "af0fddf0-b5f0-408b-bfb5-0146f9d3428f",
+      "name": "vrayShowLightGen"
+    },
+    {
+      "id": "3af47e46-62a9-46f6-9d6a-2268f0fb36ac",
+      "name": "vrayShowVFB"
+    },
+    {
+      "id": "11479919-1f24-43c5-a90e-7f7cd51c3df7",
+      "name": "vrayTexturePreviewSettings"
+    },
+    {
+      "id": "befb270d-1c94-4e9b-858c-9384e08dd1e4",
+      "name": "vrayVPRSettings"
+    },
+    {
+      "id": "467b92d5-82d5-4449-8cdd-c1dafa0c9ebf",
+      "name": "vrayVantage"
+    },
+    {
+      "id": "87c960b7-c2a8-49ef-9b1f-73a113b86600",
+      "name": "vrayVision"
+    }
+  ],
+  "rhino_help_base_url": "https://docs.mcneel.com/rhino/8/help/en-us/commands/"
+}

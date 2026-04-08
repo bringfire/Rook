@@ -1,0 +1,85 @@
+{
+  "note_id": "comp_6578d009",
+  "note_type": "component",
+  "name": "Model Hatch",
+  "brief": "Model Hatch | Inputs: H, B, P, Hp → H, B, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Model Hatch. Inputs: H (Hatch), B (Surface), P (Plane), Hp (Model Hatch Pattern), Bp (Point), R (Number), S (Number), Sb (Boolean), Bc (Colour), Fs (Colour Gradient). Outputs: H (Hatch), B (Curve), P (Plane), Hp (Model Hatch Pattern), Bp (Point), R (Number), S (Number), Sb (Boolean), Bc (Colour), Fs (Colour Gradient).",
+  "keywords": [
+    "model hatch",
+    "model",
+    "hatch",
+    "rhino_drafting"
+  ],
+  "category": "rhino_drafting",
+  "tags": [
+    "rhino_drafting"
+  ],
+  "trigger_intents": [
+    "model hatch",
+    "model",
+    "hatch"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Hatch"
+  ],
+  "solution_principle": "Model Hatch",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_93098ea1",
+    "comp_21bfc521",
+    "comp_e924254a",
+    "comp_9d574fba",
+    "comp_83d9e778"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3bbd57f0-d6d7-4863-ab2b-d094015b286c",
+    "category": "rhino_drafting",
+    "inputs": {
+      "H": "Hatch",
+      "B": "Surface",
+      "P": "Plane",
+      "Hp": "Model Hatch Pattern",
+      "Bp": "Point",
+      "R": "Number",
+      "S": "Number",
+      "Sb": "Boolean",
+      "Bc": "Colour",
+      "Fs": "Colour Gradient"
+    },
+    "outputs": {
+      "H": "Hatch",
+      "B": "Curve",
+      "P": "Plane",
+      "Hp": "Model Hatch Pattern",
+      "Bp": "Point",
+      "R": "Number",
+      "S": "Number",
+      "Sb": "Boolean",
+      "Bc": "Colour",
+      "Fs": "Colour Gradient"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "67b2a54a-e2f9-4911-a0cc-eae7e7e06f65",
+      "3ed4d673-02f6-48f7-aa81-69587f83e201",
+      "298e0adf-625a-4207-9d0f-c22212480c4c"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|drafting|model hatch"
+  }
+}

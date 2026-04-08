@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_e9726f21",
+  "note_type": "component",
+  "name": "CurvePointCollide",
+  "brief": "CurvePointCollide | Inputs: Points, Curve, Pl, In → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: CurvePointCollide. Inputs: Points (Point), Curve (Curve), Pl (Plane), In (Boolean), Strength (Number). Outputs: S (Generic Data).",
+  "keywords": [
+    "curvepointcollide",
+    "kangaroo2_goals-col"
+  ],
+  "category": "kangaroo2_goals-col",
+  "tags": [
+    "kangaroo2_goals-col"
+  ],
+  "trigger_intents": [
+    "curvepointcollide",
+    "curve",
+    "point",
+    "collide"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "CurvePointCollide"
+  ],
+  "solution_principle": "Keep a set of points outside or inside a given 2d curve",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_23f54b6c",
+    "comp_00671de7",
+    "comp_92236fa4",
+    "comp_f3828be6",
+    "comp_47ecf7c0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "02b1c69b-b3f7-4528-988e-449a59963e5e",
+    "category": "kangaroo2_goals-col",
+    "inputs": {
+      "Points": "Point",
+      "Curve": "Curve",
+      "Pl": "Plane",
+      "In": "Boolean",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "763c5b56-3dc6-4fe0-be7b-6b60cd27f744",
+      "4b106d6a-0e09-4edc-941c-27d734ac4d59",
+      "4dd9ea95-2ec8-44e3-a772-0e5889d95344"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-col|curvepointcollide"
+  }
+}

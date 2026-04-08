@@ -1,0 +1,896 @@
+{
+  "pattern_id": "6ba5ea93",
+  "name": "parametric_surface-creation_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:06.833786Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Circle",
+      "slider",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "Divide Surface",
+      "slider",
+      "slider",
+      "PolyLine",
+      "Flip Matrix",
+      "Cull Index",
+      "MakePair",
+      "Toggle",
+      "Curve",
+      "Random",
+      "List Length",
+      "slider",
+      "slider",
+      "Random",
+      "slider",
+      "Evaluate Curve",
+      "List Item",
+      "Evaluate Curve",
+      "List Item",
+      "Line",
+      "removeDuplicatePts",
+      "slider",
+      "removeDuplicatePts",
+      "Deconstruct",
+      "Sort List",
+      "Loft",
+      "panel",
+      "Merge",
+      "Duplicate Data",
+      "Flip Matrix",
+      "MakePair",
+      "Toggle",
+      "Curve",
+      "Offset",
+      "Plane",
+      "Negative",
+      "slider",
+      "Merge",
+      "Loft",
+      "Scale NU",
+      "Area",
+      "Deconstruct",
+      "Construct Point",
+      "slider",
+      "Brep Edges",
+      "Brep Edges",
+      "Merge",
+      "Loft",
+      "Merge",
+      "Shift Paths",
+      "Brep Join",
+      "List Length",
+      "Colour HSL",
+      "Random",
+      "Custom Preview",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "loft curves",
+      "surface from curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "panelization"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:02:25.559549Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 61 -> 61, Flows: 71"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 503
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 2000
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 234
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100000,
+          "value": 32432
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 15.46
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        }
+      ],
+      "panels": [
+        {
+          "id": "R32",
+          "nick": "",
+          "content": "0\r\n1"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "0012 Column Shelf.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            428,
+            193
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            139.5,
+            201
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 503
+        },
+        {
+          "id": "R3",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            591,
+            217
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            435,
+            267
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            176.4,
+            271.8
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 2000
+        },
+        {
+          "id": "R6",
+          "type": "Component_DivideSurface",
+          "nick": "SDivide",
+          "name": "Divide Surface",
+          "pos": [
+            763,
+            250
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            457.7,
+            302.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            463.5,
+            347.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R9",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1015,
+            237
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            892,
+            215
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            1200,
+            230
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_CSNET_Script",
+          "name": "MakePair",
+          "pos": [
+            1366,
+            233
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1135,
+            293
+          ],
+          "value": true
+        },
+        {
+          "id": "R14",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            1512,
+            243.6
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1528,
+            98
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1378,
+            69
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            1225.4,
+            97.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 234
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            1225.7,
+            25.9
+          ],
+          "min": 0,
+          "max": 100000,
+          "value": 32432
+        },
+        {
+          "id": "R19",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1629,
+            -43
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            1345.1,
+            -89.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R21",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            1826,
+            168
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1695,
+            201
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            1823,
+            264
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1692,
+            297
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            2135,
+            180
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            2006,
+            133
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            1773.3,
+            -63.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            2008,
+            208
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            2151,
+            94
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2260,
+            152
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2585,
+            208
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "panel",
+          "pos": [
+            1351.6,
+            -250.3
+          ],
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R33",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1886,
+            -169
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_DuplicateData",
+          "nick": "Dup",
+          "name": "Duplicate Data",
+          "pos": [
+            1631,
+            -185
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            1747,
+            -185
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_CSNET_Script",
+          "name": "MakePair",
+          "pos": [
+            2438,
+            156
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2233,
+            228
+          ],
+          "value": false
+        },
+        {
+          "id": "R38",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2696.5,
+            218.2
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_OffsetCurve",
+          "name": "Offset",
+          "pos": [
+            2892,
+            188
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            2693.9,
+            139.6
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2767,
+            98
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            2456.6,
+            69.9
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 15.46
+        },
+        {
+          "id": "R43",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2994,
+            283
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            3132,
+            282
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            3610,
+            316
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            3224,
+            359
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            3312,
+            424
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            3420,
+            424
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "slider",
+          "pos": [
+            3280.2,
+            495.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R50",
+          "type": "Component_BRepEdges",
+          "nick": "Edges",
+          "name": "Brep Edges",
+          "pos": [
+            3693,
+            151
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_BRepEdges",
+          "nick": "Edges",
+          "name": "Brep Edges",
+          "pos": [
+            3723,
+            285
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3908,
+            225
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            4025,
+            184
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            4155,
+            228
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            4139,
+            146
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            4259,
+            222
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            4386,
+            212
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_ColourHSL",
+          "nick": "HSL",
+          "name": "Colour HSL",
+          "pos": [
+            4628,
+            115
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            4513,
+            212
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            4751,
+            264
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "pos": [
+            4278.5,
+            103.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R4.I0",
+        "R3.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R8.O0>R6.I2",
+        "R10.O0>R9.I0",
+        "R6.O0>R10.I0",
+        "R9.O0>R11.I0",
+        "R11.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R18.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R17.O0>R15.I2",
+        "R11.O0>R16.I0",
+        "R20.O0>R19.I1",
+        "R15.O0>R19.I2",
+        "R22.O0>R21.I0",
+        "R33.O0>R21.I1",
+        "R14.O0>R22.I0",
+        "R24.O0>R23.I0",
+        "R33.O0>R23.I1",
+        "R14.O0>R24.I0",
+        "R26.O0>R25.I0",
+        "R28.O0>R25.I1",
+        "R21.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R23.O0>R28.I0",
+        "R27.O0>R28.I1",
+        "R26.O0>R29.I0",
+        "R29.O2>R30.I0",
+        "R25.O0>R30.I1",
+        "R36.O1>R31.I0",
+        "R35.O0>R33.I0",
+        "R19.O0>R33.I1",
+        "R32.O0>R34.I0",
+        "R16.O0>R34.I1",
+        "R34.O0>R35.I0",
+        "R30.O1>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R39.I0",
+        "R41.O0>R39.I1",
+        "R40.O0>R39.I2",
+        "R42.O0>R41.I0",
+        "R38.O0>R43.I0",
+        "R39.O0>R43.I1",
+        "R43.O0>R44.I0",
+        "R44.O0>R45.I0",
+        "R48.O0>R45.I1",
+        "R49.O0>R45.I2",
+        "R49.O0>R45.I3",
+        "R44.O0>R46.I0",
+        "R46.O1>R47.I0",
+        "R47.O2>R48.I2",
+        "R44.O0>R50.I0",
+        "R45.O0>R51.I0",
+        "R50.O0>R52.I0",
+        "R51.O0>R52.I1",
+        "R52.O0>R53.I0",
+        "R55.O0>R54.I0",
+        "R45.O0>R54.I1",
+        "R44.O0>R54.I2",
+        "R53.O0>R55.I0",
+        "R54.O0>R56.I0",
+        "R56.O0>R57.I0",
+        "R59.O0>R58.I1",
+        "R61.O0>R58.I2",
+        "R57.O0>R59.I1",
+        "R56.O0>R60.I0",
+        "R58.O0>R60.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

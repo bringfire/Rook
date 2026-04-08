@@ -1,0 +1,80 @@
+{
+  "note_id": "comp_ef96fa08",
+  "note_type": "component",
+  "name": "Surface Morph",
+  "brief": "Surface Morph | Inputs: G, R, S, U → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Surface Morph. Inputs: G (Geometry), R (Box), S (Surface), U (Domain), V (Domain), W (Domain). Outputs: G (Geometry).",
+  "keywords": [
+    "surface morph",
+    "surface",
+    "morph",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "surface morph",
+    "surface",
+    "morph"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Morph"
+  ],
+  "solution_principle": "Morph geometry into surface UVW coordinates",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_18607aa4",
+    "comp_bce12009",
+    "comp_94f55c41",
+    "teaching_0abb40f1",
+    "comp_d4249a4e",
+    "comp_4c71c793",
+    "comp_e8fd68a2",
+    "comp_fd25326e",
+    "comp_8425c570",
+    "comp_27766a23",
+    "comp_56d72921",
+    "comp_47a89531",
+    "comp_6ba13139",
+    "comp_d3804286",
+    "comp_a41fd3f5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5889b68f-fd88-4032-860f-869fb69654dd",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "R": "Box",
+      "S": "Surface",
+      "U": "Domain",
+      "V": "Domain",
+      "W": "Domain"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d8940ff0-dd4a-4e74-9361-54df537b50db"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|surface morph"
+  }
+}

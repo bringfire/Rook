@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_9000d88c",
+  "note_type": "component",
+  "name": "Blur Mesh",
+  "brief": "Blur Mesh | Inputs: M, I → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Blur Mesh. Inputs: M (Mesh), I (Integer). Outputs: M (Mesh).",
+  "keywords": [
+    "blur mesh",
+    "blur",
+    "mesh",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "blur mesh",
+    "blur",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Blur Mesh"
+  ],
+  "solution_principle": "Blur the colours on a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd",
+    "comp_32856052",
+    "comp_00ac6e55"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "48a9fa10-8d3c-4767-aca6-81232271f6e0",
+    "category": "mesh_utilities",
+    "inputs": {
+      "M": "Mesh",
+      "I": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "23d715f7-4bc6-4e69-b76d-7c04ca2ebf5f"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|util|blur mesh"
+  }
+}

@@ -1,0 +1,443 @@
+{
+  "note_id": "recipe_f78deac4",
+  "note_type": "recipe",
+  "name": "Lowpoly Attractor",
+  "brief": "Lowpoly Attractor: HexagonalGrid \u00e2\u2020\u2019 BoundingBox \u00e2\u2020\u2019 DeconstructBrep \u00e2\u2020\u2019 EvaluateSurface_OBSOLETE \u00e2\u2020\u2019 MultiDimensionalSlider +17 more (37 components, 7 sliders, 47 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T19:39:49.358249Z",
+  "context": "Extracted from: Lowpoly Attractor.gh",
+  "keywords": [
+    "parametric_surface-creation",
+    "parametric",
+    "surface-creation"
+  ],
+  "category": "parametric",
+  "tags": [
+    "bounding-box",
+    "brep-deconstruction",
+    "brep-join",
+    "colour",
+    "construct-domain",
+    "custom-preview-component",
+    "data-dispatch",
+    "distance",
+    "equal-to",
+    "evaluate-surface_-o",
+    "foundational",
+    "hexagonal-grid",
+    "loft-surface",
+    "merge-variable",
+    "move",
+    "multi-dimensional-slider",
+    "numeric-bounds",
+    "operator-sign",
+    "operator_-minimum",
+    "remap",
+    "scale",
+    "surface-creation",
+    "unit-vector-z",
+    "workflow"
+  ],
+  "trigger_intents": [
+    "surface from curves",
+    "loft curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Hexagonal",
+    "Number Slider",
+    "Number Slider",
+    "Bounding Box",
+    "Deconstruct Brep",
+    "Evaluate Surface",
+    "MD Slider",
+    "Point",
+    "Distance",
+    "Minimum",
+    "Number Slider",
+    "Remap Numbers",
+    "Bounds",
+    "Construct Domain",
+    "Number Slider",
+    "Number Slider",
+    "Scale",
+    "Curve",
+    "Equality",
+    "Dispatch",
+    "Dispatch",
+    "Dispatch",
+    "Move",
+    "Remap Numbers",
+    "Construct Domain",
+    "Number Slider",
+    "Number Slider",
+    "Dispatch",
+    "Unit Z",
+    "Negative",
+    "Merge",
+    "Loft",
+    "Boundary Surfaces",
+    "Merge",
+    "Brep Join",
+    "Custom Preview",
+    "Colour Swatch"
+  ],
+  "solution_principle": "Processing chain: HexagonalGrid \u00e2\u2020\u2019 BoundingBox \u00e2\u2020\u2019 DeconstructBrep \u00e2\u2020\u2019 EvaluateSurface_OBSOLETE \u00e2\u2020\u2019 MultiDimensionalSlider \u00e2\u2020\u2019 Distance \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 colour.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_e5da5e21",
+    "recipe_139f766a",
+    "recipe_6700397d",
+    "recipe_68d8cb33",
+    "recipe_7de55487"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "e1bc0938-ecba-4e26-80c6-1b40b2238fb5",
+        "from_param": "Number Slider",
+        "to": "6229a811-87cf-4c6d-b8e7-a4c8709a0d60",
+        "to_param": "S"
+      },
+      {
+        "from": "e5d4aa45-34bb-40f5-8fb1-b25dcc29d53d",
+        "from_param": "Number Slider",
+        "to": "6229a811-87cf-4c6d-b8e7-a4c8709a0d60",
+        "to_param": "Ex"
+      },
+      {
+        "from": "e5d4aa45-34bb-40f5-8fb1-b25dcc29d53d",
+        "from_param": "Number Slider",
+        "to": "6229a811-87cf-4c6d-b8e7-a4c8709a0d60",
+        "to_param": "Ey"
+      },
+      {
+        "from": "6229a811-87cf-4c6d-b8e7-a4c8709a0d60",
+        "from_param": "C",
+        "to": "0d349147-3834-42a2-baf1-5f4d76effa28",
+        "to_param": "C"
+      },
+      {
+        "from": "0d349147-3834-42a2-baf1-5f4d76effa28",
+        "from_param": "B",
+        "to": "43004c8c-e0c4-4eae-8551-fbac77ac0ff2",
+        "to_param": "B"
+      },
+      {
+        "from": "43004c8c-e0c4-4eae-8551-fbac77ac0ff2",
+        "from_param": "F",
+        "to": "c2239cbf-2041-45b3-bf6e-13a2ffc61b92",
+        "to_param": "S"
+      },
+      {
+        "from": "f8c96184-c951-401b-89b9-1e675a7c02d1",
+        "from_param": "MD Slider",
+        "to": "c2239cbf-2041-45b3-bf6e-13a2ffc61b92",
+        "to_param": "uv"
+      },
+      {
+        "from": "c2239cbf-2041-45b3-bf6e-13a2ffc61b92",
+        "from_param": "P",
+        "to": "69002c73-2199-4bfb-989f-ace174470d6f",
+        "to_param": "A"
+      },
+      {
+        "from": "d15e8d5b-0118-4267-8328-8e04520cdfe5",
+        "from_param": "Pt",
+        "to": "69002c73-2199-4bfb-989f-ace174470d6f",
+        "to_param": "B"
+      },
+      {
+        "from": "69002c73-2199-4bfb-989f-ace174470d6f",
+        "from_param": "D",
+        "to": "642aae92-7dfb-4a94-aa4a-208ed441fa5a",
+        "to_param": "A"
+      },
+      {
+        "from": "25d29631-a46a-4093-8fbd-e4bceb07b03b",
+        "from_param": "Number Slider",
+        "to": "642aae92-7dfb-4a94-aa4a-208ed441fa5a",
+        "to_param": "B"
+      },
+      {
+        "from": "642aae92-7dfb-4a94-aa4a-208ed441fa5a",
+        "from_param": "R",
+        "to": "562b4df8-37a4-49ce-8969-f9f3e0a86a0a",
+        "to_param": "V"
+      },
+      {
+        "from": "add5e7a3-57a2-4024-b5ee-3f189d2c938e",
+        "from_param": "I",
+        "to": "562b4df8-37a4-49ce-8969-f9f3e0a86a0a",
+        "to_param": "S"
+      },
+      {
+        "from": "ed410391-3b06-4d8a-a452-aa464405a1a2",
+        "from_param": "I",
+        "to": "562b4df8-37a4-49ce-8969-f9f3e0a86a0a",
+        "to_param": "T"
+      },
+      {
+        "from": "642aae92-7dfb-4a94-aa4a-208ed441fa5a",
+        "from_param": "R",
+        "to": "add5e7a3-57a2-4024-b5ee-3f189d2c938e",
+        "to_param": "N"
+      },
+      {
+        "from": "cad5392a-c151-4b3d-ae82-f5428d759a8d",
+        "from_param": "Number Slider",
+        "to": "ed410391-3b06-4d8a-a452-aa464405a1a2",
+        "to_param": "A"
+      },
+      {
+        "from": "45b4e690-5248-4ac3-b3b0-ce75781eb014",
+        "from_param": "Number Slider",
+        "to": "ed410391-3b06-4d8a-a452-aa464405a1a2",
+        "to_param": "B"
+      },
+      {
+        "from": "e0fbc0c3-c364-4f2a-873a-98b5180a3eab",
+        "from_param": "B",
+        "to": "33b5d331-900e-4f13-a599-ceb3fb606564",
+        "to_param": "G"
+      },
+      {
+        "from": "f9ecf4cd-6290-432f-b968-8b94b5948896",
+        "from_param": "B",
+        "to": "33b5d331-900e-4f13-a599-ceb3fb606564",
+        "to_param": "C"
+      },
+      {
+        "from": "958442c6-ba54-4725-9b65-d30a53b73060",
+        "from_param": "B",
+        "to": "33b5d331-900e-4f13-a599-ceb3fb606564",
+        "to_param": "F"
+      },
+      {
+        "from": "562b4df8-37a4-49ce-8969-f9f3e0a86a0a",
+        "from_param": "R",
+        "to": "e4827a75-d8e6-4a63-83e6-7cbc71f744e9",
+        "to_param": "A"
+      },
+      {
+        "from": "5e802c6b-09ec-4765-96fe-bbab1afc1716",
+        "from_param": "Crv",
+        "to": "e0fbc0c3-c364-4f2a-873a-98b5180a3eab",
+        "to_param": "L"
+      },
+      {
+        "from": "e4827a75-d8e6-4a63-83e6-7cbc71f744e9",
+        "from_param": "=",
+        "to": "e0fbc0c3-c364-4f2a-873a-98b5180a3eab",
+        "to_param": "P"
+      },
+      {
+        "from": "d15e8d5b-0118-4267-8328-8e04520cdfe5",
+        "from_param": "Pt",
+        "to": "f9ecf4cd-6290-432f-b968-8b94b5948896",
+        "to_param": "L"
+      },
+      {
+        "from": "e4827a75-d8e6-4a63-83e6-7cbc71f744e9",
+        "from_param": "=",
+        "to": "f9ecf4cd-6290-432f-b968-8b94b5948896",
+        "to_param": "P"
+      },
+      {
+        "from": "562b4df8-37a4-49ce-8969-f9f3e0a86a0a",
+        "from_param": "R",
+        "to": "958442c6-ba54-4725-9b65-d30a53b73060",
+        "to_param": "L"
+      },
+      {
+        "from": "e4827a75-d8e6-4a63-83e6-7cbc71f744e9",
+        "from_param": "=",
+        "to": "958442c6-ba54-4725-9b65-d30a53b73060",
+        "to_param": "P"
+      },
+      {
+        "from": "33b5d331-900e-4f13-a599-ceb3fb606564",
+        "from_param": "G",
+        "to": "34b9d9f4-1dcb-41d9-8247-01f2306ba9b6",
+        "to_param": "G"
+      },
+      {
+        "from": "ff4e9bf2-74c8-4fd3-a630-851aec10c36f",
+        "from_param": "V",
+        "to": "34b9d9f4-1dcb-41d9-8247-01f2306ba9b6",
+        "to_param": "T"
+      },
+      {
+        "from": "642aae92-7dfb-4a94-aa4a-208ed441fa5a",
+        "from_param": "R",
+        "to": "9ea9be3e-186a-423c-b6d6-820acb07ee77",
+        "to_param": "V"
+      },
+      {
+        "from": "add5e7a3-57a2-4024-b5ee-3f189d2c938e",
+        "from_param": "I",
+        "to": "9ea9be3e-186a-423c-b6d6-820acb07ee77",
+        "to_param": "S"
+      },
+      {
+        "from": "f83b18b7-5f4e-4bd3-a7cb-e6704fa6ee3e",
+        "from_param": "I",
+        "to": "9ea9be3e-186a-423c-b6d6-820acb07ee77",
+        "to_param": "T"
+      },
+      {
+        "from": "998733b1-33dd-4612-9b51-a3733dad67c5",
+        "from_param": "Number Slider",
+        "to": "f83b18b7-5f4e-4bd3-a7cb-e6704fa6ee3e",
+        "to_param": "A"
+      },
+      {
+        "from": "7a8bc868-6226-4eeb-a0ad-485cc8db822b",
+        "from_param": "Number Slider",
+        "to": "f83b18b7-5f4e-4bd3-a7cb-e6704fa6ee3e",
+        "to_param": "B"
+      },
+      {
+        "from": "9ea9be3e-186a-423c-b6d6-820acb07ee77",
+        "from_param": "R",
+        "to": "eb08384e-62b3-42d3-ac5a-5ca2de1e5dc7",
+        "to_param": "L"
+      },
+      {
+        "from": "e4827a75-d8e6-4a63-83e6-7cbc71f744e9",
+        "from_param": "=",
+        "to": "eb08384e-62b3-42d3-ac5a-5ca2de1e5dc7",
+        "to_param": "P"
+      },
+      {
+        "from": "0d2f3ac0-12b5-4e51-84a5-5797dba3868b",
+        "from_param": "y",
+        "to": "ff4e9bf2-74c8-4fd3-a630-851aec10c36f",
+        "to_param": "F"
+      },
+      {
+        "from": "eb08384e-62b3-42d3-ac5a-5ca2de1e5dc7",
+        "from_param": "B",
+        "to": "0d2f3ac0-12b5-4e51-84a5-5797dba3868b",
+        "to_param": "x"
+      },
+      {
+        "from": "34b9d9f4-1dcb-41d9-8247-01f2306ba9b6",
+        "from_param": "G",
+        "to": "8bbefd2c-7a7b-4895-bea5-6d17aa679b20",
+        "to_param": "D1"
+      },
+      {
+        "from": "e0fbc0c3-c364-4f2a-873a-98b5180a3eab",
+        "from_param": "B",
+        "to": "8bbefd2c-7a7b-4895-bea5-6d17aa679b20",
+        "to_param": "D2"
+      },
+      {
+        "from": "8bbefd2c-7a7b-4895-bea5-6d17aa679b20",
+        "from_param": "R",
+        "to": "a009d48f-83e1-458f-9db1-22944b0442b3",
+        "to_param": "C"
+      },
+      {
+        "from": "e0fbc0c3-c364-4f2a-873a-98b5180a3eab",
+        "from_param": "A",
+        "to": "c7fcb250-daaf-46f8-ab32-5247227d7346",
+        "to_param": "E"
+      },
+      {
+        "from": "c7fcb250-daaf-46f8-ab32-5247227d7346",
+        "from_param": "S",
+        "to": "d44d7add-3143-4ff6-8a1d-20a1f0798ff5",
+        "to_param": "D1"
+      },
+      {
+        "from": "a009d48f-83e1-458f-9db1-22944b0442b3",
+        "from_param": "L",
+        "to": "d44d7add-3143-4ff6-8a1d-20a1f0798ff5",
+        "to_param": "D2"
+      },
+      {
+        "from": "d44d7add-3143-4ff6-8a1d-20a1f0798ff5",
+        "from_param": "R",
+        "to": "db571677-95f2-4871-878e-20a127f1d0ad",
+        "to_param": "B"
+      },
+      {
+        "from": "db571677-95f2-4871-878e-20a127f1d0ad",
+        "from_param": "B",
+        "to": "b9ef6aab-f884-433f-9225-b1770c6ba285",
+        "to_param": "G"
+      },
+      {
+        "from": "513c524d-ef07-452d-bec9-e0f8089ff556",
+        "from_param": "Swatch",
+        "to": "b9ef6aab-f884-433f-9225-b1770c6ba285",
+        "to_param": "S"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "e1bc0938-ecba-4e26-80c6-1b40b2238fb5",
+          "role": "parameter",
+          "connected_to": "Hexagonal",
+          "param": "S"
+        },
+        {
+          "guid": "e5d4aa45-34bb-40f5-8fb1-b25dcc29d53d",
+          "role": "parameter",
+          "connected_to": "Hexagonal",
+          "param": "Ex"
+        },
+        {
+          "guid": "25d29631-a46a-4093-8fbd-e4bceb07b03b",
+          "role": "domain_end",
+          "connected_to": "Minimum",
+          "param": "B"
+        },
+        {
+          "guid": "cad5392a-c151-4b3d-ae82-f5428d759a8d",
+          "role": "domain_start",
+          "connected_to": "Construct Domain",
+          "param": "A"
+        },
+        {
+          "guid": "45b4e690-5248-4ac3-b3b0-ce75781eb014",
+          "role": "domain_end",
+          "connected_to": "Construct Domain",
+          "param": "B"
+        },
+        {
+          "guid": "998733b1-33dd-4612-9b51-a3733dad67c5",
+          "role": "domain_start",
+          "connected_to": "Construct Domain",
+          "param": "A"
+        },
+        {
+          "guid": "7a8bc868-6226-4eeb-a0ad-485cc8db822b",
+          "role": "domain_end",
+          "connected_to": "Construct Domain",
+          "param": "B"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Lowpoly Attractor.gh",
+    "pattern_type": "recipe",
+    "component_count": 37
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_d214f5ae",
+  "note_type": "component",
+  "name": "Combine Date & Time",
+  "brief": "Combine Date & Time | Inputs: D, T → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Combine Date & Time. Inputs: D (Time), T (Time). Outputs: R (Time).",
+  "keywords": [
+    "combine date & time",
+    "combine",
+    "date",
+    "&",
+    "time",
+    "time_ops"
+  ],
+  "category": "time_ops",
+  "tags": [
+    "time_ops"
+  ],
+  "trigger_intents": [
+    "combine date & time",
+    "combine",
+    "date",
+    "time"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Combine Date & Time"
+  ],
+  "solution_principle": "Combine a pure date and a pure time into a single date",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_58735b68",
+    "comp_94e8a745",
+    "comp_10117bb9",
+    "comp_650cfc2b",
+    "comp_024ee866"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "31534405-6573-4be6-8bf8-262e55847a3a",
+    "category": "time_ops",
+    "inputs": {
+      "D": "Time",
+      "T": "Time"
+    },
+    "outputs": {
+      "R": "Time"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|time|combine date & time"
+  }
+}

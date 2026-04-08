@@ -1,0 +1,1198 @@
+{
+  "document": {
+    "name": "Unit-05-Class",
+    "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-05-Class.gh"
+  },
+  "total_components": 417,
+  "total_flows": 243,
+  "total_groups": 54,
+  "total_columns": 9,
+  "meaningful_sections": 8,
+  "sections": [
+    {
+      "column_index": 1,
+      "header_id": "C15",
+      "x_range": [
+        473.5,
+        2170.9
+      ],
+      "section_title": "List of Lists = Tree",
+      "section_number": 1,
+      "teaching_text": "1- List of Lists = Tree\r\n\r\n- While a List contains simple items, a Tree contains Lists.\r\n\r\n- The \"Partition List\" component produces many partitions from one List.\r\n\r\n\r\nEach one of these partitions is a List.\r\nThe \"Partition List\" produces a Tree, which is a List of Lists.\r\n\r\n- The Wire Display of a Tree is a dashed double line.\r\n\r\n- A Tree is composed of Branches. Each Branch is a List.\r\n\r\n- Many components are related to Trees Data structures and can be found under the Tab \"Sets\", then \"Tree\".\r\n\r\n- Like items inside a List, the ordering of Branches inside a Tree also starts with a 0.\r\n\r\n- In Grasshopper, the order of Branches is represented as number inside brackets. For example, the order of the first Branch of any Tree is {0}  (with brackets).\r\nLikewise, the order of the first item of any List is 0  (without any brackets).\r\n\r\n- Knowing this, realize that any List is actually a Tree of only one Branch! And the List itself is represented as {0}.",
+      "teaching_panel_id": "C382",
+      "additional_teaching_panels": [
+        {
+          "id": "C384",
+          "text": "2- Flattenning\r\n\r\n- \"Flattenning\" is a data restructuing concept in Grasshopper that brings any Tree to a basic List of items, getting rid of all branches.\r\n\r\n- This command is often very useful and we will see how to use it.\r\n\r\n- Type \"Flatten\" and choose \"Flatten Tree\".\r\n\r\n- Use the \"Panel\" to see what is happening with the data structure before and after flattenning."
+        }
+      ],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Partition List",
+        "Sets",
+        "Tree"
+      ],
+      "components_demonstrated": {
+        "Partition List": 1,
+        "Series": 1,
+        "Param Viewer": 4,
+        "Cherry Picker": 1,
+        "Cull Index": 2,
+        "List Item": 3,
+        "NumberSlider": 5,
+        "BooleanToggle": 8,
+        "Explode Tree": 1,
+        "Null Item": 1,
+        "Clean Tree": 2
+      },
+      "working_component_ids": [
+        "C8",
+        "C10",
+        "C42",
+        "C43",
+        "C44",
+        "C45",
+        "C177",
+        "C182",
+        "C190",
+        "C192",
+        "C193",
+        "C194",
+        "C197",
+        "C200",
+        "C201",
+        "C281",
+        "C321",
+        "C356",
+        "C358",
+        "C360",
+        "C362",
+        "C364",
+        "C396",
+        "C398",
+        "C401",
+        "C403",
+        "C11",
+        "C12",
+        "C13"
+      ],
+      "connected_panel_ids": [
+        "C9",
+        "C14",
+        "C17",
+        "C178",
+        "C183",
+        "C191",
+        "C195",
+        "C196",
+        "C198",
+        "C199",
+        "C202",
+        "C203",
+        "C264",
+        "C282",
+        "C298",
+        "C313",
+        "C315",
+        "C357",
+        "C359",
+        "C397"
+      ],
+      "sub_label_ids": [
+        "C53",
+        "C54",
+        "C58",
+        "C59",
+        "C64",
+        "C65",
+        "C66",
+        "C263",
+        "C367"
+      ],
+      "intra_section_flows": [
+        "C298.O0>C8.I0",
+        "C17.O0>C8.I1",
+        "C8.O0>C9.I0",
+        "C11.O0>C10.I0",
+        "C12.O0>C10.I1",
+        "C13.O0>C10.I2",
+        "C10.O0>C14.I0",
+        "C177.O0>C178.I0",
+        "C8.O0>C182.I0",
+        "C200.O0>C182.I1",
+        "C321.O0>C182.I2",
+        "C182.O0>C183.I0",
+        "C9.O0>C190.I0",
+        "C192.O0>C190.I1",
+        "C193.O0>C190.I2",
+        "C190.O0>C191.I0",
+        "C315.O0>C194.I0",
+        "C194.O0>C195.I0",
+        "C194.O1>C196.I0",
+        "C313.O0>C197.I0",
+        "C198.O0>C197.I1",
+        "C197.O0>C199.I0",
+        "C196.O0>C201.I0",
+        "C203.O0>C201.I1",
+        "C201.O0>C202.I0",
+        "C10.O0>C264.I0",
+        "C196.O0>C281.I0",
+        "C203.O0>C281.I1",
+        "C281.O0>C282.I0",
+        "C10.O0>C298.I0",
+        "C194.O1>C313.I0",
+        "C8.O0>C315.I0",
+        "C190.O0>C356.I0",
+        "C356.O0>C357.I0",
+        "C360.O0>C358.I0",
+        "C362.O0>C358.I1",
+        "C364.O0>C358.I2",
+        "C190.O0>C358.I3",
+        "C358.O0>C359.I0",
+        "C398.O0>C396.I0",
+        "C401.O0>C396.I1",
+        "C403.O0>C396.I2",
+        "C182.O0>C396.I3",
+        "C396.O0>C397.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G33",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G36",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G32",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G19",
+          "name": "Right-Click and select \"Match Outputs\"",
+          "colour": "#75C7E096"
+        },
+        {
+          "group_id": "G18",
+          "name": "Multiline Data Off",
+          "colour": "#75C7E096"
+        },
+        {
+          "group_id": "G35",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 2,
+        "sub_annotations": 0,
+        "working_components": 29,
+        "sub_labels": 9,
+        "connected_panels": 20,
+        "flows": 44,
+        "groups": 6
+      }
+    },
+    {
+      "column_index": 2,
+      "header_id": "C70",
+      "x_range": [
+        2175.9,
+        2942.9
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Flatten Tree": 1,
+        "Param Viewer": 4,
+        "Data": 1,
+        "Partition List": 1
+      },
+      "working_component_ids": [
+        "C71",
+        "C85",
+        "C86",
+        "C115",
+        "C116",
+        "C72",
+        "C205"
+      ],
+      "connected_panel_ids": [
+        "C73",
+        "C74",
+        "C206"
+      ],
+      "sub_label_ids": [
+        "C82",
+        "C83"
+      ],
+      "intra_section_flows": [
+        "C72.O0>C71.I0",
+        "C72.O0>C73.I0",
+        "C71.O0>C74.I0",
+        "C71.O0>C205.I0",
+        "C206.O0>C205.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G31",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G42",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G43",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 7,
+        "sub_labels": 2,
+        "connected_panels": 3,
+        "flows": 5,
+        "groups": 3
+      }
+    },
+    {
+      "column_index": 3,
+      "header_id": "C75",
+      "x_range": [
+        2947.9,
+        3663.6
+      ],
+      "section_title": "Grafting a List",
+      "section_number": 3,
+      "teaching_text": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used.",
+      "teaching_panel_id": "C386",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Grafting",
+        "Flatenning",
+        "Graft",
+        "Unflatten Tree"
+      ],
+      "components_demonstrated": {
+        "Graft Tree": 1,
+        "Param Viewer": 2
+      },
+      "working_component_ids": [
+        "C77",
+        "C81",
+        "C114"
+      ],
+      "connected_panel_ids": [
+        "C76",
+        "C207",
+        "C265",
+        "C266"
+      ],
+      "sub_label_ids": [
+        "C84"
+      ],
+      "intra_section_flows": [
+        "C77.O0>C76.I0",
+        "C114.O0>C265.I0",
+        "C77.O0>C266.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G30",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G9",
+          "name": "Output of Parameter Viewer is NOT geometry, but parameters only",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 3,
+        "sub_labels": 1,
+        "connected_panels": 4,
+        "flows": 3,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 4,
+      "header_id": "C113",
+      "x_range": [
+        3668.6,
+        5213.3
+      ],
+      "section_title": "Grafting a Tree",
+      "section_number": 4,
+      "teaching_text": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data.",
+      "teaching_panel_id": "C389",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Grafting a Tree adds a Branch to every Branch.",
+        "In Grasshopper, a Branch is also known as Path.",
+        "Param Viewer"
+      ],
+      "components_demonstrated": {
+        "Data": 1,
+        "Graft Tree": 2,
+        "Param Viewer": 6
+      },
+      "working_component_ids": [
+        "C94",
+        "C96",
+        "C97",
+        "C99",
+        "C100",
+        "C104",
+        "C108",
+        "C109",
+        "C110"
+      ],
+      "connected_panel_ids": [
+        "C95",
+        "C98",
+        "C103"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C96.O0>C95.I0",
+        "C94.O0>C96.I0",
+        "C99.O0>C98.I0",
+        "C96.O0>C99.I0",
+        "C94.O0>C103.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G28",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G37",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G38",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 9,
+        "sub_labels": 0,
+        "connected_panels": 3,
+        "flows": 5,
+        "groups": 3
+      }
+    },
+    {
+      "column_index": 5,
+      "header_id": "C89",
+      "x_range": [
+        5218.3,
+        6132.2
+      ],
+      "section_title": "Simplify",
+      "section_number": 5,
+      "teaching_text": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data.",
+      "teaching_panel_id": "C388",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Simplify"
+      ],
+      "components_demonstrated": {
+        "Simplify Tree": 1,
+        "Param Viewer": 3
+      },
+      "working_component_ids": [
+        "C87",
+        "C92",
+        "C107",
+        "C409"
+      ],
+      "connected_panel_ids": [
+        "C88"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C87.O0>C88.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G29",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 4,
+        "sub_labels": 0,
+        "connected_panels": 1,
+        "flows": 1,
+        "groups": 1
+      }
+    },
+    {
+      "column_index": 6,
+      "header_id": "C284",
+      "x_range": [
+        6137.2,
+        9557.7
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Deconstruct Brep": 1,
+        "Move": 1,
+        "Construct Point": 1,
+        "Amplitude": 1,
+        "NumberSlider": 6,
+        "Area": 2,
+        "Tree Branch": 3,
+        "Param Viewer": 9,
+        "Trim Tree": 1,
+        "Path Mapper": 3,
+        "Explode Tree": 4,
+        "Surface": 9,
+        "Geometry": 7,
+        "Quad Panels": 2,
+        "List Item": 3,
+        "Sort List": 1,
+        "Evaluate Surface": 1,
+        "Multiplication": 1,
+        "Brep": 1
+      },
+      "working_component_ids": [
+        "C209",
+        "C211",
+        "C212",
+        "C213",
+        "C214",
+        "C215",
+        "C217",
+        "C218",
+        "C220",
+        "C221",
+        "C223",
+        "C224",
+        "C225",
+        "C226",
+        "C227",
+        "C228",
+        "C229",
+        "C230",
+        "C231",
+        "C232",
+        "C245",
+        "C247",
+        "C248",
+        "C249",
+        "C250",
+        "C254",
+        "C255",
+        "C256",
+        "C257",
+        "C270",
+        "C271",
+        "C299",
+        "C300",
+        "C301",
+        "C303",
+        "C316",
+        "C317",
+        "C322",
+        "C323",
+        "C337",
+        "C338",
+        "C339",
+        "C340",
+        "C350",
+        "C368",
+        "C374",
+        "C376",
+        "C377",
+        "C379",
+        "C383",
+        "C385",
+        "C391",
+        "C405",
+        "C406",
+        "C408",
+        "C410",
+        "C208"
+      ],
+      "connected_panel_ids": [
+        "C210",
+        "C216",
+        "C219",
+        "C222",
+        "C269",
+        "C285",
+        "C286",
+        "C302",
+        "C304",
+        "C308",
+        "C341",
+        "C342",
+        "C343",
+        "C381",
+        "C387",
+        "C399",
+        "C411",
+        "C414",
+        "C268"
+      ],
+      "sub_label_ids": [
+        "C288",
+        "C347",
+        "C348",
+        "C375"
+      ],
+      "intra_section_flows": [
+        "C208.O0>C209.I0",
+        "C209.O0>C210.I0",
+        "C408.O0>C211.I0",
+        "C213.O0>C211.I1",
+        "C405.O1>C213.I0",
+        "C406.O0>C213.I1",
+        "C408.O0>C215.I0",
+        "C299.O0>C216.I0",
+        "C299.O0>C217.I0",
+        "C219.O0>C217.I1",
+        "C299.O0>C220.I0",
+        "C286.O0>C220.I1",
+        "C220.O0>C221.I0",
+        "C222.O0>C221.I1",
+        "C226.O0>C228.I0",
+        "C223.O0>C247.I0",
+        "C299.O0>C254.I0",
+        "C208.O0>C268.I0",
+        "C221.O0>C269.I0",
+        "C209.O0>C285.I0",
+        "C209.O0>C299.I0",
+        "C300.O0>C299.I1",
+        "C301.O0>C299.I2",
+        "C248.O0>C302.I0",
+        "C220.O0>C303.I0",
+        "C304.O0>C303.I1",
+        "C208.O0>C308.I0",
+        "C209.O0>C337.I0",
+        "C338.O0>C340.I0",
+        "C391.O0>C340.I1",
+        "C223.O0>C341.I0",
+        "C223.O0>C342.I0",
+        "C299.O0>C343.I0",
+        "C208.O0>C368.I0",
+        "C209.O0>C374.I0",
+        "C376.O0>C374.I1",
+        "C377.O0>C374.I2",
+        "C374.O0>C379.I0",
+        "C379.O0>C381.I0",
+        "C379.O0>C383.I0",
+        "C374.O0>C383.I1",
+        "C383.O1>C385.I0",
+        "C383.O0>C387.I0",
+        "C374.O0>C399.I0",
+        "C408.O0>C405.I0",
+        "C212.O0>C405.I1",
+        "C215.O0>C406.I0",
+        "C214.O0>C406.I1",
+        "C229.O0>C411.I0",
+        "C220.O0>C414.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G15",
+          "name": "Choosing all surfaces from every item",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G51",
+          "name": "Explode Diagram",
+          "colour": "#00AEFF85"
+        },
+        {
+          "group_id": "G8",
+          "name": "Like Path Mapper, but trims branches from outside to inside, following the Depth parameter, OR flatten with steps",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G14",
+          "name": "Choosing only 1 or more branches",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G52",
+          "name": "",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G53",
+          "name": "",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G12",
+          "name": "",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G13",
+          "name": "",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G46",
+          "name": "Choosing only 1 or more branches",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G47",
+          "name": "Basic List of 2 items",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G3",
+          "name": "Internalised Breps",
+          "colour": "#FF007388"
+        },
+        {
+          "group_id": "G16",
+          "name": "Basic List of 2 items",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 57,
+        "sub_labels": 4,
+        "connected_panels": 19,
+        "flows": 50,
+        "groups": 12
+      }
+    },
+    {
+      "column_index": 7,
+      "header_id": "C118",
+      "x_range": [
+        9562.7,
+        12716.9
+      ],
+      "section_title": "Practical Example",
+      "section_number": null,
+      "teaching_text": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Get the center point of each cell using the \"Area\" component.\r\n\r\n3- Use these center points to construct circles.\r\n\r\n4- Give a defined radius.\r\n\r\n5- Extrude all circles in Z direction with a defined value.\r\n\r\n6- Monitor the data structure along the way.\r\n\r\n7- Use the X value of each circle's center point to feed the extrusion values.\r\n\r\n8- Use the Distance of each circle's center point from Origin to feed the extrusion values.\r\n\r\n9- Use the X value of each circle's center point to feed the radius values of each.\r\n\r\n10- Use the Distance of each circle's center point from Origin to feed the radius values of each.\r\n\r\n11- Notice that all along the way, you have been using Trees to feed other Trees!",
+      "teaching_panel_id": "C117",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C296",
+          "text": "1 to 5",
+          "topic": "1 to 5",
+          "pos": [
+            10335.9,
+            4076.7
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Area"
+      ],
+      "components_demonstrated": {
+        "Square": 1,
+        "Point": 4,
+        "Area": 6,
+        "Extrude": 5,
+        "Unit Z": 5,
+        "NumberSlider": 13,
+        "Deconstruct": 2,
+        "Distance": 4,
+        "Construct Point": 4,
+        "Circle": 5,
+        "Remap Numbers": 2,
+        "Construct Domain": 2,
+        "Flatten Tree": 3,
+        "Bounds": 3,
+        "Param Viewer": 2,
+        "Deconstruct Domain": 1,
+        "Explode Tree": 2,
+        "Geometry": 6,
+        "Tree Branch": 1,
+        "List Item": 4,
+        "MultiDimensionalSlider": 3,
+        "Flip Matrix": 1,
+        "Line": 2
+      },
+      "working_component_ids": [
+        "C119",
+        "C122",
+        "C123",
+        "C124",
+        "C125",
+        "C126",
+        "C127",
+        "C128",
+        "C129",
+        "C131",
+        "C132",
+        "C133",
+        "C134",
+        "C136",
+        "C137",
+        "C138",
+        "C139",
+        "C140",
+        "C141",
+        "C142",
+        "C143",
+        "C144",
+        "C146",
+        "C147",
+        "C148",
+        "C149",
+        "C151",
+        "C153",
+        "C154",
+        "C179",
+        "C180",
+        "C181",
+        "C185",
+        "C234",
+        "C237",
+        "C238",
+        "C239",
+        "C240",
+        "C241",
+        "C243",
+        "C244",
+        "C273",
+        "C274",
+        "C275",
+        "C276",
+        "C277",
+        "C278",
+        "C279",
+        "C280",
+        "C287",
+        "C289",
+        "C290",
+        "C297",
+        "C305",
+        "C309",
+        "C311",
+        "C312",
+        "C318",
+        "C319",
+        "C320",
+        "C324",
+        "C325",
+        "C326",
+        "C327",
+        "C328",
+        "C329",
+        "C330",
+        "C331",
+        "C332",
+        "C334",
+        "C351",
+        "C352",
+        "C353",
+        "C355",
+        "C372",
+        "C373",
+        "C394",
+        "C395",
+        "C417",
+        "C120",
+        "C121"
+      ],
+      "connected_panel_ids": [
+        "C130",
+        "C135",
+        "C145",
+        "C150",
+        "C152",
+        "C186",
+        "C187",
+        "C188",
+        "C233",
+        "C242",
+        "C272",
+        "C295",
+        "C306",
+        "C310",
+        "C335",
+        "C354",
+        "C392",
+        "C393",
+        "C415",
+        "C184"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C120.O0>C119.I1",
+        "C121.O0>C119.I2",
+        "C121.O0>C119.I3",
+        "C119.O0>C123.I0",
+        "C180.O0>C124.I0",
+        "C125.O0>C124.I1",
+        "C126.O0>C125.I0",
+        "C180.O0>C127.I0",
+        "C128.O0>C127.I1",
+        "C310.O0>C128.I0",
+        "C287.O1>C129.I0",
+        "C129.O0>C130.I0",
+        "C180.O0>C131.I0",
+        "C132.O0>C131.I1",
+        "C133.O0>C132.I0",
+        "C234.O1>C133.I0",
+        "C134.O0>C133.I1",
+        "C135.O0>C134.I0",
+        "C135.O0>C134.I1",
+        "C135.O0>C134.I2",
+        "C287.O1>C136.I0",
+        "C137.O0>C136.I1",
+        "C129.O0>C137.I0",
+        "C140.O0>C137.I1",
+        "C138.O0>C137.I2",
+        "C238.O0>C138.I0",
+        "C239.O0>C138.I1",
+        "C129.O0>C139.I0",
+        "C139.O0>C140.I0",
+        "C136.O0>C141.I0",
+        "C142.O0>C141.I1",
+        "C143.O0>C142.I0",
+        "C320.O1>C143.I0",
+        "C312.O0>C143.I1",
+        "C145.O0>C144.I0",
+        "C145.O0>C144.I1",
+        "C145.O0>C144.I2",
+        "C287.O1>C146.I0",
+        "C147.O0>C146.I1",
+        "C240.O0>C147.I0",
+        "C151.O0>C147.I1",
+        "C148.O0>C147.I2",
+        "C273.O0>C148.I0",
+        "C274.O0>C148.I1",
+        "C240.O0>C149.I0",
+        "C149.O0>C150.I0",
+        "C149.O0>C151.I0",
+        "C151.O0>C152.I0",
+        "C146.O0>C153.I0",
+        "C154.O0>C153.I1",
+        "C147.O0>C154.I0",
+        "C123.O1>C180.I0",
+        "C181.O0>C180.I1",
+        "C287.O1>C184.I0",
+        "C140.O0>C185.I0",
+        "C185.O0>C186.I0",
+        "C185.O1>C187.I0",
+        "C137.O0>C188.I0",
+        "C133.O0>C233.I0",
+        "C180.O0>C234.I0",
+        "C287.O1>C237.I0",
+        "C129.O0>C237.I1",
+        "C287.O1>C240.I0",
+        "C373.O0>C240.I1",
+        "C242.O0>C241.I0",
+        "C242.O0>C241.I1",
+        "C242.O0>C241.I2",
+        "C297.O0>C243.I0",
+        "C143.O0>C272.I0",
+        "C297.O0>C277.I0",
+        "C278.O0>C277.I1",
+        "C277.O0>C279.I0",
+        "C280.O0>C279.I1",
+        "C119.O0>C287.I0",
+        "C287.O1>C289.I0",
+        "C240.O0>C289.I1",
+        "C140.O0>C295.I0",
+        "C119.O0>C297.I0",
+        "C139.O0>C306.I0",
+        "C319.O1>C309.I0",
+        "C309.O0>C310.I0",
+        "C180.O0>C319.I0",
+        "C136.O0>C320.I0",
+        "C325.O0>C324.I0",
+        "C326.O0>C324.I1",
+        "C119.O0>C325.I0",
+        "C119.O0>C327.I0",
+        "C297.O0>C331.I0",
+        "C332.O0>C331.I1",
+        "C129.O0>C334.I0",
+        "C334.O0>C335.I0",
+        "C352.O1>C351.I0",
+        "C353.O0>C351.I1",
+        "C180.O0>C352.I0",
+        "C351.O0>C354.I0",
+        "C352.O1>C355.I0",
+        "C353.O0>C355.I1",
+        "C119.O0>C392.I0",
+        "C325.O0>C393.I0",
+        "C329.O0>C394.I0",
+        "C395.O0>C394.I1",
+        "C297.O0>C415.I0",
+        "C320.O1>C417.I0",
+        "C312.O0>C417.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G27",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G26",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G25",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G17",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G21",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G40",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G11",
+          "name": "Distance to Origin",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G41",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G7",
+          "name": "Remapped radius values",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G44",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G10",
+          "name": "\"List Item\" for Branches",
+          "colour": "#2FFF0096"
+        },
+        {
+          "group_id": "G6",
+          "name": "With MD Slider",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G4",
+          "name": "Panel used to construct a Domain, using \"to\"",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G45",
+          "name": "Flip Matrix! Swaps Rows & Columns",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G48",
+          "name": "With MD Slider (Point outside Grid)",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G1",
+          "name": "Visualizing Distances",
+          "colour": "#85F9FF49"
+        },
+        {
+          "group_id": "G2",
+          "name": "Geometrical Representation of Distances",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G49",
+          "name": "With MD Slider",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G54",
+          "name": "Visualizing Distances",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 81,
+        "sub_labels": 0,
+        "connected_panels": 20,
+        "flows": 104,
+        "groups": 19
+      }
+    },
+    {
+      "column_index": 8,
+      "header_id": "C156",
+      "x_range": [
+        12721.9,
+        null
+      ],
+      "section_title": "Assignment 5",
+      "section_number": null,
+      "teaching_text": "Assignment 5:\r\n\r\n1- Build a non-planar surface in Rhino.\r\n\r\n2- Evaluate a point onto the surface using an MD Slider.\r\n\r\n3- Divide the Surface into many points.\r\n\r\n4- Move the points in the normal direction, with vector lengths in relationship with the evaluated point from the MD Slider.\r\n\r\n5- You may need to remap the values if needed.\r\n\r\n6- Move the MD Slider and see how the normal lines change their lengths in relationship with the point.\r\n\r\nCONGRATULATIONS!\r\nYou just made your first ATTRACTOR Definition in Grasshopper!",
+      "teaching_panel_id": "C155",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Surface": 1,
+        "MultiDimensionalSlider": 2,
+        "Divide Surface": 1,
+        "NumberSlider": 3,
+        "Move": 1,
+        "Amplitude": 1,
+        "Distance": 1,
+        "Remap Numbers": 1,
+        "Bounds": 1,
+        "Construct Domain": 2,
+        "Line": 1,
+        "Interpolate": 1,
+        "Loft": 1,
+        "Pipe": 1,
+        "Deconstruct": 1,
+        "Evaluate Surface": 1
+      },
+      "working_component_ids": [
+        "C157",
+        "C158",
+        "C159",
+        "C160",
+        "C161",
+        "C162",
+        "C163",
+        "C165",
+        "C166",
+        "C167",
+        "C168",
+        "C169",
+        "C170",
+        "C171",
+        "C172",
+        "C175",
+        "C292",
+        "C293",
+        "C294",
+        "C407"
+      ],
+      "connected_panel_ids": [
+        "C164",
+        "C291",
+        "C333"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C157.O0>C159.I0",
+        "C160.O0>C159.I1",
+        "C160.O0>C159.I2",
+        "C159.O0>C161.I0",
+        "C162.O0>C161.I1",
+        "C159.O1>C162.I0",
+        "C165.O0>C162.I1",
+        "C159.O0>C163.I0",
+        "C407.O0>C163.I1",
+        "C166.O0>C164.I0",
+        "C163.O0>C165.I0",
+        "C166.O0>C165.I1",
+        "C167.O0>C165.I2",
+        "C163.O0>C166.I0",
+        "C169.O0>C167.I0",
+        "C168.O0>C167.I1",
+        "C159.O0>C170.I0",
+        "C161.O0>C170.I1",
+        "C161.O0>C171.I0",
+        "C171.O0>C172.I0",
+        "C170.O0>C175.I0",
+        "C158.O0>C291.I0",
+        "C294.O0>C292.I0",
+        "C292.O0>C293.I0",
+        "C292.O1>C293.I1",
+        "C161.O0>C333.I0",
+        "C157.O0>C407.I0",
+        "C158.O0>C407.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G24",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G23",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G22",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G5",
+          "name": "Using MD Slider to Remap values",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 20,
+        "sub_labels": 0,
+        "connected_panels": 3,
+        "flows": 28,
+        "groups": 4
+      }
+    }
+  ]
+}

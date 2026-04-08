@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_06e24c67",
+  "note_type": "component",
+  "name": "Jitter",
+  "brief": "Jitter | Inputs: List, Jitter, Seed \u2192 Values, Indices",
+  "version": "1.0",
+  "created": "2026-03-19T18:32:53.988713Z",
+  "context": "Grasshopper component: Jitter. ",
+  "keywords": [
+    "jitter",
+    "unknown",
+    "jitter"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "jitter"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Jitter"
+  ],
+  "solution_principle": "Jitter | Inputs: List, Jitter, Seed \u2192 Values, Indices",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f02a20f6-bb49-4e3d-b155-8ed5d3c6b000",
+    "category": "unknown",
+    "inputs": {
+      "List": "List",
+      "Jitter": "Jitter",
+      "Seed": "Seed"
+    },
+    "outputs": {
+      "Values": "Values",
+      "Indices": "Indices"
+    },
+    "similar_to": [
+      "b333ff42-93bd-406b-8e17-15780719b6ec",
+      "c40dc145-9e36-4a69-ac1a-6d825c654993"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|jitter",
+    "family": "list_operations"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

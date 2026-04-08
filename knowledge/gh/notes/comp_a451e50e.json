@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_a451e50e",
+  "note_type": "component",
+  "name": "Make2D Parallel View",
+  "brief": "Make2D Parallel View | Inputs: P → V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Make2D Parallel View. Inputs: P (Rectangle). Outputs: V (View).",
+  "keywords": [
+    "make2d parallel view",
+    "make2d",
+    "parallel",
+    "view",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "make2d parallel view",
+    "make2",
+    "parallel",
+    "view"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Make2D Parallel View"
+  ],
+  "solution_principle": "Define a parallel view for a Make2D solution",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f06f7dc1",
+    "comp_cd115412",
+    "comp_01b431ec",
+    "comp_0fb35f5d",
+    "comp_830290b0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3fc08088-d75d-43bc-83cc-7a654f156cb7",
+    "category": "display",
+    "inputs": {
+      "P": "Rectangle"
+    },
+    "outputs": {
+      "V": "View"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4ac24770-e38b-4363-be38-551a3b134707"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|dimensions|make2d parallel view"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_8cc313fd",
+  "note_type": "component",
+  "name": "End Points",
+  "brief": "End Points | Inputs: C â†’ S, E",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: End Points. Inputs: C (Curve). Outputs: S (Point), E (Point).",
+  "keywords": [
+    "end points",
+    "end",
+    "points"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve-analysis",
+    "point-extraction",
+    "geometry-decomposition",
+    "component",
+    "grasshopper",
+    "curve-endpoints",
+    "foundational-tool"
+  ],
+  "trigger_intents": [
+    "end points",
+    "end",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "End Points"
+  ],
+  "solution_principle": "Extract the end points of a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_09d68cd9",
+    "comp_48613be3",
+    "comp_52a7679a",
+    "recipe_130f6b1d",
+    "teaching_43ee0a0e",
+    "recipe_36b862a1",
+    "recipe_4da99b59",
+    "recipe_70c7a21a"
+  ],
+  "times_used": 3,
+  "times_succeeded": 3,
+  "retrieval_count": 0,
+  "last_accessed": "2026-03-08T03:13:03.534848Z",
+  "last_verified": "2026-03-08T03:13:03.534848Z",
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "11bbd48b-bb0a-4f1b-8167-fa297590390d",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve"
+    },
+    "outputs": {
+      "S": "Point",
+      "E": "Point"
+    },
+    "typical_wiring": [],
+    "usage_count": 114,
+    "stable_key": "curve|analysis|end points"
+  }
+}

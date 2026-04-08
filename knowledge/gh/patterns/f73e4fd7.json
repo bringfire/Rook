@@ -1,0 +1,64 @@
+{
+  "pattern_id": "f73e4fd7",
+  "name": "wasp_13_teaching_1_03_Rules_Grammar",
+  "version": "1.0",
+  "created": "2026-03-19T17:53:42.257932Z",
+  "solution": {
+    "brief": "1_03_Rules_Grammar",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "1_03_rules_grammar"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "rules",
+    "rule-generator",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

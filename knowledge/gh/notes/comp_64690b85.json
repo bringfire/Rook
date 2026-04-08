@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_64690b85",
+  "note_type": "component",
+  "name": "Smooth",
+  "brief": "Smooth | Inputs: M, Strength → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Smooth. Inputs: M (Mesh), Strength (Number). Outputs: P (Generic Data).",
+  "keywords": [
+    "smooth",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "smooth"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Smooth"
+  ],
+  "solution_principle": "Smooth",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ec557765",
+    "comp_07a34b21",
+    "comp_0e24416c",
+    "comp_b6f7b7c7",
+    "comp_a950612e",
+    "comp_192b3a74",
+    "comp_ca719375",
+    "comp_423504a1",
+    "comp_1c697a1f",
+    "comp_721292da",
+    "comp_30b5d502",
+    "comp_1ca68d02",
+    "comp_bb62e1bd",
+    "comp_66650a97",
+    "comp_dc5d5161",
+    "comp_1dc5ec6e",
+    "comp_87d86890"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0b7b2ba2-7ecd-4f33-b138-883f6e96d08c",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "P": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "72dadfdd-3be9-44e3-a352-9343f3d5d3b1",
+      "76ab889c-8593-4892-861d-a80b5311a981"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|smooth"
+  }
+}

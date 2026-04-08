@@ -1,0 +1,694 @@
+{
+  "pattern_id": "1d840754",
+  "name": "9.4 karbandi",
+  "version": "1.0",
+  "created": "2026-02-22T14:04:43.177156Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\grass-islamic\\9.4 karbandi.gh (48 components)",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Rotate 3D",
+      "Point On Curve",
+      "Point On Curve",
+      "Deconstruct",
+      "Deconstruct",
+      "Construct Point",
+      "Arc",
+      "Distance",
+      "Construct Domain",
+      "Pi",
+      "Pi",
+      "Number Slider",
+      "Number Slider",
+      "Rail Revolution",
+      "Line SDL",
+      "Surface Split",
+      "List Item",
+      "Construct Point",
+      "Deconstruct",
+      "Construct Point",
+      "Line",
+      "Point On Curve",
+      "Rotate",
+      "Series",
+      "Number Slider",
+      "Division",
+      "Number Slider",
+      "Line",
+      "Curve | Curve",
+      "Mirror",
+      "Construct Plane",
+      "Unit Z",
+      "Line",
+      "Reverse List",
+      "Project",
+      "Surface Split",
+      "Area",
+      "Deconstruct",
+      "Gradient",
+      "Remap Numbers",
+      "Bounds",
+      "Custom Preview",
+      "Construct Domain",
+      "Number Slider",
+      "Number Slider",
+      "Polar Array",
+      "Number Slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "9.4 karbandi"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "58525853",
+    "398e734c"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "recipe",
+    "grasshopper",
+    "islamic-geometry",
+    "workflow",
+    "karbandi"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R13",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R14",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R26",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R28",
+          "nick": "Number Slider",
+          "min": 2,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R45",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R46",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R48",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "FILES/14/grass-islamic/9.4 karbandi.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            256.4,
+            203.1
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Rotate3D",
+          "name": "Rotate 3D",
+          "pos": [
+            515,
+            259
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            711.1,
+            222.9
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            708.9,
+            140.5
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            970,
+            116
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            975,
+            249
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            1250,
+            168
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Arc",
+          "name": "Arc",
+          "pos": [
+            1648,
+            183
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            1359,
+            302
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            1480,
+            421
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            1277,
+            411
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            1281,
+            454
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1000.7,
+            377.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            993.4,
+            439.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R15",
+          "type": "Component_RevRailSurface",
+          "name": "Rail Revolution",
+          "pos": [
+            1904,
+            159
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_LineSDL",
+          "name": "Line SDL",
+          "pos": [
+            1722,
+            332
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_SurfaceCurveSplit",
+          "name": "Surface Split",
+          "pos": [
+            2097,
+            53
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            2295,
+            104
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            2288,
+            346
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            1402,
+            625
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            2284,
+            462
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            2575,
+            364
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            2205.1,
+            533.4
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            2986,
+            384
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2799,
+            622
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2335.3,
+            587.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R27",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            2556,
+            653
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2285.6,
+            748.1
+          ],
+          "min": 2,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R29",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3025,
+            250
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_CurveIntersection",
+          "name": "Curve | Curve",
+          "pos": [
+            3260,
+            265
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Mirror",
+          "name": "Mirror",
+          "pos": [
+            3518,
+            371
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_ConstructPlane",
+          "name": "Construct Plane",
+          "pos": [
+            3319,
+            437
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            3062,
+            517
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3806,
+            219
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_ReverseList",
+          "name": "Reverse List",
+          "pos": [
+            3677,
+            361
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_ProjectCurve",
+          "name": "Project",
+          "pos": [
+            4015,
+            114
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_SurfaceCurveSplit",
+          "name": "Surface Split",
+          "pos": [
+            4231,
+            442
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            4452,
+            559
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            4587,
+            614
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            4944,
+            462
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            4862,
+            697
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            4699,
+            697
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            5696,
+            212
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            4727,
+            748
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4401.3,
+            730.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4398.3,
+            771.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R47",
+          "type": "Component_ArrayPolar",
+          "name": "Polar Array",
+          "pos": [
+            4611,
+            254
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4235.2,
+            270.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "flows": [
+        "R1.O0>R2.I0",
+        "R4.O0>R5.I0",
+        "R3.O0>R6.I0",
+        "R5.O0>R7.I0",
+        "R6.O1>R7.I1",
+        "R5.O2>R7.I2",
+        "R7.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R10.O0>R8.I2",
+        "R7.O0>R9.I0",
+        "R4.O0>R9.I1",
+        "R11.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R13.O0>R11.I0",
+        "R14.O0>R12.I0",
+        "R1.O0>R15.I0",
+        "R8.O0>R15.I1",
+        "R16.O0>R15.I2",
+        "R7.O0>R16.I0",
+        "R15.O0>R17.I0",
+        "R2.O0>R17.I1",
+        "R17.O0>R18.I0",
+        "R5.O0>R19.I0",
+        "R5.O1>R19.I1",
+        "R7.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R20.O1>R21.I1",
+        "R21.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R22.O0>R24.I0",
+        "R25.O0>R24.I1",
+        "R21.O0>R24.I2",
+        "R27.O0>R25.I0",
+        "R27.O0>R25.I1",
+        "R28.O0>R25.I2",
+        "R26.O0>R27.I0",
+        "R28.O0>R27.I1",
+        "R19.O0>R29.I0",
+        "R23.O0>R29.I1",
+        "R29.O0>R30.I0",
+        "R24.O0>R30.I1",
+        "R30.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R21.O0>R32.I0",
+        "R22.O0>R32.I1",
+        "R33.O0>R32.I2",
+        "R30.O0>R34.I0",
+        "R35.O0>R34.I1",
+        "R31.O0>R35.I0",
+        "R34.O0>R36.I0",
+        "R18.O0>R36.I1",
+        "R18.O0>R37.I0",
+        "R36.O0>R37.I1",
+        "R47.O0>R38.I0",
+        "R38.O1>R39.I0",
+        "R41.O0>R40.I2",
+        "R39.O2>R41.I0",
+        "R42.O0>R41.I1",
+        "R44.O0>R41.I2",
+        "R39.O2>R42.I0",
+        "R47.O0>R43.I0",
+        "R40.O0>R43.I1",
+        "R45.O0>R44.I0",
+        "R46.O0>R44.I1",
+        "R37.O0>R47.I0",
+        "R7.O0>R47.I1",
+        "R48.O0>R47.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

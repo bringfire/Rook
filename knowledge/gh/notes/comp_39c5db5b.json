@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_39c5db5b",
+  "note_type": "component",
+  "name": "Gate Majority",
+  "brief": "Gate Majority | Inputs: A, B, C → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Gate Majority. Inputs: A (Boolean), B (Boolean), C (Boolean). Outputs: R (Boolean).",
+  "keywords": [
+    "gate majority",
+    "gate",
+    "majority",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "gate majority",
+    "gate",
+    "majority"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Gate Majority"
+  ],
+  "solution_principle": "Calculates the majority vote among three booleans.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_ee5571b6",
+    "comp_bf182481",
+    "comp_6fbc1b75"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "78669f9c-4fea-44fd-ab12-2a69eeec58de",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Boolean",
+      "B": "Boolean",
+      "C": "Boolean"
+    },
+    "outputs": {
+      "R": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5cad70f9-5a53-4c5c-a782-54a479b4abe3",
+      "5ca5de6b-bc71-46c4-a8f7-7f30d7040acb",
+      "548177c2-d1db-4172-b667-bec979e2d38b"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|operators|gate majority"
+  }
+}

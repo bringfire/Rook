@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_d1f4bc67",
+  "note_type": "component",
+  "name": "SubD Edges",
+  "brief": "SubD Edges | Inputs: S → L, E, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: SubD Edges. Inputs: S (SubD). Outputs: L (Line), E (Curve), T (Text), I (Text).",
+  "keywords": [
+    "subd edges",
+    "subd",
+    "edges",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd edges",
+    "sub",
+    "edges"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD Edges"
+  ],
+  "solution_principle": "Extract all edge data from a SubD.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0207e96f",
+    "comp_e7712cc1",
+    "comp_f0650611",
+    "comp_4c7b012f",
+    "comp_a08bb022",
+    "comp_eae3ae94",
+    "comp_8d440de0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2183c4c6-b5b3-45d2-9261-2096c9357f92",
+    "category": "subd_ops",
+    "inputs": {
+      "S": "SubD"
+    },
+    "outputs": {
+      "L": "Line",
+      "E": "Curve",
+      "T": "Text",
+      "I": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "83c81431-17bc-4bff-bb85-be0a846bd044"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd edges"
+  }
+}

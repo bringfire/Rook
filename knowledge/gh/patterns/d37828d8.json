@@ -1,0 +1,78 @@
+{
+  "pattern_id": "d37828d8",
+  "name": "wasp_16_teaching_3._Construct_Scalar",
+  "version": "1.0",
+  "created": "2026-03-19T18:02:50.046713Z",
+  "solution": {
+    "brief": "3. Construct Scalar Field\r\nFields are used by Wasp to drive aggregations, placing new components by following\r\nhigher gradient values in the field. Field can be initialised by creating a point grid with a defined\r\nresolution within a given bounding box.\r\nDifferent Grasshopper techniques can be used to generate custom fields fit to particualt purposes\r\n(eg. geometry reconstruction, structural performance, environmental data, attractor geometries).\r\n\r\nNB: please be careful with setting the FieldPts resolution. If you set a very low resolution and your \r\nBoundaries are very large, you will quickly create millions of points, hence slowing down the whole\r\nGrasshopper definition.",
+    "principle": "",
+    "components_needed": [
+      "Swatch",
+      "Custom Preview",
+      "Brep",
+      "NumberSlider",
+      "Wasp_Field Points",
+      "Curve",
+      "Point",
+      "Brep"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "aggregations,",
+      "placing",
+      "components",
+      "fields",
+      "scalar",
+      "used",
+      "construct",
+      "drive",
+      "wasp"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

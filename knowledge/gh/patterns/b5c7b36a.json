@@ -1,0 +1,71 @@
+{
+  "pattern_id": "b5c7b36a",
+  "name": "wasp_14_teaching_Wasp_DevLog_#006_-_R",
+  "version": "1.0",
+  "created": "2026-03-19T17:55:39.438497Z",
+  "solution": {
+    "brief": "Wasp DevLog #006 - Rules Visualizer",
+    "principle": "",
+    "components_needed": [
+      "Geometry",
+      "Wasp_Connection From Direction",
+      "Point",
+      "Wasp_Update File",
+      "Wasp_Basic Part",
+      "Curve"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "devlog",
+      "visualizer",
+      "rules",
+      "wasp",
+      "#006"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

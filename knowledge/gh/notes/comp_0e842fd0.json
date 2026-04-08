@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_0e842fd0",
+  "note_type": "component",
+  "name": "Rectangular Array",
+  "brief": "Rectangular Array | Inputs: G, C, X, Y \u2192 G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Rectangular Array. Inputs: G (Geometry), C (Rectangle), X (Integer), Y (Integer). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "rectangular array",
+    "rectangular",
+    "array",
+    "array_ops"
+  ],
+  "category": "array_ops",
+  "tags": [
+    "array_ops"
+  ],
+  "trigger_intents": [
+    "rectangular array",
+    "rectangular",
+    "array"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangular Array"
+  ],
+  "solution_principle": "Create a rectangular array of geometry.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5e0594f6",
+    "comp_e0fd1f17",
+    "comp_4cfe3412",
+    "comp_3032b333",
+    "comp_66948ccd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e521f7c8-92f4-481c-888b-eea109e3d6e9",
+    "category": "array_ops",
+    "inputs": {
+      "G": "Geometry",
+      "C": "Rectangle",
+      "X": "Integer",
+      "Y": "Integer"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9f6f954c-ba7b-4428-bf1e-1768cdff666c",
+      "e87db220-a0a0-4d67-a405-f97fd14b2d7a",
+      "c6f23658-617f-4ac8-916d-d0d9e7241b25"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|array|rectangular array",
+    "family": "array_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

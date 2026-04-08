@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_55a1bf04",
+  "note_type": "component",
+  "name": "Sweep1",
+  "brief": "Sweep1 | Inputs: R, S, M → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Sweep1. Inputs: R (Curve), S (Curve), M (Integer). Outputs: S (Brep).",
+  "keywords": [
+    "sweep1",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "sweep1"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sweep1"
+  ],
+  "solution_principle": "Create a sweep surface with one rail curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_37f9f9cc",
+    "comp_1a52845b",
+    "comp_5f73dc24",
+    "comp_5df6692e",
+    "comp_d543dc52",
+    "comp_99f96b5f",
+    "comp_44745d46",
+    "comp_c67f95be",
+    "comp_a27c5163",
+    "comp_3a361351",
+    "comp_63941b97",
+    "comp_2bb4a0a8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+    "category": "surface_ops",
+    "inputs": {
+      "R": "Curve",
+      "S": "Curve",
+      "M": "Integer"
+    },
+    "outputs": {
+      "S": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "75164624-395a-4d24-b60b-6bf91cab0194"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|sweep1"
+  }
+}

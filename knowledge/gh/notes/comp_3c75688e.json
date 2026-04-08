@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_3c75688e",
+  "note_type": "component",
+  "name": "Model Material",
+  "brief": "Model Material | Inputs: M, N, S → M, N, S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Model Material. Inputs: M (Model Material), N (Text), S (Shader). Outputs: M (Model Material), N (Text), S (Shader).",
+  "keywords": [
+    "model material",
+    "model",
+    "material",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "model material",
+    "model",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Material"
+  ],
+  "solution_principle": "Model Material",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f462047",
+    "comp_b8042dc1",
+    "comp_9ffe6eef",
+    "comp_580fe1e1",
+    "comp_1662c3ae"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7062df7c-7f0e-484b-9354-902a8762499a",
+    "category": "rhino_render",
+    "inputs": {
+      "M": "Model Material",
+      "N": "Text",
+      "S": "Shader"
+    },
+    "outputs": {
+      "M": "Model Material",
+      "N": "Text",
+      "S": "Shader"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "722dd73f-2b6a-494e-b361-1118bf63b9e2"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|model material"
+  }
+}

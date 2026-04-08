@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_2709010f",
+  "note_type": "component",
+  "name": "Box Mapping",
+  "brief": "Box Mapping | Inputs: G, S, T → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Box Mapping. Inputs: G (Geometry), S (Box), T (Box). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "box mapping",
+    "box",
+    "mapping",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "box mapping",
+    "box",
+    "mapping"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Box Mapping"
+  ],
+  "solution_principle": "Transform geometry from one box into another.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e74c0f76",
+    "comp_4e26bfb7",
+    "comp_b175c81a",
+    "comp_244d1b5f",
+    "comp_a9db3b5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8465bcce-9e0a-4cf4-bbda-1a7ce5681e10",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "S": "Box",
+      "T": "Box"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "61d81100-c4d3-462d-8b51-d951c0ae32db"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|affine|box mapping"
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "note_id": "teaching_90fd2ccf",
+  "note_type": "teaching",
+  "name": "U03 - Lists: Culling",
+  "brief": "Teaching: Lists: Culling",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.",
+  "keywords": [
+    "lists",
+    "culling",
+    "cull index",
+    "series",
+    "numberslider",
+    "text split",
+    "clock",
+    "trigger",
+    "button",
+    "jitter",
+    "unit 03 class"
+  ],
+  "category": "Unit 03",
+  "tags": [
+    "unit-03",
+    "beginner-intermediate",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "multi-group",
+    "list-manipulation",
+    "list-components",
+    "data-management",
+    "prerequisite-for-trees",
+    "prerequisite-for-assignments",
+    "requires-u03-lists",
+    "list-culling"
+  ],
+  "trigger_intents": [
+    "lists: culling",
+    "how to use lists: culling",
+    "how to use cull index",
+    "how to use series",
+    "how to use text split",
+    "how to use clock",
+    "how to use trigger",
+    "how to use button",
+    "how to use jitter",
+    "in grasshopper, culling means removing",
+    "cull index"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cull Index",
+    "Series",
+    "NumberSlider",
+    "Text Split",
+    "Clock",
+    "Trigger",
+    "Button",
+    "Jitter"
+  ],
+  "solution_principle": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_04dab798",
+    "teaching_4f32fa83",
+    "teaching_56fc7a76",
+    "teaching_73f5abfe",
+    "teaching_088f486f",
+    "teaching_d541c317"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-03-Class",
+    "unit_number": 3,
+    "section_number": 4,
+    "section_index": 4,
+    "x_range": [
+      2737.3,
+      3628.8
+    ],
+    "full_teaching_text": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C45",
+      "C55",
+      "C56",
+      "C57",
+      "C58",
+      "C184",
+      "C262",
+      "C292",
+      "C304",
+      "C305",
+      "C307",
+      "C97"
+    ],
+    "intra_section_flows": [
+      "C55.O0>C45.I0",
+      "C60.O0>C45.I1",
+      "C56.O0>C55.I0",
+      "C57.O0>C55.I1",
+      "C58.O0>C55.I2",
+      "C55.O0>C59.I0",
+      "C45.O0>C61.I0",
+      "C251.O0>C97.I0",
+      "C262.O0>C97.I1",
+      "C184.O0>C97.I2",
+      "C304.O0>C292.I0",
+      "C293.O0>C292.I1",
+      "C304.O0>C294.I0",
+      "C292.O0>C299.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G31",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G52",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G51",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G53",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G22",
+        "name": "",
+        "colour": "#FF333396"
+      }
+    ],
+    "components_demonstrated": {
+      "Cull Index": 1,
+      "Series": 1,
+      "NumberSlider": 5,
+      "Text Split": 1,
+      "Clock": 1,
+      "Trigger": 1,
+      "Button": 1,
+      "Jitter": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 12,
+      "sub_labels": 1,
+      "connected_panels": 7,
+      "flows": 14,
+      "groups": 5
+    }
+  }
+}

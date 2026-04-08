@@ -1,0 +1,139 @@
+{
+  "note_id": "teaching_c103fe78",
+  "note_type": "teaching",
+  "name": "U01 - Constructing Points & Number Generators",
+  "brief": "Teaching: Constructing Points & Number Generators",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard inform",
+  "keywords": [
+    "constructing",
+    "points",
+    "number",
+    "generators",
+    "construct point",
+    "numberslider",
+    "digit scroller",
+    "control knob",
+    "point",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "hands-on",
+    "annotated",
+    "tutorial",
+    "beginner",
+    "foundational",
+    "prerequisite-for-lists",
+    "prerequisite-for-vectors",
+    "unit-01",
+    "geometry-fundamentals",
+    "number-generation",
+    "point-construction",
+    "prerequisite-for-lines",
+    "teaching"
+  ],
+  "trigger_intents": [
+    "constructing points & number generators",
+    "how to use constructing points & number generators",
+    "how to use construct point",
+    "how to use digit scroller",
+    "how to use control knob",
+    "how to use point",
+    "construct a point",
+    "select the option \"construct a point\"",
+    "construct point",
+    "the x & y & z need numbers"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Point",
+    "NumberSlider",
+    "Digit Scroller",
+    "Control Knob",
+    "Point"
+  ],
+  "solution_principle": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options.",
+  "anti_patterns": [],
+  "preconditions": [
+    "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_06731c52",
+    "comp_456642c8",
+    "teaching_0a6208a3",
+    "teaching_0df0144b",
+    "teaching_37677299",
+    "teaching_7e5815f9",
+    "teaching_cf3f830b",
+    "teaching_e23cfc74",
+    "teaching_26b87a73"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 2,
+    "section_index": 2,
+    "x_range": [
+      1451,
+      2104.5
+    ],
+    "full_teaching_text": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options.",
+    "sub_annotations": [
+      {
+        "id": "C44",
+        "text": "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component is selected, all wires show in green-black gradient.",
+        "topic": "Wire Display",
+        "pos": [
+          1534.9,
+          949.1
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C12",
+      "C13",
+      "C14",
+      "C16",
+      "C17",
+      "C45"
+    ],
+    "intra_section_flows": [
+      "C13.O0>C12.I0",
+      "C14.O0>C12.I1",
+      "C15.O0>C12.I2",
+      "C16.O0>C17.I0",
+      "C14.O0>C17.I1",
+      "C15.O0>C17.I2"
+    ],
+    "groups": [],
+    "components_demonstrated": {
+      "Construct Point": 2,
+      "NumberSlider": 1,
+      "Digit Scroller": 1,
+      "Control Knob": 1,
+      "Point": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 6,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 6,
+      "groups": 0
+    }
+  }
+}

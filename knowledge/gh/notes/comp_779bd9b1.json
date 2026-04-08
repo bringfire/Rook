@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_779bd9b1",
+  "note_type": "component",
+  "name": "Create CSV",
+  "brief": "Create CSV | Inputs: Headers, Values, Delimit, Quotes → CSV",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Create CSV. Inputs: Headers (Text), Values (Text), Delimit (Text), Quotes (Boolean). Outputs: CSV (Generic Data).",
+  "keywords": [
+    "create csv",
+    "create",
+    "csv",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "create csv",
+    "create"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create CSV"
+  ],
+  "solution_principle": "Create a CSV string",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1db206a9",
+    "comp_68c9f86f",
+    "comp_8b146658",
+    "comp_d95ea85a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "894ce9f3-45c4-41b4-9301-501bef0a84fa",
+    "category": "lunchbox_data",
+    "inputs": {
+      "Headers": "Text",
+      "Values": "Text",
+      "Delimit": "Text",
+      "Quotes": "Boolean"
+    },
+    "outputs": {
+      "CSV": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9e8f42f8-8688-4718-a498-522d2263bf37",
+      "78ab7d1a-51c8-43a8-b17a-fe42d699f938"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|create csv"
+  }
+}

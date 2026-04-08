@@ -1,0 +1,114 @@
+{
+  "pattern_id": "e92eb264",
+  "name": "trigonometric_helix_pipe",
+  "version": "1.0",
+  "created": "2026-02-01T15:33:43.753575Z",
+  "solution": {
+    "brief": "Creates a parametric pipe geometry based on trigonometric functions using sine and cosine to generate curved interpolated points.",
+    "principle": "",
+    "components_needed": [
+      "Pipe",
+      "Interpolate",
+      "Construct Point",
+      "Cosine",
+      "Sine",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create helix pipe",
+      "sine wave tube",
+      "parametric spiral pipe",
+      "trigonometric curve piped"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "pipe-output",
+    "helix"
+  ],
+  "evolution": {
+    "created_from": "recipe_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "18f255a3-7cb7-4991-988d-5a714791f92d",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "ccd8923e-f6af-41ee-aa59-373b094294a1",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "a95fce81-5588-41c8-bd6f-f3417ea7a3a7",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "035fda94-5e34-4bee-8e1a-a3318b832bc5",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "bb060554-bcb1-4343-97f3-304c227bad51",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "6c7cd061-009d-4723-93ff-1c8a21166d62",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "brep",
+    "source_definition": ""
+  }
+}

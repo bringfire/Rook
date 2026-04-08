@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_08ab0b08",
+  "note_type": "component",
+  "name": "Settings (Custom)",
+  "brief": "Settings (Custom) | Inputs: Stitch, Planes, Refine, Min \u2192 S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Settings (Custom). Inputs: Stitch (Boolean), Planes (Boolean), Refine (Boolean), Min (Integer), Max (Integer), Aspect (Number), Max Dist (Number), Max Angle (Number), Min Edge (Number), Max Edge (Number). Outputs: S (MeshParameters).",
+  "keywords": [
+    "settings (custom)",
+    "settings",
+    "(custom)",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "settings (custom)",
+    "settings",
+    "custom)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Settings (Custom)"
+  ],
+  "solution_principle": "Represents custom mesh settings.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d742578c",
+    "comp_eaf39ce0",
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4a0180e5-d8f9-46e7-bd34-ced804601462",
+    "category": "mesh_utilities",
+    "inputs": {
+      "Stitch": "Boolean",
+      "Planes": "Boolean",
+      "Refine": "Boolean",
+      "Min": "Integer",
+      "Max": "Integer",
+      "Aspect": "Number",
+      "Max Dist": "Number",
+      "Max Angle": "Number",
+      "Min Edge": "Number",
+      "Max Edge": "Number"
+    },
+    "outputs": {
+      "S": "MeshParameters"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|util|settings (custom)",
+    "family": "mesh_utilities"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

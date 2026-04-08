@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_d9a8dc72",
+  "note_type": "component",
+  "name": "Rotate 3D",
+  "brief": "Rotate 3D | Inputs: G, A, C, X → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Rotate 3D. Inputs: G (Geometry), A (Number), C (Point), X (Vector). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "rotate 3d",
+    "rotate",
+    "3d",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "rotate 3d",
+    "rotate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate 3D"
+  ],
+  "solution_principle": "Rotate an object around a center point and an axis vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2964153b",
+    "comp_02a2143c",
+    "teaching_035b3907",
+    "comp_b175c81a",
+    "comp_244d1b5f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3dfb9a77-6e05-4016-9f20-94f78607d672",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "A": "Number",
+      "C": "Point",
+      "X": "Vector"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "b7798b74-037e-4f0c-8ac7-dc1043d093e0"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|euclidean|rotate 3d"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_1f42817a",
+  "note_type": "component",
+  "name": "Shear",
+  "brief": "Shear | Inputs: G, P, T → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Shear. Inputs: G (Point), P (Plane), T (Point). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "shear",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "shear"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Shear"
+  ],
+  "solution_principle": "Shear an object based on a shearing vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b175c81a",
+    "comp_244d1b5f",
+    "comp_a9db3b5d",
+    "comp_2964153b",
+    "comp_d36704e4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5a27203a-e05f-4eea-b80f-a5f29a00fdf2",
+    "category": "transforms",
+    "inputs": {
+      "G": "Point",
+      "P": "Plane",
+      "T": "Point"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5edaea74-32cb-4586-bd72-66694eb73160"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|affine|shear"
+  }
+}

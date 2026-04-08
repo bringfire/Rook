@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_61fb6287",
+  "note_type": "component",
+  "name": "Offset Curve",
+  "brief": "Offset Curve | Inputs: C, D, P → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Offset Curve. Inputs: C (Integer), D (Number), P (Plane). Outputs: C (Curve).",
+  "keywords": [
+    "offset curve",
+    "offset",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "offset curve",
+    "offset",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Offset Curve"
+  ],
+  "solution_principle": "Offset a curve with a specified distance.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5cd2c908",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_7d656ef6",
+    "comp_f3ac6697",
+    "comp_f452b4cc",
+    "comp_6760e68b",
+    "comp_2a5cdc00",
+    "comp_a2feec22",
+    "comp_08fb1f1c",
+    "comp_53d02a24",
+    "comp_2abd66c3",
+    "comp_c51e4d42"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1a38d325-98de-455c-93f1-bca431bc1243",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Integer",
+      "D": "Number",
+      "P": "Plane"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "80e55fc2-933b-4bfb-a353-12358786dba8"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|offset curve"
+  }
+}

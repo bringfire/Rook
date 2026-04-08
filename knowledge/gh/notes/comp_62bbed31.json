@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_62bbed31",
+  "note_type": "component",
+  "name": "Rotate Plane",
+  "brief": "Rotate Plane | Inputs: Plane, Angle → Plane",
+  "version": "1.0",
+  "created": "2026-03-19T18:22:03.565912Z",
+  "context": "Grasshopper component: Rotate Plane. ",
+  "keywords": [
+    "rotate plane",
+    "unknown",
+    "rotate",
+    "plane"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "rotate plane",
+    "rotate",
+    "plane",
+    "prot"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate Plane"
+  ],
+  "solution_principle": "Rotate Plane | Inputs: Plane, Angle → Plane",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f6f14b09-6497-4564-8403-09e4eb5a6b82",
+    "category": "unknown",
+    "inputs": {
+      "Plane": "Plane",
+      "Angle": "Angle"
+    },
+    "outputs": {
+      "Plane": "Plane"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|plane|rotate plane"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

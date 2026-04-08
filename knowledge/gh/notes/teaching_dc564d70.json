@@ -1,0 +1,102 @@
+{
+  "note_id": "teaching_dc564d70",
+  "note_type": "teaching",
+  "name": "U05 - Simplify",
+  "brief": "Teaching: Simplify",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data.",
+  "keywords": [
+    "simplify",
+    "simplify tree",
+    "param viewer",
+    "unit 05 class"
+  ],
+  "category": "Unit 05",
+  "tags": [
+    "simplification",
+    "complex-wiring",
+    "hands-on",
+    "data-management",
+    "post-grafting",
+    "data-trees",
+    "unit-05",
+    "tutorial",
+    "intermediate",
+    "tree-manipulation",
+    "teaching"
+  ],
+  "trigger_intents": [
+    "simplify",
+    "how to use simplify",
+    "how to use simplify tree",
+    "how to use param viewer"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Simplify Tree",
+    "Param Viewer"
+  ],
+  "solution_principle": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_26a7814e",
+    "teaching_088f486f",
+    "teaching_f4cf1383",
+    "teaching_e8ddc722",
+    "teaching_801cb203"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-05-Class",
+    "unit_number": 5,
+    "section_number": 5,
+    "section_index": 4,
+    "x_range": [
+      5218.3,
+      6132.2
+    ],
+    "full_teaching_text": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C87",
+      "C92",
+      "C107",
+      "C409"
+    ],
+    "intra_section_flows": [
+      "C87.O0>C88.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G29",
+        "name": "",
+        "colour": "#FF333396"
+      }
+    ],
+    "components_demonstrated": {
+      "Simplify Tree": 1,
+      "Param Viewer": 3
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 4,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 1,
+      "groups": 1
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_f805e573",
+  "note_type": "component",
+  "name": "Query Viewports",
+  "brief": "Query Viewports | Inputs: N → V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Query Viewports. Inputs: N (Text Pattern). Outputs: V (Model Viewport).",
+  "keywords": [
+    "query viewports",
+    "query",
+    "viewports",
+    "rhino_viewports"
+  ],
+  "category": "rhino_viewports",
+  "tags": [
+    "rhino_viewports"
+  ],
+  "trigger_intents": [
+    "query viewports",
+    "query",
+    "viewports"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Viewports"
+  ],
+  "solution_principle": "Query a Rhino document for all available viewports",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ccfa6e09",
+    "comp_49b94bb0",
+    "comp_8b416bb8",
+    "comp_3f462047",
+    "comp_3d741f10"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0fee6d09-eed8-4b01-ae29-de1806683baf",
+    "category": "rhino_viewports",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "V": "Model Viewport"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8159a06a-1e33-498e-8884-97d3f76d1d7c"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|viewports|query viewports"
+  }
+}

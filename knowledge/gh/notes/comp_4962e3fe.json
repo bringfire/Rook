@@ -1,0 +1,56 @@
+{
+  "note_id": "comp_4962e3fe",
+  "note_type": "component",
+  "name": "Transform",
+  "brief": "Transform | Inputs: P0, P1, T, Strength → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Transform. Inputs: P0 (Point), P1 (Point), T (Transform), Strength (Number). Outputs: T (Generic Data).",
+  "keywords": [
+    "transform",
+    "kangaroo2_goals-pt"
+  ],
+  "category": "kangaroo2_goals-pt",
+  "tags": [
+    "kangaroo2_goals-pt"
+  ],
+  "trigger_intents": [
+    "transform"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Transform"
+  ],
+  "solution_principle": "Keep a given transformation between 2 points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5002d2f7-7878-4965-98ab-2403503891ab",
+    "category": "kangaroo2_goals-pt",
+    "inputs": {
+      "P0": "Point",
+      "P1": "Point",
+      "T": "Transform",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "T": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-pt|transform"
+  }
+}

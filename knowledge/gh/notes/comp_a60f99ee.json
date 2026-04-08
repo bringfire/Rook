@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_a60f99ee",
+  "note_type": "component",
+  "name": "PlanarityAnalysis",
+  "brief": "PlanarityAnalysis | Inputs: M, X → M, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: PlanarityAnalysis. Inputs: M (Mesh), X (Number). Outputs: M (Mesh), P (Number).",
+  "keywords": [
+    "planarityanalysis",
+    "kangaroo2_mesh"
+  ],
+  "category": "kangaroo2_mesh",
+  "tags": [
+    "kangaroo2_mesh"
+  ],
+  "trigger_intents": [
+    "planarityanalysis",
+    "planarity",
+    "analysis"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "PlanarityAnalysis"
+  ],
+  "solution_principle": "Display face planarity as a coloured mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "97253642-cb05-43e6-bc79-4bd0306441e5",
+    "category": "kangaroo2_mesh",
+    "inputs": {
+      "M": "Mesh",
+      "X": "Number"
+    },
+    "outputs": {
+      "M": "Mesh",
+      "P": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|mesh|planarityanalysis"
+  }
+}

@@ -1,0 +1,1448 @@
+{
+  "pattern_id": "6a391ba0",
+  "name": "10-3",
+  "version": "1.0",
+  "created": "2026-02-22T14:16:59.442659Z",
+  "solution": {
+    "brief": "Recipe from FILES\\8\\10-3.gh (99 components)",
+    "principle": "\n\nRelated insight: Part of tutorial progression: 10-3 (99 components, complex) vs 10-5 (22 components, simpler). Component count indicates complexity level within series.\n\nRelated insight: Tutorial progression now clearer: 10-3 (99 components, most complex) → 10-6 (69 components, mid-level) → 10-5 (22 components, simplest). Component count directly correlates with workflow complexity in this series.\n\nRelated insight: Recipe 8-3 provides validation of the 99-component ultra-complex tier, confirming this as an established complexity category rather than an outlier. Multiple examples now exist at this peak complexity level.\n\nRelated insight: Tutorial complexity spectrum now includes S07E02 (27 components, low-mid tier), establishing clearer boundaries: simple (<25), low-mid (25-35), mid (40-60), high (65-85), ultra-complex (95+).",
+    "components_needed": [
+      "Bifocals",
+      "Surface",
+      "Dimensions",
+      "Plane Surface",
+      "Populate 2D",
+      "slider",
+      "Voronoi",
+      "Scale",
+      "Explode",
+      "Explode",
+      "Loft",
+      "Simple Mesh",
+      "Curve",
+      "Offset Curve",
+      "Weaverbird's Mesh Thicken",
+      "slider",
+      "Mesh Join",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "panel",
+      "Surface Morph",
+      "Bounding Box",
+      "slider",
+      "Custom Preview",
+      "slider",
+      "Curve",
+      "Populate 2D",
+      "Voronoi",
+      "Point",
+      "Closest Point",
+      "Remap+",
+      "slider",
+      "slider",
+      "Scale",
+      "Boundary Surfaces",
+      "Graph Mapper",
+      "Sphere",
+      "slider",
+      "Populate 3D",
+      "Voronoi 3D",
+      "Brep | Brep",
+      "Discontinuity",
+      "PolyLine",
+      "Polygon Center",
+      "Scale",
+      "slider",
+      "slider",
+      "Move",
+      "Surface Closest Point",
+      "Evaluate Surface",
+      "Amplitude",
+      "slider",
+      "Explode",
+      "Explode",
+      "Loft",
+      "Simple Mesh",
+      "Mesh Join",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "Weaverbird's Mesh Thicken",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "panel",
+      "Custom Preview",
+      "Curve",
+      "Voronoi",
+      "Populate 2D",
+      "List Item",
+      "Gene Pool",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "Cull Index",
+      "Discontinuity",
+      "Polygon Center",
+      "Move",
+      "Unit Z",
+      "Merge",
+      "Delaunay Mesh",
+      "Deconstruct Brep",
+      "Simple Mesh",
+      "slider",
+      "slider",
+      "Weaverbird's Join Meshes and Weld",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "Weaverbird's Loop Subdivision",
+      "Weaverbird's Picture Frame",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "panel",
+      "Curve",
+      "Populate 2D",
+      "slider",
+      "Delaunay Mesh",
+      "slider",
+      "Curve",
+      "Curve",
+      "Explode",
+      "Discontinuity",
+      "Explode",
+      "Discontinuity"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "f7069550",
+    "ec97a8ea",
+    "02f0af8b",
+    "91aa15f3",
+    "fdbc67df",
+    "a92739b4",
+    "d4c950d8",
+    "3fa41da8",
+    "f2b6451c",
+    "95fe7fe0",
+    "8fe4f337"
+  ],
+  "tags": [
+    "complex-workflow",
+    "complexity-validated",
+    "advanced-level",
+    "recipe",
+    "sequential",
+    "tutorial-series",
+    "99-components",
+    "point-sequence",
+    "surface-creation",
+    "series-comparison",
+    "parametric",
+    "ultra-complex"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:33:38.769704",
+    "evolved_by": [
+      "a92739b4",
+      "d4c950d8",
+      "95fe7fe0",
+      "8fe4f337"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:18:21.536071",
+        "trigger": "New pattern: a92739b4",
+        "changes": "New pattern 10-5 reveals tutorial series progression and establishes component count as complexity indicator"
+      },
+      {
+        "date": "2026-02-22T09:18:59.282971",
+        "trigger": "New pattern: d4c950d8",
+        "changes": "New 10-6 pattern fills the complexity gap between 10-3 and 10-5, providing clearer understanding of tutorial progression"
+      },
+      {
+        "date": "2026-02-22T09:20:20.440161",
+        "trigger": "New pattern: 95fe7fe0",
+        "changes": "The new 8-3 pattern validates the 99-component complexity level, making it a confirmed category rather than a single outlier"
+      },
+      {
+        "date": "2026-02-22T09:33:38.769704",
+        "trigger": "New pattern: 8fe4f337",
+        "changes": "S07E02's 27-component count helps define the low-mid complexity tier, strengthening the component-count-based classification system already established in this pattern's context"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 759
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 0.01,
+          "value": 0.01
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12.5
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 125
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R51",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 1.1,
+          "value": 0.35
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.28
+        },
+        {
+          "id": "R80",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.45
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R86",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 12.49
+        },
+        {
+          "id": "R91",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        }
+      ],
+      "panels": [
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R88",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/8/10-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            44,
+            -19
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            72.5,
+            188.3
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_SurfaceDimensions",
+          "nick": "Dim",
+          "name": "Dimensions",
+          "pos": [
+            152,
+            192
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            283,
+            182
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            399,
+            220
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            170.1,
+            228.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R7",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            531,
+            217
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            640,
+            258
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            775,
+            166
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            767,
+            271
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            933,
+            207
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            1019,
+            213
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            363.1,
+            91.5
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_OffsetCurve",
+          "nick": "Offset",
+          "name": "Offset Curve",
+          "pos": [
+            435,
+            100
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1270,
+            240
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            887,
+            272.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R17",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1139,
+            220
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1366,
+            260
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            1257.7,
+            272.9
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R20",
+          "type": "Component_MorphToSurfaceSpace",
+          "nick": "SrfMorph",
+          "name": "Surface Morph",
+          "pos": [
+            1587,
+            320
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            1456,
+            270
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            1302.4,
+            326.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R23",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1693,
+            330
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            169.3,
+            252
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 759
+        },
+        {
+          "id": "R25",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            69,
+            556
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            155,
+            569
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            319,
+            577
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            135.1,
+            676.3
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            215,
+            660
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            324,
+            700
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            76.7,
+            711.3
+          ],
+          "min": 0,
+          "max": 0.01,
+          "value": 0.01
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            76.4,
+            734.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R33",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            590,
+            638
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            681,
+            574
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            439.5,
+            663.2
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            264,
+            1035
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            24.7,
+            1067.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12.5
+        },
+        {
+          "id": "R38",
+          "type": "Component_PopulateBox",
+          "nick": "Pop3D",
+          "name": "Populate 3D",
+          "pos": [
+            370,
+            1065
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_VolumeVoronoi",
+          "nick": "Voronoi³",
+          "name": "Voronoi 3D",
+          "pos": [
+            460,
+            1075
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_BRepIntersection",
+          "nick": "BBX",
+          "name": "Brep | Brep",
+          "pos": [
+            561,
+            1003
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            681,
+            1003
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            796,
+            1003
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_PolygonCenterPoint",
+          "nick": "PCen",
+          "name": "Polygon Center",
+          "pos": [
+            895,
+            1003
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            1048,
+            980
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            24.2,
+            1099.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 125
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            24.3,
+            1121.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R47",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1357,
+            988
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_SurfaceClosestPoint",
+          "nick": "Srf CP",
+          "name": "Surface Closest Point",
+          "pos": [
+            1008,
+            1088
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            1133,
+            1063
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            1265,
+            1017
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "slider",
+          "pos": [
+            985.5,
+            1133.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R52",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1469,
+            988
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1472,
+            1041
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1616,
+            988
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            1719,
+            980
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1836,
+            980
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1928,
+            998
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            2038,
+            998
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            1784.5,
+            1037.8
+          ],
+          "min": 0,
+          "max": 1.1,
+          "value": 0.35
+        },
+        {
+          "id": "R60",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            2156,
+            998
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            2040.3,
+            1058.2
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R62",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2250,
+            988
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            97.6,
+            1400.6
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            347,
+            1454
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            245,
+            1424
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            520,
+            1491
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            11.6,
+            1476
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            916,
+            1524
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            762,
+            1573
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "slider",
+          "pos": [
+            529.2,
+            1563.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.28
+        },
+        {
+          "id": "R71",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            611,
+            1349
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            748,
+            1319
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Component_PolygonCenterPoint",
+          "nick": "PCen",
+          "name": "Polygon Center",
+          "pos": [
+            744,
+            1413
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            890,
+            1438
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            796,
+            1486
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            994,
+            1323
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_Delaunay",
+          "nick": "Del",
+          "name": "Delaunay Mesh",
+          "pos": [
+            1133,
+            1420
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            1011,
+            1524
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            1131,
+            1489
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "slider",
+          "pos": [
+            567.6,
+            1478.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.45
+        },
+        {
+          "id": "R81",
+          "type": "slider",
+          "pos": [
+            31.2,
+            1440.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R82",
+          "type": "JoinComponent",
+          "nick": "wbJoin",
+          "name": "Weaverbird's Join Meshes and Weld",
+          "pos": [
+            1276,
+            1451
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1384,
+            1402
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "LoopComponent",
+          "nick": "wbLoop",
+          "name": "Weaverbird's Loop Subdivision",
+          "pos": [
+            1389,
+            1476
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "FrameComponent",
+          "nick": "wbFrame",
+          "name": "Weaverbird's Picture Frame",
+          "pos": [
+            1473,
+            1496
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "slider",
+          "pos": [
+            1250.8,
+            1541.5
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 12.49
+        },
+        {
+          "id": "R87",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1561,
+            1516
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "panel",
+          "pos": [
+            1455.7,
+            1532.6
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R89",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            119.7,
+            1640.8
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            266,
+            1663
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "slider",
+          "pos": [
+            14.5,
+            1669.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R92",
+          "type": "Component_Delaunay",
+          "nick": "Del",
+          "name": "Delaunay Mesh",
+          "pos": [
+            407,
+            1681
+          ]
+        },
+        {
+          "id": "R93",
+          "type": "slider",
+          "pos": [
+            8.6,
+            1704.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R94",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            44.2,
+            1901.2
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            45.4,
+            1858.7
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            186,
+            1788
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            186,
+            1840
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            186,
+            1892
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            186,
+            1944
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R3.O0>R4.I1",
+        "R3.O1>R4.I2",
+        "R4.O0>R5.I0",
+        "R6.O0>R5.I1",
+        "R24.O0>R5.I2",
+        "R5.O0>R7.I0",
+        "R14.O0>R7.I2",
+        "R7.O0>R8.I0",
+        "R5.O0>R8.I1",
+        "R7.O0>R9.I0",
+        "R8.O0>R10.I0",
+        "R9.O0>R11.I0",
+        "R10.O0>R11.I0",
+        "R11.O0>R12.I0",
+        "R13.O0>R14.I0",
+        "R17.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R12.O0>R17.I0",
+        "R15.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R18.O0>R20.I0",
+        "R21.O0>R20.I1",
+        "R2.O0>R20.I2",
+        "R22.O0>R20.I3",
+        "R22.O0>R20.I4",
+        "R16.O0>R20.I5",
+        "R18.O0>R21.I0",
+        "R20.O0>R23.I0",
+        "R25.O0>R26.I0",
+        "R26.O0>R27.I0",
+        "R25.O0>R27.I2",
+        "R26.O0>R29.I0",
+        "R28.O0>R29.I1",
+        "R29.O2>R30.I0",
+        "R31.O0>R30.I1",
+        "R32.O0>R30.I2",
+        "R27.O0>R33.I0",
+        "R26.O0>R33.I1",
+        "R35.O0>R33.I2",
+        "R25.O0>R34.I0",
+        "R33.O0>R34.I0",
+        "R37.O0>R36.I1",
+        "R36.O0>R38.I0",
+        "R45.O0>R38.I1",
+        "R46.O0>R38.I2",
+        "R38.O0>R39.I0",
+        "R36.O0>R39.I1",
+        "R36.O0>R40.I0",
+        "R39.O0>R40.I1",
+        "R40.O0>R41.I0",
+        "R41.O0>R42.I0",
+        "R42.O0>R43.I0",
+        "R42.O0>R44.I0",
+        "R43.O0>R44.I1",
+        "R44.O0>R47.I0",
+        "R50.O0>R47.I1",
+        "R43.O0>R48.I0",
+        "R36.O0>R48.I1",
+        "R36.O0>R49.I0",
+        "R48.O1>R49.I1",
+        "R49.O1>R50.I0",
+        "R51.O0>R50.I1",
+        "R47.O0>R52.I0",
+        "R42.O0>R53.I0",
+        "R52.O0>R54.I0",
+        "R53.O0>R54.I0",
+        "R54.O0>R55.I0",
+        "R55.O0>R56.I0",
+        "R56.O0>R57.I0",
+        "R57.O0>R58.I0",
+        "R59.O0>R58.I1",
+        "R58.O0>R60.I0",
+        "R61.O0>R60.I1",
+        "R60.O0>R62.I0",
+        "R65.O0>R64.I0",
+        "R63.O0>R64.I2",
+        "R63.O0>R65.I0",
+        "R81.O0>R65.I1",
+        "R64.O0>R66.I0",
+        "R67.O0>R66.I1",
+        "R66.O0>R68.I0",
+        "R69.O0>R68.I1",
+        "R70.O0>R69.I0",
+        "R64.O0>R71.I0",
+        "R67.O0>R71.I1",
+        "R71.O0>R72.I0",
+        "R71.O0>R73.I0",
+        "R73.O1>R74.I0",
+        "R75.O0>R74.I1",
+        "R80.O0>R75.I0",
+        "R72.O0>R76.I0",
+        "R74.O0>R76.I1",
+        "R76.O0>R77.I0",
+        "R68.O0>R78.I0",
+        "R78.O0>R79.I0",
+        "R77.O0>R82.I0",
+        "R79.O0>R82.I0",
+        "R82.O0>R83.I0",
+        "R82.O0>R84.I0",
+        "R84.O0>R85.I0",
+        "R86.O0>R85.I1",
+        "R85.O0>R87.I0",
+        "R88.O0>R87.I1",
+        "R89.O0>R90.I0",
+        "R91.O0>R90.I1",
+        "R93.O0>R90.I2",
+        "R90.O0>R92.I0",
+        "R95.O0>R96.I0",
+        "R95.O0>R97.I0",
+        "R94.O0>R98.I0",
+        "R94.O0>R99.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

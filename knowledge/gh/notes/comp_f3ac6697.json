@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_f3ac6697",
+  "note_type": "component",
+  "name": "Fillet",
+  "brief": "Fillet | Inputs: C, R → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Fillet. Inputs: C (Curve), R (Number). Outputs: C (Curve).",
+  "keywords": [
+    "fillet",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "fillet"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Fillet"
+  ],
+  "solution_principle": "Fillet the sharp corners of a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_08fb1f1c",
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_2a5cdc00",
+    "comp_a2feec22",
+    "comp_53d02a24"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2f407944-81c3-4062-a485-276454ec4b8c",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "R": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6fb21315-a032-400e-a80f-248687f5507f"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|fillet"
+  }
+}

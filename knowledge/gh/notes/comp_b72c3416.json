@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_b72c3416",
+  "note_type": "component",
+  "name": "3D Supershape",
+  "brief": "3D Supershape | Inputs: U, V, m, a → Srf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: 3D Supershape. Inputs: U (Integer), V (Integer), m (Number), a (Number), b (Number), n1 (Number), n2 (Number), n3 (Number), S (Number), D1 (Domain), D2 (Domain). Outputs: Srf (Generic Data).",
+  "keywords": [
+    "3d supershape",
+    "3d",
+    "supershape",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "3d supershape",
+    "supershape"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "3D Supershape"
+  ],
+  "solution_principle": "Create a parametric 3D supsershape",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_13d603c5",
+    "comp_40dc966b",
+    "comp_c33aa162"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6602d641-c18d-47a7-b95f-f8ba8978cccf",
+    "category": "lunchbox_form",
+    "inputs": {
+      "U": "Integer",
+      "V": "Integer",
+      "m": "Number",
+      "a": "Number",
+      "b": "Number",
+      "n1": "Number",
+      "n2": "Number",
+      "n3": "Number",
+      "S": "Number",
+      "D1": "Domain",
+      "D2": "Domain"
+    },
+    "outputs": {
+      "Srf": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|3d supershape"
+  }
+}

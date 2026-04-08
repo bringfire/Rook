@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_9b720f9d",
+  "note_type": "component",
+  "name": "Numbers to Points",
+  "brief": "Numbers to Points | Inputs: N, M → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Numbers to Points. Inputs: N (Number), M (Coordinate Mask). Outputs: P (Point).",
+  "keywords": [
+    "numbers to points",
+    "numbers",
+    "to",
+    "points",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "numbers to points",
+    "numbers",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Numbers to Points"
+  ],
+  "solution_principle": "Convert a list of numbers to a list of points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6d59d8a6",
+    "comp_38f191d8",
+    "comp_60736c2f",
+    "comp_b14af4b6",
+    "comp_32345445",
+    "comp_828c8a14",
+    "comp_35e1539e",
+    "comp_ad6aac5d",
+    "comp_b8806e68"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0ae07da9-951b-4b9b-98ca-d312c252374d",
+    "category": "geometry_primitives",
+    "inputs": {
+      "N": "Number",
+      "M": "Coordinate Mask"
+    },
+    "outputs": {
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3581f42a-9592-4549-bd6b-1c0fc39d067b"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|numbers to points"
+  }
+}

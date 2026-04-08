@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoadProfileTemplate",
+  "description": "A road cross-section template extracted from civil CAD linework. Features are listed from centerline outward (ascending offset). Agents use these to generate offset curves or 3D road surfaces from a centerline alignment.",
+  "type": "object",
+  "required": ["name", "version", "symmetric", "totalWidth", "features", "layerMap"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable template name (e.g. 'arterial_with_bike_lanes')"
+    },
+    "version": {
+      "type": "integer",
+      "description": "Schema version, currently 1"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free-text description of the road type"
+    },
+    "source": {
+      "type": "object",
+      "description": "Provenance — where this template was extracted from",
+      "properties": {
+        "project": { "type": "string" },
+        "file": { "type": "string" },
+        "extractedAt": { "type": "string", "format": "date-time" },
+        "centerlineId": { "type": "string" },
+        "chainage": { "type": "number", "description": "Station along centerline where cross-section was sampled (m)" }
+      }
+    },
+    "symmetric": {
+      "type": "boolean",
+      "description": "True if all features appear on both sides. When true, every feature is mirrored. When false, each feature specifies whether it appears on both sides or one side only."
+    },
+    "totalWidth": {
+      "type": "number",
+      "description": "Full ROW-to-ROW width (m)"
+    },
+    "features": {
+      "type": "array",
+      "description": "Cross-section features ordered from centerline outward. Each entry defines a boundary at a given offset. For symmetric roads, features are listed once and mirrored. For asymmetric roads, each feature declares its placement.",
+      "items": {
+        "type": "object",
+        "required": ["type", "offset"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["carriageway_edge", "buffer", "bike_lane_inner", "bike_lane_outer", "shoulder", "row", "median", "sidewalk_inner", "sidewalk_outer", "ditch", "custom"],
+            "description": "Semantic feature type"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Distance from centerline (m)"
+          },
+          "width": {
+            "type": "number",
+            "description": "Width of the zone between this feature and the previous one (m)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Optional human-readable label"
+          },
+          "bilateral": {
+            "type": "boolean",
+            "default": true,
+            "description": "True if this feature appears on both sides (default). False if it appears on one side only — which side is determined at application time by the agent based on context."
+          }
+        }
+      }
+    },
+    "layerMap": {
+      "type": "object",
+      "description": "Maps CAD layer name patterns to feature types. Keys are layer substrings, values are feature type strings.",
+      "additionalProperties": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Searchable tags (e.g. 'arterial', 'bike', 'urban', 'riyadh')"
+    }
+  }
+}

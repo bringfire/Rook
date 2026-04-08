@@ -1,0 +1,521 @@
+{
+  "pattern_id": "f0f0ec95",
+  "name": "20-4",
+  "version": "1.0",
+  "created": "2026-02-22T14:10:54.097375Z",
+  "solution": {
+    "brief": "Recipe from FILES\\20\\20-4.gh (31 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Polygon",
+      "slider",
+      "Explode",
+      "slider",
+      "Evaluate Curve",
+      "slider",
+      "PolyLine",
+      "Move",
+      "Unit Z",
+      "slider",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "Curve",
+      "slider",
+      "Merge",
+      "Loft",
+      "Cap Holes",
+      "LB Incident Radiation",
+      "LB Cumulative Sky Matrix",
+      "File Path",
+      "LB Analysis Period",
+      "slider",
+      "slider",
+      "slider",
+      "LB Import EPW",
+      "Toggle",
+      "Brep",
+      "slider",
+      "slider",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "20 4"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "b7aff2fc",
+    "b96fb360"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.287
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6.1
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 7
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 26
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.7
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.1
+        }
+      ],
+      "panels": [
+        {
+          "id": "R31",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/20/20-4.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            28,
+            15
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            246,
+            277
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            29.7,
+            259.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R4",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            476,
+            262
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            11.6,
+            285.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R6",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            586,
+            282
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            33.6,
+            362
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.287
+        },
+        {
+          "id": "R8",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            696,
+            272
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            801,
+            290
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            719,
+            333
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            536.5,
+            381.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6.1
+        },
+        {
+          "id": "R12",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            296,
+            174
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            874,
+            174
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            408.2,
+            253.7
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            51,
+            157.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 7
+        },
+        {
+          "id": "R16",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            978,
+            146
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1075,
+            156
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1217,
+            415
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "ZuiPythonComponent",
+          "nick": "IncidentRadiation",
+          "name": "LB Incident Radiation",
+          "pos": [
+            1424,
+            661
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "ZuiPythonComponent",
+          "nick": "SkyMatrix",
+          "name": "LB Cumulative Sky Matrix",
+          "pos": [
+            1081,
+            546
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Param_FilePath",
+          "nick": "Path",
+          "name": "File Path",
+          "pos": [
+            464.5,
+            610
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "ZuiPythonComponent",
+          "nick": "AnalysisPeriod",
+          "name": "LB Analysis Period",
+          "pos": [
+            781,
+            955
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            451.1,
+            906.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 26
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            434.6,
+            940
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            441.5,
+            967.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R26",
+          "type": "ZuiPythonComponent",
+          "nick": "ImportEPW",
+          "name": "LB Import EPW",
+          "pos": [
+            576,
+            609
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1152,
+            771
+          ],
+          "value": false
+        },
+        {
+          "id": "R28",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            1258.2,
+            631.6
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            1095.9,
+            665
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.7
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            1091.2,
+            690.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.1
+        },
+        {
+          "id": "R31",
+          "type": "panel",
+          "pos": [
+            1522.9,
+            631
+          ],
+          "content": "Double click to edit panel content…"
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R5.O0>R2.I2",
+        "R14.O0>R4.I0",
+        "R4.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R8.I0",
+        "R8.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R11.O0>R10.I0",
+        "R2.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R17.O0>R18.I0",
+        "R20.O1>R19.I0",
+        "R18.O0>R19.I1",
+        "R28.O0>R19.I2",
+        "R29.O0>R19.I3",
+        "R30.O0>R19.I4",
+        "R27.O0>R19.I7",
+        "R26.O0>R20.I1",
+        "R26.O6>R20.I2",
+        "R26.O7>R20.I3",
+        "R22.O1>R20.I4",
+        "R24.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R25.O0>R22.I2",
+        "R24.O0>R22.I3",
+        "R23.O0>R22.I4",
+        "R25.O0>R22.I5",
+        "R21.O0>R26.I0",
+        "R19.O3>R31.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_b1520461",
+  "note_type": "component",
+  "name": "Project Point",
+  "brief": "Project Point | Inputs: P, D, G → P, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Project Point. Inputs: P (Point), D (Vector), G (Geometry). Outputs: P (Point), I (Integer).",
+  "keywords": [
+    "project point",
+    "project",
+    "point",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "project point",
+    "project",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Project Point"
+  ],
+  "solution_principle": "Project a point onto a collection of shapes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_87ff6e5d",
+    "comp_d358731a",
+    "comp_d8c157c3",
+    "comp_fc95126a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5184b8cb-b71e-4def-a590-cd2c9bc58906",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "D": "Vector",
+      "G": "Geometry"
+    },
+    "outputs": {
+      "P": "Point",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "902289da-28dc-454b-98d4-b8f8aa234516"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|project point"
+  }
+}

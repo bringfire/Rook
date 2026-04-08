@@ -1,0 +1,59 @@
+{
+  "note_id": "comp_a2ecb4e5",
+  "note_type": "component",
+  "name": "Tolerance Settings",
+  "brief": "Tolerance Settings | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Tolerance Settings.",
+  "keywords": [
+    "tolerance settings",
+    "tolerance",
+    "settings",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "tolerance settings",
+    "tolerance",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Tolerance Settings"
+  ],
+  "solution_principle": "Contains a collection of tolerance settings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3520863d",
+    "comp_a20aebfb",
+    "comp_67503b50",
+    "comp_3799e465",
+    "comp_b8042dc1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "345fd8f8-5fb0-4907-99fd-f21f3963e9b3",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|rhino|tolerance settings"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_fff2002f",
+  "note_type": "component",
+  "name": "Mesh Inclusion",
+  "brief": "Mesh Inclusion | Inputs: M, P, S → I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Mesh Inclusion. Inputs: M (Mesh), P (Point), S (Boolean). Outputs: I (Boolean).",
+  "keywords": [
+    "mesh inclusion",
+    "mesh",
+    "inclusion",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "mesh inclusion",
+    "mesh",
+    "inclusion"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Inclusion"
+  ],
+  "solution_principle": "Test a point for Mesh inclusion",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7bcf3a3a",
+    "comp_c97d1752",
+    "comp_7ec0071a",
+    "comp_38f1c08d",
+    "comp_0693fc0f",
+    "comp_bf1c655b",
+    "comp_686c9721",
+    "comp_437178bb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "01e3991d-18bd-474f-9fbd-076a8700159f",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh",
+      "P": "Point",
+      "S": "Boolean"
+    },
+    "outputs": {
+      "I": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "07a3b2a0-c4d0-4638-9044-39ac4681e782"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|mesh inclusion"
+  }
+}

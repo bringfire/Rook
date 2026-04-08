@@ -1,0 +1,12 @@
+Third-party header-only libraries committed to vendor/.
+No package manager needed — just include the header.
+
+cpp-httplib v0.18.3
+  Header: httplib/httplib.h
+  Source: https://github.com/yhirose/cpp-httplib
+  License: MIT
+
+nlohmann/json v3.11.3
+  Header: nlohmann/json.hpp
+  Source: https://github.com/nlohmann/json
+  License: MIT

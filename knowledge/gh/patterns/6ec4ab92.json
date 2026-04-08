@@ -1,0 +1,472 @@
+{
+  "pattern_id": "6ec4ab92",
+  "name": "S19E01",
+  "version": "1.0",
+  "created": "2026-02-22T14:09:11.126615Z",
+  "solution": {
+    "brief": "Recipe from FILES\\19\\S19E01.gh (30 components)",
+    "principle": "\n\nRelated insight: Entry point in S19 series complexity progression: S19E01 (30) → S19E03 (44) → S19E02 (45). Represents foundational complexity tier for parametric surface workflows.",
+    "components_needed": [
+      "Bifocals",
+      "Square",
+      "slider",
+      "panel",
+      "Scale",
+      "Area",
+      "Gene Pool",
+      "Scale",
+      "Gene Pool",
+      "Explode",
+      "Explode",
+      "slider",
+      "Divide Curve",
+      "Curve Closest Point",
+      "Line",
+      "Shift List",
+      "Ruled Surface",
+      "Shortest List",
+      "Discontinuity",
+      "Discontinuity",
+      "Rectangle 2Pt",
+      "Surface",
+      "Path Mapper",
+      "Trim Tree",
+      "Merge",
+      "Extrude",
+      "Unit Z",
+      "Gene Pool",
+      "Multiplication",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s19e01"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "04081616",
+    "699566e7",
+    "4d112b4a",
+    "02f0af8b",
+    "a19a5860",
+    "0c27eec4"
+  ],
+  "tags": [
+    "low-mid-complexity",
+    "30-components",
+    "data-tree",
+    "curve-division",
+    "surface-creation",
+    "recipe",
+    "parametric",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:10:28.552267",
+    "evolved_by": [
+      "0c27eec4"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:10:28.552267",
+        "trigger": "New pattern: 0c27eec4",
+        "changes": "S19E03 helps establish S19E01's role as the foundational pattern in a well-defined complexity progression"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 80,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "panels": [
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "content": "3.5"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/19/S19E01.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            40,
+            14
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            243,
+            174
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            2.4,
+            173.2
+          ],
+          "min": 80,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            132.5,
+            196.4
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R5",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            454,
+            174
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            341,
+            181
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            70.7,
+            250.3
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            584,
+            228
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            75.9,
+            355.5
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            720,
+            169
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            719,
+            223
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            683,
+            271.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R13",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            936,
+            233
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1045,
+            132
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1178,
+            203
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1271,
+            287
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_RuledSurface",
+          "nick": "RuleSrf",
+          "name": "Ruled Surface",
+          "pos": [
+            1475,
+            219
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_MatchListShortest",
+          "nick": "Short",
+          "name": "Shortest List",
+          "pos": [
+            1358,
+            213
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            742,
+            451
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            742,
+            404
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Rectangle2Pt",
+          "nick": "Rec 2Pt",
+          "name": "Rectangle 2Pt",
+          "pos": [
+            852,
+            430
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1684.8,
+            337.9
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            1576.7,
+            199.3
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "TrimTreeComponent",
+          "nick": "Trim",
+          "name": "Trim Tree",
+          "pos": [
+            1668,
+            273
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1810,
+            273
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1968,
+            283
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1829,
+            379
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            79.1,
+            524.3
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            348,
+            575
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "panel",
+          "pos": [
+            225.3,
+            630.2
+          ],
+          "content": "3.5"
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R4.O0>R2.I2",
+        "R4.O0>R2.I3",
+        "R2.O0>R5.I0",
+        "R6.O1>R5.I1",
+        "R7.O0>R5.I2",
+        "R2.O0>R6.I0",
+        "R5.O0>R8.I0",
+        "R6.O1>R8.I1",
+        "R9.O0>R8.I2",
+        "R5.O0>R10.I0",
+        "R8.O0>R11.I0",
+        "R11.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R13.O0>R14.I0",
+        "R10.O0>R14.I1",
+        "R14.O0>R15.I0",
+        "R13.O0>R15.I1",
+        "R15.O0>R16.I0",
+        "R18.O0>R17.I0",
+        "R18.O1>R17.I1",
+        "R15.O0>R18.I0",
+        "R16.O0>R18.I1",
+        "R5.O0>R19.I0",
+        "R8.O0>R20.I0",
+        "R20.O0>R21.I1",
+        "R19.O0>R21.I2",
+        "R17.O0>R24.I0",
+        "R24.O0>R25.I0",
+        "R22.O0>R25.I1",
+        "R25.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R29.O0>R27.I0",
+        "R28.O0>R29.I0",
+        "R30.O0>R29.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

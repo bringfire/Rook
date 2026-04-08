@@ -1,0 +1,59 @@
+{
+  "note_id": "comp_19c6ac08",
+  "note_type": "component",
+  "name": "Rod",
+  "brief": "Rod | Inputs: Polyline, LengthFactor, AngleFactor, AxialStrength → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Rod. Inputs: Polyline (Curve), LengthFactor (Number), AngleFactor (Number), AxialStrength (Number), BendStrength (Number). Outputs: R (Generic Data).",
+  "keywords": [
+    "rod",
+    "kangaroo2_goals-angle"
+  ],
+  "category": "kangaroo2_goals-angle",
+  "tags": [
+    "kangaroo2_goals-angle"
+  ],
+  "trigger_intents": [
+    "rod"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rod"
+  ],
+  "solution_principle": "Bending and stretching resistant rod",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "51cbcf97-8cf9-4f52-9941-a9b484593db2",
+    "category": "kangaroo2_goals-angle",
+    "inputs": {
+      "Polyline": "Curve",
+      "LengthFactor": "Number",
+      "AngleFactor": "Number",
+      "AxialStrength": "Number",
+      "BendStrength": "Number"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8abedb3c-ff82-46ea-8f77-fcb236b55d89"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-angle|rod"
+  }
+}

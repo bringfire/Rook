@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_0ce60bf8",
+  "note_type": "component",
+  "name": "Region Union",
+  "brief": "Region Union | Inputs: C, P \u2192 R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Region Union. Inputs: C (Curve), P (Plane). Outputs: R (Curve).",
+  "keywords": [
+    "region union",
+    "region",
+    "union",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "region union",
+    "region",
+    "union"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Region Union"
+  ],
+  "solution_principle": "Union of a set of planar closed curves (regions)",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5f77f7fc",
+    "comp_85550cda",
+    "comp_c6dc49bb",
+    "comp_6c86f7fd",
+    "comp_dd2a0014",
+    "comp_10d58079",
+    "comp_af436c13",
+    "comp_cfa94a6b",
+    "comp_107c3cf2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1222394f-0d33-4f31-9101-7281bde89fe5",
+    "category": "intersection_shape",
+    "inputs": {
+      "C": "Curve",
+      "P": "Plane"
+    },
+    "outputs": {
+      "R": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "477c2e7b-c5e5-421e-b8b2-ba60cdf5398b"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|region union",
+    "family": "intersection_shape"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

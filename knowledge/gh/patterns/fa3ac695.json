@@ -1,0 +1,428 @@
+{
+  "pattern_id": "fa3ac695",
+  "name": "2- paneling-tools-intro",
+  "version": "1.0",
+  "created": "2026-02-22T14:03:28.246243Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\grass-islamic\\2- paneling-tools-intro.gh (27 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Surface",
+      "Rectangle",
+      "Number Slider",
+      "Plane",
+      "Area",
+      "Explode",
+      "Point On Curve",
+      "Line",
+      "Evaluate Curve",
+      "Number Slider",
+      "Weave",
+      "PolyLine",
+      "Point On Curve",
+      "Line",
+      "Evaluate Curve",
+      "Number Slider",
+      "Weave",
+      "PolyLine",
+      "Surface Domain Number",
+      "Number Slider",
+      "Number Slider",
+      "Point Attraction",
+      "Evaluate Surface",
+      "MD Slider",
+      "MD Slider",
+      "Morph 2D Mean"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "2  paneling tools intro"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "008ecd3f",
+    "c33fbf3c"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "paneling-tools",
+    "27-components",
+    "islamic-geometry",
+    "workflow",
+    "introductory"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 27
+        },
+        {
+          "id": "R11",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.77
+        },
+        {
+          "id": "R17",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R21",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R22",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/14/grass-islamic/2- paneling-tools-intro.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            -36,
+            -3
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            883.9,
+            52.4
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            431,
+            406
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            67.2,
+            393.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 27
+        },
+        {
+          "id": "R5",
+          "type": "Param_Plane",
+          "name": "Plane",
+          "pos": [
+            278,
+            376
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            729,
+            553
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            689,
+            405
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            1305,
+            275.2
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1081,
+            434
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            1360,
+            371
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            994.3,
+            503.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.77
+        },
+        {
+          "id": "R12",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            1604,
+            387
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            2425,
+            594
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            1088.6,
+            754.6
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            864,
+            913
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            1143,
+            850
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            777.9,
+            983
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R18",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            1387,
+            866
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            2419,
+            692
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "PtCompGridCreateSurfaceDomainNum",
+          "name": "Surface Domain Number",
+          "pos": [
+            2231,
+            436
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1811.5,
+            525.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1810.7,
+            569.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R23",
+          "type": "PtCompPointAtt",
+          "name": "Point Attraction",
+          "pos": [
+            2560,
+            359
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            2329,
+            270
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            1839.1,
+            -93.8
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            1834.8,
+            26.9
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "PtMorph2DMean",
+          "name": "Morph 2D Mean",
+          "pos": [
+            2806,
+            529
+          ]
+        }
+      ],
+      "flows": [
+        "R5.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R4.O0>R3.I2",
+        "R3.O0>R6.I0",
+        "R3.O0>R7.I0",
+        "R7.O1>R9.I0",
+        "R6.O1>R9.I1",
+        "R9.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R10.O0>R12.I1",
+        "R8.O0>R12.I2",
+        "R12.O0>R13.I0",
+        "R7.O1>R15.I0",
+        "R6.O1>R15.I1",
+        "R15.O0>R16.I0",
+        "R17.O0>R16.I1",
+        "R16.O0>R18.I1",
+        "R14.O0>R18.I2",
+        "R18.O0>R19.I0",
+        "R2.O0>R20.I0",
+        "R21.O0>R20.I1",
+        "R22.O0>R20.I2",
+        "R20.O0>R23.I0",
+        "R24.O0>R23.I1",
+        "R2.O0>R24.I0",
+        "R25.O0>R24.I1",
+        "R26.O0>R24.I1",
+        "R20.O0>R27.I0",
+        "R23.O1>R27.I1",
+        "R13.O0>R27.I2",
+        "R19.O0>R27.I3"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_4aab4206",
+  "note_type": "component",
+  "name": "Group Content",
+  "brief": "Group Content | Inputs: C, K → C, V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Group Content. Inputs: C (Model Content), K (Text). Outputs: C (Model Content), V (Generic Data).",
+  "keywords": [
+    "group content",
+    "group",
+    "content",
+    "rhino_content"
+  ],
+  "category": "rhino_content",
+  "tags": [
+    "rhino_content"
+  ],
+  "trigger_intents": [
+    "group content",
+    "group",
+    "content"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Group Content"
+  ],
+  "solution_principle": "Group content by key",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_af914e81",
+    "comp_47acc61b",
+    "comp_251fc0d2",
+    "comp_a8019a19",
+    "comp_1174796c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "709cb378-b1fa-4b92-aff4-8138831b0cdf",
+    "category": "rhino_content",
+    "inputs": {
+      "C": "Model Content",
+      "K": "Text"
+    },
+    "outputs": {
+      "C": "Model Content",
+      "V": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "91f1eafc-4804-4f9f-96ad-35be27178c36",
+      "3da3fd40-b2fb-483c-8d1a-1b557eba66cd"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|content|group content"
+  }
+}

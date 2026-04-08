@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_db0a14d5",
+  "note_type": "component",
+  "name": "Render Attributes",
+  "brief": "Render Attributes | Inputs: R, Om, Cs, Rs → R, Om, Cs",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Render Attributes. Inputs: R (Render Attributes), Om (Object Material), Cs (Boolean), Rs (Boolean). Outputs: R (Render Attributes), Om (Object Material), Cs (Boolean), Rs (Boolean).",
+  "keywords": [
+    "render attributes",
+    "render",
+    "attributes",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "render attributes",
+    "render",
+    "attributes"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Render Attributes"
+  ],
+  "solution_principle": "Object render attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00e8e127",
+    "comp_e7c02afd",
+    "comp_6882f6f6",
+    "comp_f355701d",
+    "comp_525a73a1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6c814c77-ec1b-44d6-bf5a-e637d4b34256",
+    "category": "rhino_objects",
+    "inputs": {
+      "R": "Render Attributes",
+      "Om": "Object Material",
+      "Cs": "Boolean",
+      "Rs": "Boolean"
+    },
+    "outputs": {
+      "R": "Render Attributes",
+      "Om": "Object Material",
+      "Cs": "Boolean",
+      "Rs": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2846e179-728a-4146-b0ce-a33e7d591873"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|render attributes"
+  }
+}

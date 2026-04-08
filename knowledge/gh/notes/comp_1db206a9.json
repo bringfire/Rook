@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_1db206a9",
+  "note_type": "component",
+  "name": "Create Data Grid",
+  "brief": "Create Data Grid | Inputs: Headers, Values → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Create Data Grid. Inputs: Headers (Text), Values (Text).",
+  "keywords": [
+    "create data grid",
+    "create",
+    "data",
+    "grid",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "create data grid",
+    "create",
+    "data",
+    "grid"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create Data Grid"
+  ],
+  "solution_principle": "Creates a Data Grid view of data.  Data can be saved as CSV file.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_220e8091",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_088f486f",
+    "teaching_26a7814e",
+    "comp_68c9f86f",
+    "comp_779bd9b1",
+    "comp_8b146658",
+    "comp_d95ea85a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4142e474-4707-4d9e-af4e-f4bbed4d9279",
+    "category": "lunchbox_data",
+    "inputs": {
+      "Headers": "Text",
+      "Values": "Text"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "78ab7d1a-51c8-43a8-b17a-fe42d699f938"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|create data grid"
+  }
+}

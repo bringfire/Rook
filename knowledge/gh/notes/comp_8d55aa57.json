@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_8d55aa57",
+  "note_type": "component",
+  "name": "Radial",
+  "brief": "Radial | Inputs: P, S, Er, Ep → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Radial. Inputs: P (Plane), S (Number), Er (Integer), Ep (Integer). Outputs: C (Curve), P (Point).",
+  "keywords": [
+    "radial",
+    "grid_ops"
+  ],
+  "category": "grid_ops",
+  "tags": [
+    "grid_ops"
+  ],
+  "trigger_intents": [
+    "radial"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Radial"
+  ],
+  "solution_principle": "2D radial grid",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bf6b0e1b",
+    "comp_66948ccd",
+    "comp_b42eaf19",
+    "comp_aa8d491f",
+    "comp_b9fdbf6a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "66eedc35-187d-4dab-b49b-408491b1255f",
+    "category": "grid_ops",
+    "inputs": {
+      "P": "Plane",
+      "S": "Number",
+      "Er": "Integer",
+      "Ep": "Integer"
+    },
+    "outputs": {
+      "C": "Curve",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "125dc122-8544-4617-945e-bb9a0c101c50"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|grid|radial"
+  }
+}

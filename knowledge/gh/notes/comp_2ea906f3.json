@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_2ea906f3",
+  "note_type": "component",
+  "name": "Relative Items",
+  "brief": "Relative Items | Inputs: A, B, O, Wp → A, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Relative Items. Inputs: A (Generic Data), B (Generic Data), O (Text), Wp (Boolean), Wi (Boolean). Outputs: A (Generic Data), B (Generic Data).",
+  "keywords": [
+    "relative items",
+    "relative",
+    "items",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "relative items",
+    "relative",
+    "items"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Relative Items"
+  ],
+  "solution_principle": "Retrieve a relative item combo from two data trees",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e163e947",
+    "comp_9390569c",
+    "comp_6e8f5e48",
+    "comp_8e643df3",
+    "comp_79aac6f8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2653b135-4df1-4a6b-820c-55e2ad3bc1e0",
+    "category": "tree_operations",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data",
+      "O": "Text",
+      "Wp": "Boolean",
+      "Wi": "Boolean"
+    },
+    "outputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2d61f4e0-47c5-41d6-a41d-6afa96ee63af"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|relative items"
+  }
+}

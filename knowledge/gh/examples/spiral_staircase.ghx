@@ -1,0 +1,589 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<Archive name="Root">
+  <items count="1">
+    <item name="ArchiveVersion" type_name="gh_version" type_code="80">
+      <Major>0</Major>
+      <Minor>2</Minor>
+      <Revision>2</Revision>
+    </item>
+  </items>
+  <chunks count="2">
+    <chunk name="Definition">
+      <items count="1">
+        <item name="plugin_version" type_name="gh_version" type_code="80">
+          <Major>1</Major>
+          <Minor>0</Minor>
+          <Revision>7</Revision>
+        </item>
+      </items>
+      <chunks count="5">
+        <chunk name="DocumentHeader">
+          <items count="5">
+            <item name="DocumentID" type_name="gh_guid" type_code="9">a1b2c3d4-e5f6-7890-abcd-ef1234567890</item>
+            <item name="Preview" type_name="gh_string" type_code="10">Shaded</item>
+            <item name="PreviewMeshType" type_name="gh_int32" type_code="3">2</item>
+            <item name="PreviewNormal" type_name="gh_drawing_color" type_code="36">
+              <ARGB>100;150;0;0</ARGB>
+            </item>
+            <item name="PreviewSelected" type_name="gh_drawing_color" type_code="36">
+              <ARGB>100;0;150;0</ARGB>
+            </item>
+          </items>
+        </chunk>
+        <chunk name="DefinitionProperties">
+          <items count="3">
+            <item name="Date" type_name="gh_date" type_code="8">638750000000000000</item>
+            <item name="Description" type_name="gh_string" type_code="10">Parametric Spiral Staircase with wedge treads, handrail, supports, spine</item>
+            <item name="Name" type_name="gh_string" type_code="10">Spiral Staircase</item>
+          </items>
+          <chunks count="3">
+            <chunk name="Revisions">
+              <items count="1">
+                <item name="RevisionCount" type_name="gh_int32" type_code="3">0</item>
+              </items>
+            </chunk>
+            <chunk name="Projection">
+              <items count="2">
+                <item name="Target" type_name="gh_drawing_point" type_code="30">
+                  <X>400</X>
+                  <Y>200</Y>
+                </item>
+                <item name="Zoom" type_name="gh_single" type_code="5">0.6</item>
+              </items>
+            </chunk>
+            <chunk name="Views">
+              <items count="1">
+                <item name="ViewCount" type_name="gh_int32" type_code="3">0</item>
+              </items>
+            </chunk>
+          </chunks>
+        </chunk>
+        <chunk name="RcpLayout">
+          <items count="1">
+            <item name="GroupCount" type_name="gh_int32" type_code="3">0</item>
+          </items>
+        </chunk>
+        <chunk name="GHALibraries">
+          <items count="1">
+            <item name="Count" type_name="gh_int32" type_code="3">0</item>
+          </items>
+        </chunk>
+        <chunk name="DefinitionObjects">
+          <items count="1">
+            <item name="ObjectCount" type_name="gh_int32" type_code="3">7</item>
+          </items>
+          <chunks count="7">
+            <!-- Slider 1: Total Height -->
+            <chunk name="Object" index="0">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Total stair height</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">11111111-1111-1111-1111-111111111111</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Total Height</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Height</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>50</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>50</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">2</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">5</item>
+                        <item name="Min" type_name="gh_double" type_code="6">2</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">3</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- Slider 2: Outer Radius -->
+            <chunk name="Object" index="1">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Outer radius</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">22222222-2222-2222-2222-222222222222</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Outer Radius</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Radius</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>80</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>80</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">2</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">2</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0.6</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">1.2</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- Slider 3: Inner Radius -->
+            <chunk name="Object" index="2">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Inner/spine radius</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">33333333-3333-3333-3333-333333333333</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Inner Radius</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Spine</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>110</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>110</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">2</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">0.4</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0.1</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">0.15</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- Slider 4: Step Count -->
+            <chunk name="Object" index="3">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Number of steps</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">44444444-4444-4444-4444-444444444444</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Step Count</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Steps</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>140</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>140</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">0</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">24</item>
+                        <item name="Min" type_name="gh_double" type_code="6">8</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">16</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- Slider 5: Handrail Height -->
+            <chunk name="Object" index="4">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Handrail height above tread</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">55555555-5555-5555-5555-555555555555</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Handrail Height</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Rail H</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>170</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>170</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">2</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">1.1</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0.85</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">0.95</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- Slider 6: Tread Thickness -->
+            <chunk name="Object" index="5">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">57da07bd-ecab-415d-9d86-af36d7073abc</item>
+                <item name="Name" type_name="gh_string" type_code="10">Number Slider</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="6">
+                    <item name="Description" type_name="gh_string" type_code="10">Tread thickness</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">66666666-6666-6666-6666-666666666666</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Tread Thickness</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Thick</item>
+                    <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="2">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>50</X><Y>200</Y><W>200</W><H>20</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>50</X><Y>200</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="Slider">
+                      <items count="7">
+                        <item name="Digits" type_name="gh_int32" type_code="3">3</item>
+                        <item name="GripDisplay" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Interval" type_name="gh_int32" type_code="3">1</item>
+                        <item name="Max" type_name="gh_double" type_code="6">0.06</item>
+                        <item name="Min" type_name="gh_double" type_code="6">0.025</item>
+                        <item name="SnapCount" type_name="gh_int32" type_code="3">0</item>
+                        <item name="Value" type_name="gh_double" type_code="6">0.04</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+            <!-- GhPython Script Component -->
+            <chunk name="Object" index="6">
+              <items count="2">
+                <item name="GUID" type_name="gh_guid" type_code="9">410755b1-224a-4c1e-a407-bf32fb45ea7e</item>
+                <item name="Name" type_name="gh_string" type_code="10">GhPython Script</item>
+              </items>
+              <chunks count="1">
+                <chunk name="Container">
+                  <items count="5">
+                    <item name="Description" type_name="gh_string" type_code="10">Generates spiral staircase geometry</item>
+                    <item name="InstanceGuid" type_name="gh_guid" type_code="9">77777777-7777-7777-7777-777777777777</item>
+                    <item name="Name" type_name="gh_string" type_code="10">Spiral Staircase Generator</item>
+                    <item name="NickName" type_name="gh_string" type_code="10">Stair</item>
+                    <item name="SourceCount" type_name="gh_int32" type_code="3">0</item>
+                  </items>
+                  <chunks count="10">
+                    <chunk name="Attributes">
+                      <items count="2">
+                        <item name="Bounds" type_name="gh_drawing_rectanglef" type_code="35"><X>350</X><Y>50</Y><W>150</W><H>220</H></item>
+                        <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>425</X><Y>160</Y></item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_input" index="0">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Total height</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770001-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">height</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">height</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>60</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">11111111-1111-1111-1111-111111111111</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_input" index="1">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Outer radius</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770002-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">outer_r</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">outer_r</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>85</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">22222222-2222-2222-2222-222222222222</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_input" index="2">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Inner radius</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770003-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">inner_r</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">inner_r</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>110</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">33333333-3333-3333-3333-333333333333</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_input" index="3">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Step count</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770004-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">steps</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">steps</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>135</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">44444444-4444-4444-4444-444444444444</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_input" index="4">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Handrail height</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770005-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">rail_h</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">rail_h</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>160</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">55555555-5555-5555-5555-555555555555</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_input" index="5">
+                      <items count="6">
+                        <item name="Description" type_name="gh_string" type_code="10">Tread thickness</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77770006-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">thick</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">thick</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                        <item name="SourceCount" type_name="gh_int32" type_code="3">1</item>
+                      </items>
+                      <chunks count="1">
+                        <chunk name="Attributes">
+                          <items count="1">
+                            <item name="Pivot" type_name="gh_drawing_pointf" type_code="31"><X>352</X><Y>185</Y></item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                      <chunks count="1">
+                        <chunk name="Source" index="0">
+                          <items count="1">
+                            <item name="ID" type_name="gh_guid" type_code="9">66666666-6666-6666-6666-666666666666</item>
+                          </items>
+                        </chunk>
+                      </chunks>
+                    </chunk>
+                    <chunk name="param_output" index="0">
+                      <items count="5">
+                        <item name="Description" type_name="gh_string" type_code="10">Wedge treads</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77778001-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">treads</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">treads</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_output" index="1">
+                      <items count="5">
+                        <item name="Description" type_name="gh_string" type_code="10">Central spine</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77778002-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">spine</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">spine</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_output" index="2">
+                      <items count="5">
+                        <item name="Description" type_name="gh_string" type_code="10">Handrail</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77778003-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">handrail</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">handrail</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                      </items>
+                    </chunk>
+                    <chunk name="param_output" index="3">
+                      <items count="5">
+                        <item name="Description" type_name="gh_string" type_code="10">Vertical supports</item>
+                        <item name="InstanceGuid" type_name="gh_guid" type_code="9">77778004-7777-7777-7777-777777777777</item>
+                        <item name="Name" type_name="gh_string" type_code="10">supports</item>
+                        <item name="NickName" type_name="gh_string" type_code="10">supports</item>
+                        <item name="Optional" type_name="gh_bool" type_code="1">false</item>
+                      </items>
+                    </chunk>
+                    <chunk name="Script">
+                      <items count="2">
+                        <item name="SourceCode" type_name="gh_string" type_code="10">import Rhino.Geometry as rg
+import math
+
+# Inputs: height, outer_r, inner_r, steps, rail_h, thick
+n = int(steps)
+step_h = height / n
+angle_step = 2 * math.pi / n
+rail_radius = 0.025
+support_radius = 0.015
+
+treads = []
+supports = []
+handrail_pts = []
+
+for i in range(n):
+    z = i * step_h
+    a1 = i * angle_step
+    a2 = (i + 1) * angle_step
+
+    # Wedge tread: 4 corner points
+    p1 = rg.Point3d(inner_r * math.cos(a1), inner_r * math.sin(a1), z)
+    p2 = rg.Point3d(outer_r * math.cos(a1), outer_r * math.sin(a1), z)
+    p3 = rg.Point3d(outer_r * math.cos(a2), outer_r * math.sin(a2), z)
+    p4 = rg.Point3d(inner_r * math.cos(a2), inner_r * math.sin(a2), z)
+
+    # Create wedge as closed polyline, extrude
+    pts = [p1, p2, p3, p4, p1]
+    pline = rg.Polyline(pts)
+    curve = pline.ToNurbsCurve()
+    vec = rg.Vector3d(0, 0, thick)
+    tread = rg.Extrusion.Create(curve, thick, True)
+    if tread:
+        treads.append(tread.ToBrep())
+
+    # Handrail points at outer edge mid-angle
+    mid_a = (a1 + a2) / 2
+    hr_pt = rg.Point3d(outer_r * math.cos(mid_a), outer_r * math.sin(mid_a), z + rail_h)
+    handrail_pts.append(hr_pt)
+
+    # Vertical support at mid-angle
+    base_pt = rg.Point3d(outer_r * math.cos(mid_a), outer_r * math.sin(mid_a), z + thick)
+    top_pt = rg.Point3d(outer_r * math.cos(mid_a), outer_r * math.sin(mid_a), z + rail_h)
+    line = rg.Line(base_pt, top_pt)
+    pipe = rg.Brep.CreatePipe(line.ToNurbsCurve(), support_radius, False, rg.PipeCapMode.Flat, True, 0.01, 0.01)[0]
+    if pipe:
+        supports.append(pipe)
+
+# Add final handrail point at top
+final_a = n * angle_step
+handrail_pts.append(rg.Point3d(outer_r * math.cos(final_a), outer_r * math.sin(final_a), height + rail_h))
+
+# Create handrail as interpolated curve, then pipe
+if len(handrail_pts) > 1:
+    rail_curve = rg.Curve.CreateInterpolatedCurve(handrail_pts, 3)
+    handrail_breps = rg.Brep.CreatePipe(rail_curve, rail_radius, False, rg.PipeCapMode.Round, True, 0.01, 0.01)
+    handrail = handrail_breps[0] if handrail_breps else None
+else:
+    handrail = None
+
+# Central spine cylinder
+plane = rg.Plane.WorldXY
+circle = rg.Circle(plane, inner_r)
+spine = rg.Extrusion.CreateCylinderExtrusion(circle, height, True)
+spine = spine.ToBrep() if spine else None</item>
+                        <item name="HideInput" type_name="gh_bool" type_code="1">true</item>
+                      </items>
+                    </chunk>
+                  </chunks>
+                </chunk>
+              </chunks>
+            </chunk>
+          </chunks>
+        </chunk>
+      </chunks>
+    </chunk>
+    <chunk name="Thumbnail">
+      <items count="1">
+        <item name="Width" type_name="gh_int32" type_code="3">0</item>
+      </items>
+    </chunk>
+  </chunks>
+</Archive>

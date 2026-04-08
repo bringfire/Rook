@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_62548e45",
+  "note_type": "component",
+  "name": "Solar Incidence",
+  "brief": "Solar Incidence | Inputs: L, T, P → D, E, H",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Solar Incidence. Inputs: L (Location), T (Time), P (Plane). Outputs: D (Vector), E (Number), H (Boolean), C (Colour).",
+  "keywords": [
+    "solar incidence",
+    "solar",
+    "incidence",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "solar incidence",
+    "solar",
+    "incidence"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Solar Incidence"
+  ],
+  "solution_principle": "Gets the solar incidence vector for a certain time and place",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_53b0ce5c",
+    "comp_b9817b61",
+    "comp_5557fa99"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "59e1f848-38d4-4cbf-ad7f-40ffc52acdf5",
+    "category": "vector_ops",
+    "inputs": {
+      "L": "Location",
+      "T": "Time",
+      "P": "Plane"
+    },
+    "outputs": {
+      "D": "Vector",
+      "E": "Number",
+      "H": "Boolean",
+      "C": "Colour"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|vector|solar incidence"
+  }
+}

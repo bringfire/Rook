@@ -1,0 +1,616 @@
+{
+  "pattern_id": "b3c6c78b",
+  "name": "trigonometric_parametric_pipe-output",
+  "version": "1.0",
+  "created": "2026-02-02T20:43:37.597501Z",
+  "solution": {
+    "brief": "Trigonometric curve piped into 3D geometry",
+    "principle": "",
+    "components_needed": [
+      "Construct Point",
+      "R",
+      "r",
+      "Range",
+      "panel",
+      "Pi",
+      "slider",
+      "Cosine",
+      "Multiplication",
+      "Range",
+      "panel",
+      "Pi",
+      "slider",
+      "Cosine",
+      "Multiplication",
+      "Sine",
+      "Multiplication",
+      "Graft Tree",
+      "Addition",
+      "Multiplication",
+      "Sine",
+      "Flip Matrix",
+      "List Item",
+      "Range",
+      "Graft Tree",
+      "Addition",
+      "Flatten Tree",
+      "Nurbs Curve",
+      "Pipe",
+      "slider",
+      "Custom Preview",
+      "Swatch",
+      "Timer",
+      "Counter",
+      "Toggle",
+      "Multiplication",
+      "Radians",
+      "slider",
+      "Addition",
+      "removeDuplicatePts"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "sine wave",
+      "cosine wave",
+      "oscillation",
+      "sinusoidal",
+      "pipe a curve",
+      "tubular form",
+      "create tube"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "pipe-output",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:35:04.220423Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 44 wires -> 40 components, 44 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "R",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "nick": "r",
+          "min": 0,
+          "max": 100,
+          "value": 56
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.7
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R5",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "2"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Spiral Torus.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            1227,
+            304
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "nick": "R",
+          "pos": [
+            -62.8,
+            -48.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "nick": "r",
+          "pos": [
+            -56.6,
+            0.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 56
+        },
+        {
+          "id": "R4",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            202,
+            276
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "panel",
+          "pos": [
+            3.3,
+            239.3
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R6",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            103,
+            258
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            -14.1,
+            296.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R8",
+          "type": "FuncCos",
+          "nick": "Cos",
+          "name": "Cosine",
+          "pos": [
+            689,
+            247
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            697,
+            178
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            300,
+            481
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            103.3,
+            454.1
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R12",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            202,
+            471
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            91.4,
+            513
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R14",
+          "type": "FuncCos",
+          "nick": "Cos",
+          "name": "Cosine",
+          "pos": [
+            885,
+            434
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1075,
+            149
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            888,
+            496
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1089,
+            293
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            452,
+            485
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            815,
+            139
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            873,
+            628
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            705,
+            625
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            1368,
+            270
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            262,
+            373
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            361,
+            383
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            442,
+            383
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            510,
+            286
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            1489,
+            247
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            1677,
+            326
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1802,
+            326
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            1580.4,
+            380.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.7
+        },
+        {
+          "id": "R31",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1943,
+            336
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1783.1,
+            419.6
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Timer",
+          "name": "Timer",
+          "pos": [
+            42,
+            84
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "PlaceholderComponent",
+          "name": "Counter",
+          "pos": [
+            236,
+            123
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            46,
+            141
+          ],
+          "value": false
+        },
+        {
+          "id": "R36",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            378,
+            157
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "FuncToRadians",
+          "nick": "Rad",
+          "name": "Radians",
+          "pos": [
+            293,
+            179
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            71.7,
+            186.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R39",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            599,
+            252
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            1589,
+            248
+          ]
+        }
+      ],
+      "flows": [
+        "R15.O0>R1.I0",
+        "R17.O0>R1.I1",
+        "R20.O0>R1.I2",
+        "R6.O0>R4.I0",
+        "R7.O0>R4.I1",
+        "R5.O0>R6.I0",
+        "R39.O0>R8.I0",
+        "R3.O0>R9.I0",
+        "R8.O0>R9.I1",
+        "R12.O0>R10.I0",
+        "R13.O0>R10.I1",
+        "R11.O0>R12.I0",
+        "R18.O0>R14.I0",
+        "R19.O0>R15.I0",
+        "R14.O0>R15.I1",
+        "R18.O0>R16.I0",
+        "R19.O0>R17.I0",
+        "R16.O0>R17.I1",
+        "R10.O0>R18.I0",
+        "R2.O0>R19.I0",
+        "R9.O0>R19.I1",
+        "R3.O0>R20.I0",
+        "R21.O0>R20.I1",
+        "R39.O0>R21.I0",
+        "R1.O0>R22.I0",
+        "R4.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R13.O0>R24.I1",
+        "R24.O0>R25.I0",
+        "R4.O0>R26.I0",
+        "R25.O0>R26.I1",
+        "R22.O0>R27.I0",
+        "R40.O0>R28.I0",
+        "R28.O0>R29.I0",
+        "R30.O0>R29.I1",
+        "R29.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R35.O0>R34.I0",
+        "R34.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R37.I0",
+        "R36.O0>R39.I0",
+        "R26.O0>R39.I1",
+        "R27.O0>R40.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

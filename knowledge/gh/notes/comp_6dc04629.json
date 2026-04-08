@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_6dc04629",
+  "note_type": "component",
+  "name": "Linear Dimension",
+  "brief": "Linear Dimension | Inputs: L, A, B, T → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Linear Dimension. Inputs: L (Line), A (Point), B (Point), T (Text), S (Number).",
+  "keywords": [
+    "linear dimension",
+    "linear",
+    "dimension",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "linear dimension",
+    "linear",
+    "dimension"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Linear Dimension"
+  ],
+  "solution_principle": "Create a distance annotation between points, projected to a line.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c4606904",
+    "comp_e1a4465c",
+    "comp_376372ef",
+    "comp_3f6fef15",
+    "comp_0fb35f5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5018bf8d-8566-4917-a6e3-5a623bda8079",
+    "category": "display",
+    "inputs": {
+      "L": "Line",
+      "A": "Point",
+      "B": "Point",
+      "T": "Text",
+      "S": "Number"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|dimensions|linear dimension"
+  }
+}

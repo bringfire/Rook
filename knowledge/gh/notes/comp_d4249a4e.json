@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_d4249a4e",
+  "note_type": "component",
+  "name": "Bend Deform",
+  "brief": "Bend Deform | Inputs: G, B → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Bend Deform. Inputs: G (Geometry), B (Arc). Outputs: G (Geometry).",
+  "keywords": [
+    "bend deform",
+    "bend",
+    "deform",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "bend deform",
+    "bend",
+    "deform"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Bend Deform"
+  ],
+  "solution_principle": "Deform a shape by bending it",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ef96fa08",
+    "comp_27766a23",
+    "comp_56d72921",
+    "comp_6ba13139",
+    "teaching_0abb40f1",
+    "comp_4c71c793",
+    "comp_e8fd68a2",
+    "comp_fd25326e",
+    "comp_8425c570",
+    "comp_d3804286",
+    "comp_a41fd3f5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "539f5564-4fc0-4fc1-a7d3-b802fa2ef072",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "B": "Arc"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "134a849b-0ff4-4f36-bdd5-95e3996bae8b"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|bend deform"
+  }
+}

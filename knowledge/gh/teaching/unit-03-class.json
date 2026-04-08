@@ -1,0 +1,1331 @@
+{
+  "document": {
+    "name": "Unit-03-Class",
+    "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced/Unit-03-Class.gh"
+  },
+  "total_components": 317,
+  "total_flows": 234,
+  "total_groups": 73,
+  "total_columns": 9,
+  "meaningful_sections": 9,
+  "sections": [
+    {
+      "column_index": 0,
+      "header_id": "C182",
+      "x_range": [
+        33.8,
+        458.6
+      ],
+      "section_title": "Lists",
+      "section_number": 1,
+      "teaching_text": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines.",
+      "teaching_panel_id": "C276",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Series\" component will help us do this.",
+        "Series",
+        "Note"
+      ],
+      "components_demonstrated": {},
+      "working_component_ids": [],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C281",
+        "C282"
+      ],
+      "intra_section_flows": [],
+      "groups": [
+        {
+          "group_id": "G67",
+          "name": "",
+          "colour": "#FFFFFF96"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 0,
+        "sub_labels": 2,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 1
+      }
+    },
+    {
+      "column_index": 1,
+      "header_id": "C1",
+      "x_range": [
+        463.6,
+        1132.0
+      ],
+      "section_title": "Lists",
+      "section_number": 2,
+      "teaching_text": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on.",
+      "teaching_panel_id": "C277",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C261",
+          "text": "Display > Draw Fancy Wires",
+          "topic": "Display > Draw Fancy Wires",
+          "pos": [
+            495.9,
+            610.3
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Let us see how we can use Lists.",
+        "Go to the tab \"Sets\", then \"List\".",
+        "Sets",
+        "List",
+        "List Item"
+      ],
+      "components_demonstrated": {
+        "Series": 1,
+        "NumberSlider": 3
+      },
+      "working_component_ids": [
+        "C2",
+        "C3",
+        "C4",
+        "C5"
+      ],
+      "connected_panel_ids": [
+        "C6"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C3.O0>C2.I0",
+        "C4.O0>C2.I1",
+        "C5.O0>C2.I2",
+        "C2.O0>C6.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G38",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G37",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 4,
+        "sub_labels": 0,
+        "connected_panels": 1,
+        "flows": 4,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 2,
+      "header_id": "C9",
+      "x_range": [
+        1137,
+        1890.0
+      ],
+      "section_title": "Lists: Wrapping",
+      "section_number": 3,
+      "teaching_text": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed.",
+      "teaching_panel_id": "C303",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "List Item",
+        "true",
+        "false",
+        "null"
+      ],
+      "components_demonstrated": {
+        "Series": 1,
+        "List Item": 3,
+        "NumberSlider": 3
+      },
+      "working_component_ids": [
+        "C10",
+        "C17",
+        "C23",
+        "C46",
+        "C11",
+        "C12",
+        "C13"
+      ],
+      "connected_panel_ids": [
+        "C14",
+        "C18",
+        "C22",
+        "C24",
+        "C29",
+        "C47",
+        "C48"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C11.O0>C10.I0",
+        "C12.O0>C10.I1",
+        "C13.O0>C10.I2",
+        "C10.O0>C14.I0",
+        "C10.O0>C17.I0",
+        "C22.O0>C17.I1",
+        "C17.O0>C18.I0",
+        "C10.O0>C23.I0",
+        "C29.O0>C23.I1",
+        "C23.O0>C24.I0",
+        "C10.O0>C46.I0",
+        "C48.O0>C46.I1",
+        "C46.O0>C47.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G40",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G35",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G34",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G41",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G42",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G49",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G50",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G39",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 7,
+        "sub_labels": 0,
+        "connected_panels": 7,
+        "flows": 13,
+        "groups": 8
+      }
+    },
+    {
+      "column_index": 3,
+      "header_id": "C32",
+      "x_range": [
+        1895,
+        2732.3
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "List Item": 3,
+        "BooleanToggle": 3,
+        "Series": 1,
+        "NumberSlider": 3
+      },
+      "working_component_ids": [
+        "C30",
+        "C33",
+        "C35",
+        "C36",
+        "C41",
+        "C220",
+        "C263",
+        "C37",
+        "C38",
+        "C39"
+      ],
+      "connected_panel_ids": [
+        "C31",
+        "C34",
+        "C40",
+        "C42",
+        "C43",
+        "C221",
+        "C222"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C36.O0>C30.I0",
+        "C42.O0>C30.I1",
+        "C35.O0>C30.I2",
+        "C30.O0>C31.I0",
+        "C36.O0>C33.I0",
+        "C43.O0>C33.I1",
+        "C41.O0>C33.I2",
+        "C33.O0>C34.I0",
+        "C37.O0>C36.I0",
+        "C38.O0>C36.I1",
+        "C39.O0>C36.I2",
+        "C36.O0>C40.I0",
+        "C36.O0>C220.I0",
+        "C222.O0>C220.I1",
+        "C263.O0>C220.I2",
+        "C220.O0>C221.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G43",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G44",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G33",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G46",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G47",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G32",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G48",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G60",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G61",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G66",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G45",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 10,
+        "sub_labels": 0,
+        "connected_panels": 7,
+        "flows": 16,
+        "groups": 11
+      }
+    },
+    {
+      "column_index": 4,
+      "header_id": "C44",
+      "x_range": [
+        2737.3,
+        3628.8
+      ],
+      "section_title": "Lists: Culling",
+      "section_number": 4,
+      "teaching_text": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.",
+      "teaching_panel_id": "C278",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "In Grasshopper, culling means removing.",
+        "Cull Index"
+      ],
+      "components_demonstrated": {
+        "Cull Index": 1,
+        "Series": 1,
+        "NumberSlider": 5,
+        "Text Split": 1,
+        "Clock": 1,
+        "Trigger": 1,
+        "Button": 1,
+        "Jitter": 1
+      },
+      "working_component_ids": [
+        "C45",
+        "C55",
+        "C56",
+        "C57",
+        "C58",
+        "C184",
+        "C262",
+        "C292",
+        "C304",
+        "C305",
+        "C307",
+        "C97"
+      ],
+      "connected_panel_ids": [
+        "C59",
+        "C60",
+        "C61",
+        "C251",
+        "C293",
+        "C294",
+        "C299"
+      ],
+      "sub_label_ids": [
+        "C298"
+      ],
+      "intra_section_flows": [
+        "C55.O0>C45.I0",
+        "C60.O0>C45.I1",
+        "C56.O0>C55.I0",
+        "C57.O0>C55.I1",
+        "C58.O0>C55.I2",
+        "C55.O0>C59.I0",
+        "C45.O0>C61.I0",
+        "C251.O0>C97.I0",
+        "C262.O0>C97.I1",
+        "C184.O0>C97.I2",
+        "C304.O0>C292.I0",
+        "C293.O0>C292.I1",
+        "C304.O0>C294.I0",
+        "C292.O0>C299.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G31",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G52",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G51",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G53",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G22",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 12,
+        "sub_labels": 1,
+        "connected_panels": 7,
+        "flows": 14,
+        "groups": 5
+      }
+    },
+    {
+      "column_index": 5,
+      "header_id": "C70",
+      "x_range": [
+        3633.8,
+        4731.4
+      ],
+      "section_title": "Lists: More components",
+      "section_number": 5,
+      "teaching_text": "5- Lists: More components\r\n\r\n- The following components are often used in Grasshopper. Use the previous List generated by the Series and try:\r\n- \"List Length\"\r\n- \"Insert Items\"\r\n- \"Replace Items\"\r\n- \"Reverse List\"\r\n- \"Shift List\"\r\n- \"Sort List\"\r\n- \"Jitter\"\r\n- \"Split List\"\r\n- \"Partition List\"",
+      "teaching_panel_id": "C279",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C201",
+          "text": "Hover over the S INPUT and check Grasshopper's default values.\r\n\r\nMany ways to edit the S values:\r\n1- Right-click on S, click on \"Set Integer\"\r\n2- Right-click on S, click on \"Set Multiple Integers\"\r\n3- Build a new \"Number Slider\" and input it into S\r\nMany more ways will be explored later in the course",
+          "topic": "Hover over the S INPUT and check Grasshopper's default values.",
+          "pos": [
+            3646.7,
+            4150.9
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "List Length",
+        "Insert Items",
+        "Replace Items",
+        "Reverse List",
+        "Shift List",
+        "Sort List",
+        "Jitter",
+        "Split List",
+        "Partition List"
+      ],
+      "components_demonstrated": {
+        "List Length": 1,
+        "Series": 1,
+        "Insert Items": 1,
+        "Reverse List": 1,
+        "Shift List": 2,
+        "Split List": 1,
+        "Sort List": 1,
+        "NumberSlider": 5,
+        "Partition List": 1,
+        "Replace Items": 1,
+        "BooleanToggle": 2,
+        "Expression": 2,
+        "Counter": 1,
+        "Addition": 1,
+        "List Item": 1
+      },
+      "working_component_ids": [
+        "C71",
+        "C72",
+        "C77",
+        "C78",
+        "C79",
+        "C80",
+        "C87",
+        "C95",
+        "C183",
+        "C198",
+        "C203",
+        "C229",
+        "C285",
+        "C286",
+        "C296",
+        "C306",
+        "C309",
+        "C311",
+        "C73",
+        "C74",
+        "C75",
+        "C295"
+      ],
+      "connected_panel_ids": [
+        "C76",
+        "C81",
+        "C82",
+        "C83",
+        "C84",
+        "C85",
+        "C86",
+        "C88",
+        "C92",
+        "C93",
+        "C94",
+        "C96",
+        "C98",
+        "C199",
+        "C202",
+        "C204",
+        "C230",
+        "C231",
+        "C232",
+        "C249",
+        "C250",
+        "C252",
+        "C297",
+        "C308",
+        "C310",
+        "C312",
+        "C313",
+        "C314",
+        "C315",
+        "C283",
+        "C284"
+      ],
+      "sub_label_ids": [
+        "C317"
+      ],
+      "intra_section_flows": [
+        "C72.O0>C71.I0",
+        "C73.O0>C72.I0",
+        "C74.O0>C72.I1",
+        "C75.O0>C72.I2",
+        "C72.O0>C76.I0",
+        "C250.O0>C77.I0",
+        "C82.O0>C77.I1",
+        "C83.O0>C77.I2",
+        "C202.O0>C78.I0",
+        "C283.O0>C79.I0",
+        "C183.O0>C79.I1",
+        "C285.O0>C79.I2",
+        "C252.O0>C80.I0",
+        "C92.O0>C80.I1",
+        "C71.O0>C81.I0",
+        "C77.O0>C84.I0",
+        "C78.O0>C85.I0",
+        "C79.O0>C86.I0",
+        "C284.O0>C87.I0",
+        "C203.O0>C87.I1",
+        "C286.O0>C87.I2",
+        "C87.O0>C88.I0",
+        "C80.O0>C93.I0",
+        "C80.O1>C94.I0",
+        "C98.O0>C95.I0",
+        "C95.O0>C96.I0",
+        "C204.O0>C198.I0",
+        "C198.O0>C199.I0",
+        "C72.O0>C202.I0",
+        "C72.O0>C204.I0",
+        "C249.O0>C229.I0",
+        "C230.O0>C229.I1",
+        "C231.O0>C229.I2",
+        "C229.O0>C232.I0",
+        "C72.O0>C249.I0",
+        "C72.O0>C250.I0",
+        "C72.O0>C252.I0",
+        "C72.O0>C283.I0",
+        "C72.O0>C284.I0",
+        "C295.O0>C296.I0",
+        "C295.O1>C296.I1",
+        "C295.O2>C296.I2",
+        "C296.O0>C297.I0",
+        "C306.O0>C308.I0",
+        "C297.O0>C309.I0",
+        "C308.O0>C309.I1",
+        "C309.O0>C310.I0",
+        "C312.O0>C311.I0",
+        "C313.O0>C311.I1",
+        "C314.O0>C311.I2",
+        "C295.O0>C312.I0",
+        "C295.O1>C313.I0",
+        "C295.O2>C314.I0",
+        "C311.O0>C315.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G30",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G55",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G29",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G28",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G27",
+          "name": "True Wrap",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G26",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G25",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G56",
+          "name": "False Wrap",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G24",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G23",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G9",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G6",
+          "name": "",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G62",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G73",
+          "name": "",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G71",
+          "name": "Current time at Clock reset",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G69",
+          "name": "Kangaroo Plugin",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G72",
+          "name": "Continuously increasing number",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G70",
+          "name": "Continuously increasing time",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G54",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 22,
+        "sub_labels": 1,
+        "connected_panels": 31,
+        "flows": 54,
+        "groups": 19
+      }
+    },
+    {
+      "column_index": 6,
+      "header_id": "C112",
+      "x_range": [
+        4736.4,
+        8209.3
+      ],
+      "section_title": "Practical Example",
+      "section_number": null,
+      "teaching_text": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Use the \"Boundary\" component to make surfaces out of the cells.\r\n\r\n3- Get the center point of each cell using the \"Area\" component.\r\n\r\n4- Extract the XYZ information from the center points.\r\n\r\n5- Select only the ones with the Y = 15.\r\n\r\n7- Jitter the resultant List.\r\n\r\n6- Organize (sort) these ones from smallest to largest X value.\r\n\r\n7- Back to step 2, randomly cull 25 surfaces.\r\n\r\n8- Back to step 2, use a pattern to cull surfaces.\r\n\r\n9- Back to step 2, find the length of the List of surfaces and split the List in half parametrically.",
+      "teaching_panel_id": "C280",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C291",
+          "text": "IMPORTANT:\r\nThe Number of Inputs in \"List\" should have the same number of Boolean Results entering \"Dispatch Pattern\"",
+          "topic": "IMPORTANT",
+          "pos": [
+            6422.8,
+            1159
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Boundary",
+        "Area"
+      ],
+      "components_demonstrated": {
+        "Square": 1,
+        "Area": 3,
+        "Deconstruct": 2,
+        "Equality": 1,
+        "Dispatch": 3,
+        "Data": 6,
+        "List Item": 8,
+        "Jitter": 1,
+        "Sort List": 2,
+        "NumberSlider": 6,
+        "Boundary Surfaces": 1,
+        "Point": 1,
+        "Curve": 2,
+        "Length": 1,
+        "Surface": 2
+      },
+      "working_component_ids": [
+        "C100",
+        "C105",
+        "C106",
+        "C121",
+        "C123",
+        "C124",
+        "C125",
+        "C126",
+        "C128",
+        "C129",
+        "C130",
+        "C131",
+        "C132",
+        "C135",
+        "C136",
+        "C186",
+        "C189",
+        "C190",
+        "C192",
+        "C227",
+        "C233",
+        "C238",
+        "C239",
+        "C240",
+        "C241",
+        "C242",
+        "C243",
+        "C244",
+        "C268",
+        "C269",
+        "C270",
+        "C271",
+        "C272",
+        "C273",
+        "C274",
+        "C275",
+        "C287",
+        "C300",
+        "C101",
+        "C102"
+      ],
+      "connected_panel_ids": [
+        "C107",
+        "C122",
+        "C127",
+        "C133",
+        "C134",
+        "C137",
+        "C185",
+        "C187",
+        "C188",
+        "C191",
+        "C234",
+        "C301",
+        "C302"
+      ],
+      "sub_label_ids": [
+        "C195"
+      ],
+      "intra_section_flows": [
+        "C101.O0>C100.I1",
+        "C102.O0>C100.I2",
+        "C102.O0>C100.I3",
+        "C239.O0>C105.I0",
+        "C105.O1>C106.I0",
+        "C106.O1>C107.I0",
+        "C106.O1>C121.I0",
+        "C122.O0>C121.I1",
+        "C105.O1>C123.I0",
+        "C121.O0>C123.I1",
+        "C227.O0>C125.I0",
+        "C121.O0>C125.I1",
+        "C121.O0>C127.I0",
+        "C287.O0>C128.I0",
+        "C268.O0>C128.I1",
+        "C126.O0>C129.I0",
+        "C287.O0>C130.I0",
+        "C130.O1>C131.I0",
+        "C131.O0>C132.I0",
+        "C287.O0>C132.I1",
+        "C130.O1>C132.I2",
+        "C132.O0>C133.I0",
+        "C130.O1>C134.I0",
+        "C300.O0>C135.I0",
+        "C136.O0>C135.I1",
+        "C121.O1>C137.I0",
+        "C105.O1>C185.I0",
+        "C126.O0>C187.I0",
+        "C287.O0>C188.I0",
+        "C126.O0>C189.I0",
+        "C190.O0>C189.I1",
+        "C131.O0>C191.I0",
+        "C132.O2>C192.I0",
+        "C136.O0>C192.I1",
+        "C239.O0>C227.I0",
+        "C100.O0>C234.I0",
+        "C239.O0>C240.I0",
+        "C121.O0>C240.I1",
+        "C239.O0>C243.I0",
+        "C244.O0>C243.I1",
+        "C130.O1>C269.I0",
+        "C268.O0>C269.I1",
+        "C270.O0>C271.I0",
+        "C270.O0>C272.I0",
+        "C275.O0>C273.I0",
+        "C270.O0>C273.I1",
+        "C273.O1>C274.I0",
+        "C270.O0>C275.I0",
+        "C275.O0>C301.I0",
+        "C272.O0>C302.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G16",
+          "name": "All Y coordinates of Points (as decimals)",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G15",
+          "name": "Equality to 15",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G18",
+          "name": "",
+          "colour": "#00C8FF"
+        },
+        {
+          "group_id": "G19",
+          "name": "",
+          "colour": "#00C8FF"
+        },
+        {
+          "group_id": "G21",
+          "name": "Wrap False",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G14",
+          "name": "Inequality to 15",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G17",
+          "name": "All Centroids (Points)",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G57",
+          "name": "Wrap False",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G2",
+          "name": "Simple example of sorting rectangles by area/perimeter",
+          "colour": "#FF191996"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 40,
+        "sub_labels": 1,
+        "connected_panels": 13,
+        "flows": 50,
+        "groups": 9
+      }
+    },
+    {
+      "column_index": 7,
+      "header_id": "C237",
+      "x_range": [
+        8214.3,
+        10147.2
+      ],
+      "section_title": "Assignment 3",
+      "section_number": null,
+      "teaching_text": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction.",
+      "teaching_panel_id": "C103",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C212",
+          "text": "80",
+          "topic": "80",
+          "pos": [
+            8760,
+            1263.8
+          ]
+        },
+        {
+          "id": "C247",
+          "text": "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images",
+          "topic": "Right-Click on the Slider",
+          "pos": [
+            8739.1,
+            1835.9
+          ]
+        },
+        {
+          "id": "C254",
+          "text": "False\r\nTrue\r\nTrue\r\nTrue",
+          "topic": "False",
+          "pos": [
+            9280.4,
+            740.5
+          ]
+        },
+        {
+          "id": "C256",
+          "text": "50",
+          "topic": "50",
+          "pos": [
+            8758.7,
+            1617
+          ]
+        },
+        {
+          "id": "C288",
+          "text": "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue",
+          "topic": "False",
+          "pos": [
+            9172,
+            735.2
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Flatten"
+      ],
+      "components_demonstrated": {
+        "Cull Pattern": 1,
+        "List Item": 1,
+        "NumberSlider": 6,
+        "Random Reduce": 1,
+        "List Length": 2,
+        "Split List": 3,
+        "Division": 5,
+        "Surface": 6,
+        "Boundary Surfaces": 1,
+        "Square": 1
+      },
+      "working_component_ids": [
+        "C108",
+        "C109",
+        "C110",
+        "C111",
+        "C115",
+        "C117",
+        "C118",
+        "C205",
+        "C206",
+        "C207",
+        "C208",
+        "C209",
+        "C213",
+        "C215",
+        "C216",
+        "C218",
+        "C219",
+        "C223",
+        "C224",
+        "C225",
+        "C226",
+        "C235",
+        "C245",
+        "C257",
+        "C259",
+        "C289",
+        "C290"
+      ],
+      "connected_panel_ids": [
+        "C116",
+        "C119",
+        "C120",
+        "C210",
+        "C211",
+        "C214",
+        "C217",
+        "C246",
+        "C253",
+        "C255",
+        "C258",
+        "C260"
+      ],
+      "sub_label_ids": [
+        "C248"
+      ],
+      "intra_section_flows": [
+        "C223.O0>C108.I0",
+        "C253.O0>C108.I1",
+        "C223.O0>C109.I0",
+        "C110.O0>C109.I1",
+        "C223.O0>C111.I0",
+        "C260.O0>C111.I1",
+        "C223.O0>C115.I0",
+        "C115.O0>C116.I0",
+        "C223.O0>C117.I0",
+        "C120.O0>C117.I1",
+        "C115.O0>C118.I0",
+        "C119.O0>C118.I1",
+        "C118.O0>C120.I0",
+        "C223.O0>C207.I0",
+        "C210.O0>C207.I1",
+        "C211.O0>C213.I0",
+        "C235.O0>C213.I1",
+        "C213.O0>C214.I0",
+        "C223.O0>C215.I0",
+        "C217.O0>C215.I1",
+        "C115.O0>C216.I0",
+        "C214.O0>C216.I1",
+        "C216.O0>C217.I0",
+        "C224.O0>C223.I0",
+        "C225.O0>C224.I1",
+        "C226.O0>C224.I2",
+        "C289.O0>C224.I3",
+        "C223.O0>C245.I0",
+        "C245.O0>C246.I0",
+        "C255.O0>C257.I0",
+        "C290.O0>C257.I1",
+        "C257.O0>C258.I0",
+        "C246.O0>C259.I0",
+        "C258.O0>C259.I1",
+        "C259.O0>C260.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G20",
+          "name": "Set Multiple Booleans",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G13",
+          "name": "Choosing 1 item",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G12",
+          "name": "Randomly reducing list",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G7",
+          "name": "Splitting: Manual vs. Parametric",
+          "colour": "#85F9FF49"
+        },
+        {
+          "group_id": "G10",
+          "name": "List Length: How many items are in the list",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G11",
+          "name": "Splitting the list by half",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G58",
+          "name": "Splitting the list by half",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G8",
+          "name": "Percent",
+          "colour": "#FF000049"
+        },
+        {
+          "group_id": "G59",
+          "name": "Splitting the list by half",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G63",
+          "name": "Percentage Slider",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G5",
+          "name": "Perfentage",
+          "colour": "#85F9FF49"
+        },
+        {
+          "group_id": "G64",
+          "name": "Percent",
+          "colour": "#FF000049"
+        },
+        {
+          "group_id": "G68",
+          "name": "Percentage Slider",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 5,
+        "working_components": 27,
+        "sub_labels": 1,
+        "connected_panels": 12,
+        "flows": 35,
+        "groups": 13
+      }
+    },
+    {
+      "column_index": 8,
+      "header_id": "C104",
+      "x_range": [
+        10152.2,
+        null
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Area": 2,
+        "Deconstruct": 2,
+        "List Length": 2,
+        "Split List": 2,
+        "Division": 2,
+        "Equality": 1,
+        "Dispatch": 2,
+        "Integer": 1,
+        "Data": 6,
+        "Hexagonal": 1,
+        "NumberSlider": 2,
+        "Cull Pattern": 1,
+        "Sort List": 1,
+        "Jitter": 2,
+        "List Item": 2,
+        "Extrude": 1,
+        "Unit Z": 1
+      },
+      "working_component_ids": [
+        "C138",
+        "C139",
+        "C141",
+        "C143",
+        "C144",
+        "C147",
+        "C149",
+        "C150",
+        "C152",
+        "C155",
+        "C156",
+        "C157",
+        "C158",
+        "C159",
+        "C160",
+        "C163",
+        "C164",
+        "C165",
+        "C166",
+        "C167",
+        "C168",
+        "C169",
+        "C171",
+        "C172",
+        "C175",
+        "C176",
+        "C177",
+        "C178",
+        "C179",
+        "C180",
+        "C181"
+      ],
+      "connected_panel_ids": [
+        "C140",
+        "C142",
+        "C145",
+        "C146",
+        "C148",
+        "C151",
+        "C153",
+        "C154",
+        "C161",
+        "C162",
+        "C170",
+        "C173",
+        "C174"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C158.O0>C138.I0",
+        "C138.O1>C139.I0",
+        "C139.O0>C140.I0",
+        "C163.O0>C141.I0",
+        "C141.O0>C142.I0",
+        "C163.O0>C143.I0",
+        "C146.O0>C143.I1",
+        "C141.O0>C144.I0",
+        "C145.O0>C144.I1",
+        "C144.O0>C146.I0",
+        "C150.O0>C147.I0",
+        "C148.O0>C147.I1",
+        "C138.O1>C149.I0",
+        "C147.O0>C149.I1",
+        "C150.O0>C151.I0",
+        "C147.O0>C153.I0",
+        "C147.O1>C154.I0",
+        "C156.O0>C155.I1",
+        "C157.O0>C155.I2",
+        "C157.O0>C155.I3",
+        "C155.O0>C158.I0",
+        "C164.O0>C159.I0",
+        "C159.O1>C160.I0",
+        "C164.O0>C160.I1",
+        "C168.O0>C160.I2",
+        "C160.O0>C161.I0",
+        "C159.O0>C162.I0",
+        "C152.O0>C164.I0",
+        "C158.O0>C166.I0",
+        "C147.O0>C166.I1",
+        "C167.O0>C168.I0",
+        "C175.O0>C169.I0",
+        "C169.O0>C170.I0",
+        "C175.O0>C171.I0",
+        "C174.O0>C171.I1",
+        "C169.O0>C172.I0",
+        "C173.O0>C172.I1",
+        "C172.O0>C174.I0",
+        "C168.O0>C177.I0",
+        "C164.O0>C178.I0",
+        "C176.O0>C179.I0",
+        "C180.O0>C179.I1",
+        "C181.O0>C180.I0",
+        "C176.O0>C181.I0"
+      ],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 31,
+        "sub_labels": 0,
+        "connected_panels": 13,
+        "flows": 44,
+        "groups": 0
+      }
+    }
+  ]
+}

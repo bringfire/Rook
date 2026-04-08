@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_4d4a3a69",
+  "note_type": "component",
+  "name": "Principal Curvature",
+  "brief": "Principal Curvature | Inputs: S, uv → F, C¹, C²",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Principal Curvature. Inputs: S (Surface), uv (Point). Outputs: F (Plane), C¹ (Number), C² (Number), K¹ (Vector), K² (Vector).",
+  "keywords": [
+    "principal curvature",
+    "principal",
+    "curvature",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "principal curvature",
+    "principal",
+    "curvature"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Principal Curvature"
+  ],
+  "solution_principle": "Evaluate the principal curvature of a surface at a {uv} coordinate.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c9b05711",
+    "comp_570eb369",
+    "comp_28af3654",
+    "comp_c525b1a1",
+    "comp_93df8f05"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "404f75ac-5594-4c48-ad8a-7d0f472bbf8a",
+    "category": "surface_analysis",
+    "inputs": {
+      "S": "Surface",
+      "uv": "Point"
+    },
+    "outputs": {
+      "F": "Plane",
+      "C¹": "Number",
+      "C²": "Number",
+      "K¹": "Vector",
+      "K²": "Vector"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4139f3a3-cf93-4fc0-b5e0-18a3acd0b003",
+      "353b206e-bde5-4f02-a913-b3b8a977d4b9"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|principal curvature"
+  }
+}

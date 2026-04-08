@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_18d5859f",
+  "note_type": "component",
+  "name": "Cull Faces",
+  "brief": "Cull Faces | Inputs: M, P → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Cull Faces. Inputs: M (Mesh), P (Boolean). Outputs: M (Mesh).",
+  "keywords": [
+    "cull faces",
+    "cull",
+    "faces",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "cull faces",
+    "cull",
+    "faces"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cull Faces"
+  ],
+  "solution_principle": "Cull faces from a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_32c46a57",
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd",
+    "comp_d1c58c31"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "57edd208-760a-4f0f-87e6-ca1bbd74133b",
+    "category": "mesh_utilities",
+    "inputs": {
+      "M": "Mesh",
+      "P": "Boolean"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9d50bf9b-46bc-403a-9ec9-1052f51dd6b6",
+      "98c2a1f2-5ba6-4be0-8999-c540097406c2"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|util|cull faces"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "pattern_id": "148784bb",
+  "name": "teaching_The Graph-Grammar Aggregation ",
+  "version": "1.0",
+  "created": "2026-03-19T19:18:37.330522Z",
+  "solution": {
+    "brief": "The Graph-Grammar Aggregation allows to create an aggregation where each\r\naggregation step is defined by the user. This is achieve by defining a list of rules using\r\na specific formatting as \"P1|c1_P2|c2>id1_id2\", where:\r\n- \"P1\" specifies the first part. For the first rule, this is the name of the first part to be added.\r\n  From the second rule on, this is the id of one of the already added parts from where to grow.\r\n- \"c1\" is the connection used on the first part.\r\n- \"P2\" is the name of the new part to be added.\r\n- \"c2\" is the connection to be used on the new part.\r\n- \"id1\" and \"id2\" are the ids to be assigned to both placed parts. These ids can then be used\r\n  as \"P1\" in following rules.",
+    "principle": "",
+    "components_needed": [
+      "Merge",
+      "Wasp_Basic Part",
+      "Button",
+      "Wasp_Basic Part",
+      "Wasp_Connection From Direction",
+      "Wasp_Attribute"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "aggregation",
+      "each",
+      "create",
+      "step",
+      "defined",
+      "graph-grammar",
+      "allows",
+      "where"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

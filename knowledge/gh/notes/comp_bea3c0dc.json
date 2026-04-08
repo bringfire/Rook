@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_bea3c0dc",
+  "note_type": "component",
+  "name": "Random Reduce",
+  "brief": "Random Reduce | Inputs: L, R, S → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Random Reduce. Inputs: L (Generic Data), R (Integer), S (Integer). Outputs: L (Generic Data).",
+  "keywords": [
+    "random reduce",
+    "random",
+    "reduce",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "random reduce",
+    "random",
+    "reduce"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Random Reduce"
+  ],
+  "solution_principle": "Randomly remove N items from a list",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_4ee05670",
+    "comp_31bd5de8",
+    "comp_a84bec2b",
+    "comp_bd229a26",
+    "comp_398fe067"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "455925fd-23ff-4e57-a0e7-913a4165e659",
+    "category": "sequence_ops",
+    "inputs": {
+      "L": "Generic Data",
+      "R": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2ab17f9a-d852-4405-80e1-938c5e57e78d"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|random reduce"
+  }
+}

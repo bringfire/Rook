@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_c64869fe",
+  "note_type": "component",
+  "name": "Concatenate",
+  "brief": "Concatenate | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Concatenate. Inputs: A (Text), B (Text). Outputs: R (Text).",
+  "keywords": [
+    "concatenate",
+    "text_ops"
+  ],
+  "category": "text_ops",
+  "tags": [
+    "text_ops"
+  ],
+  "trigger_intents": [
+    "concatenate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Concatenate"
+  ],
+  "solution_principle": "Concatenate some fragments of text",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_77db0173",
+    "comp_dfb40a0b",
+    "comp_a49505b9",
+    "comp_eae94e15",
+    "comp_eab5ee17",
+    "comp_37bfb447",
+    "comp_eadf18b9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2013e425-8713-42e2-a661-b57e78840337",
+    "category": "text_ops",
+    "inputs": {
+      "A": "Text",
+      "B": "Text"
+    },
+    "outputs": {
+      "R": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1274d51a-81e6-4ccf-ad1f-0edf4c769cac"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|text|concatenate"
+  }
+}

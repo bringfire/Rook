@@ -1,0 +1,1393 @@
+{
+  "pattern_id": "b9cf0ee7",
+  "name": "S07E04",
+  "version": "1.0",
+  "created": "2026-02-22T14:34:04.298224Z",
+  "solution": {
+    "brief": "Recipe from FILES\\7\\S07E04.gh (89 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider",
+      "Tree Item",
+      "panel",
+      "slider",
+      "Param Viewer",
+      "panel",
+      "List Item",
+      "slider",
+      "Tree Statistics",
+      "panel",
+      "List Item",
+      "slider",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider",
+      "Tree Item",
+      "slider",
+      "Construct Path",
+      "slider",
+      "slider",
+      "Merge",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider",
+      "Tree Branch",
+      "Circle",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider",
+      "panel",
+      "List Item",
+      "slider",
+      "slider",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider",
+      "Sub List",
+      "panel",
+      "panel",
+      "Split List",
+      "slider",
+      "Split Tree",
+      "Square",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Point List",
+      "slider",
+      "panel",
+      "Sphere",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s07e04"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "f18add2b",
+    "95fe7fe0",
+    "2781888b"
+  ],
+  "tags": [
+    "parametric",
+    "data-tree",
+    "series-7",
+    "recipe",
+    "89-components",
+    "tutorial-series",
+    "mid-to-high-complexity",
+    "unit-series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R64",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R71",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        },
+        {
+          "id": "R79",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R86",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R89",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        }
+      ],
+      "panels": [
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "{2;6}[3]"
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "content": "{2;6}"
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "content": "{2;6}"
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "content": "{2;6}"
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "content": "{2;6}[3]"
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "content": "{1;2}"
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "content": "{?;?}[4]"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "{?;?}[(0,2,...,6)]"
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "content": "{?;?}[(1 to 6)]"
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "content": "1 to 6"
+        },
+        {
+          "id": "R77",
+          "nick": "",
+          "content": "{1;(1,2)}[(1 to 6)]"
+        },
+        {
+          "id": "R87",
+          "nick": "",
+          "content": "{?;?}[(!3)]"
+        }
+      ]
+    },
+    "output_type": "surface",
+    "source_definition": "FILES/7/S07E04.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            81,
+            -40
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            589,
+            155
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            350,
+            105
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            208.4,
+            75.8
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            36.7,
+            93.3
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            35.1,
+            186.9
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            533,
+            69
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            321,
+            3.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            310.2,
+            164.9
+          ],
+          "content": "{2;6}[3]"
+        },
+        {
+          "id": "R10",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            711,
+            201
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            484.4,
+            252.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R12",
+          "type": "Component_TreeItem",
+          "nick": "Item",
+          "name": "Tree Item",
+          "pos": [
+            593,
+            398
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "panel",
+          "pos": [
+            328.3,
+            351.6
+          ],
+          "content": "{2;6}"
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            338,
+            417.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R15",
+          "type": "ParamViewer",
+          "nick": "Viewer",
+          "name": "Param Viewer",
+          "pos": [
+            86,
+            442.9
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "panel",
+          "pos": [
+            299,
+            512.1
+          ],
+          "content": "{2;6}"
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            542,
+            643
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            335.5,
+            731.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R19",
+          "type": "Component_TreeStatistics",
+          "nick": "TStat",
+          "name": "Tree Statistics",
+          "pos": [
+            240,
+            900
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "pos": [
+            297.2,
+            768.4
+          ],
+          "content": "{2;6}"
+        },
+        {
+          "id": "R21",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            655,
+            883
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            449.4,
+            972.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R23",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            592,
+            1194
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            353,
+            1144
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            211.8,
+            1115.3
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            40.2,
+            1132.8
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            38.6,
+            1226.4
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            536,
+            1108
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            324.5,
+            1043.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R30",
+          "type": "panel",
+          "pos": [
+            313.6,
+            1204.4
+          ],
+          "content": "{2;6}[3]"
+        },
+        {
+          "id": "R31",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            714,
+            1240
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            487.9,
+            1291.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R33",
+          "type": "Component_TreeItem",
+          "nick": "Item",
+          "name": "Tree Item",
+          "pos": [
+            514,
+            1416
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            249,
+            1443.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R35",
+          "type": "Component_ConstructBranchPath",
+          "nick": "Path",
+          "name": "Construct Path",
+          "pos": [
+            413,
+            1406
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            94,
+            1383.8
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            95.2,
+            1409.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R38",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            333,
+            1406
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            576,
+            1657
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            346,
+            1606
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            205.7,
+            1578.2
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            34,
+            1595.6
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            32.4,
+            1689.2
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            529,
+            1570
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            318.3,
+            1505.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R46",
+          "type": "panel",
+          "pos": [
+            307.5,
+            1667.2
+          ],
+          "content": "{1;2}"
+        },
+        {
+          "id": "R47",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            707,
+            1702
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "pos": [
+            481.7,
+            1754.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R49",
+          "type": "Component_TreeBranch",
+          "nick": "Branch",
+          "name": "Tree Branch",
+          "pos": [
+            558,
+            1834
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            685,
+            1897
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            584,
+            2118
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            354,
+            2067
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            213.5,
+            2039.2
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            41.8,
+            2056.6
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            40.2,
+            2150.2
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            537,
+            2031
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            326.1,
+            1966.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R58",
+          "type": "panel",
+          "pos": [
+            293.4,
+            2114.9
+          ],
+          "content": "{?;?}[4]"
+        },
+        {
+          "id": "R59",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            715,
+            2163
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "slider",
+          "pos": [
+            474.3,
+            2200.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            292.8,
+            2164.1
+          ],
+          "content": "{?;?}[(0,2,...,6)]"
+        },
+        {
+          "id": "R62",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            486,
+            2327
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            250,
+            2342.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R64",
+          "type": "slider",
+          "pos": [
+            249,
+            2369.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R65",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            598,
+            2646
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            368,
+            2595
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            228.4,
+            2567.3
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            56.7,
+            2584.8
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            55.1,
+            2678.4
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            551,
+            2559
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "slider",
+          "pos": [
+            341,
+            2495.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R72",
+          "type": "panel",
+          "pos": [
+            308.2,
+            2643.1
+          ],
+          "content": "{?;?}[(1 to 6)]"
+        },
+        {
+          "id": "R73",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            729,
+            2691
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "slider",
+          "pos": [
+            500.2,
+            2703.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        },
+        {
+          "id": "R75",
+          "type": "Component_SubList",
+          "nick": "SubSet",
+          "name": "Sub List",
+          "pos": [
+            588,
+            2816
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "panel",
+          "pos": [
+            414.1,
+            2821.9
+          ],
+          "content": "1 to 6"
+        },
+        {
+          "id": "R77",
+          "type": "panel",
+          "pos": [
+            305.5,
+            2696.8
+          ],
+          "content": "{1;(1,2)}[(1 to 6)]"
+        },
+        {
+          "id": "R78",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            584,
+            2916
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "slider",
+          "pos": [
+            320.5,
+            2881.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R80",
+          "type": "TreeSplitComponent",
+          "nick": "Split",
+          "name": "Split Tree",
+          "pos": [
+            592,
+            3135
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            362,
+            3084
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            222.6,
+            3057.4
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            51,
+            3074.9
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            49.4,
+            3168.5
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            545,
+            3048
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "slider",
+          "pos": [
+            335.2,
+            2985.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R87",
+          "type": "panel",
+          "pos": [
+            302.5,
+            3133.2
+          ],
+          "content": "{?;?}[(!3)]"
+        },
+        {
+          "id": "R88",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            723,
+            3180
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "slider",
+          "pos": [
+            494.5,
+            3193.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        }
+      ],
+      "flows": [
+        "R3.O1>R2.I0",
+        "R9.O0>R2.I1",
+        "R4.O0>R3.I0",
+        "R5.O0>R3.I2",
+        "R6.O0>R3.I3",
+        "R3.O1>R7.I0",
+        "R8.O0>R7.I1",
+        "R12.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R3.O1>R12.I0",
+        "R21.O0>R12.I1",
+        "R14.O0>R12.I2",
+        "R15.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R3.O1>R19.I0",
+        "R19.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R24.O1>R23.I0",
+        "R30.O0>R23.I1",
+        "R25.O0>R24.I0",
+        "R26.O0>R24.I2",
+        "R27.O0>R24.I3",
+        "R24.O1>R28.I0",
+        "R29.O0>R28.I1",
+        "R33.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R24.O1>R33.I0",
+        "R35.O0>R33.I1",
+        "R34.O0>R33.I2",
+        "R38.O0>R35.I0",
+        "R36.O0>R38.I0",
+        "R37.O0>R38.I1",
+        "R40.O1>R39.I0",
+        "R46.O0>R39.I1",
+        "R41.O0>R40.I0",
+        "R42.O0>R40.I2",
+        "R43.O0>R40.I3",
+        "R40.O1>R44.I0",
+        "R45.O0>R44.I1",
+        "R39.O0>R47.I0",
+        "R48.O0>R47.I1",
+        "R40.O1>R49.I0",
+        "R46.O0>R49.I1",
+        "R49.O0>R50.I0",
+        "R52.O1>R51.I0",
+        "R61.O0>R51.I1",
+        "R53.O0>R52.I0",
+        "R54.O0>R52.I2",
+        "R55.O0>R52.I3",
+        "R52.O1>R56.I0",
+        "R57.O0>R56.I1",
+        "R62.O0>R59.I0",
+        "R60.O0>R59.I1",
+        "R52.O1>R62.I0",
+        "R63.O0>R62.I1",
+        "R64.O0>R62.I1",
+        "R66.O1>R65.I0",
+        "R72.O0>R65.I1",
+        "R67.O0>R66.I0",
+        "R68.O0>R66.I2",
+        "R69.O0>R66.I3",
+        "R66.O1>R70.I0",
+        "R71.O0>R70.I1",
+        "R74.O0>R73.I1",
+        "R66.O1>R75.I0",
+        "R76.O0>R75.I1",
+        "R66.O1>R78.I0",
+        "R79.O0>R78.I1",
+        "R81.O1>R80.I0",
+        "R87.O0>R80.I1",
+        "R82.O0>R81.I0",
+        "R83.O0>R81.I2",
+        "R84.O0>R81.I3",
+        "R81.O1>R85.I0",
+        "R86.O0>R85.I1",
+        "R80.O0>R88.I0",
+        "R89.O0>R88.I1"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R13",
+          "text": "{2;6}",
+          "pos": [
+            328.3,
+            351.6
+          ],
+          "nearby": [
+            "R14"
+          ]
+        },
+        {
+          "panel_id": "R58",
+          "text": "{?;?}[4]",
+          "pos": [
+            293.4,
+            2114.9
+          ],
+          "nearby": [
+            "R52",
+            "R53",
+            "R57"
+          ]
+        },
+        {
+          "panel_id": "R77",
+          "text": "{1;(1,2)}[(1 to 6)]",
+          "pos": [
+            305.5,
+            2696.8
+          ],
+          "nearby": [
+            "R66",
+            "R67",
+            "R79",
+            "R74",
+            "R71"
+          ]
+        }
+      ]
+    }
+  }
+}

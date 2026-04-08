@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_146e6e67",
+  "note_type": "component",
+  "name": "Degrees",
+  "brief": "Degrees | Inputs: R → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Degrees. Inputs: R (Number). Outputs: D (Number).",
+  "keywords": [
+    "degrees",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "degrees"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Degrees"
+  ],
+  "solution_principle": "Convert an angle specified in radians to degrees",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ee1dcf99",
+    "comp_a98172dc",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_38c8d281"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0d77c51e-584f-44e8-aed2-c2ddf4803888",
+    "category": "trigonometry",
+    "inputs": {
+      "R": "Number"
+    },
+    "outputs": {
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a4cd2751-414d-42ec-8916-476ebf62d7fe"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|degrees"
+  }
+}

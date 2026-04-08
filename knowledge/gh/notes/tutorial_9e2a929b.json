@@ -1,0 +1,86 @@
+{
+  "note_id": "tutorial_9e2a929b",
+  "note_type": "teaching",
+  "name": "Intermediate 4-9: Dispatch for Alternating Pipe Sizes \u00e2\u20ac\u201d Different Radii per Segment",
+  "brief": "Shatter \u00e2\u2020\u2019 Dispatch (pattern 0,1,1) \u00e2\u2020\u2019 two Pipe components with radii 1.3 vs 2.6. Alternating thick and thin pipes along shattered curve.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.217586Z",
+  "context": "Extends Dispatch concept to curve segment processing. Curve \u00e2\u2020\u2019 Shatter (at parameters) \u00e2\u2020\u2019 Segments. Dispatch with pattern '0,1,1' (1 thin, 2 thick repeating). List A (pattern=0 items) \u00e2\u2020\u2019 Pipe (Radius=1.3, thin). List B (pattern=1 items) \u00e2\u2020\u2019 Pipe (Radius=2.6, thick). Additional Curve reference piped with yet another radius. Result: shattered curve with alternating thin and thick pipe segments. Pattern '0,1,1' means every third segment is thin, the other two are thick.",
+  "keywords": [
+    "dispatch pipe sizes",
+    "alternating thickness",
+    "shatter dispatch",
+    "varied pipe radius",
+    "segment processing",
+    "boolean rhythm"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "dispatch",
+    "pipe",
+    "shatter",
+    "alternating-size",
+    "segment-variation",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "alternating pipe sizes",
+    "shatter dispatch different radius",
+    "varied thickness along curve",
+    "dispatch pattern 0 1 1",
+    "different pipe radius per segment",
+    "rhythmic segment variation"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve",
+    "Shatter",
+    "Dispatch",
+    "Pipe",
+    "Number Slider",
+    "Panel",
+    "Range"
+  ],
+  "solution_principle": "Dispatch pattern '0,1,1' creates a 1:2 alternation ratio (one thin, two thick). Different Pipe radii on each Dispatch output create visual/structural variation. Shatter + Dispatch + different processing per output is a powerful pattern for varied repetition. The pattern can be any boolean sequence for complex rhythms.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_7880dc50",
+    "tutorial_6a31371d",
+    "tutorial_041c47d4",
+    "tutorial_0e40ec54",
+    "tutorial_0e7af367",
+    "tutorial_ca58da47"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.217586Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-9.jpg",
+    "lesson_number": 4,
+    "step_number": 9,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Curve": 1,
+      "Shatter": 1,
+      "Dispatch": 1,
+      "Pipe": 1,
+      "Number Slider": 1,
+      "Panel": 1,
+      "Range": 1
+    }
+  }
+}

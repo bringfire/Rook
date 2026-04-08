@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_9913e7ab",
+  "note_type": "component",
+  "name": "Trim with Regions",
+  "brief": "Trim with Regions | Inputs: C, R, P → Ci, Co",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Trim with Regions. Inputs: C (Curve), R (Curve), P (Plane). Outputs: Ci (Curve), Co (Curve).",
+  "keywords": [
+    "trim with regions",
+    "trim",
+    "with",
+    "regions",
+    "intersection_region"
+  ],
+  "category": "intersection_region",
+  "tags": [
+    "intersection_region"
+  ],
+  "trigger_intents": [
+    "trim with regions",
+    "trim",
+    "with",
+    "regions"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Trim with Regions"
+  ],
+  "solution_principle": "Trim a curve with multiple regions.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a4945314",
+    "comp_9ae26219",
+    "comp_1fc712c6",
+    "comp_10b52655",
+    "comp_3010c5cb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "26949c81-9b50-43b7-ac49-3203deb6eec7",
+    "category": "intersection_region",
+    "inputs": {
+      "C": "Curve",
+      "R": "Curve",
+      "P": "Plane"
+    },
+    "outputs": {
+      "Ci": "Curve",
+      "Co": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3092caf0-7cf9-4885-bcc0-e635d878832a"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|region|trim with regions"
+  }
+}

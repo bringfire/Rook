@@ -1,0 +1,95 @@
+{
+  "note_id": "teaching_0df0144b",
+  "note_type": "teaching",
+  "name": "U01 - Panels",
+  "brief": "Teaching: Panels",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving...",
+  "keywords": [
+    "panels",
+    "numberslider",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "hands-on",
+    "requires-interface-basics",
+    "tutorial",
+    "beginner",
+    "foundational",
+    "prerequisite-for-lists",
+    "prerequisite-for-vectors",
+    "unit-01",
+    "ui-fundamentals",
+    "number-generation",
+    "teaching",
+    "debugging-tool"
+  ],
+  "trigger_intents": [
+    "panels",
+    "how to use panels",
+    "used to understand what is happening"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "NumberSlider"
+  ],
+  "solution_principle": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving...",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_06550ff3",
+    "teaching_0a6208a3",
+    "teaching_c103fe78",
+    "teaching_a03f14e3",
+    "teaching_cf3f830b",
+    "teaching_7e5815f9",
+    "teaching_7f2bbf35",
+    "comp_6ae4ed88",
+    "comp_a204d663",
+    "comp_bcbf180c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 3,
+    "section_index": 3,
+    "x_range": [
+      2109.5,
+      2769.3
+    ],
+    "full_teaching_text": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving...",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C21"
+    ],
+    "intra_section_flows": [
+      "C21.O0>C22.I0"
+    ],
+    "groups": [],
+    "components_demonstrated": {
+      "NumberSlider": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 1,
+      "sub_labels": 0,
+      "connected_panels": 3,
+      "flows": 1,
+      "groups": 0
+    }
+  }
+}

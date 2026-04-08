@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_2b7b6770",
+  "note_type": "component",
+  "name": "Group",
+  "brief": "Group | Inputs: G â†’ G",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Group. Inputs: G (Geometry). Outputs: G (Group).",
+  "keywords": [
+    "group",
+    "group"
+  ],
+  "category": "transform_utilities",
+  "tags": [
+    "data-management",
+    "organization",
+    "grasshopper-component",
+    "workflow-foundation",
+    "data-tree",
+    "geometry-collection",
+    "fundamental-tool"
+  ],
+  "trigger_intents": [
+    "group"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Group"
+  ],
+  "solution_principle": "Group a geometry set",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1328b7f4",
+    "comp_2affe4c5",
+    "recipe_70c7a21a",
+    "recipe_1c4628ff",
+    "recipe_130f6b1d",
+    "comp_ad4942bb",
+    "comp_cb2615cb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "874eebe7-835b-4f4f-9811-97e031c41597",
+    "category": "transform_utilities",
+    "inputs": {
+      "G": "Geometry"
+    },
+    "outputs": {
+      "G": "Group"
+    },
+    "typical_wiring": [],
+    "usage_count": 89,
+    "stable_key": "transform|util|group"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_51b11a9e",
+  "note_type": "component",
+  "name": "Bounding Box",
+  "brief": "Bounding Box | Inputs: C, P â†’ B",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Bounding Box. Inputs: C (Geometry), P (Plane). Outputs: B (Box).",
+  "keywords": [
+    "bounding box",
+    "bounding",
+    "box"
+  ],
+  "category": "primitives",
+  "tags": [
+    "component",
+    "analysis",
+    "geometry-analysis",
+    "bounding-box",
+    "foundational",
+    "measurement",
+    "extent-analysis",
+    "post-processing"
+  ],
+  "trigger_intents": [
+    "bounding box",
+    "bounding",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Bounding Box"
+  ],
+  "solution_principle": "Solve oriented geometry bounding boxes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9be6479a",
+    "recipe_155ea82b",
+    "comp_06731c52",
+    "comp_39fd9cac",
+    "comp_64318335"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0bb3d234-9097-45db-9998-621639c87d3b",
+    "category": "primitives",
+    "inputs": {
+      "C": "Geometry",
+      "P": "Plane"
+    },
+    "outputs": {
+      "B": "Box"
+    },
+    "typical_wiring": [],
+    "usage_count": 74,
+    "stable_key": "surface|primitive|bounding box"
+  }
+}

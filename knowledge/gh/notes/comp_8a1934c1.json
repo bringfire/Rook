@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_8a1934c1",
+  "note_type": "component",
+  "name": "Data Dam",
+  "brief": "Data Dam | Inputs: A → A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Data Dam. Inputs: A (Generic Data). Outputs: A (Generic Data).",
+  "keywords": [
+    "data dam",
+    "data",
+    "dam",
+    "param_utilities"
+  ],
+  "category": "param_utilities",
+  "tags": [
+    "param_utilities"
+  ],
+  "trigger_intents": [
+    "data dam",
+    "data",
+    "dam"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Data Dam"
+  ],
+  "solution_principle": "Delay data on its way through the document",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00dd8796",
+    "comp_62b2ee46",
+    "comp_a8859f74",
+    "comp_8a34358d",
+    "comp_b77812c7"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "65283518-ad00-49d3-87fb-f76823ebb162",
+    "category": "param_utilities",
+    "inputs": {
+      "A": "Generic Data"
+    },
+    "outputs": {
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5a2b0735-ba98-4b7d-a7d3-c1dfc04475ad"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|util|data dam"
+  }
+}

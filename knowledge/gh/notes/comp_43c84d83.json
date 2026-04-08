@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_43c84d83",
+  "note_type": "component",
+  "name": "Plane Fit",
+  "brief": "Plane Fit | Inputs: P → Pl, dx",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Plane Fit. Inputs: P (Point). Outputs: Pl (Plane), dx (Number).",
+  "keywords": [
+    "plane fit",
+    "plane",
+    "fit",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane fit",
+    "plane",
+    "fit"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Fit"
+  ],
+  "solution_principle": "Fit a plane through a set of points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "33bfc73c-19b2-480b-81e6-f3523a012ea6",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Point"
+    },
+    "outputs": {
+      "Pl": "Plane",
+      "dx": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane fit"
+  }
+}

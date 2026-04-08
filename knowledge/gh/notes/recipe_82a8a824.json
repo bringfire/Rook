@@ -1,0 +1,403 @@
+{
+  "note_id": "recipe_82a8a824",
+  "note_type": "recipe",
+  "name": "Needle Ball",
+  "brief": "Needle Ball: Icosahedron \u00e2\u2020\u2019 CatmullClarkComponent \u00e2\u2020\u2019 DeconstructMesh \u00e2\u2020\u2019 ConstructPoint \u00e2\u2020\u2019 ClosestPoint +18 more (33 components, 5 sliders, 42 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T20:26:58.651956Z",
+  "context": "Extracted from: Needle Ball.gh",
+  "keywords": [
+    "parametric_point-sequence",
+    "parametric",
+    "point-sequence"
+  ],
+  "category": "parametric",
+  "tags": [
+    "5-parameter-workflow",
+    "adjustable-parameters",
+    "anchor-component",
+    "button-object",
+    "catmull-clark-component",
+    "closest-point",
+    "complexity-spectrum",
+    "deconstruct-mesh",
+    "distance",
+    "foundational-parametric",
+    "geometric-modeling",
+    "geometry-component",
+    "gradient-control",
+    "icosahedron",
+    "kangaroo-g-h",
+    "length",
+    "list-item-variable",
+    "low-complexity",
+    "merge-variable",
+    "mesh-colour",
+    "mesh-edges",
+    "numeric-bounds",
+    "operator_-multiplication_-o",
+    "parametric-modeling",
+    "point-construction",
+    "remap",
+    "simple-parametric",
+    "spring-by-line",
+    "unary-component",
+    "vector-amplitude",
+    "vector2-pt",
+    "workflow"
+  ],
+  "trigger_intents": [],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Mesh Mesh Icosahedron",
+    "Weaverbird's Catmull-Clark Subdivision",
+    "Number Slider",
+    "Number Slider",
+    "Deconstruct Mesh",
+    "Deconstruct Mesh",
+    "Construct Point",
+    "Closest Point",
+    "Mesh Edges",
+    "Merge",
+    "Length(Line)",
+    "Anchor",
+    "Merge",
+    "Solver",
+    "Show",
+    "List Item",
+    "Load",
+    "Vector 2Pt",
+    "Amplitude",
+    "Number Slider",
+    "Length",
+    "Multiplication",
+    "Number Slider",
+    "Weaverbird's Catmull-Clark Subdivision",
+    "Number Slider",
+    "Mesh",
+    "Button",
+    "Distance",
+    "Deconstruct Mesh",
+    "Remap Numbers",
+    "Bounds",
+    "Gradient",
+    "Mesh Colours"
+  ],
+  "solution_principle": "Processing chain: Icosahedron \u00e2\u2020\u2019 CatmullClarkComponent \u00e2\u2020\u2019 DeconstructMesh \u00e2\u2020\u2019 ConstructPoint \u00e2\u2020\u2019 ClosestPoint \u00e2\u2020\u2019 MeshEdges \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 MeshColour.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_47f20cca",
+    "recipe_81e14ed4",
+    "recipe_c3c2ea42",
+    "recipe_012865d1",
+    "recipe_08d50032",
+    "recipe_a047dfae"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "461d1f95-deb0-4b6a-8959-c2362520972b",
+        "from_param": "Pt",
+        "to": "0198ff6b-2eb5-4488-8e72-c87a4a64e1fe",
+        "to_param": "P"
+      },
+      {
+        "from": "dd74e412-bb13-4556-b676-969f1946379a",
+        "from_param": "Number Slider",
+        "to": "0198ff6b-2eb5-4488-8e72-c87a4a64e1fe",
+        "to_param": "W"
+      },
+      {
+        "from": "f6006010-0d47-464d-9844-319392e66ba7",
+        "from_param": "O",
+        "to": "ad109394-2d17-47a4-ab78-75f066eddb3f",
+        "to_param": "M"
+      },
+      {
+        "from": "28c0de72-f34a-4831-af1a-8e359a9ba773",
+        "from_param": "Number Slider",
+        "to": "ad109394-2d17-47a4-ab78-75f066eddb3f",
+        "to_param": "L"
+      },
+      {
+        "from": "f6006010-0d47-464d-9844-319392e66ba7",
+        "from_param": "O",
+        "to": "b50f8dec-45a8-4b3d-81b3-66f0c2fe55aa",
+        "to_param": "M"
+      },
+      {
+        "from": "ad109394-2d17-47a4-ab78-75f066eddb3f",
+        "from_param": "O",
+        "to": "79c11d23-3346-455e-8c19-8cd36f086a90",
+        "to_param": "M"
+      },
+      {
+        "from": "b50f8dec-45a8-4b3d-81b3-66f0c2fe55aa",
+        "from_param": "V",
+        "to": "2769b98f-b981-4ff1-bb95-896847e76176",
+        "to_param": "P"
+      },
+      {
+        "from": "79c11d23-3346-455e-8c19-8cd36f086a90",
+        "from_param": "V",
+        "to": "2769b98f-b981-4ff1-bb95-896847e76176",
+        "to_param": "C"
+      },
+      {
+        "from": "ad109394-2d17-47a4-ab78-75f066eddb3f",
+        "from_param": "O",
+        "to": "dd5fc129-3452-4722-9b77-aa24ea2edd7b",
+        "to_param": "M"
+      },
+      {
+        "from": "dd5fc129-3452-4722-9b77-aa24ea2edd7b",
+        "from_param": "E1",
+        "to": "5b783436-2e36-4df4-8ca2-73e7c52d79cb",
+        "to_param": "D1"
+      },
+      {
+        "from": "dd5fc129-3452-4722-9b77-aa24ea2edd7b",
+        "from_param": "E2",
+        "to": "5b783436-2e36-4df4-8ca2-73e7c52d79cb",
+        "to_param": "D2"
+      },
+      {
+        "from": "5b783436-2e36-4df4-8ca2-73e7c52d79cb",
+        "from_param": "R",
+        "to": "e16f30e5-fe93-47b0-8264-e609b325e4c5",
+        "to_param": "Line"
+      },
+      {
+        "from": "b172b17d-4ba8-4cd6-aec2-084b9647341c",
+        "from_param": "R",
+        "to": "e16f30e5-fe93-47b0-8264-e609b325e4c5",
+        "to_param": "Length"
+      },
+      {
+        "from": "2769b98f-b981-4ff1-bb95-896847e76176",
+        "from_param": "P",
+        "to": "84af915a-c88f-4da5-9868-bb87f526b06a",
+        "to_param": "P"
+      },
+      {
+        "from": "3a6dee07-67a4-40e4-88f0-5535d24533c0",
+        "from_param": "G",
+        "to": "b49409ae-c94a-4367-ab83-90ac2763a498",
+        "to_param": "D1"
+      },
+      {
+        "from": "84af915a-c88f-4da5-9868-bb87f526b06a",
+        "from_param": "A",
+        "to": "b49409ae-c94a-4367-ab83-90ac2763a498",
+        "to_param": "D2"
+      },
+      {
+        "from": "e16f30e5-fe93-47b0-8264-e609b325e4c5",
+        "from_param": "S",
+        "to": "b49409ae-c94a-4367-ab83-90ac2763a498",
+        "to_param": "D3"
+      },
+      {
+        "from": "23e6d5dc-40cb-4580-802e-aeb52faa2ef9",
+        "from_param": "U",
+        "to": "b49409ae-c94a-4367-ab83-90ac2763a498",
+        "to_param": "D4"
+      },
+      {
+        "from": "b49409ae-c94a-4367-ab83-90ac2763a498",
+        "from_param": "R",
+        "to": "b6437851-c915-43b3-8af9-5bf19f4d471a",
+        "to_param": "GoalObjects"
+      },
+      {
+        "from": "77db855e-1c54-4da3-aace-74eb48d9147a",
+        "from_param": "Button",
+        "to": "b6437851-c915-43b3-8af9-5bf19f4d471a",
+        "to_param": "Reset"
+      },
+      {
+        "from": "ad109394-2d17-47a4-ab78-75f066eddb3f",
+        "from_param": "O",
+        "to": "3a6dee07-67a4-40e4-88f0-5535d24533c0",
+        "to_param": "G"
+      },
+      {
+        "from": "b6437851-c915-43b3-8af9-5bf19f4d471a",
+        "from_param": "O",
+        "to": "1342e81b-7459-474c-ba19-b31a1e38726f",
+        "to_param": "L"
+      },
+      {
+        "from": "79c11d23-3346-455e-8c19-8cd36f086a90",
+        "from_param": "V",
+        "to": "23e6d5dc-40cb-4580-802e-aeb52faa2ef9",
+        "to_param": "P"
+      },
+      {
+        "from": "11aab743-0f06-4d12-9b6d-4e61b68563a4",
+        "from_param": "V",
+        "to": "23e6d5dc-40cb-4580-802e-aeb52faa2ef9",
+        "to_param": "FV"
+      },
+      {
+        "from": "79c11d23-3346-455e-8c19-8cd36f086a90",
+        "from_param": "V",
+        "to": "4f341291-c348-4f5f-afed-8a0c18f60961",
+        "to_param": "A"
+      },
+      {
+        "from": "461d1f95-deb0-4b6a-8959-c2362520972b",
+        "from_param": "Pt",
+        "to": "4f341291-c348-4f5f-afed-8a0c18f60961",
+        "to_param": "B"
+      },
+      {
+        "from": "4f341291-c348-4f5f-afed-8a0c18f60961",
+        "from_param": "V",
+        "to": "11aab743-0f06-4d12-9b6d-4e61b68563a4",
+        "to_param": "V"
+      },
+      {
+        "from": "a44993fb-4d9d-458d-8e12-0d2309fa95ca",
+        "from_param": "Number Slider",
+        "to": "11aab743-0f06-4d12-9b6d-4e61b68563a4",
+        "to_param": "A"
+      },
+      {
+        "from": "5b783436-2e36-4df4-8ca2-73e7c52d79cb",
+        "from_param": "R",
+        "to": "ba533963-ac16-4ed2-a2d7-a599eaf801f1",
+        "to_param": "C"
+      },
+      {
+        "from": "ba533963-ac16-4ed2-a2d7-a599eaf801f1",
+        "from_param": "L",
+        "to": "b172b17d-4ba8-4cd6-aec2-084b9647341c",
+        "to_param": "A"
+      },
+      {
+        "from": "4f56fa92-6b6c-4674-956e-4af45d3827ab",
+        "from_param": "Number Slider",
+        "to": "b172b17d-4ba8-4cd6-aec2-084b9647341c",
+        "to_param": "B"
+      },
+      {
+        "from": "d8a27bcf-4500-4aa3-a731-fdffeac73afd",
+        "from_param": "Mesh",
+        "to": "f6006010-0d47-464d-9844-319392e66ba7",
+        "to_param": "M"
+      },
+      {
+        "from": "d6c9d6e8-2b20-4df6-afc9-db1492fb925e",
+        "from_param": "Number Slider",
+        "to": "f6006010-0d47-464d-9844-319392e66ba7",
+        "to_param": "L"
+      },
+      {
+        "from": "461d1f95-deb0-4b6a-8959-c2362520972b",
+        "from_param": "Pt",
+        "to": "968c3970-6616-48fe-8814-2549bee5f7a2",
+        "to_param": "A"
+      },
+      {
+        "from": "6e0dac2f-830d-4d74-92e2-e51a7c42340e",
+        "from_param": "V",
+        "to": "968c3970-6616-48fe-8814-2549bee5f7a2",
+        "to_param": "B"
+      },
+      {
+        "from": "1342e81b-7459-474c-ba19-b31a1e38726f",
+        "from_param": "i",
+        "to": "6e0dac2f-830d-4d74-92e2-e51a7c42340e",
+        "to_param": "M"
+      },
+      {
+        "from": "968c3970-6616-48fe-8814-2549bee5f7a2",
+        "from_param": "D",
+        "to": "74bf8f54-a831-42c9-b0cd-d629aad5d270",
+        "to_param": "V"
+      },
+      {
+        "from": "abbc2cee-1bac-4b16-85aa-367eaa98ceb7",
+        "from_param": "I",
+        "to": "74bf8f54-a831-42c9-b0cd-d629aad5d270",
+        "to_param": "S"
+      },
+      {
+        "from": "968c3970-6616-48fe-8814-2549bee5f7a2",
+        "from_param": "D",
+        "to": "abbc2cee-1bac-4b16-85aa-367eaa98ceb7",
+        "to_param": "N"
+      },
+      {
+        "from": "74bf8f54-a831-42c9-b0cd-d629aad5d270",
+        "from_param": "R",
+        "to": "af536f63-a840-4694-a963-445a6291b5e5",
+        "to_param": "t"
+      },
+      {
+        "from": "1342e81b-7459-474c-ba19-b31a1e38726f",
+        "from_param": "i",
+        "to": "3b09ce96-355b-4b94-a7e5-d2036d7826a0",
+        "to_param": "M"
+      },
+      {
+        "from": "af536f63-a840-4694-a963-445a6291b5e5",
+        "from_param": "C",
+        "to": "3b09ce96-355b-4b94-a7e5-d2036d7826a0",
+        "to_param": "C"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "28c0de72-f34a-4831-af1a-8e359a9ba773",
+          "role": "parameter",
+          "connected_to": "Weaverbird's Catmull-Clark Subdivision",
+          "param": "L"
+        },
+        {
+          "guid": "dd74e412-bb13-4556-b676-969f1946379a",
+          "role": "parameter",
+          "connected_to": "Weaverbird's Mesh Mesh Icosahedron",
+          "param": "W"
+        },
+        {
+          "guid": "a44993fb-4d9d-458d-8e12-0d2309fa95ca",
+          "role": "domain_start",
+          "connected_to": "Amplitude",
+          "param": "A"
+        },
+        {
+          "guid": "4f56fa92-6b6c-4674-956e-4af45d3827ab",
+          "role": "domain_end",
+          "connected_to": "Multiplication",
+          "param": "B"
+        },
+        {
+          "guid": "d6c9d6e8-2b20-4df6-afc9-db1492fb925e",
+          "role": "parameter",
+          "connected_to": "Weaverbird's Catmull-Clark Subdivision",
+          "param": "L"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Needle Ball.gh",
+    "pattern_type": "recipe",
+    "component_count": 33
+  }
+}

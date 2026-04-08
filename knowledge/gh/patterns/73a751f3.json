@@ -1,0 +1,77 @@
+{
+  "pattern_id": "73a751f3",
+  "name": "wasp_09_teaching_Part_Catalog",
+  "version": "1.0",
+  "created": "2026-03-19T17:38:08.735141Z",
+  "solution": {
+    "brief": "Part Catalog\r\nThis component allows you to control the number of different Part types in\r\nan Aggregation. The different inputs allows you to control how this is achieved:\r\n- LIM defines if the catalog is 'limited\" (the aggregation will stop when the given\r\n  numbers of parts are reached) or \"proportional (the aggregation  will place all \r\n  required parts, and the Catalog values will be used as proportions).\r\n- AD, when LIM is set to False, allows the Catalog to be \"adaptive\" (meaning it\r\n  will adapt the part numbers internally according to the number of placed parts).\r\n  This allows to have more accurate results in some cases, particularly when using\r\n  field-driven aggregations.",
+    "principle": "",
+    "components_needed": [
+      "Toggle",
+      "Toggle",
+      "Wasp_Basic Part",
+      "Wasp_Connection From Direction",
+      "Mesh Brep",
+      "Curve",
+      "Wasp_Parts Catalog",
+      "Merge"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "this",
+      "different",
+      "catalog",
+      "types",
+      "number",
+      "allows",
+      "part",
+      "component",
+      "control"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

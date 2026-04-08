@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_a08bb022",
+  "note_type": "component",
+  "name": "SubD Fuse",
+  "brief": "SubD Fuse | Inputs: A, B, O, S → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: SubD Fuse. Inputs: A (Mesh), B (Mesh), O (Integer), S (Integer). Outputs: F (SubD).",
+  "keywords": [
+    "subd fuse",
+    "subd",
+    "fuse",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd fuse",
+    "sub",
+    "fuse"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD Fuse"
+  ],
+  "solution_principle": "Combine 2 SubD objects",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0207e96f",
+    "comp_e7712cc1",
+    "comp_f0650611",
+    "comp_4c7b012f",
+    "comp_d1f4bc67",
+    "comp_eae3ae94",
+    "comp_8d440de0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "264b4aa6-4915-4a67-86a7-22a5c4acf565",
+    "category": "subd_ops",
+    "inputs": {
+      "A": "Mesh",
+      "B": "Mesh",
+      "O": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "F": "SubD"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "855a2c73-31c0-41d2-b061-57d54229d11b"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd fuse"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_443199ee",
+  "note_type": "component",
+  "name": "Closed",
+  "brief": "Closed | Inputs: C → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Closed. Inputs: C (Curve). Outputs: C (Boolean), P (Boolean).",
+  "keywords": [
+    "closed",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "closed"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Closed"
+  ],
+  "solution_principle": "Test if a curve is closed or periodic.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c",
+    "comp_b59df947"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "323f3245-af49-4489-8677-7a2c73664077",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve"
+    },
+    "outputs": {
+      "C": "Boolean",
+      "P": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|closed"
+  }
+}

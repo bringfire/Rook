@@ -1,0 +1,1006 @@
+{
+  "pattern_id": "ab7fb612",
+  "name": "20-3",
+  "version": "1.0",
+  "created": "2026-02-22T14:10:30.730430Z",
+  "solution": {
+    "brief": "Recipe from FILES\\20\\20-3.gh (69 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Geometry",
+      "Mesh Shadow",
+      "Surface",
+      "Surface",
+      "Custom Preview",
+      "Custom Preview",
+      "Extend Curve",
+      "Swatch",
+      "panel",
+      "Geometry",
+      "Pipe",
+      "Mesh Shadow",
+      "panel",
+      "Extend Curve",
+      "Custom Preview",
+      "panel",
+      "Point",
+      "Pipe",
+      "Point In Curve",
+      "panel",
+      "Mass Addition",
+      "Custom Preview",
+      "Swatch",
+      "Swatch",
+      "Swatch",
+      "Custom Preview",
+      "Custom Preview",
+      "Swatch",
+      "Swatch",
+      "LB Analysis Period",
+      "LB SunPath",
+      "LB Import Location",
+      "File Path",
+      "slider",
+      "Negative",
+      "Unit Y",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "slider",
+      "Deconstruct Mesh",
+      "slider",
+      "LB Analysis Period",
+      "slider",
+      "slider",
+      "LB SunPath",
+      "Ladybug_Shadow Study",
+      "LB Import Location",
+      "Surface",
+      "File Path",
+      "Custom Preview",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Custom Preview",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "slider",
+      "Construct Mesh",
+      "Negative",
+      "Gradient",
+      "Unit Y",
+      "Deconstruct Domain",
+      "panel",
+      "Bounds"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "20 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "6700397d",
+    "197f9935",
+    "88b5cf12",
+    "fd023ae3",
+    "220a9e75"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "workflow",
+    "components"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R35",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 28
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "0.2"
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "content": "0.2"
+        },
+        {
+          "id": "R53",
+          "nick": "",
+          "content": "7"
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "content": "darkgray"
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "content": "8"
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "content": "8"
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "content": "lightgray"
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "18"
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/20/20-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            63,
+            26
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            767.5,
+            513.1
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_MeshShadow",
+          "nick": "MShadow",
+          "name": "Mesh Shadow",
+          "pos": [
+            898,
+            667
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1054.8,
+            644
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1099.7,
+            1312.8
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1172,
+            666
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1216,
+            1334
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ExtendCurve",
+          "nick": "Ext",
+          "name": "Extend Curve",
+          "pos": [
+            937,
+            437
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1074,
+            1341.8
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            860.2,
+            444
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R11",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            714.7,
+            1018.4
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1039,
+            515
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_MeshShadow",
+          "nick": "MShadow",
+          "name": "Mesh Shadow",
+          "pos": [
+            942,
+            1335
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            955.1,
+            499.4
+          ],
+          "content": "0.2"
+        },
+        {
+          "id": "R15",
+          "type": "Component_ExtendCurve",
+          "nick": "Ext",
+          "name": "Extend Curve",
+          "pos": [
+            981,
+            1105
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1303,
+            480
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "panel",
+          "pos": [
+            905.1,
+            1112.8
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R18",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            946.5,
+            779.1
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1083,
+            1183
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_PointInRegion",
+          "nick": "InCurve",
+          "name": "Point In Curve",
+          "pos": [
+            1078,
+            813
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "panel",
+          "pos": [
+            1000.1,
+            1168.2
+          ],
+          "content": "0.2"
+        },
+        {
+          "id": "R22",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            1174,
+            776
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1369,
+            1169
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1029,
+            673
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1211.6,
+            1151.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1166.7,
+            482.3
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1362,
+            1077
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1303,
+            431
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1216.9,
+            1102.4
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1172,
+            433.6
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "ZuiPythonComponent",
+          "nick": "AnalysisPeriod",
+          "name": "LB Analysis Period",
+          "pos": [
+            304,
+            1282
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "ZuiPythonComponent",
+          "nick": "Sunpath",
+          "name": "LB SunPath",
+          "pos": [
+            570,
+            1205
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "ZuiPythonComponent",
+          "nick": "ImportLoc",
+          "name": "LB Import Location",
+          "pos": [
+            294,
+            1124
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Param_FilePath",
+          "nick": "Path",
+          "name": "File Path",
+          "pos": [
+            176.8,
+            1125.4
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "pos": [
+            211.1,
+            1386.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R36",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            405,
+            1043
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            318,
+            1043
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            653.9,
+            760.9
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            747,
+            805
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "pos": [
+            517.8,
+            778.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            521.2,
+            802.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R42",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            850,
+            804
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            -31,
+            1312.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R44",
+          "type": "ZuiPythonComponent",
+          "nick": "AnalysisPeriod",
+          "name": "LB Analysis Period",
+          "pos": [
+            260,
+            614
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            -44.5,
+            1274.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 28
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            -47.7,
+            1239.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R47",
+          "type": "ZuiPythonComponent",
+          "nick": "Sunpath",
+          "name": "LB SunPath",
+          "pos": [
+            526,
+            537
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "ZuiPythonComponent",
+          "nick": "shadowRange",
+          "name": "Ladybug_Shadow Study",
+          "pos": [
+            944,
+            1502
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "ZuiPythonComponent",
+          "nick": "ImportLoc",
+          "name": "LB Import Location",
+          "pos": [
+            250,
+            456
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            782.1,
+            1413.6
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Param_FilePath",
+          "nick": "Path",
+          "name": "File Path",
+          "pos": [
+            131.9,
+            456.6
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1294,
+            1445
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "panel",
+          "pos": [
+            73.3,
+            541.7
+          ],
+          "content": "7"
+        },
+        {
+          "id": "R54",
+          "type": "panel",
+          "pos": [
+            74,
+            568.8
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R55",
+          "type": "panel",
+          "pos": [
+            1184.5,
+            1477.1
+          ],
+          "content": "darkgray"
+        },
+        {
+          "id": "R56",
+          "type": "panel",
+          "pos": [
+            73.4,
+            595.8
+          ],
+          "content": "8"
+        },
+        {
+          "id": "R57",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1293,
+            1491
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "panel",
+          "pos": [
+            73.3,
+            631.1
+          ],
+          "content": "8"
+        },
+        {
+          "id": "R59",
+          "type": "panel",
+          "pos": [
+            1167.8,
+            1594.9
+          ],
+          "content": "lightgray"
+        },
+        {
+          "id": "R60",
+          "type": "panel",
+          "pos": [
+            74,
+            658.2
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            73.4,
+            685.2
+          ],
+          "content": "18"
+        },
+        {
+          "id": "R62",
+          "type": "slider",
+          "pos": [
+            166.2,
+            717.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R63",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            1788,
+            625
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            361,
+            375
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1473,
+            742
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            274,
+            375
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_DeconstructDomain",
+          "nick": "DeDomain",
+          "name": "Deconstruct Domain",
+          "pos": [
+            1377,
+            766
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "panel",
+          "pos": [
+            1349.6,
+            854.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R69",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1283,
+            766
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R47.O1>R3.I1",
+        "R4.O0>R6.I0",
+        "R24.O0>R6.I1",
+        "R5.O0>R7.I0",
+        "R9.O0>R7.I1",
+        "C24.O0>R8.I0",
+        "R10.O0>R8.I2",
+        "R10.O0>R8.I3",
+        "R14.O0>R12.I1",
+        "R11.O0>R13.I0",
+        "R32.O1>R13.I1",
+        "C25.O0>R15.I0",
+        "R17.O0>R15.I2",
+        "R17.O0>R15.I3",
+        "R12.O0>R16.I0",
+        "R26.O0>R16.I1",
+        "R21.O0>R19.I1",
+        "R18.O0>R20.I0",
+        "R3.O0>R20.I1",
+        "R20.O0>R22.I0",
+        "R19.O0>R23.I0",
+        "R25.O0>R23.I1",
+        "R11.O0>R27.I0",
+        "R29.O0>R27.I1",
+        "R2.O0>R28.I0",
+        "R30.O0>R28.I1",
+        "R46.O0>R31.I0",
+        "R45.O0>R31.I1",
+        "R43.O0>R31.I2",
+        "R46.O0>R31.I3",
+        "R45.O0>R31.I4",
+        "R43.O0>R31.I5",
+        "R36.O0>R32.I0",
+        "R33.O0>R32.I1",
+        "R31.O1>R32.I2",
+        "R35.O0>R32.I6",
+        "R34.O0>R33.I0",
+        "R37.O0>R36.I0",
+        "R38.O0>R39.I0",
+        "R40.O0>R39.I1",
+        "R41.O0>R39.I2",
+        "R39.O0>R42.I0",
+        "R53.O0>R44.I0",
+        "R54.O0>R44.I1",
+        "R56.O0>R44.I2",
+        "R58.O0>R44.I3",
+        "R60.O0>R44.I4",
+        "R61.O0>R44.I5",
+        "R64.O0>R47.I0",
+        "R49.O0>R47.I1",
+        "R44.O1>R47.I2",
+        "R62.O0>R47.I6",
+        "R11.O0>R48.I0",
+        "R50.O0>R48.I0",
+        "R32.O1>R48.I1",
+        "R51.O0>R49.I0",
+        "R48.O1>R52.I0",
+        "R55.O0>R52.I1",
+        "R48.O2>R57.I0",
+        "R59.O0>R57.I1",
+        "R42.O0>R63.I0",
+        "R42.O1>R63.I1",
+        "R65.O0>R63.I2",
+        "R66.O0>R64.I0",
+        "R67.O0>R65.I0",
+        "R67.O1>R65.I1",
+        "R22.O0>R65.I2",
+        "R69.O0>R67.I0",
+        "R69.O0>R68.I0",
+        "R22.O0>R69.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

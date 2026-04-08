@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_024ee866",
+  "note_type": "component",
+  "name": "Date Time Format",
+  "brief": "Date Time Format | Inputs: none \u2192 output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Date Time Format.",
+  "keywords": [
+    "date time format",
+    "date",
+    "time",
+    "format",
+    "model_params"
+  ],
+  "category": "model_params",
+  "tags": [
+    "model_params"
+  ],
+  "trigger_intents": [
+    "date time format",
+    "date",
+    "time",
+    "format"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Date Time Format"
+  ],
+  "solution_principle": "Contains a collection of date time format strings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d214f5ae",
+    "comp_94e8a745",
+    "comp_58735b68",
+    "comp_10117bb9",
+    "teaching_56fc7a76"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "92fb7644-3d25-4ba1-ab06-469bd58add90",
+    "category": "model_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|model|date time format",
+    "family": "model_params"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

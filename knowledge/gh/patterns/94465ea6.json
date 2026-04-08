@@ -1,0 +1,1259 @@
+{
+  "pattern_id": "94465ea6",
+  "name": "S11E06",
+  "version": "1.0",
+  "created": "2026-02-22T13:56:07.529828Z",
+  "solution": {
+    "brief": "Recipe from FILES\\11\\S11E06.gh (79 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Plane Surface",
+      "slider",
+      "slider",
+      "Divide Surface",
+      "Multiplication",
+      "Multiplication",
+      "slider",
+      "Point Charge",
+      "Point",
+      "slider",
+      "Evaluate Field",
+      "Vector Display Ex",
+      "slider",
+      "Point Charge",
+      "Point",
+      "slider",
+      "slider",
+      "Merge Fields",
+      "Plane Surface",
+      "slider",
+      "slider",
+      "Divide Surface",
+      "Multiplication",
+      "Multiplication",
+      "slider",
+      "Evaluate Field",
+      "Vector Display Ex",
+      "Spin Force",
+      "Point",
+      "slider",
+      "slider",
+      "slider",
+      "Center Box",
+      "slider",
+      "Populate 3D",
+      "slider",
+      "slider",
+      "Populate 3D",
+      "slider",
+      "XZ Plane",
+      "Rotate",
+      "XY Plane",
+      "Random",
+      "slider",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "YZ Plane",
+      "Rotate",
+      "Random",
+      "slider",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Spin Force",
+      "Random",
+      "slider",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Random",
+      "slider",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Evaluate Field",
+      "Merge Fields",
+      "Move",
+      "Loop Start",
+      "Loop End",
+      "slider",
+      "Flip Matrix",
+      "PolyLine",
+      "Dispatch",
+      "Custom Preview",
+      "Swatch",
+      "Custom Preview",
+      "Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s11e06"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a4e057d2",
+    "af62b8d8",
+    "7de55487",
+    "012865d1"
+  ],
+  "tags": [
+    "parametric",
+    "panelization",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": -0.18
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 0.63
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": 0.68
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 1
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.31
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 0.93
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 100,
+          "max": 1200,
+          "value": 200
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 2345
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 2673
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 23
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 56
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 2884
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 52
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 3052
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": -0.41
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": 0.62
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 2435
+        },
+        {
+          "id": "R65",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6.1
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 5
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "FILES/11/S11E06.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            34,
+            -36
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            245,
+            470
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            25.6,
+            466.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            25,
+            491.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R5",
+          "type": "Component_DivideSurface",
+          "nick": "SDivide",
+          "name": "Divide Surface",
+          "pos": [
+            398,
+            490
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            244,
+            531
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            244,
+            575
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            25.7,
+            519
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R9",
+          "type": "CreatePointCharge",
+          "nick": "PCharge",
+          "name": "Point Charge",
+          "pos": [
+            412,
+            308
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            249.6,
+            278.9
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            106.6,
+            296.9
+          ],
+          "min": -1,
+          "max": 1,
+          "value": -0.18
+        },
+        {
+          "id": "R12",
+          "type": "EvaluateField",
+          "nick": "EvF",
+          "name": "Evaluate Field",
+          "pos": [
+            589,
+            387
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_VectorDisplay2",
+          "nick": "VDisEx",
+          "name": "Vector Display Ex",
+          "pos": [
+            768,
+            411
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            112.8,
+            321.7
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.63
+        },
+        {
+          "id": "R15",
+          "type": "CreatePointCharge",
+          "nick": "PCharge",
+          "name": "Point Charge",
+          "pos": [
+            415,
+            166
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            251.7,
+            137.7
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            110.2,
+            155.7
+          ],
+          "min": -1,
+          "max": 1,
+          "value": 0.68
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            116.4,
+            180.5
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 1
+        },
+        {
+          "id": "R19",
+          "type": "MergeFields",
+          "nick": "MergeF",
+          "name": "Merge Fields",
+          "pos": [
+            566,
+            247
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            244,
+            871
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            25.5,
+            868.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            24.9,
+            893.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R23",
+          "type": "Component_DivideSurface",
+          "nick": "SDivide",
+          "name": "Divide Surface",
+          "pos": [
+            397,
+            891
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            243,
+            932
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            243,
+            976
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "pos": [
+            25.6,
+            921
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R27",
+          "type": "EvaluateField",
+          "nick": "EvF",
+          "name": "Evaluate Field",
+          "pos": [
+            659,
+            791
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_VectorDisplay2",
+          "nick": "VDisEx",
+          "name": "Vector Display Ex",
+          "pos": [
+            830,
+            836
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "CreateSpinForce",
+          "nick": "FSpin",
+          "name": "Spin Force",
+          "pos": [
+            542,
+            727
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            419.1,
+            660.9
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            279.4,
+            718
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.31
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            282.2,
+            750.7
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.93
+        },
+        {
+          "id": "R33",
+          "type": "slider",
+          "pos": [
+            268.7,
+            686.2
+          ],
+          "min": -1,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R34",
+          "type": "Component_CenterBox",
+          "nick": "Box",
+          "name": "Center Box",
+          "pos": [
+            472,
+            1134
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "pos": [
+            261,
+            1154.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R36",
+          "type": "Component_PopulateBox",
+          "nick": "Pop3D",
+          "name": "Populate 3D",
+          "pos": [
+            1243,
+            1279
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            340.2,
+            1192.2
+          ],
+          "min": 100,
+          "max": 1200,
+          "value": 200
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            343.1,
+            1228.7
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 2345
+        },
+        {
+          "id": "R39",
+          "type": "Component_PopulateBox",
+          "nick": "Pop3D",
+          "name": "Populate 3D",
+          "pos": [
+            670,
+            1356
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "pos": [
+            420.5,
+            1340.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R41",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            803,
+            1339
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            920,
+            1354
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            1025,
+            1376
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            724,
+            1611
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            428.6,
+            1483.5
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 2673
+        },
+        {
+          "id": "R46",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            539,
+            1444
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            281.8,
+            1416.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 23
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "pos": [
+            282,
+            1440.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 56
+        },
+        {
+          "id": "R49",
+          "type": "Component_YZPlane",
+          "nick": "YZ",
+          "name": "YZ Plane",
+          "pos": [
+            805,
+            1374
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            1106,
+            1356
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            723,
+            1687
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "slider",
+          "pos": [
+            428.5,
+            1632
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 2884
+        },
+        {
+          "id": "R53",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            539,
+            1570
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "pos": [
+            281.8,
+            1571.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 52
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            281.7,
+            1544.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R56",
+          "type": "CreateSpinForce",
+          "nick": "FSpin",
+          "name": "Spin Force",
+          "pos": [
+            1228,
+            1424
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            723,
+            1760
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            428.8,
+            1780.5
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 3052
+        },
+        {
+          "id": "R59",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            539,
+            1732
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "slider",
+          "pos": [
+            281.2,
+            1716.6
+          ],
+          "min": -1,
+          "max": 1,
+          "value": -0.41
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "pos": [
+            281.4,
+            1743.4
+          ],
+          "min": -1,
+          "max": 1,
+          "value": 0.62
+        },
+        {
+          "id": "R62",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            722,
+            1823
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            428.2,
+            1929.1
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 2435
+        },
+        {
+          "id": "R64",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            539,
+            1884
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "slider",
+          "pos": [
+            281,
+            1855.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            281.2,
+            1879.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6.1
+        },
+        {
+          "id": "R67",
+          "type": "EvaluateField",
+          "nick": "EvF",
+          "name": "Evaluate Field",
+          "pos": [
+            1441,
+            1397
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "MergeFields",
+          "nick": "MergeF",
+          "name": "Merge Fields",
+          "pos": [
+            1311,
+            1424
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1646,
+            1306
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "PlaceholderComponent",
+          "name": "Loop Start",
+          "pos": [
+            1432,
+            1149
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "PlaceholderComponent",
+          "name": "Loop End",
+          "pos": [
+            1798,
+            1149
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            1087.2,
+            1077.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 5
+        },
+        {
+          "id": "R73",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            1898,
+            1144
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            2007,
+            1109
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            2110,
+            1180
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2274,
+            1108
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2100.3,
+            1116.7
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2277,
+            1233
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2105.3,
+            1242.7
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R4.O0>R2.I2",
+        "R2.O0>R5.I0",
+        "R6.O0>R5.I1",
+        "R7.O0>R5.I2",
+        "R3.O0>R6.I0",
+        "R8.O0>R6.I1",
+        "R4.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R10.O0>R9.I0",
+        "R11.O0>R9.I1",
+        "R14.O0>R9.I2",
+        "R19.O0>R12.I0",
+        "R5.O0>R12.I1",
+        "R5.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R16.O0>R15.I0",
+        "R17.O0>R15.I1",
+        "R18.O0>R15.I2",
+        "R15.O0>R19.I0",
+        "R9.O0>R19.I0",
+        "R21.O0>R20.I1",
+        "R22.O0>R20.I2",
+        "R20.O0>R23.I0",
+        "R24.O0>R23.I1",
+        "R25.O0>R23.I2",
+        "R21.O0>R24.I0",
+        "R26.O0>R24.I1",
+        "R22.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R29.O0>R27.I0",
+        "R23.O0>R27.I1",
+        "R23.O0>R28.I0",
+        "R27.O0>R28.I1",
+        "R30.O0>R29.I0",
+        "R33.O0>R29.I1",
+        "R31.O0>R29.I2",
+        "R32.O0>R29.I3",
+        "R35.O0>R34.I1",
+        "R35.O0>R34.I2",
+        "R35.O0>R34.I3",
+        "R34.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R36.I2",
+        "R34.O0>R39.I0",
+        "R40.O0>R39.I1",
+        "R39.O0>R41.I0",
+        "R41.O0>R42.I0",
+        "R44.O0>R42.I1",
+        "R49.O0>R42.I2",
+        "R39.O0>R43.I0",
+        "R46.O0>R44.I0",
+        "R40.O0>R44.I1",
+        "R45.O0>R44.I2",
+        "R47.O0>R46.I0",
+        "R48.O0>R46.I1",
+        "R39.O0>R49.I0",
+        "R42.O0>R50.I0",
+        "R51.O0>R50.I1",
+        "R43.O0>R50.I2",
+        "R53.O0>R51.I0",
+        "R40.O0>R51.I1",
+        "R52.O0>R51.I2",
+        "R55.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R50.O0>R56.I0",
+        "R57.O0>R56.I1",
+        "R62.O0>R56.I2",
+        "R59.O0>R57.I0",
+        "R40.O0>R57.I1",
+        "R58.O0>R57.I2",
+        "R60.O0>R59.I0",
+        "R61.O0>R59.I1",
+        "R64.O0>R62.I0",
+        "R40.O0>R62.I1",
+        "R63.O0>R62.I2",
+        "R65.O0>R64.I0",
+        "R66.O0>R64.I1",
+        "R68.O0>R67.I0",
+        "R56.O0>R68.I0",
+        "R67.O0>R69.I1",
+        "R73.O0>R74.I0",
+        "R74.O0>R75.I0",
+        "R75.O0>R76.I0",
+        "R77.O0>R76.I1",
+        "R75.O1>R78.I0",
+        "R79.O0>R78.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

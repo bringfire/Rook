@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_19b670e5",
+  "note_type": "component",
+  "name": "Plane 3Pt",
+  "brief": "Plane 3Pt | Inputs: A, B, C → Pl",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Plane 3Pt. Inputs: A (Point), B (Point), C (Point). Outputs: Pl (Plane).",
+  "keywords": [
+    "plane 3pt",
+    "plane",
+    "3pt",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane 3pt",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane 3Pt"
+  ],
+  "solution_principle": "Create a plane through three points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "c98a6015-7a2f-423c-bc66-bdc505249b45",
+    "category": "plane_ops",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "Pl": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane 3pt"
+  }
+}

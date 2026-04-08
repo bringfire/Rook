@@ -1,0 +1,718 @@
+{
+  "pattern_id": "098491b7",
+  "name": "wasp_01_basic_aggregation",
+  "version": "1.0",
+  "created": "2026-03-19T17:17:41.152300Z",
+  "solution": {
+    "brief": "Basic Wasp discrete aggregation: define geometry, create connections, build Part, set Rule, run stochastic Aggregation",
+    "principle": "\n\nRelated insight: Related insight: Tutorial 02 (wasp_02_rule_grammar) is the direct sequel to this tutorial, extending the rule definition step to cover multi-rule grammar — specifying multiple distinct rules that control which connections can mate and in what orientation. Where tutorial 01 introduces a single bidirectional rule pair, tutorial 02 teaches how to define a grammar of rules governing connection compatibility across a part vocabulary.\n\nRelated insight: Related insight: Tutorial 05 (wasp_05_collider) introduces collider and containment as an intermediate extension of the basic aggregation workflow first established here — Wasp collision detection against boundary BRep geometry constrains growth within a defined volume. Learners progressing from this beginner tutorial toward intermediate Wasp usage will encounter collider/containment as a key growth-control mechanism in the tutorial sequence.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Get Part Geometry",
+      "Brep",
+      "Point",
+      "Point List",
+      "slider",
+      "Curve",
+      "PART_NAME",
+      "PARTS_NUM",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Merge",
+      "Swatch",
+      "PART_NAME",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Wasp_Rule",
+      "Wasp_Rule",
+      "Wasp_Rule",
+      "Custom Preview",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "set up a Wasp aggregation",
+      "create stochastic part assembly",
+      "generate discrete aggregation with Wasp",
+      "build modular assembly with random growth",
+      "wasp part aggregation with rules",
+      "stochastic architecture aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "78a4da59",
+    "5c0baa38",
+    "fe6b0648",
+    "490bc17e",
+    "4df26ba8",
+    "e1ce3524",
+    "fba88cfa"
+  ],
+  "tags": [
+    "connection-mating",
+    "beginner",
+    "part-definition",
+    "growth",
+    "discrete-design",
+    "wasppart",
+    "generative",
+    "stochastic",
+    "foundation",
+    "tutorial",
+    "wasp",
+    "rule-grammar",
+    "part-based",
+    "bidirectional",
+    "grasshopper",
+    "brep-geometry",
+    "discrete-assembly",
+    "directionality",
+    "connections",
+    "rules",
+    "aggregation",
+    "text-rules",
+    "workflow",
+    "plugin-workflow",
+    "multi-part",
+    "prerequisite"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T13:27:02.178875",
+    "evolved_by": [
+      "e1ce3524",
+      "fba88cfa"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T13:21:10.479334",
+        "trigger": "New pattern: e1ce3524",
+        "changes": "wasp_01 is the explicit prerequisite for wasp_02_rule_grammar; it gains context pointing forward to the rule grammar tutorial and tags reflecting that connection-mating and rule-grammar are the next step."
+      },
+      {
+        "date": "2026-03-19T13:27:02.178875",
+        "trigger": "New pattern: fba88cfa",
+        "changes": "The beginner entry-point pattern should note that collider/containment is an intermediate extension of this foundation workflow, helping learners understand the progression path."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R11",
+          "nick": "PARTS_NUM",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R20",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            432,
+            367
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1338,
+            416
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            618,
+            326
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1811,
+            287
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Brep",
+          "nick": "PART_GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            245.2,
+            306.8
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            247.3,
+            377.3
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            532,
+            513
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            331.8,
+            519.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_X_AXIS",
+          "name": "Curve",
+          "pos": [
+            253.6,
+            439.3
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            397.7,
+            241
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "PARTS_NUM",
+          "pos": [
+            951,
+            357
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            252.8,
+            777.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            255.6,
+            817.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            256.8,
+            905.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            259.6,
+            945.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            254.8,
+            1036.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            257.6,
+            1076.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R18",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            605,
+            914
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1771.5,
+            338.5
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            258.3,
+            727.1
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R21",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -15.6,
+            -195.1
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R23",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "ButtonObject",
+          "nick": "RESET",
+          "name": "Button",
+          "pos": [
+            1146,
+            495
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            29.7,
+            114.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            180.1,
+            579.2
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            866.7,
+            163.9
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1641.9,
+            163.8
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            774
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            914
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            1055
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1930,
+            297
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -301,
+            165
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -325.8,
+            97.6
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -85,
+            186
+          ]
+        }
+      ],
+      "flows": [
+        "R5.O0>R1.I0",
+        "R6.O0>R1.I1",
+        "R9.O0>R1.I2",
+        "R3.O0>R2.I0",
+        "R11.O0>R2.I2",
+        "R18.O0>R2.I3",
+        "R24.O0>R2.I9",
+        "R10.O0>R3.I0",
+        "R5.O0>R3.I1",
+        "R1.O0>R3.I2",
+        "R2.O1>R4.I0",
+        "R6.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R29.O0>R18.I0",
+        "R30.O0>R18.I1",
+        "R31.O0>R18.I2",
+        "R20.O0>R29.I0",
+        "R12.O0>R29.I1",
+        "R20.O0>R29.I2",
+        "R13.O0>R29.I3",
+        "R20.O0>R30.I0",
+        "R14.O0>R30.I1",
+        "R20.O0>R30.I2",
+        "R15.O0>R30.I3",
+        "R20.O0>R31.I0",
+        "R16.O0>R31.I1",
+        "R20.O0>R31.I2",
+        "R17.O0>R31.I3",
+        "R4.O0>R32.I0",
+        "R19.O0>R32.I1",
+        "R33.O0>R35.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R22",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "nearby": [
+            "R35",
+            "R5",
+            "R6",
+            "R33",
+            "R1",
+            "R9",
+            "R3",
+            "R8"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -325.8,
+            97.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "0_01_Basic_Aggregation",
+          "text": "0_01_Basic_Aggregation",
+          "nearby_components": [
+            "Wasp_Update File",
+            "Button",
+            "Brep"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "step": "1",
+          "title": "Build Part",
+          "text": "1. Build Part\r\nParts are the building blocks of Wasp.\r\nThe most basic way of initializing a part is to define t he geometry (as brep or mesh),\r\nand the connection faces (center and orientation - with a line). Parts must be named\r\nto be identifyed in the aggregation rules.",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            29.7,
+            114.1
+          ]
+        },
+        {
+          "step": "2",
+          "title": "Define aggregation rules",
+          "text": "2. Define aggregation rules\r\nRules define which connection of which part can be\r\nconnected with each other to for the aggregation.\r\n\r\nNB: Rules are directional! So if you want to connect 1 to 2 and 2 to 1,\r\nyou need to write two separate rules.",
+          "nearby_components": [
+            "Curve",
+            "NumberSlider",
+            "NumberSlider",
+            "Point",
+            "NumberSlider",
+            "Brep"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            180.1,
+            579.2
+          ]
+        },
+        {
+          "step": "3",
+          "title": "Aggregate!",
+          "text": "3. Aggregate!\r\nStochastic Aggregation builds an aggregation by randomly selecting one part\r\nand one rule to be applied at every step.\r\nThe component adds parts additively over the already aggregated parts.\r\nIf a new aggregation has to be created, the RESET button allows to reset\r\nthe aggregation and restart.",
+          "nearby_components": [
+            "PARTS_NUM",
+            "Wasp_Basic Part"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            866.7,
+            163.9
+          ]
+        },
+        {
+          "step": "4",
+          "title": "Visualize",
+          "text": "4. Visualize\r\nIn order to visualize the result, it is necessary to extract\r\nthe part geometry from the part itself.",
+          "nearby_components": [
+            "Wasp_Get Part Geometry",
+            "Swatch",
+            "Custom Preview",
+            "Wasp_Stochastic Aggregation"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1641.9,
+            163.8
+          ]
+        }
+      ]
+    }
+  }
+}

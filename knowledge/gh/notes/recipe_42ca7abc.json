@@ -1,0 +1,277 @@
+{
+  "note_id": "recipe_42ca7abc",
+  "note_type": "recipe",
+  "name": "Particle Vortex",
+  "brief": "Particle Vortex: ZuiPythonComponent \u00e2\u2020\u2019 Rectangle \u00e2\u2020\u2019 PopulateRectangle \u00e2\u2020\u2019 Timer \u00e2\u2020\u2019 AreaProperties_OBSOLETE +7 more (20 components, 6 sliders, 25 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T19:46:20.331186Z",
+  "context": "Extracted from: Particle Vortex.gh",
+  "keywords": [
+    "parametric",
+    "parametric"
+  ],
+  "category": "parametric",
+  "tags": [
+    "adjustable-parameters",
+    "area-properties_-o",
+    "circle",
+    "colour-h-s",
+    "custom-preview-component",
+    "list-length",
+    "medium-complexity",
+    "mesh-sphere",
+    "operator_-division",
+    "parametric-modeling",
+    "populate-rectangle",
+    "random",
+    "rectangle",
+    "timer",
+    "workflow",
+    "zui-python-component"
+  ],
+  "trigger_intents": [],
+  "trigger_symptoms": [],
+  "components": [
+    "Python Script",
+    "Number Slider",
+    "Rectangle",
+    "Populate 2D",
+    "Number Slider",
+    "Number Slider",
+    "Python Script",
+    "Timer",
+    "Number Slider",
+    "Panel",
+    "Area",
+    "Circle",
+    "Number Slider",
+    "Division",
+    "Mesh Sphere",
+    "Random",
+    "List Length",
+    "Colour HSL",
+    "Custom Preview",
+    "Number Slider"
+  ],
+  "solution_principle": "Processing chain: ZuiPythonComponent \u00e2\u2020\u2019 Rectangle \u00e2\u2020\u2019 PopulateRectangle \u00e2\u2020\u2019 Timer \u00e2\u2020\u2019 AreaProperties_OBSOLETE \u00e2\u2020\u2019 Circle \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 CustomPreviewComponent.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_0486b272",
+    "recipe_6ba5ea93",
+    "recipe_02f0af8b",
+    "recipe_08d50032",
+    "recipe_a4e057d2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "ae372132-eeda-4b14-9e88-1730fe72e80a",
+        "from_param": "P",
+        "to": "58450f0d-94a9-41a7-a010-de0862e101ec",
+        "to_param": "pts"
+      },
+      {
+        "from": "798f3bb1-2b8f-455b-a6a7-097a7285f697",
+        "from_param": "Number Slider",
+        "to": "58450f0d-94a9-41a7-a010-de0862e101ec",
+        "to_param": "speed"
+      },
+      {
+        "from": "3b605f06-8607-4817-b31e-7dce095f00b2",
+        "from_param": "Number Slider",
+        "to": "16776586-d929-462b-9c4b-d4e503d49513",
+        "to_param": "X"
+      },
+      {
+        "from": "3b605f06-8607-4817-b31e-7dce095f00b2",
+        "from_param": "Number Slider",
+        "to": "16776586-d929-462b-9c4b-d4e503d49513",
+        "to_param": "Y"
+      },
+      {
+        "from": "16776586-d929-462b-9c4b-d4e503d49513",
+        "from_param": "R",
+        "to": "ae372132-eeda-4b14-9e88-1730fe72e80a",
+        "to_param": "R"
+      },
+      {
+        "from": "68812521-bbab-4dfc-985b-a0f7186495a9",
+        "from_param": "Number Slider",
+        "to": "ae372132-eeda-4b14-9e88-1730fe72e80a",
+        "to_param": "N"
+      },
+      {
+        "from": "58450f0d-94a9-41a7-a010-de0862e101ec",
+        "from_param": "a",
+        "to": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "to_param": "particles"
+      },
+      {
+        "from": "04153abb-2963-40b0-b215-4c53784c9b79",
+        "from_param": "Number Slider",
+        "to": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "to_param": "sep"
+      },
+      {
+        "from": "04153abb-2963-40b0-b215-4c53784c9b79",
+        "from_param": "Number Slider",
+        "to": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "to_param": "coh"
+      },
+      {
+        "from": "3719a849-7219-4558-b2f8-7532f563ef99",
+        "from_param": "C",
+        "to": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "to_param": "pt"
+      },
+      {
+        "from": "f330f777-afca-4c30-8545-e1927d9059d7",
+        "from_param": "Number Slider",
+        "to": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "to_param": "rad"
+      },
+      {
+        "from": "16776586-d929-462b-9c4b-d4e503d49513",
+        "from_param": "R",
+        "to": "3719a849-7219-4558-b2f8-7532f563ef99",
+        "to_param": "G"
+      },
+      {
+        "from": "3719a849-7219-4558-b2f8-7532f563ef99",
+        "from_param": "C",
+        "to": "10b11ce0-7f5a-448c-afd7-560ea564c4b2",
+        "to_param": "P"
+      },
+      {
+        "from": "f330f777-afca-4c30-8545-e1927d9059d7",
+        "from_param": "Number Slider",
+        "to": "10b11ce0-7f5a-448c-afd7-560ea564c4b2",
+        "to_param": "R"
+      },
+      {
+        "from": "04153abb-2963-40b0-b215-4c53784c9b79",
+        "from_param": "Number Slider",
+        "to": "ac41c9f8-47a5-4e68-bf4e-61e08bc07e54",
+        "to_param": "A"
+      },
+      {
+        "from": "8c8b9261-cd7c-4b1f-8a6d-cafcaf6bd7cb",
+        "from_param": "a",
+        "to": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "to_param": "B"
+      },
+      {
+        "from": "ac41c9f8-47a5-4e68-bf4e-61e08bc07e54",
+        "from_param": "R",
+        "to": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "to_param": "R"
+      },
+      {
+        "from": "27bc89ad-4e94-4665-84ba-c05b15be4434",
+        "from_param": "Number Slider",
+        "to": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "to_param": "U"
+      },
+      {
+        "from": "27bc89ad-4e94-4665-84ba-c05b15be4434",
+        "from_param": "Number Slider",
+        "to": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "to_param": "V"
+      },
+      {
+        "from": "46875ffc-617f-4589-add0-05f91f8a0311",
+        "from_param": "L",
+        "to": "68ec2005-db64-40c8-8b9e-a4b1bd3dc50b",
+        "to_param": "N"
+      },
+      {
+        "from": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "from_param": "M",
+        "to": "46875ffc-617f-4589-add0-05f91f8a0311",
+        "to_param": "L"
+      },
+      {
+        "from": "68ec2005-db64-40c8-8b9e-a4b1bd3dc50b",
+        "from_param": "R",
+        "to": "bac5f0ab-1f3c-4fa2-b003-9348b8958290",
+        "to_param": "H"
+      },
+      {
+        "from": "d3f41527-4d15-4685-80b5-6c930ebd7714",
+        "from_param": "M",
+        "to": "51ef1908-255c-41a8-82d6-c28163b55c05",
+        "to_param": "G"
+      },
+      {
+        "from": "bac5f0ab-1f3c-4fa2-b003-9348b8958290",
+        "from_param": "C",
+        "to": "51ef1908-255c-41a8-82d6-c28163b55c05",
+        "to_param": "S"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "3b605f06-8607-4817-b31e-7dce095f00b2",
+          "role": "x_coordinate",
+          "connected_to": "Rectangle",
+          "param": "X"
+        },
+        {
+          "guid": "68812521-bbab-4dfc-985b-a0f7186495a9",
+          "role": "count",
+          "connected_to": "Populate 2D",
+          "param": "N"
+        },
+        {
+          "guid": "798f3bb1-2b8f-455b-a6a7-097a7285f697",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "speed"
+        },
+        {
+          "guid": "04153abb-2963-40b0-b215-4c53784c9b79",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "sep"
+        },
+        {
+          "guid": "f330f777-afca-4c30-8545-e1927d9059d7",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "rad"
+        },
+        {
+          "guid": "27bc89ad-4e94-4665-84ba-c05b15be4434",
+          "role": "parameter",
+          "connected_to": "Mesh Sphere",
+          "param": "U"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "e02c9b31-d496-410d-87cf-a3a89efdfdf1",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Particle Vortex.gh",
+    "pattern_type": "recipe",
+    "component_count": 20
+  }
+}

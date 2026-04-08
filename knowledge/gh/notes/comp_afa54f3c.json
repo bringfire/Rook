@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_afa54f3c",
+  "note_type": "component",
+  "name": "Construct Plane",
+  "brief": "Construct Plane | Inputs: O, X, Y → Pl",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Construct Plane. Inputs: O (Point), X (Vector), Y (Vector). Outputs: Pl (Plane).",
+  "keywords": [
+    "construct plane",
+    "construct",
+    "plane",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "construct plane",
+    "construct",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Plane"
+  ],
+  "solution_principle": "Construct a plane from an origin point and {x}, {y} axes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_1fa599d3",
+    "comp_4ddf2895",
+    "comp_d835e771",
+    "comp_e92aab6b",
+    "comp_19b670e5",
+    "comp_43c84d83",
+    "comp_f0012bbd",
+    "comp_fe8edca1",
+    "comp_01d408b6",
+    "comp_0ebd8f54"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "bc3e379e-7206-4e7b-b63a-ff61f4b38a3e",
+    "category": "plane_ops",
+    "inputs": {
+      "O": "Point",
+      "X": "Vector",
+      "Y": "Vector"
+    },
+    "outputs": {
+      "Pl": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "cfb6b17f-ca82-4f5d-b604-d4f69f569de3"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|construct plane"
+  }
+}

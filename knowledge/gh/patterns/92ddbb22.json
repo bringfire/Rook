@@ -1,0 +1,71 @@
+{
+  "pattern_id": "92ddbb22",
+  "name": "teaching_Smart Attributes are Attribute",
+  "version": "1.0",
+  "created": "2026-03-19T19:14:46.382369Z",
+  "solution": {
+    "brief": "Smart Attributes are Attributes that can be displayed or hidden\r\nbased on the layout of the connections after aggregation. The\r\nCM input allows to specify a Connection mask, with one value\r\nfor each connection provided in CONN, describing the required\r\nlayout for the attribute to appear(1 for free connection, -1 for\r\noccupied connection, 0 for ignored connections)",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Point"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "smart",
+      "hidden",
+      "based",
+      "displayed",
+      "layout",
+      "connections",
+      "that",
+      "after",
+      "attributes"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "disco"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

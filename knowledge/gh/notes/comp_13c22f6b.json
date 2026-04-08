@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_13c22f6b",
+  "note_type": "component",
+  "name": "Line",
+  "brief": "Line | Inputs: A, B â†’ L",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Line. Inputs: A (Point), B (Point). Outputs: L (Line).",
+  "keywords": [
+    "line",
+    "line"
+  ],
+  "category": "curves",
+  "tags": [
+    "gh-component",
+    "geometry-primitive",
+    "line",
+    "basic-geometry",
+    "foundational"
+  ],
+  "trigger_intents": [
+    "line"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line"
+  ],
+  "solution_principle": "Create a line between two points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2affe4c5",
+    "teaching_cf3f830b",
+    "teaching_2fe96b89",
+    "teaching_3fd97f53",
+    "teaching_567ea1e1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4c4e56eb-2f04-43f9-95a3-cc46a14f495a",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point"
+    },
+    "outputs": {
+      "L": "Line"
+    },
+    "typical_wiring": [],
+    "usage_count": 115,
+    "stable_key": "curve|primitive|line"
+  }
+}

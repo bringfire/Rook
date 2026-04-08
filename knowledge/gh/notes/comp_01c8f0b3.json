@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_01c8f0b3",
+  "note_type": "component",
+  "name": "RandomEx",
+  "brief": "RandomEx | Inputs: L0, L1, N, S \u2192 V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: RandomEx. Inputs: L0 (Integer), L1 (Integer), N (Integer), S (Integer). Outputs: V (Integer).",
+  "keywords": [
+    "randomex",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "randomex",
+    "random"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "RandomEx"
+  ],
+  "solution_principle": "Generate random data between extremes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a84bec2b",
+    "comp_bd229a26",
+    "comp_398fe067",
+    "comp_4ee05670",
+    "comp_31bd5de8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a12dddbf-bb49-4ef4-aeb8-5653bc882cbd",
+    "category": "sequence_ops",
+    "inputs": {
+      "L0": "Integer",
+      "L1": "Integer",
+      "N": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "V": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2ab17f9a-d852-4405-80e1-938c5e57e78d",
+      "455925fd-23ff-4e57-a0e7-913a4165e659"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|randomex",
+    "family": "sequence_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_0693fc0f",
+  "note_type": "component",
+  "name": "Mesh Explode",
+  "brief": "Mesh Explode | Inputs: M, I \u2192 F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Mesh Explode. Inputs: M (Mesh), I (Boolean). Outputs: F (Mesh).",
+  "keywords": [
+    "mesh explode",
+    "mesh",
+    "explode",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "mesh explode",
+    "mesh",
+    "explode"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Explode"
+  ],
+  "solution_principle": "Decompose a mesh into its faces",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7bcf3a3a",
+    "comp_c97d1752",
+    "comp_fff2002f",
+    "comp_38f1c08d",
+    "comp_bf1c655b",
+    "comp_437178bb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4373a3f7-7b9a-4379-bb16-a760ba0dde4f",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh",
+      "I": "Boolean"
+    },
+    "outputs": {
+      "F": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "ba2d8f57-0738-42b4-b5a5-fe4d853517eb"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|mesh explode",
+    "family": "mesh_analysis"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_bb6571be",
+  "note_type": "component",
+  "name": "Mesh Plane",
+  "brief": "Mesh Plane | Inputs: B, W, H → M, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Mesh Plane. Inputs: B (Rectangle), W (Integer), H (Integer). Outputs: M (Mesh), A (Number).",
+  "keywords": [
+    "mesh plane",
+    "mesh",
+    "plane",
+    "mesh_ops"
+  ],
+  "category": "mesh_ops",
+  "tags": [
+    "mesh_ops"
+  ],
+  "trigger_intents": [
+    "mesh plane",
+    "mesh",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Plane"
+  ],
+  "solution_principle": "Create a mesh plane.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_87d517e7",
+    "comp_97082acf",
+    "comp_32b3df2f",
+    "comp_70d0de17",
+    "comp_435d6cd8",
+    "comp_e5c1256e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8adbf481-7589-4a40-b490-006531ea001d",
+    "category": "mesh_ops",
+    "inputs": {
+      "B": "Rectangle",
+      "W": "Integer",
+      "H": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh",
+      "A": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2696bd14-3fb5-4750-827f-86df6c31d664"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|primitive|mesh plane"
+  }
+}

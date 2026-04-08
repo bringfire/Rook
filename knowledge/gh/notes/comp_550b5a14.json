@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_550b5a14",
+  "note_type": "component",
+  "name": "SimpleRemesh",
+  "brief": "SimpleRemesh | Inputs: Geometry, Length, Creases, Corners → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: SimpleRemesh. Inputs: Geometry (Geometry), Length (Number), Creases (Curve), Corners (Point), Steps (Integer). Outputs: M (Mesh).",
+  "keywords": [
+    "simpleremesh",
+    "kangaroo2_mesh"
+  ],
+  "category": "kangaroo2_mesh",
+  "tags": [
+    "kangaroo2_mesh"
+  ],
+  "trigger_intents": [
+    "simpleremesh",
+    "simple",
+    "remesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SimpleRemesh"
+  ],
+  "solution_principle": "Isotropically remesh a Brep or Mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "87c0cc0e-d792-481e-b219-cc16b3e7b7b9",
+    "category": "kangaroo2_mesh",
+    "inputs": {
+      "Geometry": "Geometry",
+      "Length": "Number",
+      "Creases": "Curve",
+      "Corners": "Point",
+      "Steps": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9f055808-c262-4462-b429-7e20d4ca3a5e"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|mesh|simpleremesh"
+  }
+}

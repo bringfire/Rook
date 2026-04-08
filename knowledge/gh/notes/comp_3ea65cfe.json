@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_3ea65cfe",
+  "note_type": "component",
+  "name": "Möbius Transformation",
+  "brief": "Möbius Transformation | Inputs: G, C, T, Q → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Möbius Transformation. Inputs: G (Generic Data), C (Circle), T (Number), Q (Number), F (Boolean). Outputs: G (Geometry).",
+  "keywords": [
+    "möbius transformation",
+    "möbius",
+    "transformation",
+    "kangaroo2_utility"
+  ],
+  "category": "kangaroo2_utility",
+  "tags": [
+    "kangaroo2_utility"
+  ],
+  "trigger_intents": [
+    "möbius transformation",
+    "möbius",
+    "transformation"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Möbius Transformation"
+  ],
+  "solution_principle": "3d Möbius Transformations of any geometry using 4d rotation",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_26b87a73",
+    "comp_6e9a9654",
+    "comp_d5b60c80",
+    "comp_e0f50326",
+    "comp_e8f5fb4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "51ea6cbf-9681-4a4b-8f66-20e0e2faf182",
+    "category": "kangaroo2_utility",
+    "inputs": {
+      "G": "Generic Data",
+      "C": "Circle",
+      "T": "Number",
+      "Q": "Number",
+      "F": "Boolean"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|utility|möbius transformation"
+  }
+}

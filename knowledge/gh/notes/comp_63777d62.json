@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_63777d62",
+  "note_type": "component",
+  "name": "Find Domain",
+  "brief": "Find Domain | Inputs: D, N, S → I, N",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Find Domain. Inputs: D (Domain), N (Number), S (Boolean). Outputs: I (Integer), N (Integer).",
+  "keywords": [
+    "find domain",
+    "find",
+    "domain",
+    "domain_ops"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "domain_ops"
+  ],
+  "trigger_intents": [
+    "find domain",
+    "find",
+    "domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Find Domain"
+  ],
+  "solution_principle": "Find the first domain that contains a specific value",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b68c5872",
+    "comp_0a8cb426",
+    "comp_8368fa19",
+    "comp_21348da4",
+    "comp_de61777e",
+    "comp_54e23644"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0b5c7fad-0473-41aa-bf52-d7a861dcaa29",
+    "category": "domain_ops",
+    "inputs": {
+      "D": "Domain",
+      "N": "Number",
+      "S": "Boolean"
+    },
+    "outputs": {
+      "I": "Integer",
+      "N": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2fcc2743-8339-4cdf-a046-a1f17439191d"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|domain|find domain"
+  }
+}

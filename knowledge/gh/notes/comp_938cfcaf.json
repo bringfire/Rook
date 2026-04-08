@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_938cfcaf",
+  "note_type": "component",
+  "name": "Sub Curve",
+  "brief": "Sub Curve | Inputs: C, D → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Sub Curve. Inputs: C (Curve), D (Domain). Outputs: C (Curve).",
+  "keywords": [
+    "sub curve",
+    "sub",
+    "curve",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "sub curve",
+    "sub",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sub Curve"
+  ],
+  "solution_principle": "Construct a curve from the sub-domain of a base curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a78fa17f",
+    "comp_8868d815",
+    "comp_67ac1d47",
+    "comp_f1747a84",
+    "comp_c7dce5c9",
+    "comp_e287c18b",
+    "comp_c61c4285",
+    "comp_3973b4a6",
+    "comp_8fdc37bc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "429cbba9-55ee-4e84-98ea-876c44db879a",
+    "category": "curves",
+    "inputs": {
+      "C": "Curve",
+      "D": "Domain"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|spline|sub curve"
+  }
+}

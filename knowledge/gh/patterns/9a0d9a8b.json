@@ -1,0 +1,323 @@
+{
+  "pattern_id": "9a0d9a8b",
+  "name": "3-3-0",
+  "version": "1.0",
+  "created": "2026-02-22T14:12:21.599644Z",
+  "solution": {
+    "brief": "Recipe from FILES\\3\\3-3-0.gh (19 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Rectangular Array",
+      "Construct Point",
+      "slider",
+      "Rectangle",
+      "slider",
+      "Point",
+      "MD Slider",
+      "Point List",
+      "Distance",
+      "Sort List",
+      "Point List",
+      "Line",
+      "Sub List",
+      "panel",
+      "Closest Point",
+      "Remap+",
+      "Graph Mapper",
+      "Circle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "3 3 0"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a2a197b3",
+    "02f0af8b",
+    "fa0e52a1"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "recipe",
+    "19-components",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R15",
+          "nick": "",
+          "content": "0 to 3"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/3/3-3-0.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            91,
+            -30
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_ArrayRectangular",
+          "nick": "ArrRec",
+          "name": "Rectangular Array",
+          "pos": [
+            467,
+            102
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            326,
+            61
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            160.9,
+            192.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R5",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            329,
+            142
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            30.1,
+            123.1
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 2
+        },
+        {
+          "id": "R7",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            461.2,
+            231.6
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            264.4,
+            219.3
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            761,
+            65
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            602,
+            137
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            743,
+            118
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            940,
+            65
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            987,
+            185
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_SubList",
+          "nick": "SubSet",
+          "name": "Sub List",
+          "pos": [
+            869,
+            242
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "pos": [
+            739.1,
+            229.7
+          ],
+          "content": "0 to 3"
+        },
+        {
+          "id": "R16",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            984,
+            251
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            1097,
+            291
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1198.2,
+            242.5
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            1349,
+            242
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R5.O0>R2.I1",
+        "R4.O0>R2.I2",
+        "R4.O0>R2.I3",
+        "R6.O0>R5.I1",
+        "R6.O0>R5.I2",
+        "R2.O0>R9.I0",
+        "R2.O0>R10.I0",
+        "R7.O0>R10.I1",
+        "R10.O0>R11.I0",
+        "R2.O0>R11.I1",
+        "R11.O1>R12.I0",
+        "R14.O0>R13.I0",
+        "R7.O0>R13.I1",
+        "R11.O1>R14.I0",
+        "R15.O0>R14.I1",
+        "R11.O1>R16.I0",
+        "R7.O0>R16.I1",
+        "R16.O2>R17.I0",
+        "R11.O1>R19.I0",
+        "R18.O0>R19.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

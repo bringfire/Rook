@@ -1,0 +1,73 @@
+{
+  "pattern_id": "0daeb4ec",
+  "name": "wasp_22_teaching_SAVE",
+  "version": "1.0",
+  "created": "2026-03-19T18:18:37.276735Z",
+  "solution": {
+    "brief": "SAVE\r\nFields can be saved to file and reloaded in a second\r\nmoment or in another file.\r\nThis is particularly useful when working with very large\r\nand complex fields, which can be computed only once\r\nand then reloaded from file (loading from file is faster \r\nthan re-generating the whole field).",
+    "principle": "",
+    "components_needed": [
+      "Custom Preview",
+      "Wasp_Field",
+      "Gradient"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "file",
+      "moment",
+      "save",
+      "fields",
+      "this",
+      "another",
+      "reloaded",
+      "second",
+      "file.",
+      "saved"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

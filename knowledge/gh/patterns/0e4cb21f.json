@@ -1,0 +1,247 @@
+{
+  "pattern_id": "0e4cb21f",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T19:33:00.666722Z",
+  "solution": {
+    "brief": "Parametric workflow with 5 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Python Script",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "panel",
+      "slider",
+      "Custom Preview",
+      "List Length",
+      "Range",
+      "Gradient"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:29:53.103642Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 10 wires -> 11 components, 11 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 531
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 332
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 43
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 8.68
+        }
+      ],
+      "panels": [
+        {
+          "id": "R6",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Recursive Stair.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "Python Script",
+          "pos": [
+            532,
+            253
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            140.1,
+            179.4
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 531
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            144.2,
+            206
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 332
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            144.5,
+            231.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 43
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            140,
+            305.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R6",
+          "type": "panel",
+          "pos": [
+            1235,
+            -535.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            142.5,
+            268.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 8.68
+        },
+        {
+          "id": "R8",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1205,
+            195
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            679,
+            262
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            811,
+            252
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            892,
+            200
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R3.O0>R1.I1",
+        "R4.O0>R1.I2",
+        "R7.O0>R1.I3",
+        "R5.O0>R1.I4",
+        "R1.O0>R6.I0",
+        "R1.O1>R8.I0",
+        "R11.O0>R8.I1",
+        "R1.O1>R9.I0",
+        "R9.O0>R10.I1",
+        "R10.O0>R11.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

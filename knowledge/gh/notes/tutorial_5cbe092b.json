@@ -1,0 +1,84 @@
+{
+  "note_id": "tutorial_5cbe092b",
+  "note_type": "teaching",
+  "name": "Beginner 1-1: Data Types and Flow \u00e2\u20ac\u201d Points, Lines, Divide Curve",
+  "brief": "Foundational data flow: Point params \u00e2\u2020\u2019 Line \u00e2\u2020\u2019 Divide Curve \u00e2\u2020\u2019 cross-connect divided points with Line",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.948613Z",
+  "context": "Title: 'Data (point, curve, surface, ...)'. Two Point params feed a Line component. Line output \u00e2\u2020\u2019 Divide Curve (Count=4 via Number Slider). A second pair of Points creates a second Line, also divided by the same slider. Panels show divided point coordinates. The divided points from both lines feed into a final Line component, connecting corresponding points across the two lines. Classic 'lacing lines between divided curves' pattern.",
+  "keywords": [
+    "data flow",
+    "point",
+    "line",
+    "divide curve",
+    "cross connection",
+    "lacing",
+    "division points"
+  ],
+  "category": "Beginner - Data Fundamentals",
+  "tags": [
+    "beginner",
+    "data-flow",
+    "curve-division",
+    "point-line",
+    "fundamentals",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "data types in grasshopper",
+    "point line divide curve",
+    "how to divide a curve",
+    "connect points between curves",
+    "lacing lines between curves",
+    "grasshopper data flow basics"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Line",
+    "Divide Curve",
+    "Number Slider",
+    "Panel"
+  ],
+  "solution_principle": "Data in Grasshopper flows left to right through typed connections. Point parameters reference Rhino geometry. Line creates geometry from two points. Divide Curve splits a curve into equal segments and outputs the division points. A shared Number Slider controls both divisions, ensuring matching point counts for cross-connection.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_31ac118b",
+    "teaching_567ea1e1",
+    "teaching_b85f762f",
+    "teaching_cf3f830b",
+    "teaching_e23cfc74",
+    "tutorial_6c3edd2d",
+    "tutorial_88182103",
+    "tutorial_99dd197c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.948613Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "1-1.jpg",
+    "lesson_number": 1,
+    "step_number": 1,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Point": 1,
+      "Line": 1,
+      "Divide Curve": 1,
+      "Number Slider": 1,
+      "Panel": 1
+    }
+  }
+}

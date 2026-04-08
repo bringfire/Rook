@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_47c8c55a",
+  "note_type": "component",
+  "name": "Random Split List",
+  "brief": "Random Split List | Inputs: L, R, S → A, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.563383Z",
+  "context": "Grasshopper component: Random Split List. Inputs: L (Generic Data), R (Integer), S (Number). Outputs: A (Generic Data), B (Generic Data).",
+  "keywords": [
+    "random split list",
+    "random",
+    "split",
+    "list",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "random split list",
+    "random",
+    "split",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Random Split List"
+  ],
+  "solution_principle": "Randomly splits a list into two lists.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_52a1c40b",
+    "comp_14a90a47",
+    "comp_cdb1b8b1",
+    "comp_c4cf466f",
+    "comp_4d3f89f8",
+    "comp_aa74495c",
+    "comp_fced4dd4",
+    "comp_d3ee4423",
+    "comp_3d7c1b11",
+    "comp_11e0782b",
+    "comp_d551bf52",
+    "comp_be584748"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "12faf0dd-a4d1-4088-b80b-372025daaecd",
+    "category": "lunchbox_util",
+    "inputs": {
+      "L": "Generic Data",
+      "R": "Integer",
+      "S": "Number"
+    },
+    "outputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|random split list"
+  }
+}

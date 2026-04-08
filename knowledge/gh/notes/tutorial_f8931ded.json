@@ -1,0 +1,82 @@
+{
+  "note_id": "tutorial_f8931ded",
+  "note_type": "teaching",
+  "name": "Beginner 2-7: Data Tree Structure \u00e2\u20ac\u201d Single List, Merge, Entwine",
+  "brief": "Three tree structures: single Point\u00e2\u2020\u2019Polyline (1 branch), Merge 8 Points (1 branch, 40 items), Entwine 8 Points (8 branches, 5 each)",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.953305Z",
+  "context": "Title: 'Data Tree Structure'. Three clusters showing different data tree topologies. Left column: 8 individual Point\u00e2\u2020\u2019Polyline pairs (each creates one polyline from 5 referenced points). Top-right: Single Point \u00e2\u2020\u2019 Polyline \u00e2\u2020\u2019 Param Viewer shows '1 branch, N=1'. Just one polyline from one point set. Middle-right: 8 Point params \u00e2\u2020\u2019 Merge (D1-D9) \u00e2\u2020\u2019 Polyline \u00e2\u2020\u2019 Param Viewer shows '1 branch, N=40'. All points flattened into one list. Bottom-right: 8 Point params \u00e2\u2020\u2019 Entwine ({0;0} through {0;7}) with Flatten \u00e2\u2020\u2019 Polyline \u00e2\u2020\u2019 Param Viewer shows '8 branches, N=5 each'. Points organized into branches \u00e2\u20ac\u201d one polyline per branch.",
+  "keywords": [
+    "data tree",
+    "merge",
+    "entwine",
+    "branches",
+    "flatten",
+    "param viewer",
+    "tree structure"
+  ],
+  "category": "Beginner - Curves Tangents and Data Trees",
+  "tags": [
+    "beginner",
+    "alternatives",
+    "data-tree",
+    "merge-vs-entwine",
+    "branches",
+    "tree-structure",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "data tree structure",
+    "merge vs entwine",
+    "entwine component",
+    "data tree branches",
+    "param viewer data tree",
+    "how data trees work"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Polyline",
+    "Merge",
+    "Entwine",
+    "Param Viewer"
+  ],
+  "solution_principle": "Merge combines all inputs into a SINGLE FLAT list (one branch). Entwine preserves SEPARATE BRANCHES for each input (one branch per point set). This distinction is fundamental: Merge \u00e2\u2020\u2019 one polyline through all 40 points. Entwine \u00e2\u2020\u2019 8 separate polylines of 5 points each. Param Viewer shows the tree structure \u00e2\u20ac\u201d essential for understanding data organization.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_6c3edd2d",
+    "tutorial_a223010e",
+    "tutorial_99dd197c",
+    "tutorial_6faa7cbb",
+    "tutorial_b245b646"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.953305Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "2-7.jpg",
+    "lesson_number": 2,
+    "step_number": 7,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Point": 1,
+      "Polyline": 1,
+      "Merge": 1,
+      "Entwine": 1,
+      "Param Viewer": 1
+    }
+  }
+}

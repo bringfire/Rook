@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_9ae26219",
+  "note_type": "component",
+  "name": "Trim with Brep",
+  "brief": "Trim with Brep | Inputs: C, B → Ci, Co",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Trim with Brep. Inputs: C (Curve), B (Brep). Outputs: Ci (Curve), Co (Curve).",
+  "keywords": [
+    "trim with brep",
+    "trim",
+    "with",
+    "brep",
+    "intersection_region"
+  ],
+  "category": "intersection_region",
+  "tags": [
+    "intersection_region"
+  ],
+  "trigger_intents": [
+    "trim with brep",
+    "trim",
+    "with",
+    "brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Trim with Brep"
+  ],
+  "solution_principle": "Trim a curve with a Brep.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a4945314",
+    "comp_9913e7ab",
+    "comp_10b52655",
+    "comp_1fc712c6",
+    "comp_3010c5cb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3eba04bc-00e8-416d-b58f-a3dc8b3e22e2",
+    "category": "intersection_region",
+    "inputs": {
+      "C": "Curve",
+      "B": "Brep"
+    },
+    "outputs": {
+      "Ci": "Curve",
+      "Co": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "916e7ebc-524c-47ce-8936-e50a09a7b43c",
+      "3092caf0-7cf9-4885-bcc0-e635d878832a",
+      "4bdc2eb0-24ed-4c90-a27b-a32db069eaef"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|region|trim with brep"
+  }
+}

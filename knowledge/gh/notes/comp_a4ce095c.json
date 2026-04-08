@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_a4ce095c",
+  "note_type": "component",
+  "name": "Interpolate",
+  "brief": "Interpolate | Inputs: V, D, P, K → C, L, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Interpolate. Inputs: V (Point), D (Integer), P (Boolean), K (Integer). Outputs: C (Curve), L (Number), D (Domain).",
+  "keywords": [
+    "interpolate",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "interpolate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Interpolate"
+  ],
+  "solution_principle": "Create an interpolated curve through a set of points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2e26698e",
+    "teaching_e23cfc74",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2b2a4145-3dff-41d4-a8de-1ea9d29eef33",
+    "category": "curves",
+    "inputs": {
+      "V": "Point",
+      "D": "Integer",
+      "P": "Boolean",
+      "K": "Integer"
+    },
+    "outputs": {
+      "C": "Curve",
+      "L": "Number",
+      "D": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "dde71aef-d6ed-40a6-af98-6b0673983c82"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|interpolate"
+  }
+}

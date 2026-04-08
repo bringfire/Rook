@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_c315151d",
+  "note_type": "component",
+  "name": "Space Truss Structure 2",
+  "brief": "Space Truss Structure 2 | Inputs: Srf-A, Srf-B, U, V → LinesA, LinesB, Web",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.563383Z",
+  "context": "Grasshopper component: Space Truss Structure 2. Inputs: Srf-A (Surface), Srf-B (Surface), U (Integer), V (Integer). Outputs: LinesA (Generic Data), LinesB (Generic Data), Web (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "space truss structure 2",
+    "space",
+    "truss",
+    "structure",
+    "2",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "space truss structure 2",
+    "space",
+    "truss",
+    "structure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Space Truss Structure 2"
+  ],
+  "solution_principle": "Creates a space truss structure using two driver surfaces",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e9ed5b19",
+    "comp_e707a5c7",
+    "comp_710ca4b0",
+    "comp_8209536f",
+    "comp_6ba8b0a6",
+    "comp_7c67292c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "146eeff7-41e4-4218-826a-138b2664911b",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "Srf-A": "Surface",
+      "Srf-B": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "LinesA": "Generic Data",
+      "LinesB": "Generic Data",
+      "Web": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "521f5358-c59b-4a64-be84-3a88e5aef29d"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|space truss structure 2"
+  }
+}

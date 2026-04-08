@@ -1,0 +1,850 @@
+{
+  "pattern_id": "88b5cf12",
+  "name": "parametric_pipe-output_surface-creation",
+  "version": "1.0",
+  "created": "2026-02-02T19:29:50.211992Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "\n\nRelated insight: Complex surface workflows involving multiple operations can require 69+ components",
+    "components_needed": [
+      "Circle",
+      "slider",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "Cap Holes",
+      "Surface",
+      "Evaluate Surface",
+      "Range",
+      "slider",
+      "Range",
+      "slider",
+      "Construct Point",
+      "Modulus",
+      "panel",
+      "Interpolate",
+      "Pipe",
+      "slider",
+      "Area",
+      "Scale NU",
+      "slider",
+      "Cap Holes",
+      "Mesh",
+      "Sequence",
+      "panel",
+      "Mesh",
+      "PlanktonMesh",
+      "MeshMachine",
+      "slider",
+      "Reverse List",
+      "List Item",
+      "slider",
+      "MeshToNurb",
+      "Solid Difference",
+      "Extend Curve",
+      "slider",
+      "Deconstruct Brep",
+      "panel",
+      "Area",
+      "Sort List",
+      "Larger Than",
+      "slider",
+      "Dispatch",
+      "Custom Preview",
+      "Custom Preview",
+      "Swatch",
+      "Gradient",
+      "Sort List",
+      "Deconstruct",
+      "Construct Point",
+      "Deconstruct",
+      "Construct Point",
+      "Distance",
+      "Bounds",
+      "Remap Numbers",
+      "Dispatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "curve through points",
+      "pipe a curve",
+      "tubular form",
+      "smooth curve",
+      "create tube"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ab7fb612"
+  ],
+  "tags": [
+    "pipe-output",
+    "surface-creation",
+    "boolean",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T09:10:52.129331",
+    "evolved_by": [
+      "ab7fb612"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:34:07.746612Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 64 wires -> 56 components, 64 flows"
+      },
+      {
+        "date": "2026-02-22T09:10:52.129331",
+        "trigger": "New pattern: ab7fb612",
+        "changes": "Links surface creation complexity to component count, showing workflow scale"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 300
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 1.2
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        }
+      ],
+      "panels": [
+        {
+          "id": "R15",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Drill Bit.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            265,
+            199
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            23.6,
+            199.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R3",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            473,
+            214
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            364,
+            272
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            103.2,
+            273.5
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 300
+        },
+        {
+          "id": "R6",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1853,
+            234
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            612.6,
+            327.8
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_EvaluateSurface_OBSOLETE",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            773,
+            342
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            499,
+            454
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            255.1,
+            394.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R11",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            497,
+            404
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            263.1,
+            455.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R13",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            680,
+            424
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Operator_Modulus",
+          "nick": "Mod",
+          "name": "Modulus",
+          "pos": [
+            595,
+            476
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "pos": [
+            472.7,
+            493.3
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R16",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            888,
+            332
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1114,
+            388
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            812.7,
+            563.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R19",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            820,
+            189
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            1032,
+            226
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            758.2,
+            110.8
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 1.2
+        },
+        {
+          "id": "R22",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1198,
+            388
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            1296.4,
+            380.4
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "PlaceholderComponent",
+          "name": "Sequence",
+          "pos": [
+            1364,
+            594
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "pos": [
+            1213.3,
+            575.4
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R26",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            1833.4,
+            427
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "PlanktonMeshParam",
+          "nick": "PMesh",
+          "name": "PlanktonMesh",
+          "pos": [
+            1756,
+            422.3
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "MeshMachine",
+          "pos": [
+            1514,
+            397
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            1240.9,
+            507.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R30",
+          "type": "Component_ReverseList",
+          "nick": "Rev",
+          "name": "Reverse List",
+          "pos": [
+            1599,
+            430
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1679,
+            430
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            1242.8,
+            267.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R33",
+          "type": "ZuiPythonComponent",
+          "name": "MeshToNurb",
+          "pos": [
+            1847,
+            317
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_BooleanDifference",
+          "nick": "SDiff",
+          "name": "Solid Difference",
+          "pos": [
+            1953,
+            261
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_ExtendCurve",
+          "nick": "Ext",
+          "name": "Extend Curve",
+          "pos": [
+            981,
+            335
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            769,
+            400.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R37",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            2048,
+            321
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "panel",
+          "pos": [
+            2023.5,
+            176.3
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R39",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            2142,
+            382
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2224,
+            301
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_LargerThan",
+          "nick": "Larger",
+          "name": "Larger Than",
+          "pos": [
+            2351,
+            256
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            2048.3,
+            245.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R43",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            2992,
+            356
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3150,
+            280
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3142,
+            405
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2923.1,
+            273
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2746,
+            479
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2227,
+            395
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            2289,
+            581
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            2392,
+            581
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            2286,
+            497
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            2389,
+            497
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            2502,
+            526
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2595,
+            545
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2685,
+            542
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            2355,
+            407
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R4.I0",
+        "R3.O0>R6.I0",
+        "R7.O0>R8.I0",
+        "R13.O0>R8.I1",
+        "R12.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R10.O0>R11.I1",
+        "R11.O0>R13.I0",
+        "R14.O0>R13.I1",
+        "R9.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R8.O0>R16.I0",
+        "R20.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R7.O0>R19.I0",
+        "R35.O0>R20.I0",
+        "R19.O1>R20.I1",
+        "R21.O0>R20.I2",
+        "R21.O0>R20.I3",
+        "R17.O0>R22.I0",
+        "R25.O0>R24.I0",
+        "R23.O0>R28.I0",
+        "R32.O0>R28.I1",
+        "R29.O0>R28.I13",
+        "R24.O0>R28.I14",
+        "R28.O0>R30.I0",
+        "R30.O0>R31.I0",
+        "R26.O0>R33.I0",
+        "R6.O0>R34.I0",
+        "R33.O1>R34.I1",
+        "R16.O0>R35.I0",
+        "R36.O0>R35.I2",
+        "R36.O0>R35.I3",
+        "R34.O0>R37.I0",
+        "R37.O0>R39.I0",
+        "R39.O0>R40.I0",
+        "R37.O0>R40.I1",
+        "R40.O0>R41.I0",
+        "R42.O0>R41.I1",
+        "R40.O1>R43.I0",
+        "R41.O0>R43.I1",
+        "R43.O0>R44.I0",
+        "R46.O0>R44.I1",
+        "R43.O1>R45.I0",
+        "R47.O0>R45.I1",
+        "R55.O0>R47.I2",
+        "R39.O0>R48.I0",
+        "R39.O1>R48.I1",
+        "R19.O1>R49.I0",
+        "R49.O0>R50.I0",
+        "R49.O1>R50.I1",
+        "R56.O1>R51.I0",
+        "R51.O0>R52.I0",
+        "R51.O1>R52.I1",
+        "R50.O0>R53.I0",
+        "R52.O0>R53.I1",
+        "R53.O0>R54.I0",
+        "R53.O0>R55.I0",
+        "R54.O0>R55.I1",
+        "R48.O1>R56.I0",
+        "R41.O0>R56.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

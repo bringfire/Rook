@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_4d3f89f8",
+  "note_type": "component",
+  "name": "Create RTree",
+  "brief": "Create RTree | Inputs: Geo → RTree",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Create RTree. Inputs: Geo (Generic Data). Outputs: RTree (Generic Data).",
+  "keywords": [
+    "create rtree",
+    "create",
+    "rtree",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "create rtree",
+    "create",
+    "tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create RTree"
+  ],
+  "solution_principle": "Creates a searchable RTree",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_47c8c55a",
+    "comp_be584748",
+    "comp_52a1c40b",
+    "comp_14a90a47",
+    "comp_cdb1b8b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "25c345c7-9bd6-471a-974c-8fd901adf4b5",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Geo": "Generic Data"
+    },
+    "outputs": {
+      "RTree": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a5287477-4326-442f-8ab3-904779ec720d"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|create rtree"
+  }
+}

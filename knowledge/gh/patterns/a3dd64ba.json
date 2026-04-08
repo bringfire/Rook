@@ -1,0 +1,78 @@
+{
+  "pattern_id": "a3dd64ba",
+  "name": "wasp_33_teaching_ENVIRONMENT_SETTINGS",
+  "version": "1.0",
+  "created": "2026-03-19T18:50:19.415276Z",
+  "solution": {
+    "brief": "ENVIRONMENT SETTINGS\r\nSettings for the different parameters of the\r\ngame environment, including additional geometries\r\nand blueprints.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "Toggle",
+      "Box",
+      "Geometry",
+      "Custom Preview",
+      "Geometry",
+      "Swatch",
+      "Wasp_Get Part Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "additional",
+      "geometries",
+      "environment,",
+      "settings",
+      "parameters",
+      "different",
+      "game",
+      "including",
+      "environment"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

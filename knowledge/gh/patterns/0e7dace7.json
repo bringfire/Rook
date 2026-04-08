@@ -1,0 +1,77 @@
+{
+  "pattern_id": "0e7dace7",
+  "name": "wasp_31_teaching_PLANE_CONSTRAINTS",
+  "version": "1.0",
+  "created": "2026-03-19T18:46:20.094848Z",
+  "solution": {
+    "brief": "PLANE CONSTRAINTS\r\nPlane constraints allow to constrain the growth of an aggregation\r\nonly on the positive or negative Z (set with the POS input) of a given plane.\r\nConstraints can be \"soft\", meaning that only the centroid of the part\r\nis checked against the constraint, or \"hard\", meaning that also the geometry\r\nis checked for intersections (set by the SOFT input).\r\nAdditionally, the REQ input can be used to define if a constraint is necessary\r\nor optional. If using a mis of necessary and optional constraints, the aggregation\r\nwill try to place all parts which have all necessary constraints satisfyed, and\r\nat least one of the optional ones.",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Point",
+      "Curve",
+      "Point",
+      "Wasp_Connection From Direction",
+      "NumberSlider",
+      "Geometry",
+      "Wasp_Connection From Direction"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "plane",
+      "positive",
+      "only",
+      "allow",
+      "constraints",
+      "growth",
+      "constrain",
+      "aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "note_id": "tutorial_4b544741",
+  "note_type": "teaching",
+  "name": "Intermediate 4-1: Surface Creation Alternatives \u00e2\u20ac\u201d Boundary, Loft, Network Surface, Patch Surface",
+  "brief": "Four surface creation methods: Curve\u00e2\u2020\u2019Surface, Boundary Surfaces, Network Surface (U+V curves), Patch Surface (tolerance=35) \u00e2\u2020\u2019 Custom Preview",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.215023Z",
+  "context": "Four clusters showing alternative surface creation approaches. Cluster 1: Curve param \u00e2\u2020\u2019 Surface (direct, for simple closed curves). Cluster 2: Boundary Surfaces \u00e2\u20ac\u201d creates planar fill from closed boundary edges. Cluster 3: Network Surface \u00e2\u20ac\u201d takes Curves U (one direction) + Curves V (perpendicular direction) \u00e2\u2020\u2019 Surface. Requires curves in TWO directions forming a network grid. Cluster 4: Patch Surface \u00e2\u20ac\u201d creates a smooth surface approximation from curves/points. Tolerance slider (~35) controls how closely the patch follows input geometry. All outputs \u00e2\u2020\u2019 Custom Preview for comparison. Shows when each method is appropriate based on input geometry type.",
+  "keywords": [
+    "surface creation",
+    "boundary surfaces",
+    "network surface",
+    "patch surface",
+    "surface alternatives",
+    "tolerance",
+    "u v curves"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "alternatives",
+    "surface-creation",
+    "network-surface",
+    "patch-surface",
+    "boundary-surfaces",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "surface creation methods intermediate",
+    "network surface u v curves",
+    "patch surface tolerance",
+    "boundary surface vs network surface",
+    "which surface method to use",
+    "surface creation alternatives"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve",
+    "Surface",
+    "Boundary Surfaces",
+    "Network Surface",
+    "Patch Surface",
+    "Custom Preview",
+    "Number Slider"
+  ],
+  "solution_principle": "Surface choice depends on input: Direct Surface: closed planar curves only. Boundary Surfaces: closed curves needing planar fill. Network Surface: when you have curves in TWO perpendicular directions (U and V). Patch Surface: when you have scattered curves/points and need an approximation (tolerance-controlled). Network Surface is the most controlled (exact interpolation), Patch is the most flexible (approximate fit).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_7de24433",
+    "tutorial_0e7af367",
+    "tutorial_1b87c979",
+    "tutorial_2ea87e9f",
+    "tutorial_20a9ede0",
+    "tutorial_81c4b339"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.215023Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-1.jpg",
+    "lesson_number": 4,
+    "step_number": 1,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Curve": 1,
+      "Surface": 1,
+      "Boundary Surfaces": 1,
+      "Network Surface": 1,
+      "Patch Surface": 1,
+      "Custom Preview": 1,
+      "Number Slider": 1
+    }
+  }
+}

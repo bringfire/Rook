@@ -1,0 +1,8 @@
+{
+  "label": "Explorer",
+  "description": "Read-only research for querying GH canvas and scene state",
+  "color": "#00ba7c",
+  "model_role": "worker",
+  "tool_access": "readonly",
+  "avatar": null
+}

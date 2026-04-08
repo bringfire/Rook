@@ -1,0 +1,45 @@
+{
+  "note_id": "struggle_concentric_circle_arcs",
+  "note_type": "struggle",
+  "name": "Concentric Circle Arc Extraction",
+  "brief": "",
+  "version": "1.0",
+  "created": "2026-01-30",
+  "context": "Scale domain by each circle's radius to achieve equal angles",
+  "keywords": [],
+  "category": "Uncategorized",
+  "tags": [],
+  "trigger_intents": [],
+  "trigger_symptoms": [],
+  "components": [],
+  "solution_principle": "Scale domain by each circle's radius to achieve equal angles",
+  "anti_patterns": [
+    {
+      "mistake": "Using same domain for both circles",
+      "symptom": "Non-wedge shapes, inner arc spans different angle than outer",
+      "why_wrong": "Arc-length parameterization means same domain \u00e2\u2030\u00a0 same angle"
+    },
+    {
+      "mistake": "Assuming circles are parameterized 0-1 or 0-2\u00cf\u20ac",
+      "symptom": "Domain values produce microscopic or invisible changes",
+      "why_wrong": "Default is 0 to 2\u00cf\u20acR (arc-length)"
+    }
+  ],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "verification_test": "Set base_angle to \u00cf\u20ac/4 (45\u00c2\u00b0)",
+    "verification_expected": "Both arcs should visually span 45\u00c2\u00b0, but outer arc is longer"
+  }
+}

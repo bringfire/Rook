@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_fc95126a",
+  "note_type": "component",
+  "name": "Point Polar",
+  "brief": "Point Polar | Inputs: P, xy, z, d → Pt",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Point Polar. Inputs: P (Plane), xy (Number), z (Number), d (Number). Outputs: Pt (Point).",
+  "keywords": [
+    "point polar",
+    "point",
+    "polar",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "point polar",
+    "point",
+    "polar"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Polar"
+  ],
+  "solution_principle": "Create a point from polar {phi,theta,offset} coordinates.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_60736c2f",
+    "comp_b14af4b6",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_b1520461"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a435f5c8-28a2-43e8-a52a-0b6e73c2e300",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Plane",
+      "xy": "Number",
+      "z": "Number",
+      "d": "Number"
+    },
+    "outputs": {
+      "Pt": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9adffd61-f5d1-4e9e-9572-e8d9145730dc"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|point polar"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "note_id": "comp_28af3654",
+  "note_type": "component",
+  "name": "Evaluate Surface",
+  "brief": "Evaluate Surface | Inputs: S, uv → P, N, U",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Evaluate Surface. Inputs: S (Surface), uv (Point). Outputs: P (Point), N (Vector), U (Vector), V (Vector), F (Plane).",
+  "keywords": [
+    "evaluate surface",
+    "evaluate",
+    "surface",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "evaluate surface",
+    "evaluate",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Evaluate Surface"
+  ],
+  "solution_principle": "Evaluate local surface properties at a {uv} coordinate.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_b85f762f",
+    "comp_c525b1a1",
+    "comp_c9b05711",
+    "comp_d6ac8cfa",
+    "comp_515d8f2a",
+    "comp_c29b093f",
+    "comp_84222c76",
+    "comp_bef5b3c9",
+    "comp_20b1645f",
+    "comp_64864243",
+    "comp_4d4a3a69",
+    "comp_7cf8d3e5",
+    "comp_c177edf2",
+    "comp_72822308"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "353b206e-bde5-4f02-a913-b3b8a977d4b9",
+    "category": "surface_analysis",
+    "inputs": {
+      "S": "Surface",
+      "uv": "Point"
+    },
+    "outputs": {
+      "P": "Point",
+      "N": "Vector",
+      "U": "Vector",
+      "V": "Vector",
+      "F": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4139f3a3-cf93-4fc0-b5e0-18a3acd0b003",
+      "404f75ac-5594-4c48-ad8a-7d0f472bbf8a"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|evaluate surface"
+  }
+}

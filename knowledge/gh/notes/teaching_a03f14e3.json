@@ -1,0 +1,129 @@
+{
+  "note_id": "teaching_a03f14e3",
+  "note_type": "teaching",
+  "name": "U01 - Vector De/Construction",
+  "brief": "Teaching: Vector De/Construction",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector.",
+  "keywords": [
+    "vector",
+    "construction",
+    "vector xyz",
+    "vector display",
+    "numberslider",
+    "multiplication",
+    "deconstruct vector",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "unit-01",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "foundational",
+    "vectors",
+    "prerequisite-for-translation",
+    "vector-decomposition",
+    "vector-construction"
+  ],
+  "trigger_intents": [
+    "vector de/construction",
+    "how to use vector de/construction",
+    "how to use vector xyz",
+    "how to use vector display",
+    "how to use multiplication",
+    "how to use deconstruct vector",
+    "deconstructed",
+    "a vector can also be constructed with xyz inputs",
+    "deconstructing a vector:",
+    "deconstruct",
+    "deconstruct vector",
+    "deconstruct the vector on the left",
+    "vector",
+    "vector xyz",
+    "vector display"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector XYZ",
+    "Vector Display",
+    "NumberSlider",
+    "Multiplication",
+    "Deconstruct Vector"
+  ],
+  "solution_principle": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1fd660b8",
+    "teaching_0df0144b",
+    "teaching_37677299",
+    "teaching_567ea1e1",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 6,
+    "section_index": 6,
+    "x_range": [
+      4476.6,
+      5569.7
+    ],
+    "full_teaching_text": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C95",
+      "C96",
+      "C121",
+      "C125",
+      "C126",
+      "C132",
+      "C94",
+      "C124"
+    ],
+    "intra_section_flows": [
+      "C94.O0>C95.I0",
+      "C94.O1>C95.I1",
+      "C95.O0>C96.I1",
+      "C124.O0>C125.I0",
+      "C124.O1>C125.I1",
+      "C132.O0>C125.I2",
+      "C125.O0>C126.I1",
+      "C124.O2>C132.I0",
+      "C127.O0>C132.I1"
+    ],
+    "groups": [],
+    "components_demonstrated": {
+      "Vector XYZ": 2,
+      "Vector Display": 2,
+      "NumberSlider": 1,
+      "Multiplication": 1,
+      "Deconstruct Vector": 2
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 8,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 9,
+      "groups": 0
+    }
+  }
+}

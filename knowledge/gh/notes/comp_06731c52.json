@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_06731c52",
+  "note_type": "component",
+  "name": "Point",
+  "brief": "Point | Inputs: no inputs \u00e2\u2020\u2019 output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Point.",
+  "keywords": [
+    "point",
+    "point"
+  ],
+  "category": "unknown",
+  "tags": [
+    "geometry-primitive",
+    "atomic-unit",
+    "point",
+    "foundational",
+    "parametric-foundation",
+    "has-teaching-unit",
+    "point-generation",
+    "component",
+    "prerequisite"
+  ],
+  "trigger_intents": [
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point"
+  ],
+  "solution_principle": "Contains a collection of 3D points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_456642c8",
+    "teaching_0a6208a3",
+    "teaching_c103fe78",
+    "teaching_cf3f830b",
+    "comp_a010f059",
+    "comp_51b11a9e",
+    "comp_be584748"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": "2026-02-07T12:11:07.954331Z",
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "fbac3e32-f100-4292-8692-77240a42fd1a",
+    "category": "unknown",
+    "inputs": [],
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 875,
+    "stable_key": "params|geometry|point",
+    "family": "geometry_params",
+    "similar_to": [
+      "ac2bc2cb-70fb-4dd5-9c78-7e1ea97fe278"
+    ]
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

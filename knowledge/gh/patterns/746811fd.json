@@ -1,0 +1,698 @@
+{
+  "pattern_id": "746811fd",
+  "name": "10-4",
+  "version": "1.0",
+  "created": "2026-02-22T14:17:30.813976Z",
+  "solution": {
+    "brief": "Recipe from FILES\\8\\10-4.gh (45 components)",
+    "principle": "\n\nRelated insight: Part of a family of similar-complexity recipes (including 8-4) that share the 45-component parametric surface creation pattern.",
+    "components_needed": [
+      "Bifocals",
+      "Construct Point",
+      "Range",
+      "slider",
+      "panel",
+      "Circle",
+      "Range",
+      "Graph Mapper",
+      "Remap+",
+      "slider",
+      "slider",
+      "Loft",
+      "Isotrim",
+      "Construct Domain²",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Populate Geometry",
+      "slider",
+      "Voronoi 3D",
+      "Brep | Brep",
+      "Bounding Box",
+      "Scale NU",
+      "slider",
+      "Discontinuity",
+      "Average",
+      "Scale",
+      "slider",
+      "Nurbs Curve",
+      "Surface Split",
+      "Brep Edges",
+      "Length",
+      "Sort List",
+      "List Item",
+      "List Item",
+      "Isotrim",
+      "Construct Domain²",
+      "Construct Domain",
+      "Isotrim",
+      "Subtraction",
+      "Brep Join",
+      "Subtraction",
+      "Construct Domain²",
+      "Custom Preview",
+      "Construct Domain"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 4"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "699566e7",
+    "02f0af8b",
+    "7cb10c17",
+    "9ce98d89"
+  ],
+  "tags": [
+    "panelization",
+    "workflow-pattern",
+    "surface-creation",
+    "mid-complexity",
+    "45-components",
+    "recipe",
+    "parametric",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:20:46.612439",
+    "evolved_by": [
+      "9ce98d89"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:20:46.612439",
+        "trigger": "New pattern: 9ce98d89",
+        "changes": "8-4 demonstrates this is a repeatable workflow pattern, not an isolated case"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.1
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.9
+        }
+      ],
+      "panels": [
+        {
+          "id": "R5",
+          "nick": "",
+          "content": " 0 to 100"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/8/10-4.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            40,
+            -17
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            297,
+            220
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            208,
+            240
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            -1.7,
+            240.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "type": "panel",
+          "pos": [
+            69.4,
+            216.4
+          ],
+          "content": " 0 to 100"
+        },
+        {
+          "id": "R6",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            671,
+            238
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            211,
+            369
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            261.9,
+            294.9
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            513,
+            293
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            239.7,
+            495.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            239.7,
+            517.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R12",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            783,
+            248
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            1095,
+            332
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Construct2DInterval",
+          "nick": "Dom²",
+          "name": "Construct Domain²",
+          "pos": [
+            942,
+            354
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            858,
+            328
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            245.2,
+            607.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            243.8,
+            632.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R18",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            1237,
+            398
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            960.7,
+            277.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R20",
+          "type": "Component_VolumeVoronoi",
+          "nick": "Voronoi³",
+          "name": "Voronoi 3D",
+          "pos": [
+            1504,
+            340
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_BRepIntersection",
+          "nick": "BBX",
+          "name": "Brep | Brep",
+          "pos": [
+            1564,
+            208
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            1117,
+            139
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            1353,
+            209
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            1092.8,
+            173.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.1
+        },
+        {
+          "id": "R25",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            1695,
+            219
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Average",
+          "nick": "Avr",
+          "name": "Average",
+          "pos": [
+            1816,
+            238
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            1936,
+            229
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            1694.7,
+            260.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.9
+        },
+        {
+          "id": "R29",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            2048,
+            227
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_SurfaceCurveSplit",
+          "nick": "SrfSplit",
+          "name": "Surface Split",
+          "pos": [
+            2197,
+            182
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_BRepEdges",
+          "nick": "Edges",
+          "name": "Brep Edges",
+          "pos": [
+            2287,
+            269
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            2380,
+            249
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2568,
+            201
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2463,
+            269
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2698,
+            217
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            2585,
+            288
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Construct2DInterval",
+          "nick": "Dom²",
+          "name": "Construct Domain²",
+          "pos": [
+            935,
+            535
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            851,
+            535
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            2585,
+            347
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_VariableSubtraction",
+          "nick": "A-B",
+          "name": "Subtraction",
+          "pos": [
+            764,
+            535
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            2809,
+            240
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_VariableSubtraction",
+          "nick": "A-B",
+          "name": "Subtraction",
+          "pos": [
+            765,
+            592
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_Construct2DInterval",
+          "nick": "Dom²",
+          "name": "Construct Domain²",
+          "pos": [
+            933,
+            592
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2902,
+            240
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            852,
+            592
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I2",
+        "R5.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R2.O0>R6.I0",
+        "R9.O0>R6.I1",
+        "R4.O0>R7.I1",
+        "R8.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R11.O0>R9.I2",
+        "R6.O0>R12.I0",
+        "R12.O0>R13.I0",
+        "R14.O0>R13.I1",
+        "R15.O0>R14.I0",
+        "R16.O0>R15.I0",
+        "R17.O0>R15.I1",
+        "R13.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R18.O0>R20.I0",
+        "R23.O0>R20.I1",
+        "R13.O0>R21.I0",
+        "R20.O0>R21.I1",
+        "R13.O0>R22.I0",
+        "R22.O0>R23.I0",
+        "R24.O0>R23.I2",
+        "R24.O0>R23.I3",
+        "R21.O0>R25.I0",
+        "R25.O0>R26.I0",
+        "R25.O0>R27.I0",
+        "R26.O0>R27.I1",
+        "R28.O0>R27.I2",
+        "R27.O0>R29.I0",
+        "R13.O0>R30.I0",
+        "R29.O0>R30.I1",
+        "R30.O0>R31.I0",
+        "R31.O0>R32.I0",
+        "R34.O0>R33.I0",
+        "R30.O0>R33.I1",
+        "R32.O0>R34.I0",
+        "R33.O1>R35.I0",
+        "R12.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R37.I0",
+        "R40.O0>R38.I1",
+        "R12.O0>R39.I0",
+        "R43.O0>R39.I1",
+        "R17.O0>R40.I1",
+        "R35.O0>R41.I0",
+        "R36.O0>R41.I0",
+        "R39.O0>R41.I0",
+        "R16.O0>R42.I1",
+        "R45.O0>R43.I0",
+        "R41.O0>R44.I0",
+        "R42.O0>R45.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

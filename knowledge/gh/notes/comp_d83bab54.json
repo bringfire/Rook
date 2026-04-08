@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_d83bab54",
+  "note_type": "component",
+  "name": "Rectangular Light",
+  "brief": "Rectangular Light | Inputs: Rl, P, L, W → Rl, P, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Rectangular Light. Inputs: Rl (Light), P (Plane), L (Number), W (Number). Outputs: Rl (Light), P (Plane), L (Number), W (Number).",
+  "keywords": [
+    "rectangular light",
+    "rectangular",
+    "light",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "rectangular light",
+    "rectangular",
+    "light"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangular Light"
+  ],
+  "solution_principle": "Rectangular Light",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1662c3ae",
+    "comp_7fb47f33",
+    "comp_3ef7b850",
+    "comp_3f462047",
+    "comp_07e6e9b8",
+    "comp_4029dc8e",
+    "comp_9ffe6eef",
+    "comp_870768ac",
+    "comp_acc717ff"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "298400c0-3d17-4483-9a97-4bb93515caa1",
+    "category": "rhino_render",
+    "inputs": {
+      "Rl": "Light",
+      "P": "Plane",
+      "L": "Number",
+      "W": "Number"
+    },
+    "outputs": {
+      "Rl": "Light",
+      "P": "Plane",
+      "L": "Number",
+      "W": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6a0cd7cc-1cfc-4696-a5cf-c9fe6e520768"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|rectangular light"
+  }
+}

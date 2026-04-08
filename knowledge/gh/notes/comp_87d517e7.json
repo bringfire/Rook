@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_87d517e7",
+  "note_type": "component",
+  "name": "Mesh Box",
+  "brief": "Mesh Box | Inputs: B, X, Y, Z → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Mesh Box. Inputs: B (Box), X (Integer), Y (Integer), Z (Integer). Outputs: M (Mesh).",
+  "keywords": [
+    "mesh box",
+    "mesh",
+    "box",
+    "mesh_ops"
+  ],
+  "category": "mesh_ops",
+  "tags": [
+    "mesh_ops"
+  ],
+  "trigger_intents": [
+    "mesh box",
+    "mesh",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Box"
+  ],
+  "solution_principle": "Create a mesh box.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bb6571be",
+    "comp_97082acf",
+    "comp_32b3df2f",
+    "comp_70d0de17",
+    "comp_435d6cd8",
+    "comp_e5c1256e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2696bd14-3fb5-4750-827f-86df6c31d664",
+    "category": "mesh_ops",
+    "inputs": {
+      "B": "Box",
+      "X": "Integer",
+      "Y": "Integer",
+      "Z": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8adbf481-7589-4a40-b490-006531ea001d",
+      "0a391eac-5048-443c-9c1b-f592299b6dd6"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|primitive|mesh box"
+  }
+}

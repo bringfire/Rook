@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_8c319666",
+  "note_type": "component",
+  "name": "Plane Region",
+  "brief": "Plane Region | Inputs: P, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Plane Region. Inputs: P (Plane), B (Plane). Outputs: R (Curve).",
+  "keywords": [
+    "plane region",
+    "plane",
+    "region",
+    "intersection_math"
+  ],
+  "category": "intersection_math",
+  "tags": [
+    "intersection_math"
+  ],
+  "trigger_intents": [
+    "plane region",
+    "plane",
+    "region"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Region"
+  ],
+  "solution_principle": "Create a bounded region from intersecting planes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_337d7af3",
+    "comp_93b9512b",
+    "comp_82c7f988",
+    "comp_9dee4220",
+    "comp_60b57767"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "80e3614a-25ae-43e7-bb0a-760e68ade864",
+    "category": "intersection_math",
+    "inputs": {
+      "P": "Plane",
+      "B": "Plane"
+    },
+    "outputs": {
+      "R": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "290cf9c4-0711-4704-851e-4c99e3343ac5"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|mathematical|plane region"
+  }
+}

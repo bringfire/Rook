@@ -1,0 +1,1422 @@
+{
+  "pattern_id": "eda34733",
+  "name": "10-2",
+  "version": "1.0",
+  "created": "2026-02-22T13:46:14.904535Z",
+  "solution": {
+    "brief": "Recipe from FILES\\10\\10-2.gh (83 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "slider",
+      "Snub+0",
+      "slider",
+      "slider",
+      "Frame+1",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Mesh WeldVertices",
+      "Mesh Join",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Snub+2",
+      "slider",
+      "slider",
+      "slider",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "F-RD",
+      "slider",
+      "slider",
+      "Move",
+      "Unit Z",
+      "Unify Mesh",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "slider",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "slider",
+      "Move",
+      "Unit Z",
+      "slider",
+      "Nevious",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Unify Mesh",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Mesh Sphere",
+      "slider",
+      "Nevious",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Unify Mesh",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Weaverbird's Offset Mesh",
+      "slider",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "slider",
+      "Weave",
+      "slider",
+      "slider",
+      "slider",
+      "Unify Mesh",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Weaverbird's Mesh Thicken",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ec97a8ea"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "complex-workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 6
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 6
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.48
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4.95
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.65
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": -5,
+          "max": 10,
+          "value": -0.36
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.59
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": -5,
+          "max": 10,
+          "value": -4.73
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.15
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": -5,
+          "max": 10,
+          "value": -1.19
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.46
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R51",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R69",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.2
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R75",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.83
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R77",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R83",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/10/10-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            45,
+            22
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            334.1,
+            124.7
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            422,
+            163
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            185.7,
+            139
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 6
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            187.7,
+            161.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 6
+        },
+        {
+          "id": "R6",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Snub+0",
+          "name": "Snub+0",
+          "pos": [
+            577,
+            248
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            305.6,
+            219.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.48
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            326.6,
+            240.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4.95
+        },
+        {
+          "id": "R9",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Frame+1",
+          "name": "Frame+1",
+          "pos": [
+            888,
+            453
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            630.4,
+            410.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.65
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            652.3,
+            434.3
+          ],
+          "min": -5,
+          "max": 10,
+          "value": -0.36
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            630.5,
+            386.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.59
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            327,
+            261.4
+          ],
+          "min": -5,
+          "max": 10,
+          "value": -4.73
+        },
+        {
+          "id": "R14",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            992,
+            513
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1088,
+            523
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1186,
+            541
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            967.2,
+            545.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Snub+2",
+          "name": "Snub+2",
+          "pos": [
+            577,
+            573
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            309.5,
+            509.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.15
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            330.5,
+            552.7
+          ],
+          "min": -5,
+          "max": 10,
+          "value": -1.19
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            309.9,
+            530.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R22",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            273.3,
+            950.1
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            435,
+            985
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            212,
+            973.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            211.4,
+            996.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "pos": [
+            284.3,
+            1055.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            286.9,
+            1088.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            342,
+            1188.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R29",
+          "type": "Component_VBNET_Script",
+          "nick": "m+F-RD",
+          "name": "F-RD",
+          "pos": [
+            677,
+            1037
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            284.3,
+            1122.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.46
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            286.9,
+            1155
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R32",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            513,
+            859
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            419,
+            869
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "MeshUnify",
+          "nick": "UniM",
+          "name": "Unify Mesh",
+          "pos": [
+            771,
+            1092
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            862,
+            1092
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            978,
+            1130
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            734.3,
+            1157.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            214.1,
+            863.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R39",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            683.9,
+            1456.6
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            850,
+            1490
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            622.5,
+            1480
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            621.9,
+            1503.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R43",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            945,
+            1342
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            828,
+            1374
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            605,
+            1370.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R46",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Nevious",
+          "name": "Nevious",
+          "pos": [
+            1079,
+            1645
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            726.7,
+            1591.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "pos": [
+            723.3,
+            1614.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R49",
+          "type": "slider",
+          "pos": [
+            785.3,
+            1683.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            726.7,
+            1637.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R51",
+          "type": "slider",
+          "pos": [
+            729.3,
+            1660.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R52",
+          "type": "MeshUnify",
+          "nick": "UniM",
+          "name": "Unify Mesh",
+          "pos": [
+            1220,
+            1685
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            1311,
+            1685
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1427,
+            1723
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            1184.1,
+            1751.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R56",
+          "type": "Component_MeshSphere",
+          "nick": "MSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            326,
+            1876
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            101.9,
+            1889
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R58",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Nevious",
+          "name": "Nevious",
+          "pos": [
+            642,
+            2022
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            290.9,
+            1969.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R60",
+          "type": "slider",
+          "pos": [
+            287.4,
+            1992.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "pos": [
+            349.5,
+            2061.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.91
+        },
+        {
+          "id": "R62",
+          "type": "slider",
+          "pos": [
+            290.9,
+            2015.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.3
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            293.4,
+            2038.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.37
+        },
+        {
+          "id": "R64",
+          "type": "MeshUnify",
+          "nick": "UniM",
+          "name": "Unify Mesh",
+          "pos": [
+            783,
+            2062
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            874,
+            2062
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            990,
+            2100
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "pos": [
+            761,
+            2108.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R68",
+          "type": "OffsetComponent",
+          "nick": "wbOffset",
+          "name": "Weaverbird's Offset Mesh",
+          "pos": [
+            507,
+            1801
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "slider",
+          "pos": [
+            278.5,
+            1791.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.2
+        },
+        {
+          "id": "R70",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            273.3,
+            2452.6
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            441,
+            2487
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            212,
+            2475.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R73",
+          "type": "slider",
+          "pos": [
+            211.4,
+            2499
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R74",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Weave",
+          "name": "Weave",
+          "pos": [
+            623,
+            2582
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "slider",
+          "pos": [
+            284.7,
+            2552.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.83
+        },
+        {
+          "id": "R76",
+          "type": "slider",
+          "pos": [
+            286.8,
+            2576.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R77",
+          "type": "slider",
+          "pos": [
+            300.6,
+            2600.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R78",
+          "type": "MeshUnify",
+          "nick": "UniM",
+          "name": "Unify Mesh",
+          "pos": [
+            801,
+            2617
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            892,
+            2617
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1246,
+            2621
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "slider",
+          "pos": [
+            1023.9,
+            2611.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R82",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1107,
+            2528
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "slider",
+          "pos": [
+            881.3,
+            2518.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R3.I2",
+        "R3.O0>R6.I0",
+        "R7.O0>R6.I2",
+        "R13.O0>R6.I3",
+        "R6.O1>R9.I0",
+        "R12.O0>R9.I2",
+        "R10.O0>R9.I3",
+        "R11.O0>R9.I4",
+        "R9.O1>R14.I0",
+        "R14.O1>R15.I0",
+        "R15.O0>R16.I0",
+        "R17.O0>R16.I1",
+        "R3.O0>R18.I0",
+        "R19.O0>R18.I2",
+        "R21.O0>R18.I3",
+        "R20.O0>R18.I4",
+        "R22.O0>R23.I0",
+        "R24.O0>R23.I1",
+        "R25.O0>R23.I2",
+        "R23.O0>R29.I0",
+        "R32.O0>R29.I1",
+        "R26.O0>R29.I3",
+        "R27.O0>R29.I4",
+        "R30.O0>R29.I5",
+        "R31.O0>R29.I6",
+        "R28.O0>R29.I7",
+        "R23.O0>R32.I0",
+        "R33.O0>R32.I1",
+        "R38.O0>R33.I0",
+        "R29.O1>R34.I0",
+        "R34.O0>R35.I0",
+        "R35.O1>R36.I0",
+        "R37.O0>R36.I1",
+        "R39.O0>R40.I0",
+        "R41.O0>R40.I1",
+        "R42.O0>R40.I2",
+        "R40.O0>R43.I0",
+        "R44.O0>R43.I1",
+        "R45.O0>R44.I0",
+        "R40.O0>R46.I0",
+        "R43.O0>R46.I1",
+        "R47.O0>R46.I3",
+        "R48.O0>R46.I4",
+        "R50.O0>R46.I5",
+        "R51.O0>R46.I6",
+        "R49.O0>R46.I7",
+        "R46.O1>R52.I0",
+        "R52.O0>R53.I0",
+        "R53.O1>R54.I0",
+        "R55.O0>R54.I1",
+        "R57.O0>R56.I2",
+        "R57.O0>R56.I3",
+        "R56.O0>R58.I0",
+        "R68.O0>R58.I1",
+        "R59.O0>R58.I3",
+        "R60.O0>R58.I4",
+        "R62.O0>R58.I5",
+        "R63.O0>R58.I6",
+        "R61.O0>R58.I7",
+        "R58.O1>R64.I0",
+        "R64.O0>R65.I0",
+        "R65.O1>R66.I0",
+        "R67.O0>R66.I1",
+        "R56.O0>R68.I0",
+        "R69.O0>R68.I1",
+        "R70.O0>R71.I0",
+        "R72.O0>R71.I1",
+        "R73.O0>R71.I2",
+        "R71.O0>R74.I0",
+        "R75.O0>R74.I2",
+        "R76.O0>R74.I3",
+        "R77.O0>R74.I4",
+        "R74.O1>R78.I0",
+        "R78.O0>R79.I0",
+        "R82.O0>R80.I0",
+        "R81.O0>R80.I1",
+        "R79.O1>R82.I0",
+        "R83.O0>R82.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

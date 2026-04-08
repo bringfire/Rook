@@ -1,0 +1,92 @@
+{
+  "note_id": "teaching_7e5815f9",
+  "note_type": "teaching",
+  "name": "U01 - Interface",
+  "brief": "Teaching: Interface",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass",
+  "keywords": [
+    "interface",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "search-functionality",
+    "hands-on",
+    "interface-basics",
+    "annotated",
+    "tutorial",
+    "beginner",
+    "foundational",
+    "workflow-efficiency",
+    "unit-01",
+    "ui-fundamentals",
+    "teaching",
+    "prerequisite-for-panels"
+  ],
+  "trigger_intents": [
+    "interface",
+    "how to use interface"
+  ],
+  "trigger_symptoms": [],
+  "components": [],
+  "solution_principle": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass",
+  "anti_patterns": [],
+  "preconditions": [
+    "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse."
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_0df0144b",
+    "teaching_7f2bbf35",
+    "teaching_0a6208a3",
+    "teaching_c103fe78",
+    "teaching_cf3f830b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": null,
+    "section_index": 0,
+    "x_range": [
+      439.9,
+      758.5
+    ],
+    "full_teaching_text": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass",
+    "sub_annotations": [
+      {
+        "id": "C130",
+        "text": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse.mcneel.com/t/panel-font-size-issue/101554/3\r\n\r\nDownload:\r\nhttps://www.food4rhino.com/en/app/pancake#downloads_list",
+        "topic": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes",
+        "pos": [
+          438.4,
+          590.1
+        ]
+      }
+    ],
+    "working_component_ids": [],
+    "intra_section_flows": [],
+    "groups": [],
+    "components_demonstrated": {},
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 0,
+      "sub_labels": 1,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 0
+    }
+  }
+}

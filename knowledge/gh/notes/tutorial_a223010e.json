@@ -1,0 +1,81 @@
+{
+  "note_id": "tutorial_a223010e",
+  "note_type": "teaching",
+  "name": "Beginner 3-3: Cross Reference Data Explosion \u00e2\u20ac\u201d Why 100 Branches from 3 Radii",
+  "brief": "Demonstrates Cross Reference data tree: 100 points \u00c3\u2014 3 radii = 100 branches of 1 circle OR 3 branches of 100 circles depending on tree structure",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.956301Z",
+  "context": "Focused explanation of Cross Reference data tree behavior. Point param (100 referenced points, Param Viewer: '100 branches, N=1'). Panel with values [0.1, 0.2, 0.3] (3 radii, Param Viewer: '1 branch, N=3'). Both feed into Circle (Plane, Radius). Output Param Viewers show two perspectives: - '100 branches, N=3 each' \u00e2\u20ac\u201d each point gets 3 circles (one per radius). - OR after flattening: different arrangement. Shows how the data tree structure determines the geometric output. The visual clarity of this example helps understand why Param Viewer is essential.",
+  "keywords": [
+    "cross reference explosion",
+    "data tree",
+    "branch structure",
+    "100 branches",
+    "param viewer",
+    "tree prediction"
+  ],
+  "category": "Beginner - Applied Projects",
+  "tags": [
+    "beginner",
+    "data-tree",
+    "cross-reference",
+    "tree-structure",
+    "param-viewer",
+    "debugging",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "cross reference data tree",
+    "why so many branches",
+    "cross reference branch explosion",
+    "predict data tree output",
+    "param viewer debugging",
+    "understand cross reference tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Circle",
+    "Panel",
+    "Param Viewer"
+  ],
+  "solution_principle": "Cross Reference with data trees can create unexpected branch structures. 100 points (100 branches \u00c3\u2014 1) crossed with 3 radii (1 branch \u00c3\u2014 3) produces 100 branches of 3 items. Understanding input tree structure is essential for predicting output. Always check Param Viewer before and after operations that change tree structure.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_0b3d1db3",
+    "tutorial_a0c71175",
+    "tutorial_27f96eed",
+    "tutorial_31ac118b",
+    "tutorial_6c3edd2d",
+    "tutorial_f8931ded",
+    "tutorial_6faa7cbb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.956301Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "3-3.jpg",
+    "lesson_number": 3,
+    "step_number": 3,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Point": 1,
+      "Circle": 1,
+      "Panel": 1,
+      "Param Viewer": 1
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "pattern_id": "b8f2c2e0",
+  "name": "wasp_23_teaching_Assignign_a_custom_p",
+  "version": "1.0",
+  "created": "2026-03-19T18:22:02.484901Z",
+  "solution": {
+    "brief": "Assignign a custom plane to the Field Points component allows to\r\ncontrol the orientation of the generated point grid. This plane will also\r\ndetermine the base orientation of parts placed in the field.",
+    "principle": "",
+    "components_needed": [
+      "Scale NU",
+      "NumberSlider",
+      "Point List",
+      "Volume",
+      "XY Plane",
+      "NumberSlider",
+      "Bounding Box",
+      "Wasp_Basic Part"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "points",
+      "plane",
+      "generated",
+      "custom",
+      "assignign",
+      "orientation",
+      "allows",
+      "component",
+      "control"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

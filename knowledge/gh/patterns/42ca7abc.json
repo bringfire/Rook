@@ -1,0 +1,366 @@
+{
+  "pattern_id": "42ca7abc",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T19:46:20.331186Z",
+  "solution": {
+    "brief": "Parametric workflow with 6 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Python Script",
+      "slider",
+      "Rectangle",
+      "Populate 2D",
+      "slider",
+      "slider",
+      "Python Script",
+      "Timer",
+      "slider",
+      "panel",
+      "Area",
+      "Circle",
+      "slider",
+      "Division",
+      "Mesh Sphere",
+      "Random",
+      "List Length",
+      "Colour HSL",
+      "Custom Preview",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:28:45.710213Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 24 wires -> 20 components, 25 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6.38
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 50,
+          "value": 20.9
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Particle Vortex.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "Python Script",
+          "pos": [
+            689,
+            189
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            117.2,
+            105.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            337,
+            104
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            499,
+            180
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            234.4,
+            283.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            309.9,
+            367
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6.38
+        },
+        {
+          "id": "R7",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "Python Script",
+          "pos": [
+            982,
+            239
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Timer",
+          "name": "Timer",
+          "pos": [
+            707,
+            508
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            629.8,
+            355
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 20.9
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            1210.4,
+            -4.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R11",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            497,
+            -37
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            608,
+            -17
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            369.3,
+            -94.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R14",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            980,
+            379
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_MeshSphere",
+          "nick": "MSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            1177,
+            353
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1277,
+            501
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1181,
+            501
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_ColourHSL",
+          "nick": "HSL",
+          "name": "Colour HSL",
+          "pos": [
+            1388,
+            450
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1479,
+            363
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            902.4,
+            502
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R6.O0>R1.I1",
+        "R2.O0>R3.I1",
+        "R2.O0>R3.I2",
+        "R3.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R1.O1>R7.I0",
+        "R9.O0>R7.I1",
+        "R9.O0>R7.I2",
+        "R11.O1>R7.I3",
+        "R13.O0>R7.I4",
+        "R7.O0>R10.I0",
+        "R3.O0>R11.I0",
+        "R11.O1>R12.I0",
+        "R13.O0>R12.I1",
+        "R9.O0>R14.I0",
+        "R7.O1>R15.I0",
+        "R14.O0>R15.I1",
+        "R20.O0>R15.I2",
+        "R20.O0>R15.I3",
+        "R17.O0>R16.I1",
+        "R15.O0>R17.I0",
+        "R16.O0>R18.I1",
+        "R15.O0>R19.I0",
+        "R18.O0>R19.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

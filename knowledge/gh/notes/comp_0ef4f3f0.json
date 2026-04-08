@@ -1,0 +1,81 @@
+{
+  "note_id": "comp_0ef4f3f0",
+  "note_type": "component",
+  "name": "BouncySolver",
+  "brief": "BouncySolver | Inputs: GoalObjects, Reset, Threshold, Tolerance \u2192 I, V, O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.463899Z",
+  "context": "Grasshopper component: BouncySolver. Inputs: GoalObjects (Generic Data), Reset (Boolean), Threshold (Number), Tolerance (Number), Damping (Number), Iterations (Integer), On (Boolean). Outputs: I (Integer), V (Point), O (Generic Data).",
+  "keywords": [
+    "bouncysolver",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "bouncysolver",
+    "bouncy",
+    "solver"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "BouncySolver"
+  ],
+  "solution_principle": "Solver with momentum",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_97c754d6",
+    "comp_5713da8f",
+    "comp_a99f6b65",
+    "comp_ab89f681",
+    "comp_617b0a2f",
+    "comp_fc845a73",
+    "comp_a575c692",
+    "comp_ce7f5782"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0febdb68-70bd-4882-b5e4-f68d1cddc4ae",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "GoalObjects": "Generic Data",
+      "Reset": "Boolean",
+      "Threshold": "Number",
+      "Tolerance": "Number",
+      "Damping": "Number",
+      "Iterations": "Integer",
+      "On": "Boolean"
+    },
+    "outputs": {
+      "I": "Integer",
+      "V": "Point",
+      "O": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "313490f5-8e38-4dde-9e9a-05e4d739b35d",
+      "4408343b-577e-4fd8-96ff-df7549189186",
+      "35c49588-244d-43a4-81b2-fd3ef59c1b1d"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|bouncysolver",
+    "family": "kangaroo2_main"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

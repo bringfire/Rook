@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_5df6692e",
+  "note_type": "component",
+  "name": "Rail Revolution",
+  "brief": "Rail Revolution | Inputs: P, R, A, S → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Rail Revolution. Inputs: P (Curve), R (Curve), A (Line), S (Boolean). Outputs: S (Brep).",
+  "keywords": [
+    "rail revolution",
+    "rail",
+    "revolution",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "rail revolution",
+    "rail",
+    "revolution"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rail Revolution"
+  ],
+  "solution_principle": "Create a surface of revolution using a sweep rail.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b",
+    "comp_5f73dc24",
+    "comp_d543dc52",
+    "comp_99f96b5f",
+    "comp_44745d46"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d8d68c35-f869-486d-adf3-69ee3cc2d501",
+    "category": "surface_ops",
+    "inputs": {
+      "P": "Curve",
+      "R": "Curve",
+      "A": "Line",
+      "S": "Boolean"
+    },
+    "outputs": {
+      "S": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "cdee962f-4202-456b-a1b4-f3ed9aa0dc29"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|rail revolution"
+  }
+}

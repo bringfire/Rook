@@ -1,0 +1,160 @@
+{
+  "note_id": "teaching_4f32fa83",
+  "note_type": "teaching",
+  "name": "U03 - Lists: Wrapping",
+  "brief": "Teaching: Lists: Wrapping",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does no",
+  "keywords": [
+    "lists",
+    "wrapping",
+    "series",
+    "list item",
+    "numberslider",
+    "unit 03 class"
+  ],
+  "category": "Unit 03",
+  "tags": [
+    "tutorial",
+    "prerequisite-for-trees",
+    "unit-03",
+    "hands-on",
+    "data-management",
+    "prerequisite-for-assignments",
+    "requires-u01",
+    "list-components",
+    "list-fundamentals",
+    "beginner-intermediate",
+    "list-wrapping",
+    "teaching",
+    "multi-group"
+  ],
+  "trigger_intents": [
+    "lists: wrapping",
+    "how to use lists: wrapping",
+    "how to use series",
+    "how to use list item",
+    "list item"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Series",
+    "List Item",
+    "NumberSlider"
+  ],
+  "solution_principle": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2f6660b2",
+    "teaching_04dab798",
+    "teaching_56fc7a76",
+    "teaching_90fd2ccf",
+    "teaching_088f486f",
+    "teaching_73f5abfe"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-03-Class",
+    "unit_number": 3,
+    "section_number": 3,
+    "section_index": 2,
+    "x_range": [
+      1137,
+      1890.0
+    ],
+    "full_teaching_text": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C10",
+      "C17",
+      "C23",
+      "C46",
+      "C11",
+      "C12",
+      "C13"
+    ],
+    "intra_section_flows": [
+      "C11.O0>C10.I0",
+      "C12.O0>C10.I1",
+      "C13.O0>C10.I2",
+      "C10.O0>C14.I0",
+      "C10.O0>C17.I0",
+      "C22.O0>C17.I1",
+      "C17.O0>C18.I0",
+      "C10.O0>C23.I0",
+      "C29.O0>C23.I1",
+      "C23.O0>C24.I0",
+      "C10.O0>C46.I0",
+      "C48.O0>C46.I1",
+      "C46.O0>C47.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G40",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G35",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G34",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G41",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G42",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G49",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G50",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G39",
+        "name": "",
+        "colour": "#00FFFB"
+      }
+    ],
+    "components_demonstrated": {
+      "Series": 1,
+      "List Item": 3,
+      "NumberSlider": 3
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 7,
+      "sub_labels": 0,
+      "connected_panels": 7,
+      "flows": 13,
+      "groups": 8
+    }
+  }
+}

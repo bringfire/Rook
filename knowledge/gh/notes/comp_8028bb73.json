@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_8028bb73",
+  "note_type": "component",
+  "name": "PolyLine",
+  "brief": "PolyLine | Inputs: V, C â†’ Pl",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: PolyLine. Inputs: V (Point), C (Boolean). Outputs: Pl (Curve).",
+  "keywords": [
+    "polyline",
+    "polyline"
+  ],
+  "category": "curves",
+  "tags": [
+    "component",
+    "curve-creation",
+    "point-sequence",
+    "fundamental",
+    "geometry-construction",
+    "polyline",
+    "curve-based",
+    "prerequisite-operation"
+  ],
+  "trigger_intents": [
+    "polyline",
+    "poly",
+    "line"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "PolyLine"
+  ],
+  "solution_principle": "Create a polyline connecting a number of points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "recipe_57a3d532",
+    "recipe_c4ebd406",
+    "recipe_130f6b1d",
+    "recipe_6ba5ea93",
+    "comp_c8e944af"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+    "category": "curves",
+    "inputs": {
+      "V": "Point",
+      "C": "Boolean"
+    },
+    "outputs": {
+      "Pl": "Curve"
+    },
+    "typical_wiring": [],
+    "usage_count": 91,
+    "stable_key": "curve|spline|polyline"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_a99f6b65",
+  "note_type": "component",
+  "name": "Soft & Hard Solver",
+  "brief": "Soft & Hard Solver | Inputs: SoftGoals, HardGoals, HardIterations, SoftMultiplier → I, V, O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Soft & Hard Solver. Inputs: SoftGoals (Generic Data), HardGoals (Generic Data), HardIterations (Integer), SoftMultiplier (Number), Reset (Boolean), Threshold (Number), Tolerance (Number), On (Boolean). Outputs: I (Integer), V (Point), O (Generic Data).",
+  "keywords": [
+    "soft & hard solver",
+    "soft",
+    "&",
+    "hard",
+    "solver",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "soft & hard solver",
+    "soft",
+    "hard",
+    "solver"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Soft & Hard Solver"
+  ],
+  "solution_principle": "Solver with separate inputs for soft goals, and hard constraint type goals",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_97c754d6",
+    "comp_0ef4f3f0",
+    "comp_5713da8f",
+    "comp_ce7f5782",
+    "comp_ab89f681",
+    "comp_617b0a2f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "35c49588-244d-43a4-81b2-fd3ef59c1b1d",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "SoftGoals": "Generic Data",
+      "HardGoals": "Generic Data",
+      "HardIterations": "Integer",
+      "SoftMultiplier": "Number",
+      "Reset": "Boolean",
+      "Threshold": "Number",
+      "Tolerance": "Number",
+      "On": "Boolean"
+    },
+    "outputs": {
+      "I": "Integer",
+      "V": "Point",
+      "O": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0febdb68-70bd-4882-b5e4-f68d1cddc4ae"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|soft & hard solver"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_1ed8e25f",
+  "note_type": "component",
+  "name": "Square",
+  "brief": "Square | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Square. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "square",
+    "polynomials"
+  ],
+  "category": "polynomials",
+  "tags": [
+    "polynomials"
+  ],
+  "trigger_intents": [
+    "square"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Square"
+  ],
+  "solution_principle": "Compute the square of a value",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9b30ca84",
+    "comp_02881050",
+    "comp_2ff6d186",
+    "comp_4d128ea8",
+    "comp_115735c2",
+    "comp_2759d81c",
+    "comp_2e488c3b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2280dde4-9fa2-4b4a-ae2f-37d554861367",
+    "category": "polynomials",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7e3185eb-a38c-4949-bcf2-0e80dee3a344",
+      "ad476cb7-b6d1-41c8-986b-0df243a64146"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|polynomials|square"
+  }
+}

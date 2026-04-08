@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_10117bb9",
+  "note_type": "component",
+  "name": "Interpolate Date",
+  "brief": "Interpolate Date | Inputs: A, B, t \u2192 D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Interpolate Date. Inputs: A (Time), B (Time), t (Number). Outputs: D (Time).",
+  "keywords": [
+    "interpolate date",
+    "interpolate",
+    "date",
+    "time_ops"
+  ],
+  "category": "time_ops",
+  "tags": [
+    "time_ops"
+  ],
+  "trigger_intents": [
+    "interpolate date",
+    "interpolate",
+    "date"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Interpolate Date"
+  ],
+  "solution_principle": "Interpolate between two dates or times.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_58735b68",
+    "comp_d214f5ae",
+    "comp_94e8a745",
+    "comp_650cfc2b",
+    "teaching_220e8091",
+    "comp_024ee866"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4083802b-3dd9-4b13-9756-bf5441213e70",
+    "category": "time_ops",
+    "inputs": {
+      "A": "Time",
+      "B": "Time",
+      "t": "Number"
+    },
+    "outputs": {
+      "D": "Time"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "38a4e722-ad5a-4229-a170-e27ae1345538",
+      "31534405-6573-4be6-8bf8-262e55847a3a"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|time|interpolate date",
+    "family": "time_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

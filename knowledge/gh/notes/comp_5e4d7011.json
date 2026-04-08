@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_5e4d7011",
+  "note_type": "component",
+  "name": "Curve Contour",
+  "brief": "Curve Contour | Inputs: C, P, N, D → C, t",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Curve Contour. Inputs: C (Curve), P (Point), N (Vector), D (Number). Outputs: C (Point), t (Number).",
+  "keywords": [
+    "curve contour",
+    "curve",
+    "contour",
+    "curve_division"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "curve_division"
+  ],
+  "trigger_intents": [
+    "curve contour",
+    "curve",
+    "contour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Contour"
+  ],
+  "solution_principle": "Create a set of Curve contours",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e75be450",
+    "comp_2c4dae60",
+    "comp_ac081276",
+    "comp_c2c88f4e",
+    "comp_2de0f8a7"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "88cff285-7f5e-41b3-96d5-9588ff9a52b1",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "P": "Point",
+      "N": "Vector",
+      "D": "Number"
+    },
+    "outputs": {
+      "C": "Point",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3e7e4827-6edd-4e10-93ac-cc234414d2b9"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|curve contour"
+  }
+}

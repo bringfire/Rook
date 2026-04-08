@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_1fd660b8",
+  "note_type": "component",
+  "name": "Multiplication",
+  "brief": "Multiplication | Inputs: A, B â†’ R",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Multiplication. Inputs: A (Generic Data), B (Generic Data). Outputs: R (Generic Data).",
+  "keywords": [
+    "multiplication",
+    "multiplication"
+  ],
+  "category": "math",
+  "tags": [
+    "mathematical-operation",
+    "fundamental-component",
+    "arithmetic",
+    "scalar-operation",
+    "parameter-scaling",
+    "value-transformation",
+    "foundational"
+  ],
+  "trigger_intents": [
+    "multiplication"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Multiplication"
+  ],
+  "solution_principle": "Mathematical multiplication",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_a03f14e3",
+    "comp_be35941a",
+    "recipe_2f310f59",
+    "teaching_6712adae",
+    "teaching_8f0b8816",
+    "comp_c8e944af"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "b8963bb1-aa57-476e-a20e-ed6cf635a49c",
+    "category": "math",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "usage_count": 139,
+    "stable_key": "maths|operators|multiplication"
+  },
+  "deprecated": true,
+  "deprecated_reason": "unknown",
+  "deprecated_by": "ce46b74e-00c9-43c4-805a-193b69ea4a11",
+  "deprecated_replacement_name": "Multiplication"
+}

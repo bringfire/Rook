@@ -1,0 +1,58 @@
+{
+  "note_id": "comp_e999e479",
+  "note_type": "component",
+  "name": "Angle",
+  "brief": "Angle | Inputs: Vector A, Vector B, Plane → Angle, Reflex",
+  "version": "1.0",
+  "created": "2026-03-19T18:27:37.781254Z",
+  "context": "Grasshopper component: Angle. ",
+  "keywords": [
+    "angle",
+    "unknown",
+    "angle"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "angle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Angle"
+  ],
+  "solution_principle": "Angle | Inputs: Vector A, Vector B, Plane → Angle, Reflex",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "b464fccb-50e7-41bd-9789-8438db9bea9f",
+    "category": "unknown",
+    "inputs": {
+      "Vector A": "Vector A",
+      "Vector B": "Vector B",
+      "Plane": "Plane"
+    },
+    "outputs": {
+      "Angle": "Angle",
+      "Reflex": "Reflex"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|vector|angle"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

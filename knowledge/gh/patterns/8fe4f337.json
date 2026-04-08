@@ -1,0 +1,446 @@
+{
+  "pattern_id": "8fe4f337",
+  "name": "S07E02",
+  "version": "1.0",
+  "created": "2026-02-22T14:33:16.747692Z",
+  "solution": {
+    "brief": "Recipe from FILES\\7\\S07E02.gh (27 components)",
+    "principle": "\n\nRelated insight: Part of S07 tutorial series progression: S07E02 (27 components) → S07E03 (112 components), showing complexity scaling within the series.",
+    "components_needed": [
+      "Bifocals",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Scribble",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Param Viewer",
+      "Ruled Surface",
+      "Param Viewer",
+      "Deconstruct Brep",
+      "Param Viewer",
+      "Ruled Surface",
+      "Merge",
+      "Param Viewer",
+      "panel",
+      "panel",
+      "panel",
+      "PolyLine",
+      "Square",
+      "PolyLine",
+      "Flip Matrix"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s07e02"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "6768a56f",
+    "6a391ba0",
+    "d64451d5"
+  ],
+  "tags": [
+    "recipe",
+    "grasshopper-recipe",
+    "tutorial-series",
+    "low-mid-complexity",
+    "workflow",
+    "s07-series",
+    "s07e02",
+    "27-components",
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:34:00.982122",
+    "evolved_by": [
+      "d64451d5"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:34:00.982122",
+        "trigger": "New pattern: d64451d5",
+        "changes": "S07E03 establishes a clear series progression context that enhances understanding of S07E02's position in the tutorial sequence"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        }
+      ],
+      "panels": [
+        {
+          "id": "R21",
+          "nick": "",
+          "content": "{1;2}[2]"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "{0;3}[3]"
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "content": "{2;2}[3]"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/7/S07E02.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            63,
+            -28
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            318,
+            99
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            490,
+            227
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            191,
+            222.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R5",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            194.9,
+            -91.7
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            165.1,
+            82.4
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            -0.8,
+            96.9
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            -0.2,
+            150.6
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -861.3,
+            997.9
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -859.2,
+            1046.5
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -864.7,
+            1187.2
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -862.5,
+            1235.9
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -749.1,
+            882.4
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_RuledSurface",
+          "name": "Ruled Surface",
+          "pos": [
+            -718,
+            1016
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -597.4,
+            932.8
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            -480,
+            1056
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -323.5,
+            992.4
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_RuledSurface",
+          "name": "Ruled Surface",
+          "pos": [
+            -715,
+            1197
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            -618,
+            1089
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -409.2,
+            1151.3
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "panel",
+          "pos": [
+            319.8,
+            268.9
+          ],
+          "content": "{1;2}[2]"
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            317.1,
+            365.5
+          ],
+          "content": "{0;3}[3]"
+        },
+        {
+          "id": "R23",
+          "type": "panel",
+          "pos": [
+            318.6,
+            467.5
+          ],
+          "content": "{2;2}[3]"
+        },
+        {
+          "id": "R24",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            694,
+            114
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            858,
+            320
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            1130,
+            350
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "FlipDataMatrixComponent",
+          "name": "Flip Matrix",
+          "pos": [
+            1003,
+            340
+          ]
+        }
+      ],
+      "flows": [
+        "R6.O0>R2.I0",
+        "R7.O0>R2.I2",
+        "R8.O0>R2.I3",
+        "R2.O1>R3.I0",
+        "R4.O0>R3.I1",
+        "R9.O0>R14.I0",
+        "R10.O0>R14.I1",
+        "R19.O0>R16.I0",
+        "R11.O0>R18.I0",
+        "R12.O0>R18.I1",
+        "R14.O0>R19.I0",
+        "R18.O0>R19.I1",
+        "R2.O1>R24.I0",
+        "R27.O0>R26.I0",
+        "R25.O1>R27.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R21",
+          "text": "{1;2}[2]",
+          "pos": [
+            319.8,
+            268.9
+          ],
+          "nearby": [
+            "R4",
+            "R2",
+            "R3",
+            "R6"
+          ]
+        },
+        {
+          "panel_id": "R22",
+          "text": "{0;3}[3]",
+          "pos": [
+            317.1,
+            365.5
+          ],
+          "nearby": [
+            "R4",
+            "R3",
+            "R2",
+            "R6"
+          ]
+        },
+        {
+          "panel_id": "R23",
+          "text": "{2;2}[3]",
+          "pos": [
+            318.6,
+            467.5
+          ],
+          "nearby": [
+            "R4",
+            "R3",
+            "R2",
+            "R6",
+            "R8",
+            "R7",
+            "R24"
+          ]
+        }
+      ]
+    }
+  }
+}

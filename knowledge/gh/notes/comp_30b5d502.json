@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_30b5d502",
+  "note_type": "component",
+  "name": "PlasticHinge",
+  "brief": "PlasticHinge | Inputs: FoldStart, FoldEnd, Tip1, Tip2 → H",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: PlasticHinge. Inputs: FoldStart (Point), FoldEnd (Point), Tip1 (Point), Tip2 (Point), RestAngle (Number), Limit (Number), Strength (Number). Outputs: H (Generic Data).",
+  "keywords": [
+    "plastichinge",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "plastichinge",
+    "plastic",
+    "hinge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "PlasticHinge"
+  ],
+  "solution_principle": "Like Hinge, except folding beyond the plastic/elastic threshold will alter the rest angle",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "69a52798-b567-4a36-b5b4-7614bea071bc",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "FoldStart": "Point",
+      "FoldEnd": "Point",
+      "Tip1": "Point",
+      "Tip2": "Point",
+      "RestAngle": "Number",
+      "Limit": "Number",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "H": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|plastichinge"
+  }
+}

@@ -1,0 +1,294 @@
+{
+  "note_id": "recipe_169489f1",
+  "note_type": "recipe",
+  "name": "Summer Firework",
+  "brief": "Summer Firework: ZuiPythonComponent \u00e2\u2020\u2019 Timer \u00e2\u2020\u2019 ButtonObject \u00e2\u2020\u2019 UnitVectorZ \u00e2\u2020\u2019 Sphere +11 more (25 components, 5 sliders, 26 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T20:36:53.943623Z",
+  "context": "Extracted from: Summer Firework.gh",
+  "keywords": [
+    "parametric",
+    "parametric"
+  ],
+  "category": "parametric",
+  "tags": [
+    "5-parameter-workflow",
+    "adjustable-parameters",
+    "button-object",
+    "colour",
+    "complexity-spectrum",
+    "custom-preview-component",
+    "evaluate-surface_-o",
+    "explode-curve",
+    "gradient-control",
+    "list-length",
+    "low-complexity",
+    "numeric-bounds",
+    "parametric-modeling",
+    "populate-geometry",
+    "remap",
+    "series",
+    "sphere",
+    "surface-closest-point",
+    "timer",
+    "unit-vector-z",
+    "workflow",
+    "zui-python-component"
+  ],
+  "trigger_intents": [
+    "create a sphere",
+    "number sequence",
+    "range of values",
+    "parametric sphere"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Python Script",
+    "Number Slider",
+    "Python Script",
+    "Number Slider",
+    "Number Slider",
+    "Timer",
+    "Button",
+    "Unit Z",
+    "Sphere",
+    "Populate Geometry",
+    "Number Slider",
+    "Surface Closest Point",
+    "Surface",
+    "Evaluate Surface",
+    "Number Slider",
+    "Custom Preview",
+    "Colour Swatch",
+    "Curve",
+    "Explode",
+    "List Length",
+    "Series",
+    "Remap Numbers",
+    "Bounds",
+    "Gradient",
+    "Custom Preview"
+  ],
+  "solution_principle": "Processing chain: ZuiPythonComponent \u00e2\u2020\u2019 Timer \u00e2\u2020\u2019 ButtonObject \u00e2\u2020\u2019 UnitVectorZ \u00e2\u2020\u2019 Sphere \u00e2\u2020\u2019 PopulateGeometry \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 GradientControl.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_04081616",
+    "recipe_139f766a",
+    "recipe_08d50032",
+    "recipe_8b918ca6",
+    "recipe_91aa15f3",
+    "recipe_41f76822",
+    "recipe_77ddec83"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "5bb02ac0-ab49-453e-9923-41de606a41f6",
+        "from_param": "Number Slider",
+        "to": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "to_param": "h"
+      },
+      {
+        "from": "d306be4b-ab86-4b34-823b-b2d14308f259",
+        "from_param": "Number Slider",
+        "to": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "to_param": "r"
+      },
+      {
+        "from": "4e15d95c-54e0-40c4-a81d-c1ab652afcac",
+        "from_param": "Number Slider",
+        "to": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "to_param": "v"
+      },
+      {
+        "from": "5e3692d4-79a0-4968-bf8a-2b8392974665",
+        "from_param": "Number Slider",
+        "to": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "to_param": "g"
+      },
+      {
+        "from": "d1a2fd52-a16d-40be-9a91-f0bd065ce92a",
+        "from_param": "F",
+        "to": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "to_param": "pls"
+      },
+      {
+        "from": "811feb22-74cd-47cf-89dd-d7972932516d",
+        "from_param": "firework",
+        "to": "8b01c833-126a-455a-8fbb-b7e28642e934",
+        "to_param": "firework"
+      },
+      {
+        "from": "d279f853-b92b-4746-8f65-64a675d0159f",
+        "from_param": "Button",
+        "to": "8b01c833-126a-455a-8fbb-b7e28642e934",
+        "to_param": "reset"
+      },
+      {
+        "from": "4e15d95c-54e0-40c4-a81d-c1ab652afcac",
+        "from_param": "Number Slider",
+        "to": "3f5c95e8-bb25-405f-8c80-5e34e5b73282",
+        "to_param": "F"
+      },
+      {
+        "from": "d306be4b-ab86-4b34-823b-b2d14308f259",
+        "from_param": "Number Slider",
+        "to": "74790710-c066-4518-8e51-e7fd12948e85",
+        "to_param": "R"
+      },
+      {
+        "from": "74790710-c066-4518-8e51-e7fd12948e85",
+        "from_param": "S",
+        "to": "9772f6f4-2677-4a6b-8282-06cd0099043f",
+        "to_param": "G"
+      },
+      {
+        "from": "916722de-c3cf-4a13-9b93-08389fefda93",
+        "from_param": "Number Slider",
+        "to": "9772f6f4-2677-4a6b-8282-06cd0099043f",
+        "to_param": "N"
+      },
+      {
+        "from": "9772f6f4-2677-4a6b-8282-06cd0099043f",
+        "from_param": "P",
+        "to": "60e59719-df8f-4eb3-bdb7-96898a22a294",
+        "to_param": "P"
+      },
+      {
+        "from": "11152c7c-22c6-4d6c-81d7-fd3accfcf825",
+        "from_param": "Srf",
+        "to": "60e59719-df8f-4eb3-bdb7-96898a22a294",
+        "to_param": "S"
+      },
+      {
+        "from": "11152c7c-22c6-4d6c-81d7-fd3accfcf825",
+        "from_param": "Srf",
+        "to": "d1a2fd52-a16d-40be-9a91-f0bd065ce92a",
+        "to_param": "S"
+      },
+      {
+        "from": "60e59719-df8f-4eb3-bdb7-96898a22a294",
+        "from_param": "uvP",
+        "to": "d1a2fd52-a16d-40be-9a91-f0bd065ce92a",
+        "to_param": "uv"
+      },
+      {
+        "from": "8b01c833-126a-455a-8fbb-b7e28642e934",
+        "from_param": "b",
+        "to": "4a6cc746-501f-4e18-a48d-c49ee37a7bf6",
+        "to_param": "G"
+      },
+      {
+        "from": "01ba15bf-fc4a-4fa9-b0be-058b675ccf3e",
+        "from_param": "Swatch",
+        "to": "4a6cc746-501f-4e18-a48d-c49ee37a7bf6",
+        "to_param": "S"
+      },
+      {
+        "from": "5601d4dd-3b52-4775-8369-e3ea1d04ade4",
+        "from_param": "Crv",
+        "to": "5afa99e6-17e4-4175-91a4-38c1d2c8fc72",
+        "to_param": "C"
+      },
+      {
+        "from": "5afa99e6-17e4-4175-91a4-38c1d2c8fc72",
+        "from_param": "S",
+        "to": "8a8ac148-f9a0-4940-ade4-28fc58ebf4f2",
+        "to_param": "L"
+      },
+      {
+        "from": "8a8ac148-f9a0-4940-ade4-28fc58ebf4f2",
+        "from_param": "L",
+        "to": "340288f5-e2ae-4ae8-ab6b-f0bc7eb730ec",
+        "to_param": "C"
+      },
+      {
+        "from": "340288f5-e2ae-4ae8-ab6b-f0bc7eb730ec",
+        "from_param": "S",
+        "to": "6d069b1c-c881-4540-ad5c-07bb2341c7c8",
+        "to_param": "V"
+      },
+      {
+        "from": "799ec493-096e-40af-b9a0-5c6967466ba8",
+        "from_param": "I",
+        "to": "6d069b1c-c881-4540-ad5c-07bb2341c7c8",
+        "to_param": "S"
+      },
+      {
+        "from": "340288f5-e2ae-4ae8-ab6b-f0bc7eb730ec",
+        "from_param": "S",
+        "to": "799ec493-096e-40af-b9a0-5c6967466ba8",
+        "to_param": "N"
+      },
+      {
+        "from": "6d069b1c-c881-4540-ad5c-07bb2341c7c8",
+        "from_param": "R",
+        "to": "331a5215-eeca-4fff-8020-d93944ef6bf1",
+        "to_param": "t"
+      },
+      {
+        "from": "5afa99e6-17e4-4175-91a4-38c1d2c8fc72",
+        "from_param": "S",
+        "to": "0cc44e3f-4574-4084-9976-a7c6c2c470e8",
+        "to_param": "G"
+      },
+      {
+        "from": "331a5215-eeca-4fff-8020-d93944ef6bf1",
+        "from_param": "C",
+        "to": "0cc44e3f-4574-4084-9976-a7c6c2c470e8",
+        "to_param": "S"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "5bb02ac0-ab49-453e-9923-41de606a41f6",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "h"
+        },
+        {
+          "guid": "d306be4b-ab86-4b34-823b-b2d14308f259",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "r"
+        },
+        {
+          "guid": "4e15d95c-54e0-40c4-a81d-c1ab652afcac",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "v"
+        },
+        {
+          "guid": "916722de-c3cf-4a13-9b93-08389fefda93",
+          "role": "count",
+          "connected_to": "Populate Geometry",
+          "param": "N"
+        },
+        {
+          "guid": "5e3692d4-79a0-4968-bf8a-2b8392974665",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "g"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Summer Firework.gh",
+    "pattern_type": "recipe",
+    "component_count": 25
+  }
+}

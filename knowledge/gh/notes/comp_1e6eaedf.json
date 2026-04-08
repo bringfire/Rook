@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_1e6eaedf",
+  "note_type": "component",
+  "name": "Curve | Self",
+  "brief": "Curve | Self | Inputs: C → P, t",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Curve | Self. Inputs: C (Curve). Outputs: P (Point), t (Number).",
+  "keywords": [
+    "curve | self",
+    "curve",
+    "|",
+    "self",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "curve | self",
+    "curve",
+    "self"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve | Self"
+  ],
+  "solution_principle": "Solve all self intersection events for a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_df6a8c9a",
+    "comp_4e3057cb",
+    "comp_1f874e01",
+    "comp_279c2a0b",
+    "comp_f3f53a23"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0991ac99-6a0b-47a9-b07d-dd510ca57f0f",
+    "category": "intersection_physical",
+    "inputs": {
+      "C": "Curve"
+    },
+    "outputs": {
+      "P": "Point",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "84627490-0fb2-4498-8138-ad134ee4cb36"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|curve | self"
+  }
+}

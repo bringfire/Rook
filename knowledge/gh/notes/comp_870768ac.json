@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_870768ac",
+  "note_type": "component",
+  "name": "Skylight",
+  "brief": "Skylight | Inputs: Sk, E, Ce, Ev → Sk, E, Ce",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Skylight. Inputs: Sk (Model Content), E (Boolean), Ce (Boolean), Ev (Model Environment). Outputs: Sk (Model Content), E (Boolean), Ce (Boolean), Ev (Model Environment).",
+  "keywords": [
+    "skylight",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "skylight"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Skylight"
+  ],
+  "solution_principle": "The Rhino skylight",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f462047",
+    "comp_1662c3ae",
+    "comp_d83bab54",
+    "comp_07e6e9b8",
+    "comp_4029dc8e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "727c2d89-4fde-4fac-b30d-340f84ffa0d1",
+    "category": "rhino_render",
+    "inputs": {
+      "Sk": "Model Content",
+      "E": "Boolean",
+      "Ce": "Boolean",
+      "Ev": "Model Environment"
+    },
+    "outputs": {
+      "Sk": "Model Content",
+      "E": "Boolean",
+      "Ce": "Boolean",
+      "Ev": "Model Environment"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2a0a5db2-f3e4-4680-9f7a-87cabcc0b165"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|skylight"
+  }
+}

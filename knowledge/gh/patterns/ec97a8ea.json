@@ -1,0 +1,1061 @@
+{
+  "pattern_id": "ec97a8ea",
+  "name": "10-1",
+  "version": "1.0",
+  "created": "2026-02-22T13:45:48.844170Z",
+  "solution": {
+    "brief": "Recipe from FILES\\10\\10-1.gh (70 components)",
+    "principle": "\n\nRelated insight: Part of a sequential recipe series - followed by 10-2 (83 components), indicating progressive complexity in the workflow.\n\nRelated insight: Series extends beyond 10-2 to at least 10-4 (26 components), suggesting variable complexity rather than strictly progressive difficulty.\n\nRelated insight: Related insight: Series complexity scaling: The 10-series demonstrates significant internal complexity progression from 10-1 (70 components) to 10-3 (99 components), representing a 41% increase in workflow complexity within the same tutorial sequence.\n\nRelated insight: Cross-series complexity patterns: 9-1 (36 components) establishes mid-complexity benchmark, confirming 10-1 (70 components) as high-complexity tier similar to 3-1 (71 components).",
+    "components_needed": [
+      "Bifocals",
+      "Mesh Box",
+      "panel",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Face Boundaries",
+      "Surface",
+      "MultiPipe",
+      "slider",
+      "Mesh Box",
+      "panel",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Face Boundaries",
+      "MultiPipe",
+      "slider",
+      "Weaverbird's Offset Mesh",
+      "slider",
+      "Face Boundaries",
+      "Discontinuity",
+      "Discontinuity",
+      "Line",
+      "Custom Preview",
+      "Mesh Box",
+      "panel",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Face Boundaries",
+      "Surface",
+      "Curve",
+      "Bounding Box",
+      "Map to Surface",
+      "Circle",
+      "Extrude",
+      "Face Normals",
+      "Custom Preview",
+      "Mesh Box",
+      "panel",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Face Boundaries",
+      "Weaverbird's Offset Mesh",
+      "slider",
+      "Face Boundaries",
+      "Twisted Box",
+      "Discontinuity",
+      "Discontinuity",
+      "List Item",
+      "List Item",
+      "Deconstruct Mesh",
+      "Construct Mesh",
+      "Point",
+      "Cull Index",
+      "panel",
+      "Brep",
+      "Simple Mesh",
+      "Bounding Box",
+      "Box Morph",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Custom Preview",
+      "slider",
+      "Weaverbird's Mesh Thicken",
+      "Weaverbird's Catmull-Clark Subdivision"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "fdbc67df",
+    "188588cb",
+    "f7069550",
+    "eda34733",
+    "85b7161d",
+    "6a391ba0",
+    "d494a6a3"
+  ],
+  "tags": [
+    "complexity-scaling",
+    "complex-workflow",
+    "parametric",
+    "tutorial-series",
+    "surface-creation",
+    "high-complexity",
+    "recipe",
+    "sequential"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:22:05.841300",
+    "evolved_by": [
+      "eda34733",
+      "85b7161d",
+      "6a391ba0",
+      "d494a6a3"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T08:46:32.509248",
+        "trigger": "New pattern: eda34733",
+        "changes": "Adding 'sequential' tag and context about the progression helps users understand this is part of a learning sequence with increasing complexity"
+      },
+      {
+        "date": "2026-02-22T08:54:06.597075",
+        "trigger": "New pattern: 85b7161d",
+        "changes": "New pattern 10-4 reveals the tutorial series is longer than previously known and has variable complexity levels"
+      },
+      {
+        "date": "2026-02-22T09:17:27.446318",
+        "trigger": "New pattern: 6a391ba0",
+        "changes": "10-1 is part of the same series as the new 99-component 10-3, requiring context about series-internal complexity scaling and addition of complexity-scaling tag"
+      },
+      {
+        "date": "2026-02-22T09:22:05.841300",
+        "trigger": "New pattern: d494a6a3",
+        "changes": "The 36-component 9-1 pattern provides context for understanding where 10-1 sits in the overall complexity distribution across tutorial series"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "min": 1,
+          "max": 3,
+          "value": 2
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.17
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 0.25
+        }
+      ],
+      "panels": [
+        {
+          "id": "R3",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "content": "1\r\n2\r\n5"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/10/10-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            87,
+            -56
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_MeshBox",
+          "nick": "MBox",
+          "name": "Mesh Box",
+          "pos": [
+            239,
+            120
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "panel",
+          "pos": [
+            133.2,
+            111.9
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R4",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            325,
+            130
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            427,
+            160
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            208.8,
+            170.6
+          ],
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R7",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            509,
+            160
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            623.5,
+            125
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            686,
+            234
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            365.9,
+            197
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R11",
+          "type": "Component_MeshBox",
+          "nick": "MBox",
+          "name": "Mesh Box",
+          "pos": [
+            241,
+            468
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "pos": [
+            122.3,
+            460
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R13",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            333,
+            478
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            428,
+            508
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            218.8,
+            517.7
+          ],
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R16",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            653,
+            479
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            1210,
+            595
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            932.3,
+            531.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R19",
+          "type": "OffsetComponent",
+          "nick": "wbOffset",
+          "name": "Weaverbird's Offset Mesh",
+          "pos": [
+            547,
+            528
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            292,
+            550.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R21",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            654,
+            514
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            763,
+            551
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            763,
+            477
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            883,
+            510
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1301,
+            605
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_MeshBox",
+          "nick": "MBox",
+          "name": "Mesh Box",
+          "pos": [
+            245,
+            957
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "panel",
+          "pos": [
+            126.3,
+            949.9
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R28",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            323,
+            977
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            420,
+            1012
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            207.8,
+            1008.5
+          ],
+          "min": 1,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R31",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            520,
+            1003
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            615.1,
+            1004.2
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            614.1,
+            797.3
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            612,
+            938
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_MapOntoSurface",
+          "nick": "Map Srf",
+          "name": "Map to Surface",
+          "pos": [
+            707,
+            983
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            517,
+            894
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            841,
+            1038
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_MeshFaceNormals",
+          "nick": "FaceN",
+          "name": "Face Normals",
+          "pos": [
+            520,
+            1046
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            933,
+            1048
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_MeshBox",
+          "nick": "MBox",
+          "name": "Mesh Box",
+          "pos": [
+            237,
+            1243
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "panel",
+          "pos": [
+            119.1,
+            1235.9
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R42",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            327,
+            1253
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            735,
+            1293
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "pos": [
+            486.3,
+            1318
+          ],
+          "min": 1,
+          "max": 3,
+          "value": 2
+        },
+        {
+          "id": "R45",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            1045,
+            1340
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "OffsetComponent",
+          "nick": "wbOffset",
+          "name": "Weaverbird's Offset Mesh",
+          "pos": [
+            919,
+            1373
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            653,
+            1369.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.17
+        },
+        {
+          "id": "R48",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            1045,
+            1376
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_CreateTwistedBox",
+          "nick": "TBox",
+          "name": "Twisted Box",
+          "pos": [
+            1433,
+            1393
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            1170,
+            1346
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            1170,
+            1396
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1312,
+            1353
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1312,
+            1433
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            429,
+            1263
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            609,
+            1273
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            536.2,
+            1220.6
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            532,
+            1273
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "panel",
+          "pos": [
+            304.3,
+            1314.7
+          ],
+          "content": "1\r\n2\r\n5"
+        },
+        {
+          "id": "R59",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            1388.5,
+            1229.3
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            1501,
+            1227
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            1591,
+            1237
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_BoxMorph",
+          "nick": "Morph",
+          "name": "Box Morph",
+          "pos": [
+            1756,
+            1373
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1884,
+            1373
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            1986,
+            1383
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            2088,
+            1424
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            1877.4,
+            1414.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R67",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2398,
+            1474
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "slider",
+          "pos": [
+            1945.5,
+            1484.7
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.25
+        },
+        {
+          "id": "R69",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            2206,
+            1444
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            2305,
+            1464
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R3.O0>R2.I2",
+        "R3.O0>R2.I3",
+        "R2.O0>R4.I0",
+        "R4.O1>R5.I0",
+        "R6.O0>R5.I1",
+        "R5.O0>R7.I0",
+        "R7.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R12.O0>R11.I1",
+        "R12.O0>R11.I2",
+        "R12.O0>R11.I3",
+        "R11.O0>R13.I0",
+        "R13.O1>R14.I0",
+        "R15.O0>R14.I1",
+        "R14.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R21.O0>R17.I0",
+        "R24.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R14.O0>R19.I0",
+        "R20.O0>R19.I1",
+        "R19.O0>R21.I0",
+        "R21.O0>R22.I0",
+        "R16.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R22.O0>R24.I1",
+        "R17.O0>R25.I0",
+        "R27.O0>R26.I1",
+        "R27.O0>R26.I2",
+        "R27.O0>R26.I3",
+        "R26.O0>R28.I0",
+        "R28.O1>R29.I0",
+        "R30.O0>R29.I1",
+        "R29.O0>R31.I0",
+        "R36.O0>R34.I0",
+        "R36.O0>R35.I0",
+        "R34.O0>R35.I1",
+        "R32.O0>R35.I2",
+        "R35.O0>R37.I0",
+        "R38.O1>R37.I1",
+        "R29.O0>R38.I0",
+        "R37.O0>R39.I0",
+        "R41.O0>R40.I1",
+        "R41.O0>R40.I2",
+        "R41.O0>R40.I3",
+        "R40.O0>R42.I0",
+        "R55.O0>R43.I0",
+        "R44.O0>R43.I1",
+        "R43.O0>R45.I0",
+        "R43.O0>R46.I0",
+        "R47.O0>R46.I1",
+        "R46.O0>R48.I0",
+        "R52.O0>R49.I0",
+        "R52.O1>R49.I1",
+        "R52.O2>R49.I2",
+        "R52.O3>R49.I3",
+        "R53.O0>R49.I4",
+        "R53.O1>R49.I5",
+        "R53.O2>R49.I6",
+        "R53.O3>R49.I7",
+        "R45.O0>R50.I0",
+        "R48.O0>R51.I0",
+        "R50.O0>R52.I0",
+        "R51.O0>R53.I0",
+        "R42.O1>R54.I0",
+        "R56.O0>R55.I0",
+        "R57.O0>R55.I1",
+        "R54.O1>R57.I0",
+        "R58.O0>R57.I1",
+        "R59.O0>R60.I0",
+        "R60.O0>R61.I0",
+        "R60.O0>R62.I0",
+        "R61.O0>R62.I1",
+        "R49.O0>R62.I2",
+        "R62.O0>R63.I0",
+        "R63.O0>R64.I0",
+        "R64.O1>R65.I0",
+        "R66.O0>R65.I1",
+        "R70.O0>R67.I0",
+        "R65.O0>R69.I0",
+        "R68.O0>R69.I1",
+        "R69.O0>R70.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

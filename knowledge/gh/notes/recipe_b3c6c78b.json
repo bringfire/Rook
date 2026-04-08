@@ -1,0 +1,439 @@
+{
+  "note_id": "recipe_b3c6c78b",
+  "note_type": "recipe",
+  "name": "Spiral Torus",
+  "brief": "Trigonometric curve piped into 3D geometry",
+  "version": "1.0",
+  "created": "2026-02-02T20:43:37.597501Z",
+  "context": "Trigonometric curve piped into 3D geometry",
+  "keywords": [
+    "trigonometric_parametric_pipe-output",
+    "trigonometric",
+    "parametric",
+    "pipe-output",
+    "point-sequence"
+  ],
+  "category": "trigonometric",
+  "tags": [
+    "3d-geometry",
+    "colour",
+    "curve",
+    "curve-to-geometry",
+    "custom-preview-component",
+    "flatten-tree-component",
+    "flip-data-matrix",
+    "func-cos",
+    "func-sin",
+    "func-to-radians",
+    "graft-tree-component",
+    "list-item-variable",
+    "pi",
+    "pipe-surface_-o",
+    "placeholder-component",
+    "point-construction",
+    "range",
+    "timer",
+    "variable-addition",
+    "variable-multiplication",
+    "workflow-intermediate"
+  ],
+  "trigger_intents": [
+    "sine wave",
+    "cosine wave",
+    "oscillation",
+    "sinusoidal",
+    "pipe a curve",
+    "tubular form",
+    "create tube"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Point",
+    "Number Slider",
+    "Number Slider",
+    "Range",
+    "Panel",
+    "Pi",
+    "Number Slider",
+    "Cosine",
+    "Multiplication",
+    "Range",
+    "Panel",
+    "Pi",
+    "Number Slider",
+    "Cosine",
+    "Multiplication",
+    "Sine",
+    "Multiplication",
+    "Graft Tree",
+    "Addition",
+    "Multiplication",
+    "Sine",
+    "Flip Matrix",
+    "List Item",
+    "Range",
+    "Graft Tree",
+    "Addition",
+    "Flatten Tree",
+    "Nurbs Curve",
+    "Pipe",
+    "Number Slider",
+    "Custom Preview",
+    "Colour Swatch",
+    "Timer",
+    "Counter",
+    "Boolean Toggle",
+    "Multiplication",
+    "Radians",
+    "Number Slider",
+    "Addition",
+    "removeDuplicatePts"
+  ],
+  "solution_principle": "Trigonometric curve piped into 3D geometry",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_2f310f59",
+    "recipe_747f66fb",
+    "recipe_db9d7583",
+    "recipe_e9f44fbd",
+    "recipe_f446ae67"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "f2e0b738-6899-443f-9518-adb05cdd7d7b",
+        "from_param": "R",
+        "to": "0474d788-ead8-47cb-b891-1370b8adb5a2",
+        "to_param": "X"
+      },
+      {
+        "from": "8143c3e1-5426-449d-9cb4-ec6820849901",
+        "from_param": "R",
+        "to": "0474d788-ead8-47cb-b891-1370b8adb5a2",
+        "to_param": "Y"
+      },
+      {
+        "from": "3c2a74e7-6697-45d5-a1ed-21398cd2c749",
+        "from_param": "R",
+        "to": "0474d788-ead8-47cb-b891-1370b8adb5a2",
+        "to_param": "Z"
+      },
+      {
+        "from": "1037d410-d639-457f-bbe8-c65d80ccb18d",
+        "from_param": "y",
+        "to": "f359b365-14c9-4ca2-a0b1-45b3c92ac95c",
+        "to_param": "D"
+      },
+      {
+        "from": "ff5da006-64c3-4e1b-bff5-44268e822180",
+        "from_param": "Number Slider",
+        "to": "f359b365-14c9-4ca2-a0b1-45b3c92ac95c",
+        "to_param": "N"
+      },
+      {
+        "from": "a7cb6ea5-3c06-423a-82b3-e6c82a0a9c29",
+        "from_param": "Panel",
+        "to": "1037d410-d639-457f-bbe8-c65d80ccb18d",
+        "to_param": "N"
+      },
+      {
+        "from": "02846614-442b-423a-a9eb-77b8248d68f0",
+        "from_param": "R",
+        "to": "9e2bde2d-ec16-497f-8165-3b1827ac6697",
+        "to_param": "x"
+      },
+      {
+        "from": "4812b187-296a-4450-9085-f49b55ba355a",
+        "from_param": "r",
+        "to": "44831dc1-e82f-4d67-a9ef-6ae07a1c3072",
+        "to_param": "A"
+      },
+      {
+        "from": "9e2bde2d-ec16-497f-8165-3b1827ac6697",
+        "from_param": "y",
+        "to": "44831dc1-e82f-4d67-a9ef-6ae07a1c3072",
+        "to_param": "B"
+      },
+      {
+        "from": "f4af64d0-e1b7-4619-b059-56116c697ee2",
+        "from_param": "y",
+        "to": "da24f38b-f10d-48c2-97cc-005b4cadffd2",
+        "to_param": "D"
+      },
+      {
+        "from": "1a10f597-4858-42d3-b1ba-d0efe1fe926b",
+        "from_param": "Number Slider",
+        "to": "da24f38b-f10d-48c2-97cc-005b4cadffd2",
+        "to_param": "N"
+      },
+      {
+        "from": "01202703-19f3-4bf7-a31d-17b26a2e8908",
+        "from_param": "Panel",
+        "to": "f4af64d0-e1b7-4619-b059-56116c697ee2",
+        "to_param": "N"
+      },
+      {
+        "from": "77323036-fe58-467e-ba44-a8c4c7ef272d",
+        "from_param": "T",
+        "to": "959ef3d8-f444-447a-a0e7-a0003e89c4b8",
+        "to_param": "x"
+      },
+      {
+        "from": "83418bbc-0f97-4283-bdac-f27b0b23b264",
+        "from_param": "R",
+        "to": "f2e0b738-6899-443f-9518-adb05cdd7d7b",
+        "to_param": "A"
+      },
+      {
+        "from": "959ef3d8-f444-447a-a0e7-a0003e89c4b8",
+        "from_param": "y",
+        "to": "f2e0b738-6899-443f-9518-adb05cdd7d7b",
+        "to_param": "B"
+      },
+      {
+        "from": "77323036-fe58-467e-ba44-a8c4c7ef272d",
+        "from_param": "T",
+        "to": "da3025b5-c280-4976-b2c4-4b3ddb0221c3",
+        "to_param": "x"
+      },
+      {
+        "from": "83418bbc-0f97-4283-bdac-f27b0b23b264",
+        "from_param": "R",
+        "to": "8143c3e1-5426-449d-9cb4-ec6820849901",
+        "to_param": "A"
+      },
+      {
+        "from": "da3025b5-c280-4976-b2c4-4b3ddb0221c3",
+        "from_param": "y",
+        "to": "8143c3e1-5426-449d-9cb4-ec6820849901",
+        "to_param": "B"
+      },
+      {
+        "from": "da24f38b-f10d-48c2-97cc-005b4cadffd2",
+        "from_param": "R",
+        "to": "77323036-fe58-467e-ba44-a8c4c7ef272d",
+        "to_param": "T"
+      },
+      {
+        "from": "faf3cccc-550b-448e-a79b-ebe8b49043b0",
+        "from_param": "R",
+        "to": "83418bbc-0f97-4283-bdac-f27b0b23b264",
+        "to_param": "A"
+      },
+      {
+        "from": "44831dc1-e82f-4d67-a9ef-6ae07a1c3072",
+        "from_param": "R",
+        "to": "83418bbc-0f97-4283-bdac-f27b0b23b264",
+        "to_param": "B"
+      },
+      {
+        "from": "4812b187-296a-4450-9085-f49b55ba355a",
+        "from_param": "r",
+        "to": "3c2a74e7-6697-45d5-a1ed-21398cd2c749",
+        "to_param": "A"
+      },
+      {
+        "from": "30172a9d-122c-440e-9166-bab189d5283c",
+        "from_param": "y",
+        "to": "3c2a74e7-6697-45d5-a1ed-21398cd2c749",
+        "to_param": "B"
+      },
+      {
+        "from": "02846614-442b-423a-a9eb-77b8248d68f0",
+        "from_param": "R",
+        "to": "30172a9d-122c-440e-9166-bab189d5283c",
+        "to_param": "x"
+      },
+      {
+        "from": "0474d788-ead8-47cb-b891-1370b8adb5a2",
+        "from_param": "Pt",
+        "to": "3542a280-67a9-4afa-8c08-cfd021931361",
+        "to_param": "D"
+      },
+      {
+        "from": "f359b365-14c9-4ca2-a0b1-45b3c92ac95c",
+        "from_param": "R",
+        "to": "3f8e09df-1920-4af4-82a5-7a0acedf68f0",
+        "to_param": "L"
+      },
+      {
+        "from": "3f8e09df-1920-4af4-82a5-7a0acedf68f0",
+        "from_param": "i",
+        "to": "35ed47ed-6437-4117-86ba-c99a427ed423",
+        "to_param": "D"
+      },
+      {
+        "from": "1a10f597-4858-42d3-b1ba-d0efe1fe926b",
+        "from_param": "Number Slider",
+        "to": "35ed47ed-6437-4117-86ba-c99a427ed423",
+        "to_param": "N"
+      },
+      {
+        "from": "35ed47ed-6437-4117-86ba-c99a427ed423",
+        "from_param": "R",
+        "to": "207000cf-73c2-468e-8888-cc219f66745c",
+        "to_param": "T"
+      },
+      {
+        "from": "f359b365-14c9-4ca2-a0b1-45b3c92ac95c",
+        "from_param": "R",
+        "to": "f89b872e-4a61-472f-86fe-8230678c6d9a",
+        "to_param": "A"
+      },
+      {
+        "from": "207000cf-73c2-468e-8888-cc219f66745c",
+        "from_param": "T",
+        "to": "f89b872e-4a61-472f-86fe-8230678c6d9a",
+        "to_param": "B"
+      },
+      {
+        "from": "3542a280-67a9-4afa-8c08-cfd021931361",
+        "from_param": "D",
+        "to": "da5f8852-1a79-4bd4-a19b-bcd4eb9bd0b6",
+        "to_param": "T"
+      },
+      {
+        "from": "72c7208d-7cbb-4333-a54e-0d6ec6b83f79",
+        "from_param": "",
+        "to": "44c434ef-e6fc-4055-90de-c655c940b09f",
+        "to_param": "V"
+      },
+      {
+        "from": "44c434ef-e6fc-4055-90de-c655c940b09f",
+        "from_param": "C",
+        "to": "c67836d5-0369-4731-8906-3e1d223fa747",
+        "to_param": "C"
+      },
+      {
+        "from": "a112eb1e-f8dc-4aa8-b32b-98117b756fe5",
+        "from_param": "Number Slider",
+        "to": "c67836d5-0369-4731-8906-3e1d223fa747",
+        "to_param": "R"
+      },
+      {
+        "from": "c67836d5-0369-4731-8906-3e1d223fa747",
+        "from_param": "P",
+        "to": "b5b52dc6-ff30-43b5-b844-35c29cdeaa83",
+        "to_param": "G"
+      },
+      {
+        "from": "e347fb04-dd7d-46e8-ad52-c55eb447e91b",
+        "from_param": "Swatch",
+        "to": "b5b52dc6-ff30-43b5-b844-35c29cdeaa83",
+        "to_param": "M"
+      },
+      {
+        "from": "e562a694-e3d1-4220-9a7e-f4cf7cb06b3a",
+        "from_param": "Toggle",
+        "to": "c35ab4bc-8868-4f9f-9397-1c1038b706cd",
+        "to_param": ""
+      },
+      {
+        "from": "c35ab4bc-8868-4f9f-9397-1c1038b706cd",
+        "from_param": "",
+        "to": "69da947e-1856-442a-ad22-201850001036",
+        "to_param": "A"
+      },
+      {
+        "from": "aa8929c8-5c1c-40dc-82db-cd7e0f187468",
+        "from_param": "R",
+        "to": "69da947e-1856-442a-ad22-201850001036",
+        "to_param": "B"
+      },
+      {
+        "from": "04a66cf2-6373-4631-adf6-e1eae9e12707",
+        "from_param": "Number Slider",
+        "to": "aa8929c8-5c1c-40dc-82db-cd7e0f187468",
+        "to_param": "D"
+      },
+      {
+        "from": "69da947e-1856-442a-ad22-201850001036",
+        "from_param": "R",
+        "to": "02846614-442b-423a-a9eb-77b8248d68f0",
+        "to_param": "A"
+      },
+      {
+        "from": "f89b872e-4a61-472f-86fe-8230678c6d9a",
+        "from_param": "R",
+        "to": "02846614-442b-423a-a9eb-77b8248d68f0",
+        "to_param": "B"
+      },
+      {
+        "from": "da5f8852-1a79-4bd4-a19b-bcd4eb9bd0b6",
+        "from_param": "T",
+        "to": "72c7208d-7cbb-4333-a54e-0d6ec6b83f79",
+        "to_param": ""
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "faf3cccc-550b-448e-a79b-ebe8b49043b0",
+          "role": "domain_start",
+          "connected_to": "Addition",
+          "param": "A"
+        },
+        {
+          "guid": "4812b187-296a-4450-9085-f49b55ba355a",
+          "role": "domain_start",
+          "connected_to": "Multiplication",
+          "param": "A"
+        },
+        {
+          "guid": "ff5da006-64c3-4e1b-bff5-44268e822180",
+          "role": "count",
+          "connected_to": "Range",
+          "param": "N"
+        },
+        {
+          "guid": "1a10f597-4858-42d3-b1ba-d0efe1fe926b",
+          "role": "count",
+          "connected_to": "Range",
+          "param": "N"
+        },
+        {
+          "guid": "a112eb1e-f8dc-4aa8-b32b-98117b756fe5",
+          "role": "radius",
+          "connected_to": "Pipe",
+          "param": "R"
+        },
+        {
+          "guid": "04a66cf2-6373-4631-adf6-e1eae9e12707",
+          "role": "parameter",
+          "connected_to": "Radians",
+          "param": "D"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "a7cb6ea5-3c06-423a-82b3-e6c82a0a9c29",
+          "role": "text",
+          "connected_to": "1037d410-d639-457f-bbe8-c65d80ccb18d",
+          "param": "N"
+        },
+        {
+          "guid": "01202703-19f3-4bf7-a31d-17b26a2e8908",
+          "role": "text",
+          "connected_to": "f4af64d0-e1b7-4619-b059-56116c697ee2",
+          "param": "N"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Spiral Torus.gh",
+    "pattern_type": "recipe",
+    "component_count": 40
+  }
+}

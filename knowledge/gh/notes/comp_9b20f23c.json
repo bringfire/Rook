@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_9b20f23c",
+  "note_type": "component",
+  "name": "Ungroup",
+  "brief": "Ungroup | Inputs: G â†’ G",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Ungroup. Inputs: G (Group). Outputs: G (Geometry).",
+  "keywords": [
+    "ungroup",
+    "ungroup"
+  ],
+  "category": "transform_utilities",
+  "tags": [
+    "data-structure",
+    "decomposition",
+    "grasshopper-component",
+    "data-tree",
+    "geometry-decomposition",
+    "fundamental-operation",
+    "data-management"
+  ],
+  "trigger_intents": [
+    "ungroup"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Ungroup"
+  ],
+  "solution_principle": "Ungroup a geometry set",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1328b7f4",
+    "recipe_130f6b1d",
+    "comp_fc285b34",
+    "comp_ad4942bb",
+    "recipe_1c4628ff"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a45f59c8-11c1-4ea7-9e10-847061b80d75",
+    "category": "transform_utilities",
+    "inputs": {
+      "G": "Group"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "usage_count": 71,
+    "stable_key": "transform|util|ungroup"
+  }
+}

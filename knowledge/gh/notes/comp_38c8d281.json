@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_38c8d281",
+  "note_type": "component",
+  "name": "ArcCosine",
+  "brief": "ArcCosine | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: ArcCosine. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "arccosine",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "arccosine",
+    "arc",
+    "cosine"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "ArcCosine"
+  ],
+  "solution_principle": "Compute the angle whose cosine is the specified value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ee1dcf99",
+    "comp_a98172dc",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_fb444524",
+    "comp_146e6e67",
+    "comp_cea798a6",
+    "comp_99a9eab9",
+    "comp_ee0122e5",
+    "comp_f64033e5",
+    "comp_bae2f7d3",
+    "comp_acd09dc2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "49584390-d541-41f7-b5f6-1f9515ac0f73",
+    "category": "trigonometry",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "cc15ba56-fae7-4f05-b599-cb7c43b60e11",
+      "b4647919-d041-419e-99f5-fa0dc0ddb8b6"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|arccosine"
+  }
+}

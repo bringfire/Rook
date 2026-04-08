@@ -1,0 +1,108 @@
+{
+  "note_id": "teaching_7b767511",
+  "note_type": "teaching",
+  "name": "U07 - Section 0",
+  "brief": "Teaching section from Unit-07-Class",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.261805Z",
+  "context": "",
+  "keywords": [
+    "numberslider",
+    "unit 07 class"
+  ],
+  "category": "Unit 07",
+  "tags": [
+    "unit-07",
+    "advanced",
+    "teaching",
+    "tutorial",
+    "annotated",
+    "requires-U06",
+    "prerequisite-for-U08",
+    "section-0"
+  ],
+  "trigger_intents": [],
+  "trigger_symptoms": [],
+  "components": [
+    "NumberSlider"
+  ],
+  "solution_principle": "Section from Unit-07-Class demonstrating NumberSlider",
+  "anti_patterns": [],
+  "preconditions": [
+    "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful.",
+    "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_a9721d5a",
+    "teaching_ac5edea0",
+    "teaching_97771130",
+    "teaching_90de351e",
+    "teaching_4f2b9009"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.261805Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-07-Class",
+    "unit_number": 7,
+    "section_number": null,
+    "section_index": 0,
+    "x_range": [
+      36.9,
+      468.5
+    ],
+    "full_teaching_text": "",
+    "sub_annotations": [
+      {
+        "id": "C96",
+        "text": "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful.",
+        "topic": "Assignment 7a",
+        "pos": [
+          468.4,
+          3368.2
+        ]
+      },
+      {
+        "id": "C119",
+        "text": "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r\n- Hover over the T INPUT and check what it needs.\r\n\r\n- IMPORTANT!\r\nYou may realize that the resultant Truss has uneven divisions, to solve that, rebuild the curves using the \"Rebuild Curve\" component.",
+        "topic": "LunchBox: Build a Truss with LunchBox",
+        "pos": [
+          465.6,
+          2232
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C14",
+      "C76"
+    ],
+    "intra_section_flows": [],
+    "groups": [
+      {
+        "group_id": "G52",
+        "name": "",
+        "colour": "#FFFFFF96"
+      }
+    ],
+    "components_demonstrated": {
+      "NumberSlider": 2
+    },
+    "stats": {
+      "teaching_panels": 0,
+      "sub_annotations": 2,
+      "working_components": 2,
+      "sub_labels": 2,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 1
+    }
+  }
+}

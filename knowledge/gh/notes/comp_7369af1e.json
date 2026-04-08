@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_7369af1e",
+  "note_type": "component",
+  "name": "Deconstruct Material",
+  "brief": "Deconstruct Material | Inputs: M → Kd, Ks, Ke",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Deconstruct Material. Inputs: M (Shader). Outputs: Kd (Colour), Ks (Colour), Ke (Colour), T (Number), S (Integer).",
+  "keywords": [
+    "deconstruct material",
+    "deconstruct",
+    "material",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "deconstruct material",
+    "deconstruct",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Material"
+  ],
+  "solution_principle": "Deconstruct a display material (ie. shader) into its various attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a2a741c6",
+    "comp_0fb35f5d",
+    "comp_830290b0",
+    "comp_fba41916",
+    "comp_f2304758"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "38e8f2e0-b77e-4fca-a503-1ca350dd8791",
+    "category": "display",
+    "inputs": {
+      "M": "Shader"
+    },
+    "outputs": {
+      "Kd": "Colour",
+      "Ks": "Colour",
+      "Ke": "Colour",
+      "T": "Number",
+      "S": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|preview|deconstruct material"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_2d8cfb46",
+  "note_type": "component",
+  "name": "Model Block Instance",
+  "brief": "Model Block Instance | Inputs: Bi, T, Bd → Bi, T, Bd",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Model Block Instance. Inputs: Bi (Block Instance), T (Transform), Bd (Model Block Definition). Outputs: Bi (Block Instance), T (Transform), Bd (Model Block Definition).",
+  "keywords": [
+    "model block instance",
+    "model",
+    "block",
+    "instance",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "model block instance",
+    "model",
+    "block",
+    "instance"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Block Instance"
+  ],
+  "solution_principle": "Block Instance",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_84da874b",
+    "comp_4b17fa39",
+    "comp_ad796399",
+    "comp_b4164a54",
+    "comp_ae5e70e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6354d626-df14-488d-885d-ed51b2efe97f",
+    "category": "rhino_model",
+    "inputs": {
+      "Bi": "Block Instance",
+      "T": "Transform",
+      "Bd": "Model Block Definition"
+    },
+    "outputs": {
+      "Bi": "Block Instance",
+      "T": "Transform",
+      "Bd": "Model Block Definition"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "72030d3d-12fc-4f1f-8565-c924781eef67"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|model|model block instance"
+  }
+}

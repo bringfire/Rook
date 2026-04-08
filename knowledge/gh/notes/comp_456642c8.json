@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_456642c8",
+  "note_type": "component",
+  "name": "Construct Point",
+  "brief": "Construct Point | Inputs: X, Y, Z â†’ Pt",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Construct Point. Inputs: X (Number), Y (Number), Z (Number). Outputs: Pt (Point).",
+  "keywords": [
+    "construct point",
+    "construct",
+    "point"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "point-construction",
+    "foundational",
+    "geometry-primitive",
+    "grasshopper-component",
+    "prerequisite",
+    "point-creation"
+  ],
+  "trigger_intents": [
+    "construct point",
+    "construct",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Point"
+  ],
+  "solution_principle": "Construct a point from {xyz} coordinates.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_06731c52",
+    "teaching_c103fe78",
+    "teaching_cf3f830b",
+    "teaching_e8ddc722",
+    "comp_a010f059",
+    "comp_ba6a3f1a",
+    "comp_cb2615cb",
+    "comp_be584748"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+    "category": "geometry_primitives",
+    "inputs": {
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "outputs": {
+      "Pt": "Point"
+    },
+    "typical_wiring": [],
+    "usage_count": 270,
+    "stable_key": "vector|point|construct point"
+  }
+}

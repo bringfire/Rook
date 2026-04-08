@@ -1,0 +1,125 @@
+{
+  "note_id": "teaching_37677299",
+  "note_type": "teaching",
+  "name": "U01 - Vectors",
+  "brief": "Teaching: Vectors",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous P",
+  "keywords": [
+    "vectors",
+    "vector 2pt",
+    "vector display",
+    "construct point",
+    "unit 01 class",
+    "vector",
+    "length",
+    "anchor",
+    "origin"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "vector length",
+    "hands-on",
+    "anchor at origin",
+    "prerequisite-for-surfaces",
+    "vector-construction",
+    "tutorial",
+    "beginner",
+    "foundational",
+    "requires-point-construction",
+    "unit-01",
+    "teaching",
+    "vector-decomposition"
+  ],
+  "trigger_intents": [
+    "vectors",
+    "how to use vectors",
+    "how to use vector 2pt",
+    "how to use vector display",
+    "how to use construct point",
+    "vector",
+    "there are many options, choose \"vector 2pt\"",
+    "vector 2pt",
+    "use the previous points to make the vector",
+    "vector display"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector 2Pt",
+    "Vector Display",
+    "Construct Point"
+  ],
+  "solution_principle": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_06550ff3",
+    "teaching_a03f14e3",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_c103fe78",
+    "teaching_cf3f830b",
+    "teaching_7f2bbf35"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 5,
+    "section_index": 5,
+    "x_range": [
+      3539,
+      4471.6
+    ],
+    "full_teaching_text": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C60",
+      "C61",
+      "C122"
+    ],
+    "intra_section_flows": [
+      "C122.O0>C61.I0",
+      "C60.O0>C61.I1",
+      "C60.O1>C62.I0",
+      "C60.O0>C103.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G5",
+        "name": "Vector Length",
+        "colour": "#FF000096"
+      },
+      {
+        "group_id": "G2",
+        "name": "Anchor at Origin",
+        "colour": "#006BD66A"
+      }
+    ],
+    "components_demonstrated": {
+      "Vector 2Pt": 1,
+      "Vector Display": 1,
+      "Construct Point": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 3,
+      "sub_labels": 0,
+      "connected_panels": 2,
+      "flows": 4,
+      "groups": 2
+    }
+  }
+}

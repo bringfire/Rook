@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_631dfbb4",
+  "note_type": "component",
+  "name": "MetaVector",
+  "brief": "MetaVector | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: MetaVector.",
+  "keywords": [
+    "metavector",
+    "geometry_params"
+  ],
+  "category": "geometry_params",
+  "tags": [
+    "geometry_params"
+  ],
+  "trigger_intents": [
+    "metavector",
+    "meta",
+    "vector"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "MetaVector"
+  ],
+  "solution_principle": "MetaVector Constrain",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6da45012",
+    "comp_c98d2517",
+    "comp_5db06631",
+    "comp_46e1edc0",
+    "comp_4a4d2518"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "73e3bacf-9809-4593-b4ec-3a799168cca7",
+    "category": "geometry_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|geometry|metavector"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_84222c76",
+  "note_type": "component",
+  "name": "Volume",
+  "brief": "Volume | Inputs: G → V, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Volume. Inputs: G (Geometry). Outputs: V (Number), C (Point).",
+  "keywords": [
+    "volume",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "volume"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Volume"
+  ],
+  "solution_principle": "Solve volume properties for closed breps and meshes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64864243",
+    "comp_570eb369",
+    "comp_28af3654",
+    "comp_c525b1a1",
+    "comp_93df8f05"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7c0523e8-79c9-45a2-8777-cf0d46bc5432",
+    "category": "surface_analysis",
+    "inputs": {
+      "G": "Geometry"
+    },
+    "outputs": {
+      "V": "Number",
+      "C": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "86b28a7e-94d9-4791-8306-e13e10d5f8d5"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|volume"
+  },
+  "deprecated": true,
+  "deprecated_by": "224f7648-5956-4b26-80d9-8d771f3dfd5d"
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_a27c5163",
+  "note_type": "component",
+  "name": "Extrude Linear",
+  "brief": "Extrude Linear | Inputs: P, Po, A, Ao → E",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Extrude Linear. Inputs: P (Geometry), Po (Plane), A (Line), Ao (Plane). Outputs: E (Brep).",
+  "keywords": [
+    "extrude linear",
+    "extrude",
+    "linear",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "extrude linear",
+    "extrude",
+    "linear"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Extrude Linear"
+  ],
+  "solution_principle": "Extrude curves and surfaces along a straight path.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5e0594f6",
+    "comp_c67f95be",
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b",
+    "comp_5f73dc24"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8efd5eb9-a896-486e-9f98-d8d1a07a49f3",
+    "category": "surface_ops",
+    "inputs": {
+      "P": "Geometry",
+      "Po": "Plane",
+      "A": "Line",
+      "Ao": "Plane"
+    },
+    "outputs": {
+      "E": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|extrude linear"
+  }
+}

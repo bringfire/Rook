@@ -1,0 +1,848 @@
+{
+  "pattern_id": "008ecd3f",
+  "name": "1- hankin 4,8",
+  "version": "1.0",
+  "created": "2026-02-22T14:02:58.301965Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\grass-islamic\\1- hankin 4,8.gh (60 components)",
+    "principle": "\n\nRelated insight: Progression insight: Follows introductory paneling-tools approach (27 components) with more advanced Hankin method (60 components), showing Islamic geometry workflow evolution from basic paneling to sophisticated geometric pattern generation.",
+    "components_needed": [
+      "Polygon",
+      "تعداد اضلاع",
+      "XY Plane",
+      "Rotate Plane",
+      "Division",
+      "Division",
+      "Number Slider",
+      "List Item",
+      "Explode",
+      "Rotate 3D",
+      "List Item",
+      "Number Slider",
+      "Rectangle 3Pt",
+      "List Item",
+      "Number Slider",
+      "Point On Curve",
+      "Subtraction",
+      "Division",
+      "Number Slider",
+      "List Item",
+      "Line",
+      "Rotate 3D",
+      "Point On Curve",
+      "Rectangle 3Pt",
+      "Rectangular Array",
+      "Rectangular Array",
+      "Number Slider",
+      "Number Slider",
+      "List Item",
+      "List Item",
+      "Number Slider",
+      "Line",
+      "Move",
+      "Rectangular Array",
+      "Curve",
+      "Explode",
+      "Point On Curve",
+      "Polygon Center",
+      "Line",
+      "Point On Curve",
+      "Weave",
+      "PolyLine",
+      "Curve",
+      "Explode",
+      "Point On Curve",
+      "Polygon Center",
+      "Line",
+      "Point On Curve",
+      "Weave",
+      "PolyLine",
+      "Curve",
+      "Explode",
+      "Point On Curve",
+      "Polygon Center",
+      "Line",
+      "Point On Curve",
+      "Weave",
+      "PolyLine",
+      "Bifocals",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "1  hankin 4,8"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "8118f21e",
+    "c33fbf3c",
+    "d3901b70",
+    "fa3ac695"
+  ],
+  "tags": [
+    "hankin-method",
+    "geometric-patterns",
+    "intermediate-level",
+    "islamic-geometry",
+    "4-8-tiling",
+    "recipe",
+    "60-components",
+    "parametric",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:03:51.447768",
+    "evolved_by": [
+      "fa3ac695"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:03:51.447768",
+        "trigger": "New pattern: fa3ac695",
+        "changes": "New pattern reveals this is part of a learning progression in Islamic geometry, moving from basic paneling tools to advanced Hankin methods"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "تعداد اضلاع",
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R7",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R12",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R15",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 7,
+          "value": 0
+        },
+        {
+          "id": "R19",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R27",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R28",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R31",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R60",
+          "nick": "",
+          "content": "2"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/14/grass-islamic/1- hankin 4,8.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            962,
+            276
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "nick": "تعداد اضلاع",
+          "pos": [
+            134.8,
+            339.5
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R3",
+          "type": "Component_XYPlane",
+          "name": "XY Plane",
+          "pos": [
+            469,
+            53
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_RotatePlane",
+          "name": "Rotate Plane",
+          "pos": [
+            750,
+            161
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            462,
+            301
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            592,
+            276
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            134.9,
+            198.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R8",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1302,
+            300
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1159,
+            198
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Rotate3D",
+          "name": "Rotate 3D",
+          "pos": [
+            1515,
+            431
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1302,
+            402
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            811.4,
+            549.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R13",
+          "type": "Component_Rectangle3Pt",
+          "name": "Rectangle 3Pt",
+          "pos": [
+            1689,
+            294
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1302,
+            562
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            811.1,
+            582.4
+          ],
+          "min": 0,
+          "max": 7,
+          "value": 0
+        },
+        {
+          "id": "R16",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            1546.4,
+            528.4
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_VariableSubtraction",
+          "name": "Subtraction",
+          "pos": [
+            953,
+            490
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            1822,
+            586
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1480.2,
+            616.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R20",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1922,
+            419
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            2039,
+            656
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Rotate3D",
+          "name": "Rotate 3D",
+          "pos": [
+            2112,
+            757
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            2233,
+            674.8
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Rectangle3Pt",
+          "name": "Rectangle 3Pt",
+          "pos": [
+            2302,
+            523
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ArrayRectangular",
+          "name": "Rectangular Array",
+          "pos": [
+            2822,
+            379
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_ArrayRectangular",
+          "name": "Rectangular Array",
+          "pos": [
+            2814,
+            249
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2220,
+            314.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2218.3,
+            361.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R29",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1922,
+            43
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1922,
+            231
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1630.2,
+            162.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R32",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            2102,
+            75
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2374,
+            72
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_ArrayRectangular",
+          "name": "Rectangular Array",
+          "pos": [
+            2814,
+            120
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            3306.8,
+            436.1
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            3505,
+            446
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            424
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_PolygonCenterPoint",
+          "name": "Polygon Center",
+          "pos": [
+            3497,
+            568
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3738,
+            446
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            493
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            4081,
+            456
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            4265,
+            446
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            3306.7,
+            193.2
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            3505,
+            158
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            136
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_PolygonCenterPoint",
+          "name": "Polygon Center",
+          "pos": [
+            3497,
+            260
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3738,
+            158
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            185.2
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            4081,
+            168
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            4265,
+            158
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            3306.8,
+            725.7
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            3505,
+            735
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            713
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_PolygonCenterPoint",
+          "name": "Polygon Center",
+          "pos": [
+            3497,
+            837
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3738,
+            735
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            3846.1,
+            762.6
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            4081,
+            745
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            4265,
+            735
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            549,
+            -50
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "panel",
+          "pos": [
+            373.3,
+            372.7
+          ],
+          "content": "2"
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R2.O0>R1.I2",
+        "R3.O0>R4.I0",
+        "R6.O0>R4.I1",
+        "R2.O0>R5.I0",
+        "R60.O0>R5.I1",
+        "R7.O0>R6.I0",
+        "R5.O0>R6.I1",
+        "R9.O0>R8.I0",
+        "R17.O0>R8.I1",
+        "R1.O0>R9.I0",
+        "R8.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R11.O0>R10.I2",
+        "R9.O1>R11.I0",
+        "R17.O0>R11.I1",
+        "R11.O0>R13.I0",
+        "R14.O0>R13.I1",
+        "R16.O0>R13.I2",
+        "R9.O1>R14.I0",
+        "R15.O0>R14.I1",
+        "R2.O0>R17.I0",
+        "R2.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R9.O1>R20.I0",
+        "R18.O0>R20.I1",
+        "R20.O0>R21.I0",
+        "R16.O0>R21.I1",
+        "R21.O0>R22.I0",
+        "R20.O0>R22.I2",
+        "R20.O0>R24.I0",
+        "R23.O0>R24.I1",
+        "R16.O0>R24.I2",
+        "R13.O0>R25.I0",
+        "R24.O0>R25.I1",
+        "R27.O0>R25.I2",
+        "R28.O0>R25.I3",
+        "R1.O0>R26.I0",
+        "R24.O0>R26.I1",
+        "R27.O0>R26.I2",
+        "R28.O0>R26.I3",
+        "R9.O1>R29.I0",
+        "R9.O1>R30.I0",
+        "R31.O0>R30.I1",
+        "R30.O0>R32.I0",
+        "R29.O0>R32.I1",
+        "R1.O0>R33.I0",
+        "R32.O0>R33.I1",
+        "R33.O0>R34.I0",
+        "R24.O0>R34.I1",
+        "R27.O0>R34.I2",
+        "R28.O0>R34.I3",
+        "R35.O0>R36.I0",
+        "R35.O0>R38.I0",
+        "R38.O2>R39.I0",
+        "R36.O1>R39.I1",
+        "R40.O0>R41.I1",
+        "R37.O0>R41.I2",
+        "R41.O0>R42.I0",
+        "R43.O0>R44.I0",
+        "R43.O0>R46.I0",
+        "R46.O2>R47.I0",
+        "R44.O1>R47.I1",
+        "R48.O0>R49.I1",
+        "R45.O0>R49.I2",
+        "R49.O0>R50.I0",
+        "R51.O0>R52.I0",
+        "R51.O0>R54.I0",
+        "R54.O2>R55.I0",
+        "R52.O1>R55.I1",
+        "R56.O0>R57.I1",
+        "R53.O0>R57.I2",
+        "R57.O0>R58.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

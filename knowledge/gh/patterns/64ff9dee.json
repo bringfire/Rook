@@ -1,0 +1,293 @@
+{
+  "pattern_id": "64ff9dee",
+  "name": "S18E06",
+  "version": "1.0",
+  "created": "2026-02-22T14:07:53.085849Z",
+  "solution": {
+    "brief": "Recipe from FILES\\18\\S18E06.gh (17 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Mesh Plane",
+      "MeshCorners",
+      "Anchor",
+      "EdgeLengths",
+      "VertexLoads",
+      "panel",
+      "slider",
+      "ZombieSolver",
+      "Show",
+      "List Item",
+      "Bounding Box",
+      "Deconstruct Box",
+      "panel",
+      "Expression",
+      "Deconstruct Domain",
+      "Galapagos"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s18e06"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "197f9935",
+    "da5e2260",
+    "ef483dc2",
+    "913ece0b",
+    "1498dbbd"
+  ],
+  "tags": [
+    "recipe",
+    "parametric",
+    "workflow",
+    "series",
+    "S18"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 0.05,
+          "value": 0.0356
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "20"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/18/S18E06.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            29,
+            -52
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            271,
+            209
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "MeshCorners",
+          "nick": "MC",
+          "name": "MeshCorners",
+          "pos": [
+            415,
+            140
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            535,
+            160
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            532,
+            231
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            536,
+            302
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            173.6,
+            199.4
+          ],
+          "content": "20"
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            252.9,
+            302.1
+          ],
+          "min": 0,
+          "max": 0.05,
+          "value": 0.0356
+        },
+        {
+          "id": "R9",
+          "type": "KangarooZombie",
+          "name": "ZombieSolver",
+          "pos": [
+            834,
+            133
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            651,
+            103
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            976,
+            179
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            1080,
+            189
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_DeconstructBox",
+          "nick": "DeBox",
+          "name": "Deconstruct Box",
+          "pos": [
+            1163,
+            199
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            1494.2,
+            177.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R15",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            1372,
+            232
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_DeconstructDomain",
+          "nick": "DeDomain",
+          "name": "Deconstruct Domain",
+          "pos": [
+            1245,
+            231
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "GalapagosObject",
+          "name": "Galapagos",
+          "pos": [
+            1495.6,
+            73.8
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R2.I1",
+        "R7.O0>R2.I2",
+        "R2.O0>R3.I0",
+        "R3.O0>R4.I0",
+        "R2.O0>R5.I0",
+        "R2.O0>R6.I0",
+        "R8.O0>R6.I1",
+        "R4.O0>R9.I0",
+        "R5.O0>R9.I0",
+        "R6.O0>R9.I0",
+        "R10.O0>R9.I0",
+        "R2.O0>R10.I0",
+        "R9.O2>R11.I0",
+        "R11.O0>R12.I0",
+        "R12.O1>R13.I0",
+        "R15.O0>R14.I0",
+        "R16.O0>R15.I0",
+        "R16.O1>R15.I1",
+        "R13.O3>R16.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

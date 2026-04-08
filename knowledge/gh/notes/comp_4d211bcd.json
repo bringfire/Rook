@@ -1,0 +1,79 @@
+{
+  "note_id": "comp_4d211bcd",
+  "note_type": "component",
+  "name": "Polygon",
+  "brief": "Polygon | Inputs: P, R, S, Rf → P, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Polygon. Inputs: P (Plane), R (Number), S (Integer), Rf (Number). Outputs: P (Curve), L (Number).",
+  "keywords": [
+    "polygon",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "polygon"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Polygon"
+  ],
+  "solution_principle": "Create a polygon with optional round edges.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ffc4216",
+    "teaching_e23cfc74",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_e499f2a6",
+    "comp_7dee6c13",
+    "comp_0ae576e3",
+    "comp_f3627a5f",
+    "comp_ffa26615",
+    "comp_1bddbc3b",
+    "comp_8631d3ae",
+    "comp_9d38d8da",
+    "comp_28367a97",
+    "comp_131dc400",
+    "comp_36410bd6",
+    "comp_9b552c69",
+    "comp_2e26698e",
+    "comp_e6b90611",
+    "comp_ea88730a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "845527a6-5cea-4ae9-a667-96ae1667a4e8",
+    "category": "curves",
+    "inputs": {
+      "P": "Plane",
+      "R": "Number",
+      "S": "Integer",
+      "Rf": "Number"
+    },
+    "outputs": {
+      "P": "Curve",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "807b86e3-be8d-4970-92b5-f8cdcb45b06b"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|polygon"
+  }
+}

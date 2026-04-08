@@ -1,0 +1,580 @@
+{
+  "pattern_id": "913ece0b",
+  "name": "12-4",
+  "version": "1.0",
+  "created": "2026-02-22T13:57:44.270117Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\12-4.gh (38 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Curve",
+      "Populate 2D",
+      "Load",
+      "Unit Z",
+      "Negative",
+      "BouncySolver",
+      "Button",
+      "Toggle",
+      "slider",
+      "CurvePointCollide",
+      "slider",
+      "SphereCollide",
+      "Circle",
+      "XZ Plane",
+      "slider",
+      "Offset Curve",
+      "Brep",
+      "Mesh Surface",
+      "Surface",
+      "slider",
+      "VertexLoads",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Unit Z",
+      "SolidPointCollide",
+      "Deconstruct Mesh",
+      "EdgeLengths",
+      "slider",
+      "SphereCollide",
+      "slider",
+      "Triangulate",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "12 4"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "1498dbbd",
+    "da5e2260",
+    "206f987f"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "workflow",
+    "series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 0.01,
+          "value": 0.002
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 35
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.9
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 0.03,
+          "value": 0.02
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.025
+        }
+      ],
+      "panels": [
+        {
+          "id": "R38",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/12/12-4.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            30,
+            -15
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            379.7,
+            324.4
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            365,
+            122
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "UnaryComponent2",
+          "name": "Load",
+          "pos": [
+            800,
+            147
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            638,
+            147
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            715,
+            147
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            955,
+            197
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            723,
+            208
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            723,
+            235
+          ],
+          "value": false
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            437.1,
+            137.9
+          ],
+          "min": 0,
+          "max": 0.01,
+          "value": 0.002
+        },
+        {
+          "id": "R11",
+          "type": "Curve2dPointComponent",
+          "nick": "CPC",
+          "name": "CurvePointCollide",
+          "pos": [
+            721,
+            369
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            156.5,
+            102.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 35
+        },
+        {
+          "id": "R13",
+          "type": "SphereCollideComponent",
+          "nick": "SC",
+          "name": "SphereCollide",
+          "pos": [
+            717,
+            487
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            1144,
+            220
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            1048,
+            210
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            231.1,
+            447.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.9
+        },
+        {
+          "id": "R17",
+          "type": "Component_OffsetCurve",
+          "nick": "Offset",
+          "name": "Offset Curve",
+          "pos": [
+            486,
+            342
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            277,
+            847.3
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            401,
+            704
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            273.5,
+            701.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            151.9,
+            751.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R22",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            727,
+            824
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            871,
+            930
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            655,
+            1007
+          ],
+          "value": false
+        },
+        {
+          "id": "R25",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            656,
+            981
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            567,
+            923
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "SolidPointComponent",
+          "nick": "SPC",
+          "name": "SolidPointCollide",
+          "pos": [
+            726,
+            725
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            609,
+            718
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            721,
+            903
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            326.2,
+            958.1
+          ],
+          "min": 0,
+          "max": 0.03,
+          "value": 0.02
+        },
+        {
+          "id": "R31",
+          "type": "SphereCollideComponent",
+          "nick": "SC",
+          "name": "SphereCollide",
+          "pos": [
+            726,
+            1085
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            424.9,
+            1076.5
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.025
+        },
+        {
+          "id": "R33",
+          "type": "Component_MeshTriangulate",
+          "nick": "Tri",
+          "name": "Triangulate",
+          "pos": [
+            491,
+            704
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            724,
+            635
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            959,
+            948
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1042,
+            968
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1128,
+            988
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "panel",
+          "pos": [
+            1044.6,
+            1008.5
+          ],
+          "content": "3"
+        }
+      ],
+      "flows": [
+        "R12.O0>R3.I1",
+        "R3.O0>R4.I0",
+        "R6.O0>R4.I1",
+        "R10.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R4.O0>R7.I0",
+        "R11.O0>R7.I0",
+        "R13.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R9.O0>R7.I6",
+        "R3.O0>R11.I0",
+        "R17.O0>R11.I1",
+        "R3.O0>R13.I0",
+        "R16.O0>R13.I1",
+        "R15.O0>R14.I0",
+        "R16.O0>R14.I1",
+        "R7.O1>R15.I0",
+        "R2.O0>R17.I0",
+        "R16.O0>R17.I1",
+        "R20.O0>R19.I0",
+        "R21.O0>R19.I1",
+        "R21.O0>R19.I2",
+        "R33.O0>R22.I0",
+        "R26.O0>R22.I1",
+        "R22.O0>R23.I0",
+        "R27.O0>R23.I0",
+        "R29.O0>R23.I0",
+        "R31.O0>R23.I0",
+        "R34.O0>R23.I0",
+        "R25.O0>R23.I1",
+        "R24.O0>R23.I6",
+        "R30.O0>R26.I0",
+        "R28.O0>R27.I0",
+        "R18.O0>R27.I1",
+        "R33.O0>R28.I0",
+        "R33.O0>R29.I0",
+        "R28.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R19.O0>R33.I0",
+        "R33.O0>R34.I0",
+        "R23.O2>R35.I3",
+        "R35.O0>R36.I0",
+        "R36.O0>R37.I0",
+        "R38.O0>R37.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "note_id": "teaching_ecde5523",
+  "note_type": "teaching",
+  "name": "U04 - NURBS & Mesh: What are they?",
+  "brief": "Teaching: NURBS & Mesh: What are they?",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of co",
+  "keywords": [
+    "nurbs",
+    "mesh",
+    "what",
+    "are",
+    "they",
+    "center box",
+    "sphere",
+    "cylinder",
+    "cone",
+    "mesh box",
+    "mesh sphere",
+    "mesh sphere ex",
+    "brep",
+    "surface",
+    "cap holes",
+    "unit 04 class",
+    "meshes"
+  ],
+  "category": "Unit 04",
+  "tags": [
+    "unit-04",
+    "intermediate",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "annotated",
+    "nurbs",
+    "meshes",
+    "geometry-representation",
+    "prerequisite-for-brep-operations",
+    "prerequisite-for-mesh-operations",
+    "nurbs-fundamentals",
+    "mesh-fundamentals"
+  ],
+  "trigger_intents": [
+    "nurbs & mesh: what are they?",
+    "how to use nurbs & mesh: what are they?",
+    "how to use center box",
+    "how to use sphere",
+    "how to use cylinder",
+    "how to use cone",
+    "how to use mesh box",
+    "how to use mesh sphere",
+    "how to use mesh sphere ex",
+    "how to use brep",
+    "how to use surface",
+    "how to use cap holes"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Center Box",
+    "Sphere",
+    "Cylinder",
+    "Cone",
+    "Mesh Box",
+    "Mesh Sphere",
+    "Mesh Sphere Ex",
+    "Brep",
+    "Surface",
+    "Cap Holes"
+  ],
+  "solution_principle": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of computational modeling, meshes are one of the most pervasive forms of representing 3D geometry. Mesh geometry can be a light-weight and flexible alternative to working with NURBS, and are used in everything from rendering and visualizations to digital fabrication and 3D printing.\"\r\n\r\n\"A Mesh is a collection of quadrilaterals and triangles that represent a surface or solid geometry.\"\r\nA mesh is composed of \"vertices, edges, and faces, as well as additional mesh properties such as colors and normals.\"\r\n\r\n\"Meshes can be favorable in situations where:\r\n\r\nThere must be a dynamically updated rendering of a form that is changing in shape but not in face connectivity\r\nA discretized approximation of a curved geometry would suffice\r\nA low-resolution geometry must be systematically smoothed (or articlated) using computational methods to arrive at a higher-resolution model.\r\nThe low resolution model must be able to be to simultaneously support local, high resolution detail\r\nMeshes can be unfavorable\n\n[... see type_data.full_teaching_text for complete text]",
+  "anti_patterns": [],
+  "preconditions": [
+    "NURBS & Mesh:\r\n\r\nGrasshopper provides various tools to work with both NURBS & Meshes.\r\n\r\nUnless otherwise specified, solids & Breps in Grasshopper are NURBS geometry. When a Mesh is being used, it usu"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_0ae1e0de",
+    "teaching_2a15f208",
+    "teaching_f520f3eb",
+    "teaching_24f645a3",
+    "teaching_22255d24"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-04-Class",
+    "unit_number": 4,
+    "section_number": 1,
+    "section_index": 0,
+    "x_range": [
+      476.3,
+      1158.7
+    ],
+    "full_teaching_text": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of computational modeling, meshes are one of the most pervasive forms of representing 3D geometry. Mesh geometry can be a light-weight and flexible alternative to working with NURBS, and are used in everything from rendering and visualizations to digital fabrication and 3D printing.\"\r\n\r\n\"A Mesh is a collection of quadrilaterals and triangles that represent a surface or solid geometry.\"\r\nA mesh is composed of \"vertices, edges, and faces, as well as additional mesh properties such as colors and normals.\"\r\n\r\n\"Meshes can be favorable in situations where:\r\n\r\nThere must be a dynamically updated rendering of a form that is changing in shape but not in face connectivity\r\nA discretized approximation of a curved geometry would suffice\r\nA low-resolution geometry must be systematically smoothed (or articlated) using computational methods to arrive at a higher-resolution model.\r\nThe low resolution model must be able to be to simultaneously support local, high resolution detail\r\nMeshes can be unfavorable in situations where:\r\n\r\nCurvature and smoothness must be represented with a high level of precision\r\nTrue derivatives must be evaluated\r\nThe geometry must be converted into a manufacturable solid\r\nThe final form must be able to be easily edited manually\"\r\n\r\nSources:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/0_Getting%20Started%20with%20Meshes.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/1_What%20is%20a%20Mesh.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/2_Understanding%20Topology.html",
+    "sub_annotations": [
+      {
+        "id": "C312",
+        "text": "NURBS & Mesh:\r\n\r\nGrasshopper provides various tools to work with both NURBS & Meshes.\r\n\r\nUnless otherwise specified, solids & Breps in Grasshopper are NURBS geometry. When a Mesh is being used, it usually states that it is a \"Mesh\" and its icon shows small squarish meshes.\r\n\r\nBelow on the left are Geometry generation and analysis components for NURBS (can also be found under the tab \"Surface\")\r\n\r\nOn the right, Mesh components (can also be found under the tab \"Mesh\")",
+        "topic": "NURBS & Mesh",
+        "pos": [
+          471.6,
+          606.4
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C313",
+      "C314",
+      "C315",
+      "C316",
+      "C317",
+      "C318",
+      "C319",
+      "C322",
+      "C323",
+      "C324",
+      "C325",
+      "C342",
+      "C343",
+      "C344",
+      "C345",
+      "C346"
+    ],
+    "intra_section_flows": [
+      "C315.O0>C344.I0",
+      "C313.O0>C352.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G55",
+        "name": "NURBS",
+        "colour": "#FF000085"
+      },
+      {
+        "group_id": "G54",
+        "name": "Meshes",
+        "colour": "#FF000085"
+      }
+    ],
+    "components_demonstrated": {
+      "Center Box": 1,
+      "Sphere": 1,
+      "Cylinder": 1,
+      "Cone": 1,
+      "Mesh Box": 1,
+      "Mesh Sphere": 1,
+      "Mesh Sphere Ex": 1,
+      "Brep": 4,
+      "Surface": 4,
+      "Cap Holes": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 16,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 2,
+      "groups": 2
+    }
+  }
+}

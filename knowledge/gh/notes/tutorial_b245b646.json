@@ -1,0 +1,83 @@
+{
+  "note_id": "tutorial_b245b646",
+  "note_type": "teaching",
+  "name": "Beginner 1-4: Curve Types \u00e2\u20ac\u201d Polyline vs Interpolate vs Nurbs Curve",
+  "brief": "Three curve types from same points: Polyline (straight segments), Interpolate (smooth through points), Nurbs Curve (control polygon)",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.950116Z",
+  "context": "Three clusters sharing the same Point param input and Panel (degree=3). Cluster 1: Point \u00e2\u2020\u2019 PolyLine \u00e2\u2020\u2019 output 'Polyline Curve'. Straight segments between points. Cluster 2: Point \u00e2\u2020\u2019 Interpolate (Vertices, Degree, Periodic, KnotStyle) \u00e2\u2020\u2019 output 'Planar Curve'. Smooth curve passing through all points. Cluster 3: Point \u00e2\u2020\u2019 Nurbs Curve (Vertices, Degree, Periodic) \u00e2\u2020\u2019 output 'Planar Curve'. Points act as control polygon, curve doesn't pass through them. Same inputs, three fundamentally different curve behaviors.",
+  "keywords": [
+    "curve types",
+    "polyline",
+    "interpolate",
+    "nurbs curve",
+    "control points",
+    "degree",
+    "smooth curve"
+  ],
+  "category": "Beginner - Data Fundamentals",
+  "tags": [
+    "beginner",
+    "alternatives",
+    "curve-types",
+    "nurbs",
+    "interpolation",
+    "control-polygon",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "curve types grasshopper",
+    "polyline vs interpolate vs nurbs",
+    "smooth curve through points",
+    "nurbs curve control points",
+    "interpolate curve grasshopper",
+    "difference between curve types"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Polyline",
+    "Interpolate",
+    "Nurbs Curve",
+    "Panel"
+  ],
+  "solution_principle": "Grasshopper offers three primary curve types from point sets. Polyline: linear segments, fast, exact through points. Interpolate: smooth NURBS curve that passes THROUGH all points. Nurbs Curve: smooth curve where points are the CONTROL POLYGON \u00e2\u20ac\u201d curve is attracted to but doesn't touch interior points. Degree parameter (Panel=3) affects smoothness. Understanding the difference is essential for surface creation downstream.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_6c3edd2d",
+    "tutorial_6faa7cbb",
+    "tutorial_99dd197c",
+    "teaching_e23cfc74",
+    "tutorial_7de24433",
+    "tutorial_f8931ded"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.950116Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "1-4.jpg",
+    "lesson_number": 1,
+    "step_number": 4,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Point": 1,
+      "Polyline": 1,
+      "Interpolate": 1,
+      "Nurbs Curve": 1,
+      "Panel": 1
+    }
+  }
+}

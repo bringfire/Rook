@@ -1,0 +1,248 @@
+{
+  "note_id": "recipe_a047dfae",
+  "note_type": "recipe",
+  "name": "Texture Displacement",
+  "brief": "Texture Displacement: Sphere \u00e2\u2020\u2019 MeshBRep \u00e2\u2020\u2019 MeshSettingsCustom \u00e2\u2020\u2019 CatmullClarkComponent \u00e2\u2020\u2019 CSNET_Script +7 more (21 components, 4 sliders, 21 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:21.781728Z",
+  "context": "Extracted from: Texture Displacement.gh",
+  "keywords": [
+    "parametric"
+  ],
+  "category": "parametric",
+  "tags": [
+    "4-parameter-workflow",
+    "adjustable-parameters",
+    "c-s-n",
+    "catmull-clark-component",
+    "complexity-spectrum",
+    "deconstruct-mesh",
+    "image-sampler",
+    "low-complexity",
+    "mesh",
+    "mesh-b-rep",
+    "mesh-colour",
+    "mesh-settings-custom",
+    "move",
+    "parametric-modeling",
+    "remap",
+    "simple-parametric",
+    "sphere",
+    "vector-amplitude",
+    "workflow"
+  ],
+  "trigger_intents": [
+    "parametric sphere",
+    "create a sphere"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sphere",
+    "Number Slider",
+    "Mesh Brep",
+    "Settings (Custom)",
+    "Number Slider",
+    "Weaverbird's Catmull-Clark Subdivision",
+    "Number Slider",
+    "C# Script",
+    "Image Sampler",
+    "Image Sampler",
+    "Mesh Colours",
+    "Mesh",
+    "Image Sampler",
+    "Deconstruct Mesh",
+    "Remap Numbers",
+    "Number Slider",
+    "Amplitude",
+    "Move",
+    "Construct Mesh",
+    "Image Sampler",
+    "Weaverbird's Catmull-Clark Subdivision"
+  ],
+  "solution_principle": "Processing chain: Sphere \u00e2\u2020\u2019 MeshBRep \u00e2\u2020\u2019 MeshSettingsCustom \u00e2\u2020\u2019 CatmullClarkComponent \u00e2\u2020\u2019 CSNET_Script \u00e2\u2020\u2019 ImageSampler \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 Mesh.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_53d4186b",
+    "recipe_c3c2ea42",
+    "recipe_82a8a824",
+    "recipe_81e14ed4",
+    "recipe_c97fb5a1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "batch_extraction",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "c2fdfecc-8db5-40fa-8f54-cd0af5573fc3",
+        "from_param": "Number Slider",
+        "to": "3d78caa9-83ba-47c7-976a-70d577429d6e",
+        "to_param": "R"
+      },
+      {
+        "from": "3d78caa9-83ba-47c7-976a-70d577429d6e",
+        "from_param": "S",
+        "to": "a37a28ad-5efb-4625-b96c-4ceec0f98dde",
+        "to_param": "B"
+      },
+      {
+        "from": "277c05e8-e91c-443d-bf72-081ba563a079",
+        "from_param": "S",
+        "to": "a37a28ad-5efb-4625-b96c-4ceec0f98dde",
+        "to_param": "S"
+      },
+      {
+        "from": "6701ded2-af65-432e-a736-d3b9f77a5cd1",
+        "from_param": "Number Slider",
+        "to": "277c05e8-e91c-443d-bf72-081ba563a079",
+        "to_param": "Min Edge"
+      },
+      {
+        "from": "6701ded2-af65-432e-a736-d3b9f77a5cd1",
+        "from_param": "Number Slider",
+        "to": "277c05e8-e91c-443d-bf72-081ba563a079",
+        "to_param": "Max Edge"
+      },
+      {
+        "from": "a37a28ad-5efb-4625-b96c-4ceec0f98dde",
+        "from_param": "M",
+        "to": "a4cc93d4-9b13-463a-bce6-99b23e42d581",
+        "to_param": "M"
+      },
+      {
+        "from": "8d657eb1-a6e4-4940-b9cb-43ca4b2492f1",
+        "from_param": "Number Slider",
+        "to": "a4cc93d4-9b13-463a-bce6-99b23e42d581",
+        "to_param": "L"
+      },
+      {
+        "from": "3c5f42d5-5507-45af-86af-319ec401daff",
+        "from_param": "Mesh",
+        "to": "b00babbf-d1d5-4f6d-b89d-b575ca7d8e1d",
+        "to_param": "m"
+      },
+      {
+        "from": "3c5f42d5-5507-45af-86af-319ec401daff",
+        "from_param": "Mesh",
+        "to": "9d0e5dbc-1e33-4d66-9f72-a6401ed3d83e",
+        "to_param": "M"
+      },
+      {
+        "from": "bf4c0f72-86bc-4648-8590-bffe215037e9",
+        "from_param": "Image",
+        "to": "9d0e5dbc-1e33-4d66-9f72-a6401ed3d83e",
+        "to_param": "C"
+      },
+      {
+        "from": "9d0e5dbc-1e33-4d66-9f72-a6401ed3d83e",
+        "from_param": "M",
+        "to": "d0f188ff-2067-4e79-9309-dccc83a5ba44",
+        "to_param": "M"
+      },
+      {
+        "from": "89614938-077e-4850-b413-7b994eb7f46f",
+        "from_param": "Image",
+        "to": "5a1aa6b6-12de-4ea3-80b4-b1ca4f26e485",
+        "to_param": "V"
+      },
+      {
+        "from": "f82fd3c0-bc57-40ed-a996-e3cd0f2b261c",
+        "from_param": "Number Slider",
+        "to": "5a1aa6b6-12de-4ea3-80b4-b1ca4f26e485",
+        "to_param": "T"
+      },
+      {
+        "from": "d0f188ff-2067-4e79-9309-dccc83a5ba44",
+        "from_param": "N",
+        "to": "8330f4d1-2d7e-4b74-8b99-92841f5812c0",
+        "to_param": "V"
+      },
+      {
+        "from": "5a1aa6b6-12de-4ea3-80b4-b1ca4f26e485",
+        "from_param": "R",
+        "to": "8330f4d1-2d7e-4b74-8b99-92841f5812c0",
+        "to_param": "A"
+      },
+      {
+        "from": "d0f188ff-2067-4e79-9309-dccc83a5ba44",
+        "from_param": "V",
+        "to": "43a2de1a-ecf5-4dfd-b269-92f6cdeb73d2",
+        "to_param": "G"
+      },
+      {
+        "from": "8330f4d1-2d7e-4b74-8b99-92841f5812c0",
+        "from_param": "V",
+        "to": "43a2de1a-ecf5-4dfd-b269-92f6cdeb73d2",
+        "to_param": "T"
+      },
+      {
+        "from": "43a2de1a-ecf5-4dfd-b269-92f6cdeb73d2",
+        "from_param": "G",
+        "to": "94f19937-545d-4ac3-adea-53b81537c5ca",
+        "to_param": "V"
+      },
+      {
+        "from": "d0f188ff-2067-4e79-9309-dccc83a5ba44",
+        "from_param": "F",
+        "to": "94f19937-545d-4ac3-adea-53b81537c5ca",
+        "to_param": "F"
+      },
+      {
+        "from": "d0f188ff-2067-4e79-9309-dccc83a5ba44",
+        "from_param": "C",
+        "to": "94f19937-545d-4ac3-adea-53b81537c5ca",
+        "to_param": "C"
+      },
+      {
+        "from": "94f19937-545d-4ac3-adea-53b81537c5ca",
+        "from_param": "M",
+        "to": "3e0aa3b1-9f12-4dd2-8acc-583f748847e8",
+        "to_param": "M"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "c2fdfecc-8db5-40fa-8f54-cd0af5573fc3",
+          "role": "radius",
+          "connected_to": "Sphere",
+          "param": "R"
+        },
+        {
+          "guid": "6701ded2-af65-432e-a736-d3b9f77a5cd1",
+          "role": "parameter",
+          "connected_to": "Settings (Custom)",
+          "param": "Min Edge"
+        },
+        {
+          "guid": "8d657eb1-a6e4-4940-b9cb-43ca4b2492f1",
+          "role": "parameter",
+          "connected_to": "Weaverbird's Catmull-Clark Subdivision",
+          "param": "L"
+        },
+        {
+          "guid": "f82fd3c0-bc57-40ed-a996-e3cd0f2b261c",
+          "role": "parameter",
+          "connected_to": "Remap Numbers",
+          "param": "T"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Texture Displacement.gh",
+    "pattern_type": "recipe",
+    "verification_test": "",
+    "verification_expected": "",
+    "component_count": 21
+  }
+}

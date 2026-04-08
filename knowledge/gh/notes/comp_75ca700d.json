@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_75ca700d",
+  "note_type": "component",
+  "name": "Custom Preview Lineweights",
+  "brief": "Custom Preview Lineweights | Inputs: Geometry, Shader, Thickness, Absolute → output",
+  "version": "1.0",
+  "created": "2026-03-19T18:25:21.546689Z",
+  "context": "Grasshopper component: Custom Preview Lineweights. ",
+  "keywords": [
+    "custom preview lineweights",
+    "curves",
+    "custom",
+    "preview",
+    "lineweights"
+  ],
+  "category": "curves",
+  "tags": [],
+  "trigger_intents": [
+    "custom preview lineweights",
+    "custom",
+    "preview",
+    "lineweights",
+    "previewlw"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Custom Preview Lineweights"
+  ],
+  "solution_principle": "Custom Preview Lineweights | Inputs: Geometry, Shader, Thickness, Absolute → output",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a77d0879-94c2-4101-be44-e4a616ffeb0c",
+    "category": "curves",
+    "inputs": {
+      "Geometry": "Geometry",
+      "Shader": "Shader",
+      "Thickness": "Thickness",
+      "Absolute": "Absolute"
+    },
+    "outputs": {},
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "human|display|custom preview lineweights"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

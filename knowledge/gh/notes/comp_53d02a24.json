@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_53d02a24",
+  "note_type": "component",
+  "name": "Reduce",
+  "brief": "Reduce | Inputs: P, T → P, R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Reduce. Inputs: P (Curve), T (Number). Outputs: P (Curve), R (Integer).",
+  "keywords": [
+    "reduce",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "reduce"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Reduce"
+  ],
+  "solution_principle": "Reduce a polyline by removing least significant vertices.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_f3ac6697",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "884646c3-0e70-4ad1-90c5-42601ee26450",
+    "category": "curve_utilities",
+    "inputs": {
+      "P": "Curve",
+      "T": "Number"
+    },
+    "outputs": {
+      "P": "Curve",
+      "R": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "922dc7e5-0f0e-4c21-ae4b-f6a8654e63f6"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|reduce"
+  }
+}

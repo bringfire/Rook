@@ -1,0 +1,90 @@
+{
+  "note_id": "tutorial_429a813e",
+  "note_type": "teaching",
+  "name": "Professional 6-5: Double Partition List \u00e2\u20ac\u201d Nested Tree Structure with Shift Paths",
+  "brief": "Point (N=30) \u00e2\u2020\u2019 Partition List (15) \u00e2\u2020\u2019 2 branches \u00e2\u2020\u2019 Partition List (3) \u00e2\u2020\u2019 10 branches of 3 \u00e2\u2020\u2019 PolyLine \u00e2\u2020\u2019 Shift Paths (Offset=-1) \u00e2\u2020\u2019 2 branches \u00e2\u2020\u2019 Loft.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:55.902639Z",
+  "context": "Demonstrates nested Partition List for multi-level tree structuring. Point param \u00e2\u2020\u2019 Param Viewer: '1 branch, N=30'. Point List (Size=2) for visualization. Partition List #1 (Size=15): splits 30 items into 2 branches of 15. Param Viewer: '2 branches, N=15 each'. Partition List #2 (Size=3): splits each branch further. Param Viewer: '10 branches, N=3 each'. Tree paths: {0;0;0} through {0;1;4}. PolyLine (Vertices, Closed): creates closed triangles from each group of 3 points. Shift Paths (Offset=-1, shown in green): removes one level of tree depth. Param Viewer after shift: '2 branches' (collapsed from 10). \u00e2\u2020\u2019 Loft: lofts between the two branch groups. Final Param Viewer: '2 branches, N=1 and N=5'. Shows how nested partitioning creates hierarchical tree structure and Shift Paths simplifies it.",
+  "keywords": [
+    "double partition list",
+    "nested tree",
+    "shift paths",
+    "tree depth",
+    "hierarchical structure",
+    "collapse branches",
+    "multi-level partition"
+  ],
+  "category": "Professional - Advanced Data Tree and Structural Patterns",
+  "tags": [
+    "professional",
+    "data-tree",
+    "partition-list",
+    "shift-paths",
+    "nested-structure",
+    "tree-depth",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "double partition list",
+    "nested tree structure",
+    "shift paths offset",
+    "collapse tree depth",
+    "multi-level partition grasshopper",
+    "hierarchical data tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Point List",
+    "Partition List",
+    "PolyLine",
+    "Shift Paths",
+    "Loft",
+    "Param Viewer",
+    "Number Slider",
+    "Panel"
+  ],
+  "solution_principle": "Double Partition List creates nested tree structure: first split divides into major groups, second split divides into sub-groups. Shift Paths changes the tree path depth \u00e2\u20ac\u201d Offset=-1 removes the deepest level, collapsing sub-branches. This is essential for controlling how Loft/Flip Matrix operate on nested data. Understanding tree depth and Shift Paths is key to professional-level data tree manipulation.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_2b517157",
+    "tutorial_0bd27730",
+    "tutorial_6c3edd2d",
+    "tutorial_31ac118b",
+    "tutorial_ea26c96f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:55.902639Z",
+  "citations": [],
+  "created_from": "professional_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Professional",
+    "image": "6-5.jpg",
+    "lesson_number": 6,
+    "step_number": 5,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Point": 1,
+      "Point List": 1,
+      "Partition List": 1,
+      "PolyLine": 1,
+      "Shift Paths": 1,
+      "Loft": 1,
+      "Param Viewer": 1,
+      "Number Slider": 1,
+      "Panel": 1
+    }
+  }
+}

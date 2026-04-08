@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_583aaa48",
+  "note_type": "component",
+  "name": "Complex",
+  "brief": "Complex | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Complex.",
+  "keywords": [
+    "complex",
+    "primitive_params"
+  ],
+  "category": "primitive_params",
+  "tags": [
+    "primitive_params"
+  ],
+  "trigger_intents": [
+    "complex"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Complex"
+  ],
+  "solution_principle": "Contains a collection of complex numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_966377f2",
+    "comp_c3eb8fee",
+    "comp_ce555ad5",
+    "comp_4197f9e2",
+    "comp_ce51147c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "476c0cf8-bc3c-4f1c-a61a-6e91e1f8b91e",
+    "category": "primitive_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|primitive|complex"
+  }
+}

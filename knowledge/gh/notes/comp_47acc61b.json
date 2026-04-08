@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_47acc61b",
+  "note_type": "component",
+  "name": "Duplicate Content",
+  "brief": "Duplicate Content | Inputs: C, N → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Duplicate Content. Inputs: C (Model Content), N (Text). Outputs: C (Model Content).",
+  "keywords": [
+    "duplicate content",
+    "duplicate",
+    "content",
+    "rhino_content"
+  ],
+  "category": "rhino_content",
+  "tags": [
+    "rhino_content"
+  ],
+  "trigger_intents": [
+    "duplicate content",
+    "duplicate",
+    "content"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Duplicate Content"
+  ],
+  "solution_principle": "Duplicates input content with a new identity.\r\nClears the current content Id and optionally lets you set a new parent and name.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_af914e81",
+    "comp_251fc0d2",
+    "comp_4aab4206",
+    "comp_a8019a19",
+    "comp_1174796c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "494d3ec5-c6b4-420e-9417-37278cf94ee2",
+    "category": "rhino_content",
+    "inputs": {
+      "C": "Model Content",
+      "N": "Text"
+    },
+    "outputs": {
+      "C": "Model Content"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|content|duplicate content"
+  }
+}

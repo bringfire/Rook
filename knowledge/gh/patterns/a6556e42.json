@@ -1,0 +1,77 @@
+{
+  "pattern_id": "a6556e42",
+  "name": "teaching_After aggregation, the Smart A",
+  "version": "1.0",
+  "created": "2026-03-19T19:14:46.402400Z",
+  "solution": {
+    "brief": "After aggregation, the Smart Attributes are extracted\r\nand displayed only if the layout of parts connected matches\r\nthe Connection Mask layout specified on the Attribute.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Get Valid Smart Attributes",
+      "Swatch",
+      "Wasp_Get Valid Smart Attributes",
+      "Button",
+      "Swatch",
+      "Wasp_Get Valid Smart Attributes"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "smart",
+      "parts",
+      "displayed",
+      "only",
+      "layout",
+      "extracted",
+      "aggregation,",
+      "after",
+      "attributes",
+      "connected"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "disco"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

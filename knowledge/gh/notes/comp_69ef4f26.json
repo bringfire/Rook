@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_69ef4f26",
+  "note_type": "component",
+  "name": "Join Curves",
+  "brief": "Join Curves | Inputs: C, P â†’ C",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Join Curves. Inputs: C (Curve), P (Boolean). Outputs: C (Curve).",
+  "keywords": [
+    "join curves",
+    "join",
+    "curves"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve-manipulation",
+    "grasshopper-component",
+    "curve-joining",
+    "prerequisite-operation",
+    "curve-based",
+    "fundamental-component"
+  ],
+  "trigger_intents": [
+    "join curves",
+    "join",
+    "curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Join Curves"
+  ],
+  "solution_principle": "Join as many curves as possible",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "recipe_57a3d532",
+    "recipe_c4ebd406",
+    "teaching_26b87a73",
+    "comp_ba6a3f1a",
+    "comp_aa74495c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8073a420-6bec-49e3-9b18-367f6fd76ac3",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "P": "Boolean"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "usage_count": 70,
+    "stable_key": "curve|util|join curves"
+  }
+}

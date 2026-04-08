@@ -1,0 +1,338 @@
+{
+  "pattern_id": "f113f613",
+  "name": "S11E05",
+  "version": "1.0",
+  "created": "2026-02-22T13:55:45.083850Z",
+  "solution": {
+    "brief": "Recipe from FILES\\11\\S11E05.gh (19 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Line SDL",
+      "Point",
+      "slider",
+      "End Points",
+      "Circle",
+      "Divide Curve",
+      "slider",
+      "Line",
+      "Line SDL",
+      "Number",
+      "Multiplication",
+      "slider",
+      "Rotate",
+      "slider",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "Line",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s11e05"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "139f766a",
+    "188588cb",
+    "849cf444",
+    "2f310f59"
+  ],
+  "tags": [
+    "parametric",
+    "curve-division",
+    "recipe",
+    "workflow",
+    "S11-series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.48
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 35
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/11/S11E05.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            40,
+            1
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            172,
+            369
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            94.3,
+            350.3
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            -41.8,
+            394.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R5",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            546,
+            391
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            670,
+            416
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            763,
+            479
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            484.3,
+            469.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R9",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            780,
+            275
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            1115,
+            278
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            566.8,
+            560.8
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            646,
+            592
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            396.5,
+            603.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.48
+        },
+        {
+          "id": "R14",
+          "type": "Component_VectorRotate",
+          "nick": "VRot",
+          "name": "Rotate",
+          "pos": [
+            1012,
+            483
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            758.8,
+            584.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 35
+        },
+        {
+          "id": "R16",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            282,
+            196
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1262,
+            196
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Line",
+          "name": "Line",
+          "pos": [
+            362.4,
+            323
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            45.8,
+            171.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R4.O0>R2.I2",
+        "R18.O0>R5.I0",
+        "R5.O1>R6.I0",
+        "R6.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R5.O1>R9.I0",
+        "R7.O0>R9.I1",
+        "R5.O1>R10.I0",
+        "R14.O0>R10.I1",
+        "R12.O0>R10.I2",
+        "R11.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R18.O0>R14.I0",
+        "R9.O0>R14.I1",
+        "R15.O0>R14.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

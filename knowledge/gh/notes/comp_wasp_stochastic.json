@@ -1,0 +1,101 @@
+{
+  "note_id": "comp_wasp_stochastic",
+  "note_type": "component",
+  "name": "Wasp_Stochastic Aggregation",
+  "brief": "Wasp_Stochastic Aggregation | Inputs: PART, PREV, N, RULES, SEED, CAT, MODE, GC, ID, RESET → AGGR, PART_OUT",
+  "version": "1.0",
+  "created": "2026-03-19T13:30:00.000000Z",
+  "context": "Wasp plugin component: core aggregation engine. Randomly selects parts and rules at each step to grow a discrete assembly. Works ADDITIVELY — increases to N grow the assembly, RESET clears it. PART_OUT feeds into Wasp_Get Part Geometry for visualization.",
+  "keywords": [
+    "wasp",
+    "stochastic",
+    "aggregation",
+    "discrete",
+    "random",
+    "assembly",
+    "growth"
+  ],
+  "category": "wasp",
+  "tags": [
+    "wasp",
+    "discrete-design",
+    "aggregation",
+    "stochastic",
+    "generative"
+  ],
+  "trigger_intents": [
+    "wasp aggregation",
+    "stochastic aggregation",
+    "discrete aggregation",
+    "random aggregation",
+    "wasp aggregate",
+    "run wasp aggregation",
+    "grow assembly",
+    "discrete assembly"
+  ],
+  "trigger_symptoms": [
+    "aggregation keeps growing unexpectedly",
+    "need to restart aggregation",
+    "aggregation accumulates on previous state"
+  ],
+  "components": [
+    "Wasp_Stochastic Aggregation"
+  ],
+  "solution_principle": "The stochastic aggregation engine randomly selects one part and one rule at each step. It is STATEFUL and ADDITIVE — parts accumulate over previous state. Increasing N grows incrementally, does not regenerate. RESET (Button) is the only way to clear state and restart. Requires WaspPart definitions (PART) and merged WaspRule list (RULES). Optional: SEED for reproducibility, CAT for part probability weights, GC for global constraints (bounding geometry), MODE for growth behavior. PART_OUT must be wired to Wasp_Get Part Geometry for visualization.",
+  "anti_patterns": [
+    "Expecting re-solve to regenerate — it accumulates, use RESET",
+    "Forgetting RESET button — no way to clear accumulated state",
+    "Wiring AGGR instead of PART_OUT to geometry extraction"
+  ],
+  "preconditions": [
+    "WaspPart objects from Wasp_Basic Part",
+    "Merged WaspRule list from Wasp_Rule + Merge",
+    "N set to integer > 0"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_wasp_part",
+    "comp_wasp_rule",
+    "comp_wasp_partgeo"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "wasp_learning",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "afa0ed77-ddb2-4e23-8420-33d3447065aa",
+    "category": "wasp",
+    "inputs": {
+      "PART": "Generic Data",
+      "PREV": "Generic Data",
+      "N": "Generic Data",
+      "RULES": "Generic Data",
+      "SEED": "Generic Data",
+      "CAT": "Generic Data",
+      "MODE": "Generic Data",
+      "GC": "Generic Data",
+      "ID": "Generic Data",
+      "RESET": "Generic Data"
+    },
+    "outputs": {
+      "AGGR": "Generic Data",
+      "PART_OUT": "Generic Data"
+    },
+    "typical_wiring": [
+      "Wasp_Basic Part.PART → PART",
+      "Slider(100) → N",
+      "Merge.R → RULES",
+      "Button → RESET",
+      "PART_OUT → Wasp_Get Part Geometry.PART"
+    ],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "wasp|6 | aggregation|wasp_stochastic aggregation"
+  }
+}

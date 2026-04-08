@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_aaf059b3",
+  "note_type": "component",
+  "name": "Curvature Graph",
+  "brief": "Curvature Graph | Inputs: C, D, S → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Curvature Graph. Inputs: C (Curve), D (Integer), S (Integer).",
+  "keywords": [
+    "curvature graph",
+    "curvature",
+    "graph",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "curvature graph",
+    "curvature",
+    "graph"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curvature Graph"
+  ],
+  "solution_principle": "Draws Rhino Curvature Graphs.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c",
+    "comp_b59df947"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7376fe41-74ec-497e-b367-1ffe5072608b",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "D": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|curvature graph"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_92bcbc43",
+  "note_type": "component",
+  "name": "Unit Y",
+  "brief": "Unit Y | Inputs: F â†’ V",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Unit Y. Inputs: F (Number). Outputs: V (Vector).",
+  "keywords": [
+    "unit y",
+    "unit",
+    "y"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "grasshopper-component",
+    "unit-operation",
+    "parametric"
+  ],
+  "trigger_intents": [
+    "unit y",
+    "unit"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Unit Y"
+  ],
+  "solution_principle": "Unit vector parallel to the world {y} axis.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_a882942d",
+    "recipe_06799a58",
+    "recipe_0acaaa5d",
+    "recipe_101412b0",
+    "recipe_10a660d4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d3d195ea-2d59-4ffa-90b1-8b7ff3369f69",
+    "category": "vector_ops",
+    "inputs": {
+      "F": "Number"
+    },
+    "outputs": {
+      "V": "Vector"
+    },
+    "typical_wiring": [],
+    "usage_count": 172,
+    "stable_key": "vector|vector|unit y"
+  }
+}

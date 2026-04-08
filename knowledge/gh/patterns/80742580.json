@@ -1,0 +1,973 @@
+{
+  "pattern_id": "80742580",
+  "name": "3-3",
+  "version": "1.0",
+  "created": "2026-02-22T14:12:44.857406Z",
+  "solution": {
+    "brief": "Recipe from FILES\\3\\3-3.gh (62 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Plane Surface",
+      "Isotrim",
+      "Construct Domain²",
+      "Plane",
+      "slider",
+      "Construct Domain",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Plane Surface",
+      "Isotrim",
+      "Plane",
+      "slider",
+      "Divide Domain²",
+      "slider",
+      "slider",
+      "Plane Surface",
+      "Isotrim",
+      "Plane",
+      "slider",
+      "Construct Domain²",
+      "Construct Domain",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Surface",
+      "Isotrim",
+      "Divide Domain²",
+      "slider",
+      "slider",
+      "Evaluate Surface",
+      "MD Slider",
+      "MD Slider",
+      "Curve",
+      "Explode",
+      "List Item",
+      "Divide Curve",
+      "slider",
+      "Divide Curve",
+      "Line",
+      "Flip Curve",
+      "Point On Curve",
+      "Rotate 3D",
+      "Closest Point",
+      "Remap+",
+      "Graph Mapper",
+      "Remap+",
+      "Partition List",
+      "slider",
+      "slider",
+      "Loft",
+      "Offset Surface",
+      "slider",
+      "Curve",
+      "Curve",
+      "Loft",
+      "Brep Join"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "3 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "139f766a",
+    "02f0af8b",
+    "a1cc79d4",
+    "87d9288c"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "panelization",
+    "curve-division",
+    "62-components",
+    "recipe",
+    "workflow",
+    "3-series",
+    "mid-complexity"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.696
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.25
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.25
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7.15
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 9
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.12
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.61
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.07
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 1
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 199
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 85
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "brep",
+    "source_definition": "FILES/3/3-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            75,
+            -15
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            529,
+            91
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            640,
+            101
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_Construct2DInterval",
+          "nick": "Dom²",
+          "name": "Construct Domain²",
+          "pos": [
+            462,
+            167
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            442.9,
+            71.2
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            76.3,
+            107.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R7",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            341,
+            150
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            340,
+            199
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            76.4,
+            130.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.696
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            76.9,
+            154.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.25
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            76.5,
+            179.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.25
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            76.6,
+            203.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7.15
+        },
+        {
+          "id": "R13",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            341,
+            293
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            553,
+            295
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            253.5,
+            283.4
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            75,
+            309
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R17",
+          "type": "Component_Divide2DInterval",
+          "nick": "Divide",
+          "name": "Divide Domain²",
+          "pos": [
+            466,
+            334
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            75.5,
+            343.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            75.5,
+            377.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 9
+        },
+        {
+          "id": "R20",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            532,
+            469
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            652,
+            479
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            366.7,
+            450.2
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            76.2,
+            469.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R24",
+          "type": "Component_Construct2DInterval",
+          "nick": "Dom²",
+          "name": "Construct Domain²",
+          "pos": [
+            529,
+            530
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            360,
+            506
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            360,
+            554
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            75.1,
+            492
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.12
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            75.1,
+            516.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.61
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            75.4,
+            540.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.07
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            75.4,
+            565.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        },
+        {
+          "id": "R31",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            109.2,
+            636.6
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            476,
+            645
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Divide2DInterval",
+          "nick": "Divide",
+          "name": "Divide Domain²",
+          "pos": [
+            376,
+            671
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            84.2,
+            658
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "pos": [
+            84.2,
+            687.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 1
+        },
+        {
+          "id": "R36",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            402,
+            809
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            190.1,
+            763.2
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            87.7,
+            762.9
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            562.5,
+            645.1
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            643,
+            653
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            736,
+            663
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            926,
+            662
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            578.8,
+            808.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 199
+        },
+        {
+          "id": "R44",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            926,
+            731
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1022,
+            653
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_FlipCurve",
+          "nick": "Flip",
+          "name": "Flip Curve",
+          "pos": [
+            831,
+            653
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1108.6,
+            660.6
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_Rotate3D",
+          "nick": "Rot3D",
+          "name": "Rotate 3D",
+          "pos": [
+            1924,
+            683
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            1295,
+            710
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            1416,
+            750
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1509.7,
+            701.4
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            1685,
+            773
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_PartitionList",
+          "nick": "Partition",
+          "name": "Partition List",
+          "pos": [
+            1828,
+            783
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "pos": [
+            1406.8,
+            803.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            1406,
+            825
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 85
+        },
+        {
+          "id": "R56",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2016,
+            673
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_OffsetSurface",
+          "nick": "Offset",
+          "name": "Offset Surface",
+          "pos": [
+            2159,
+            728
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            1853.6,
+            819.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R59",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2289.4,
+            680.7
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2290.6,
+            710.1
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2379,
+            693
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            2494,
+            734
+          ]
+        }
+      ],
+      "flows": [
+        "R5.O0>R2.I0",
+        "R6.O0>R2.I1",
+        "R6.O0>R2.I2",
+        "R2.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R7.O0>R4.I0",
+        "R8.O0>R4.I1",
+        "R9.O0>R7.I0",
+        "R10.O0>R7.I1",
+        "R11.O0>R8.I0",
+        "R12.O0>R8.I1",
+        "R15.O0>R13.I0",
+        "R16.O0>R13.I1",
+        "R16.O0>R13.I2",
+        "R13.O0>R14.I0",
+        "R17.O0>R14.I1",
+        "R13.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R19.O0>R17.I2",
+        "R22.O0>R20.I0",
+        "R23.O0>R20.I1",
+        "R23.O0>R20.I2",
+        "R20.O0>R21.I0",
+        "R24.O0>R21.I1",
+        "R25.O0>R24.I0",
+        "R26.O0>R24.I1",
+        "R27.O0>R25.I0",
+        "R28.O0>R25.I1",
+        "R29.O0>R26.I0",
+        "R30.O0>R26.I1",
+        "R31.O0>R32.I0",
+        "R33.O0>R32.I1",
+        "R31.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R35.O0>R33.I2",
+        "R31.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R36.I1",
+        "R39.O0>R40.I0",
+        "R40.O0>R41.I0",
+        "R46.O0>R42.I0",
+        "R43.O0>R42.I1",
+        "R41.O2>R44.I0",
+        "R43.O0>R44.I1",
+        "R42.O0>R45.I0",
+        "R44.O0>R45.I1",
+        "R41.O0>R46.I0",
+        "R45.O0>R48.I0",
+        "R53.O0>R48.I1",
+        "R47.O0>R48.I2",
+        "R47.O0>R49.I0",
+        "R36.O0>R49.I1",
+        "R49.O2>R50.I0",
+        "R51.O0>R52.I0",
+        "R55.O0>R52.I1",
+        "R54.O0>R52.I2",
+        "R52.O0>R53.I0",
+        "R43.O0>R53.I1",
+        "R48.O0>R56.I0",
+        "R56.O0>R57.I0",
+        "R58.O0>R57.I1",
+        "R59.O0>R61.I0",
+        "R60.O0>R61.I0",
+        "R57.O0>R62.I0",
+        "R56.O0>R62.I0",
+        "R61.O0>R62.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

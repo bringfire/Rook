@@ -1,0 +1,74 @@
+{
+  "pattern_id": "e342c7a2",
+  "name": "wasp_14_teaching_Using_the_indices_di",
+  "version": "1.0",
+  "created": "2026-03-19T17:55:39.490813Z",
+  "solution": {
+    "brief": "Using the indices displayed in the Rules Visualizer,\r\nit is possible to manually select specific rules from\r\nthe list generated through the Rules Generator.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Rules Generator",
+      "Toggle",
+      "Toggle",
+      "Toggle",
+      "List Item"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "possible",
+      "displayed",
+      "manually",
+      "indices",
+      "specific",
+      "rules",
+      "using",
+      "visualizer,",
+      "select"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

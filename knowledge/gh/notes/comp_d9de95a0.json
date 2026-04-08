@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_d9de95a0",
+  "note_type": "component",
+  "name": "Voronoi",
+  "brief": "Voronoi | Inputs: P, R, B, Pl → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Voronoi. Inputs: P (Point), R (Number), B (Rectangle), Pl (Plane). Outputs: C (Curve).",
+  "keywords": [
+    "voronoi",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "voronoi"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Voronoi"
+  ],
+  "solution_principle": "Planar voronoi diagram for a collection of points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_57e41d52",
+    "comp_9bce8961",
+    "comp_f06438f9",
+    "comp_eb2d7d4d",
+    "comp_a2966434"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a4011be0-1c91-45bd-8280-17dd3a9f46f1",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point",
+      "R": "Number",
+      "B": "Rectangle",
+      "Pl": "Plane"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9d4854fe-70db-4863-967b-4120d0b6d2e4"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|voronoi"
+  }
+}

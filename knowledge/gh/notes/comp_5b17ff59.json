@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_5b17ff59",
+  "note_type": "component",
+  "name": "Cube",
+  "brief": "Cube | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Cube. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "cube",
+    "polynomials"
+  ],
+  "category": "polynomials",
+  "tags": [
+    "polynomials"
+  ],
+  "trigger_intents": [
+    "cube"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cube"
+  ],
+  "solution_principle": "Compute the cube of a value",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_874e81a8",
+    "comp_9b30ca84",
+    "comp_02881050",
+    "comp_4d128ea8",
+    "comp_2ff6d186"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7e3185eb-a38c-4949-bcf2-0e80dee3a344",
+    "category": "polynomials",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2280dde4-9fa2-4b4a-ae2f-37d554861367",
+      "5b0be57a-31f5-4446-a11a-ae0d348bca90"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|polynomials|cube"
+  }
+}

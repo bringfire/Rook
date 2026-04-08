@@ -1,0 +1,533 @@
+{
+  "pattern_id": "17ccaf31",
+  "name": "wasp_08",
+  "version": "1.0",
+  "created": "2026-03-19T17:35:13.786665Z",
+  "solution": {
+    "brief": "Wasp example 08: advancing aggregation techniques",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Stochastic Aggregation",
+      "Geometry",
+      "Point",
+      "Curve",
+      "Wasp_Basic Part",
+      "panel",
+      "Wasp_Rules Generator",
+      "slider",
+      "Wasp_Get Part Geometry",
+      "Toggle",
+      "Series",
+      "Move",
+      "Multiplication",
+      "SPACING",
+      "Unit X",
+      "Series",
+      "NUM OF VARIATIONS",
+      "BASE SEED",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a stochastic aggregation with Wasp",
+      "set up discrete aggregation system",
+      "generate part-based aggregation",
+      "wasp aggregation with custom connections",
+      "build modular aggregation definition",
+      "stochastic part assembly grasshopper"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "78a4da59",
+    "16f4319f",
+    "72d65814",
+    "fba88cfa",
+    "c37161b7"
+  ],
+  "tags": [
+    "generative",
+    "stochastic",
+    "wasp",
+    "intermediate",
+    "advanced",
+    "part-based",
+    "discrete-design",
+    "aggregation",
+    "tutorial",
+    "workflow",
+    "plugin-workflow",
+    "brep-geometry",
+    "grasshopper",
+    "connections",
+    "rules",
+    "multiple-part-types",
+    "multi-part",
+    "connection-configurations",
+    "assembly",
+    "discrete-element",
+    "file-io"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R15",
+          "nick": "SPACING",
+          "min": 0,
+          "max": 1000,
+          "value": 400
+        },
+        {
+          "id": "R18",
+          "nick": "NUM OF VARIATIONS",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R19",
+          "nick": "BASE SEED",
+          "min": 0,
+          "max": 100,
+          "value": 34
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "P"
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            308,
+            299
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1385,
+            324
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            111.2,
+            215.9
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            121.9,
+            297.2
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            127.5,
+            363.3
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            602,
+            234
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            458.4,
+            149.3
+          ],
+          "content": "P"
+        },
+        {
+          "id": "R8",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            774,
+            366
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            1122,
+            264.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R10",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1580,
+            374
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1183,
+            403
+          ],
+          "value": true
+        },
+        {
+          "id": "R12",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1178,
+            663
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1897,
+            384
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1390,
+            746
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "nick": "SPACING",
+          "pos": [
+            1134.9,
+            816.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 400
+        },
+        {
+          "id": "R16",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            1494,
+            746
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1176,
+            736
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "nick": "NUM OF VARIATIONS",
+          "pos": [
+            857.1,
+            700.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "nick": "BASE SEED",
+          "pos": [
+            913,
+            633.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R20",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -15.6,
+            -195.1
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "panel",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R22",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -306,
+            85
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -330.6,
+            18.4
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            970.1,
+            60.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            912.5,
+            581.9
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -92,
+            106
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R1.I0",
+        "R4.O0>R1.I1",
+        "R5.O0>R1.I2",
+        "R6.O0>R2.I0",
+        "R9.O0>R2.I2",
+        "R8.O0>R2.I3",
+        "R12.O0>R2.I4",
+        "R11.O0>R2.I9",
+        "R7.O0>R6.I0",
+        "R3.O0>R6.I1",
+        "R1.O0>R6.I2",
+        "R6.O0>R8.I0",
+        "R2.O1>R10.I0",
+        "R19.O0>R12.I0",
+        "R18.O0>R12.I2",
+        "R10.O0>R13.I0",
+        "R16.O0>R13.I1",
+        "R17.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R14.O0>R16.I0",
+        "R18.O0>R17.I2",
+        "R23.O0>R27.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R21",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "nearby": [
+            "R27",
+            "R3",
+            "R4",
+            "R1",
+            "R23",
+            "R6",
+            "R5",
+            "R8"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -330.6,
+            18.4
+          ]
+        },
+        {
+          "step": "2",
+          "title": "0_08_Aggregation_w_Fixed_Seed",
+          "text": "0_08_Aggregation_w_Fixed_Seed",
+          "nearby_components": [
+            "Wasp_Update File",
+            "Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "Changing this slider allows to explore different",
+          "text": "Changing this slider allows to explore different\r\npermutations of the same aggregation",
+          "nearby_components": [
+            "BASE SEED"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            912.5,
+            581.9
+          ]
+        },
+        {
+          "step": "4",
+          "title": "Random Seed",
+          "text": "Random Seed\r\nFixing the random seed in the stochastic aggregation component\r\nallows to recreate the same aggregation given that seed value.\r\nIn this case, providing multiple seed values allows to visualize different\r\naggregation with the same base system",
+          "nearby_components": [
+            "NumberSlider",
+            "Wasp_Rules Generator",
+            "Toggle",
+            "Wasp_Basic Part",
+            "Wasp_Stochastic Aggregation"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            970.1,
+            60.1
+          ]
+        }
+      ]
+    }
+  }
+}

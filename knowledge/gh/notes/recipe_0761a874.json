@@ -1,0 +1,361 @@
+{
+  "note_id": "recipe_0761a874",
+  "note_type": "recipe",
+  "name": "Porous Fruit",
+  "brief": "Porous Fruit: Sphere \u00e2\u2020\u2019 PopulateGeometry \u00e2\u2020\u2019 FacetDome \u00e2\u2020\u2019 Scale \u00e2\u2020\u2019 AreaProperties_OBSOLETE +16 more (31 components, 5 sliders, 36 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T19:37:45.565715Z",
+  "context": "Extracted from: Porous Fruit.gh",
+  "keywords": [
+    "parametric_surface-creation_point-sequence",
+    "parametric",
+    "surface-creation",
+    "point-sequence"
+  ],
+  "category": "parametric",
+  "tags": [
+    "area-properties_-o",
+    "catmull-clark-component",
+    "deconstruct-mesh",
+    "distance",
+    "facet-dome",
+    "flatten-tree-component",
+    "geometric-modeling",
+    "gradient-control",
+    "loft-surface",
+    "merge-variable",
+    "mesh",
+    "mesh-from-brep",
+    "mesh-join",
+    "numeric-bounds",
+    "operator-sign",
+    "point-construction",
+    "populate-geometry",
+    "remap",
+    "scale",
+    "sphere",
+    "thicken-component",
+    "weld",
+    "workflow"
+  ],
+  "trigger_intents": [
+    "create a sphere",
+    "surface from curves",
+    "parametric sphere",
+    "loft curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sphere",
+    "Number Slider",
+    "Populate Geometry",
+    "Facet Dome",
+    "Scale",
+    "Area",
+    "Number Slider",
+    "Merge",
+    "Loft",
+    "Weaverbird's Mesh Thicken",
+    "Flatten Tree",
+    "Mesh Join",
+    "Mesh WeldVertices",
+    "Weaverbird's Mesh Thicken",
+    "Flatten Tree",
+    "Negative",
+    "Number Slider",
+    "Simple Mesh",
+    "Merge",
+    "Mesh Join",
+    "Mesh WeldVertices",
+    "Weaverbird's Catmull-Clark Subdivision",
+    "Number Slider",
+    "Deconstruct Mesh",
+    "Construct Point",
+    "Distance",
+    "Bounds",
+    "Remap Numbers",
+    "Gradient",
+    "Construct Mesh",
+    "Number Slider"
+  ],
+  "solution_principle": "Processing chain: Sphere \u00e2\u2020\u2019 PopulateGeometry \u00e2\u2020\u2019 FacetDome \u00e2\u2020\u2019 Scale \u00e2\u2020\u2019 AreaProperties_OBSOLETE \u00e2\u2020\u2019 MergeVariable \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 Mesh.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_f7069550",
+    "recipe_fdbc67df",
+    "recipe_699566e7",
+    "recipe_8b918ca6",
+    "recipe_a5ef50b5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "d4d2ccb4-0668-4a03-8fdd-c48cfc749cf0",
+        "from_param": "Number Slider",
+        "to": "019baf4c-0957-4571-b3b6-5ddb5593fc02",
+        "to_param": "R"
+      },
+      {
+        "from": "019baf4c-0957-4571-b3b6-5ddb5593fc02",
+        "from_param": "S",
+        "to": "4b1221d8-bed0-4587-8e54-0043f8eeaf8f",
+        "to_param": "G"
+      },
+      {
+        "from": "7814f6d2-46bb-4d44-9945-354453e45d41",
+        "from_param": "Number Slider",
+        "to": "4b1221d8-bed0-4587-8e54-0043f8eeaf8f",
+        "to_param": "N"
+      },
+      {
+        "from": "4b1221d8-bed0-4587-8e54-0043f8eeaf8f",
+        "from_param": "P",
+        "to": "2cc18d04-ee6d-40f7-9a1c-f19ce6563a4a",
+        "to_param": "P"
+      },
+      {
+        "from": "2cc18d04-ee6d-40f7-9a1c-f19ce6563a4a",
+        "from_param": "P",
+        "to": "148e7cf7-a850-44d2-b55e-3e3e248e09af",
+        "to_param": "G"
+      },
+      {
+        "from": "040a95b1-4987-48c2-8b58-1e4bf4b8d024",
+        "from_param": "C",
+        "to": "148e7cf7-a850-44d2-b55e-3e3e248e09af",
+        "to_param": "C"
+      },
+      {
+        "from": "8c44ee4c-9698-4d57-969c-b6385d7a79cd",
+        "from_param": "Number Slider",
+        "to": "148e7cf7-a850-44d2-b55e-3e3e248e09af",
+        "to_param": "F"
+      },
+      {
+        "from": "2cc18d04-ee6d-40f7-9a1c-f19ce6563a4a",
+        "from_param": "P",
+        "to": "040a95b1-4987-48c2-8b58-1e4bf4b8d024",
+        "to_param": "G"
+      },
+      {
+        "from": "2cc18d04-ee6d-40f7-9a1c-f19ce6563a4a",
+        "from_param": "P",
+        "to": "4c9bb474-58cc-4041-9e69-c6e007363db4",
+        "to_param": "D1"
+      },
+      {
+        "from": "148e7cf7-a850-44d2-b55e-3e3e248e09af",
+        "from_param": "G",
+        "to": "4c9bb474-58cc-4041-9e69-c6e007363db4",
+        "to_param": "D2"
+      },
+      {
+        "from": "4c9bb474-58cc-4041-9e69-c6e007363db4",
+        "from_param": "R",
+        "to": "1b001c0d-a043-4778-8a66-5d4aa42ad209",
+        "to_param": "C"
+      },
+      {
+        "from": "518251f4-f4ff-4f1b-982f-693831b75bd4",
+        "from_param": "M",
+        "to": "24329f77-0620-4a7c-9c32-3e9407d77218",
+        "to_param": "M"
+      },
+      {
+        "from": "3ec0af7e-6d98-453a-81fa-700ff6fa070c",
+        "from_param": "M",
+        "to": "821362e0-5204-4d15-8e91-e4fc31c8af5a",
+        "to_param": "T"
+      },
+      {
+        "from": "821362e0-5204-4d15-8e91-e4fc31c8af5a",
+        "from_param": "T",
+        "to": "b1577300-124b-4c4d-8235-74a5a296d66e",
+        "to_param": "M"
+      },
+      {
+        "from": "b1577300-124b-4c4d-8235-74a5a296d66e",
+        "from_param": "M",
+        "to": "518251f4-f4ff-4f1b-982f-693831b75bd4",
+        "to_param": "M"
+      },
+      {
+        "from": "7046e8d4-158a-413e-be7a-30b1af77dba0",
+        "from_param": "T",
+        "to": "cedf6878-26c9-4aaa-9e4a-b516a7a2de64",
+        "to_param": "M"
+      },
+      {
+        "from": "b7ef0339-6203-4e48-934a-dcafa17fd1a0",
+        "from_param": "y",
+        "to": "cedf6878-26c9-4aaa-9e4a-b516a7a2de64",
+        "to_param": "D"
+      },
+      {
+        "from": "3ec0af7e-6d98-453a-81fa-700ff6fa070c",
+        "from_param": "M",
+        "to": "7046e8d4-158a-413e-be7a-30b1af77dba0",
+        "to_param": "T"
+      },
+      {
+        "from": "60cc80eb-7d0c-4a56-91d4-b054b8597732",
+        "from_param": "Number Slider",
+        "to": "b7ef0339-6203-4e48-934a-dcafa17fd1a0",
+        "to_param": "x"
+      },
+      {
+        "from": "1b001c0d-a043-4778-8a66-5d4aa42ad209",
+        "from_param": "L",
+        "to": "3ec0af7e-6d98-453a-81fa-700ff6fa070c",
+        "to_param": "B"
+      },
+      {
+        "from": "24329f77-0620-4a7c-9c32-3e9407d77218",
+        "from_param": "O",
+        "to": "47e96f8c-b087-4f7d-84a3-ebb94c7d898b",
+        "to_param": "D1"
+      },
+      {
+        "from": "cedf6878-26c9-4aaa-9e4a-b516a7a2de64",
+        "from_param": "O",
+        "to": "47e96f8c-b087-4f7d-84a3-ebb94c7d898b",
+        "to_param": "D2"
+      },
+      {
+        "from": "47e96f8c-b087-4f7d-84a3-ebb94c7d898b",
+        "from_param": "R",
+        "to": "7a308330-2c7e-4632-a0f9-5fa6410e7148",
+        "to_param": "M"
+      },
+      {
+        "from": "7a308330-2c7e-4632-a0f9-5fa6410e7148",
+        "from_param": "M",
+        "to": "417ba478-5212-4f9b-bf48-36f9d762e7a1",
+        "to_param": "M"
+      },
+      {
+        "from": "417ba478-5212-4f9b-bf48-36f9d762e7a1",
+        "from_param": "M",
+        "to": "7d724063-99e7-4993-94fc-3732c7315d34",
+        "to_param": "M"
+      },
+      {
+        "from": "3d3359e9-3386-43d8-9f6b-ec7e33b4421e",
+        "from_param": "Number Slider",
+        "to": "7d724063-99e7-4993-94fc-3732c7315d34",
+        "to_param": "L"
+      },
+      {
+        "from": "7d724063-99e7-4993-94fc-3732c7315d34",
+        "from_param": "O",
+        "to": "7ee6588c-848b-4a1a-953c-5be9ba4da1b9",
+        "to_param": "M"
+      },
+      {
+        "from": "99788231-6f51-4555-ae2f-5178e10de2a4",
+        "from_param": "Pt",
+        "to": "056128db-f13e-46d6-8357-5a486c69099c",
+        "to_param": "A"
+      },
+      {
+        "from": "7ee6588c-848b-4a1a-953c-5be9ba4da1b9",
+        "from_param": "V",
+        "to": "056128db-f13e-46d6-8357-5a486c69099c",
+        "to_param": "B"
+      },
+      {
+        "from": "056128db-f13e-46d6-8357-5a486c69099c",
+        "from_param": "D",
+        "to": "fc8b1352-0edf-451a-9514-e599341a1fa7",
+        "to_param": "N"
+      },
+      {
+        "from": "056128db-f13e-46d6-8357-5a486c69099c",
+        "from_param": "D",
+        "to": "87053140-4c67-447a-a1eb-e070fb3fbbea",
+        "to_param": "V"
+      },
+      {
+        "from": "fc8b1352-0edf-451a-9514-e599341a1fa7",
+        "from_param": "I",
+        "to": "87053140-4c67-447a-a1eb-e070fb3fbbea",
+        "to_param": "S"
+      },
+      {
+        "from": "87053140-4c67-447a-a1eb-e070fb3fbbea",
+        "from_param": "R",
+        "to": "0ccbce38-849a-469d-ae0b-d2583a16f0eb",
+        "to_param": "t"
+      },
+      {
+        "from": "7ee6588c-848b-4a1a-953c-5be9ba4da1b9",
+        "from_param": "V",
+        "to": "24a0730c-c9ab-4ef1-8b53-3e3fa900d3bb",
+        "to_param": "V"
+      },
+      {
+        "from": "7ee6588c-848b-4a1a-953c-5be9ba4da1b9",
+        "from_param": "F",
+        "to": "24a0730c-c9ab-4ef1-8b53-3e3fa900d3bb",
+        "to_param": "F"
+      },
+      {
+        "from": "0ccbce38-849a-469d-ae0b-d2583a16f0eb",
+        "from_param": "C",
+        "to": "24a0730c-c9ab-4ef1-8b53-3e3fa900d3bb",
+        "to_param": "C"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "d4d2ccb4-0668-4a03-8fdd-c48cfc749cf0",
+          "role": "radius",
+          "connected_to": "Sphere",
+          "param": "R"
+        },
+        {
+          "guid": "8c44ee4c-9698-4d57-969c-b6385d7a79cd",
+          "role": "parameter",
+          "connected_to": "Scale",
+          "param": "F"
+        },
+        {
+          "guid": "60cc80eb-7d0c-4a56-91d4-b054b8597732",
+          "role": "parameter",
+          "connected_to": "Negative",
+          "param": "x"
+        },
+        {
+          "guid": "3d3359e9-3386-43d8-9f6b-ec7e33b4421e",
+          "role": "parameter",
+          "connected_to": "Weaverbird's Catmull-Clark Subdivision",
+          "param": "L"
+        },
+        {
+          "guid": "7814f6d2-46bb-4d44-9945-354453e45d41",
+          "role": "count",
+          "connected_to": "Populate Geometry",
+          "param": "N"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Porous Fruit.gh",
+    "pattern_type": "recipe",
+    "component_count": 31
+  }
+}

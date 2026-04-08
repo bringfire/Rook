@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_435d6cd8",
+  "note_type": "component",
+  "name": "Mesh Triangle",
+  "brief": "Mesh Triangle | Inputs: A, B, C → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Mesh Triangle. Inputs: A (Integer), B (Integer), C (Integer). Outputs: F (Mesh face).",
+  "keywords": [
+    "mesh triangle",
+    "mesh",
+    "triangle",
+    "mesh_ops"
+  ],
+  "category": "mesh_ops",
+  "tags": [
+    "mesh_ops"
+  ],
+  "trigger_intents": [
+    "mesh triangle",
+    "mesh",
+    "triangle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Triangle"
+  ],
+  "solution_principle": "Create a mesh triangle.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_87d517e7",
+    "comp_bb6571be",
+    "comp_97082acf",
+    "comp_70d0de17",
+    "comp_32b3df2f",
+    "comp_2d0b8a1b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5a4ddedd-5af9-49e5-bace-12910a8b9366",
+    "category": "mesh_ops",
+    "inputs": {
+      "A": "Integer",
+      "B": "Integer",
+      "C": "Integer"
+    },
+    "outputs": {
+      "F": "Mesh face"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1cb59c86-7f6b-4e52-9a0c-6441850e9520"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|primitive|mesh triangle"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_ba6a3f1a",
+  "note_type": "component",
+  "name": "Curve",
+  "brief": "Curve | Inputs: none â†’ output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Curve.",
+  "keywords": [
+    "curve",
+    "curve"
+  ],
+  "category": "geometry_params",
+  "tags": [
+    "curves",
+    "curve-analysis",
+    "fundamental-component",
+    "geometry",
+    "curve-operations",
+    "grasshopper-component",
+    "prerequisite",
+    "foundational"
+  ],
+  "trigger_intents": [
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve"
+  ],
+  "solution_principle": "Contains a collection of generic curves",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_69ef4f26",
+    "comp_a010f059",
+    "teaching_eeef070a",
+    "recipe_36b862a1",
+    "recipe_70c7a21a",
+    "comp_456642c8",
+    "comp_e0ff9810"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d5967b9f-e8ee-436b-a8ad-29fdcecf32d5",
+    "category": "geometry_params",
+    "inputs": [],
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 595,
+    "stable_key": "params|geometry|curve"
+  }
+}

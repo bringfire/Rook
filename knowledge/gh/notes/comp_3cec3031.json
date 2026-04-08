@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_3cec3031",
+  "note_type": "component",
+  "name": "Mesh Offset",
+  "brief": "Mesh Offset | Inputs: Mesh, Offset, Solid?, Both Sides? → Mesh",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Mesh Offset. Inputs: Mesh (Mesh), Offset (Number), Solid? (Boolean), Both Sides? (Boolean). Outputs: Mesh (Generic Data).",
+  "keywords": [
+    "mesh offset",
+    "mesh",
+    "offset",
+    "lunchbox_mesh"
+  ],
+  "category": "lunchbox_mesh",
+  "tags": [
+    "lunchbox_mesh"
+  ],
+  "trigger_intents": [
+    "mesh offset",
+    "mesh",
+    "offset"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Offset"
+  ],
+  "solution_principle": "Offsets a mesh object using the vertex normals of the source mesh.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ead277e0",
+    "comp_0b96a579",
+    "comp_85134c60",
+    "comp_385fb206",
+    "teaching_0ae1e0de"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2daea094-2b19-4961-b22d-1df0e4beb0f5",
+    "category": "lunchbox_mesh",
+    "inputs": {
+      "Mesh": "Mesh",
+      "Offset": "Number",
+      "Solid?": "Boolean",
+      "Both Sides?": "Boolean"
+    },
+    "outputs": {
+      "Mesh": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "75245842-a7ba-497b-83df-2fc9aa2e8c54"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|mesh|mesh offset"
+  }
+}

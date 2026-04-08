@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_a408717b",
+  "note_type": "component",
+  "name": "Wasp_Connection From Direction",
+  "brief": "Wasp_Connection From Direction | Inputs: GEO, CEN, UP, T → CONN, PLN_OUT",
+  "version": "1.0",
+  "created": "2026-03-19T15:47:50.164454Z",
+  "context": "Grasshopper component: Wasp_Connection From Direction. ",
+  "keywords": [
+    "wasp_connection from direction",
+    "unknown",
+    "wasp",
+    "connection",
+    "from",
+    "direction"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "wasp_connection from direction",
+    "wasp",
+    "connection",
+    "from",
+    "direction",
+    "conndir"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Wasp_Connection From Direction"
+  ],
+  "solution_principle": "Wasp_Connection From Direction | Inputs: GEO, CEN, UP, T → CONN, PLN_OUT",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "410755b1-224a-4c1e-a407-bf32fb45ea7e",
+    "category": "unknown",
+    "inputs": {
+      "GEO": "GEO",
+      "CEN": "CEN",
+      "UP": "UP",
+      "T": "T"
+    },
+    "outputs": {
+      "CONN": "CONN",
+      "PLN_OUT": "PLN_OUT"
+    },
+    "similar_to": [],
+    "usage_count": 0
+  },
+  "deprecated": true,
+  "deprecated_reason": "shared_runtime_guid_collision",
+  "deprecated_by": "25da0b35-0c41-4969-aa73-1508dc7c4456",
+  "deprecated_replacement_name": "Wasp_Connection From Direction"
+}

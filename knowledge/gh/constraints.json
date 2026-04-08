@@ -1,0 +1,411 @@
+{
+  "version": "1.1",
+  "description": "Geometric constraints for GH components - preconditions and postconditions",
+  "note": "component_guid values are for reference only and may be placeholder values. Constraint lookup uses component names (case-insensitive), not GUIDs.",
+  "constraints": {
+    "Loft": {
+      "component_guid": "a38bc3e0-bf60-4031-9d57-37744c66e22e",
+      "aliases": ["Loft Options", "LoftSrf", "Loft Surface"],
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "min_inputs",
+          "param": "C",
+          "min_count": 2,
+          "description": "Loft requires at least 2 curves",
+          "severity": "error",
+          "fix_suggestion": "Add more curves to the Curves (C) input"
+        },
+        {
+          "type": "curve_direction",
+          "param": "C",
+          "description": "All curves should have consistent direction for clean loft",
+          "severity": "warning",
+          "fix_suggestion": "Use Flip Curve component to align curve directions"
+        },
+        {
+          "type": "curve_order",
+          "param": "C",
+          "description": "Curves should be ordered from start to end of loft",
+          "severity": "warning",
+          "fix_suggestion": "Use Sort List or manually reorder curve inputs"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "L",
+          "description": "Loft should produce a surface or brep"
+        }
+      ]
+    },
+    "Solid Difference": {
+      "component_guid": "a8a91ef5-17d0-445c-b6bd-3d454cc0415e",
+      "aliases": ["Boolean Difference", "BooleanDifference", "SDiff"],
+      "category": "solid_ops",
+      "preconditions": [
+        {
+          "type": "solid_closed",
+          "param": "A",
+          "description": "First input (A) must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        },
+        {
+          "type": "solid_closed",
+          "param": "B",
+          "description": "Second input (B) must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        },
+        {
+          "type": "intersection_exists",
+          "params": ["A", "B"],
+          "description": "Objects should intersect for meaningful boolean difference",
+          "severity": "warning",
+          "fix_suggestion": "Verify object positions overlap in 3D space"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_valid",
+          "param": "R",
+          "description": "Result should be a valid closed solid"
+        }
+      ]
+    },
+    "Solid Union": {
+      "component_guid": "69bcf7c4-0042-4e7e-8afa-3ea30316c67f",
+      "aliases": ["Boolean Union", "BooleanUnion", "SUnion"],
+      "category": "solid_ops",
+      "preconditions": [
+        {
+          "type": "solid_closed",
+          "param": "A",
+          "description": "First input must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        },
+        {
+          "type": "solid_closed",
+          "param": "B",
+          "description": "Second input must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_valid",
+          "param": "R",
+          "description": "Result should be a valid closed solid"
+        }
+      ]
+    },
+    "Solid Intersection": {
+      "component_guid": "85d97e0e-1f4e-4e6c-8d66-a62d6e1d94a0",
+      "aliases": ["Boolean Intersection", "BooleanIntersection", "SIntersection"],
+      "category": "solid_ops",
+      "preconditions": [
+        {
+          "type": "solid_closed",
+          "param": "A",
+          "description": "First input must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        },
+        {
+          "type": "solid_closed",
+          "param": "B",
+          "description": "Second input must be a closed solid brep",
+          "severity": "error",
+          "fix_suggestion": "Use Cap Holes component or ensure brep is fully closed"
+        },
+        {
+          "type": "intersection_exists",
+          "params": ["A", "B"],
+          "description": "Objects must actually intersect for result to exist",
+          "severity": "error",
+          "fix_suggestion": "Move objects so they overlap in 3D space"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "R",
+          "description": "Intersection should produce geometry if objects overlap"
+        }
+      ]
+    },
+    "Sweep1": {
+      "component_guid": "9a4fb09e-3e6f-41cb-9cdd-6e8b4f9bda66",
+      "aliases": ["Sweep", "Sweep 1", "Rail Revolution"],
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "R",
+          "description": "Rail curve is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to the Rail (R) input"
+        },
+        {
+          "type": "input_required",
+          "param": "S",
+          "description": "Section curve(s) required",
+          "severity": "error",
+          "fix_suggestion": "Connect section curve(s) to the Sections (S) input"
+        },
+        {
+          "type": "section_perpendicular",
+          "params": ["R", "S"],
+          "description": "Section curves should be perpendicular to rail at connection point",
+          "severity": "warning",
+          "fix_suggestion": "Orient section curves perpendicular to rail direction"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "B",
+          "description": "Sweep should produce a brep"
+        }
+      ]
+    },
+    "Sweep2": {
+      "component_guid": "75164624-395a-4d24-b60b-6bf91cab0194",
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "R1",
+          "description": "First rail curve is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to Rail 1 (R1) input"
+        },
+        {
+          "type": "input_required",
+          "param": "R2",
+          "description": "Second rail curve is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to Rail 2 (R2) input"
+        },
+        {
+          "type": "input_required",
+          "param": "S",
+          "description": "Section curve(s) required",
+          "severity": "error",
+          "fix_suggestion": "Connect section curve(s) to Sections (S) input"
+        },
+        {
+          "type": "rails_compatible",
+          "params": ["R1", "R2"],
+          "description": "Rails should have same direction and similar parameterization",
+          "severity": "warning",
+          "fix_suggestion": "Use Flip Curve to align rail directions if needed"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "B",
+          "description": "Sweep2 should produce a brep"
+        }
+      ]
+    },
+    "Extrude": {
+      "component_guid": "962034e9-cc27-4394-afc4-5c16e3447cf9",
+      "aliases": ["Extr", "Extrusion"],
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "B",
+          "description": "Base geometry is required",
+          "severity": "error",
+          "fix_suggestion": "Connect curve or surface to Base (B) input"
+        },
+        {
+          "type": "direction_nonzero",
+          "param": "D",
+          "description": "Direction vector must be non-zero",
+          "severity": "error",
+          "fix_suggestion": "Use Unit Z * height or construct a proper direction vector"
+        },
+        {
+          "type": "curve_closed_for_solid",
+          "param": "B",
+          "description": "For solid output, base curve should be closed",
+          "severity": "warning",
+          "fix_suggestion": "Close the curve or use Cap Holes after extrusion"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "E",
+          "description": "Extrude should produce geometry"
+        }
+      ]
+    },
+    "Pipe": {
+      "component_guid": "3d5a41e0-9ac8-4a0b-b0a5-2a8b1f8b5d69",
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "C",
+          "description": "Curve input is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to the Curve (C) input"
+        },
+        {
+          "type": "radius_positive",
+          "param": "R",
+          "description": "Radius must be positive",
+          "severity": "error",
+          "fix_suggestion": "Use absolute value or ensure radius > 0"
+        },
+        {
+          "type": "radius_vs_curvature",
+          "params": ["C", "R"],
+          "description": "Radius should be smaller than minimum curve radius to avoid self-intersection",
+          "severity": "warning",
+          "fix_suggestion": "Reduce pipe radius or use a smoother curve"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_valid",
+          "param": "P",
+          "description": "Pipe should be a valid closed brep"
+        }
+      ]
+    },
+    "Revolve": {
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "aliases": ["Rev", "Revolution", "Revolve Surface"],
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "C",
+          "description": "Profile curve is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to the Curve (C) input"
+        },
+        {
+          "type": "axis_defined",
+          "param": "A",
+          "description": "Axis must be properly defined (line or two points)",
+          "severity": "error",
+          "fix_suggestion": "Define axis using a Line or Axis input"
+        },
+        {
+          "type": "profile_not_crossing_axis",
+          "params": ["C", "A"],
+          "description": "Profile curve should not cross the revolution axis",
+          "severity": "warning",
+          "fix_suggestion": "Move profile curve to one side of the axis"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "S",
+          "description": "Revolve should produce a surface or brep"
+        }
+      ]
+    },
+    "Ruled Surface": {
+      "component_guid": "6e5de495-ba76-42d0-9985-a5c265e9aeca",
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "min_inputs",
+          "param": "A",
+          "min_count": 1,
+          "description": "First curve (A) is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to the A input"
+        },
+        {
+          "type": "min_inputs",
+          "param": "B",
+          "min_count": 1,
+          "description": "Second curve (B) is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a curve to the B input"
+        },
+        {
+          "type": "curve_direction",
+          "params": ["A", "B"],
+          "description": "Curves should have same direction for clean ruled surface",
+          "severity": "warning",
+          "fix_suggestion": "Use Flip Curve to align curve directions"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_exists",
+          "param": "S",
+          "description": "Ruled surface should be created"
+        }
+      ]
+    },
+    "Cap Holes": {
+      "component_guid": "c4cae39b-6b77-47ff-a3d8-3e3b1ab3c8c1",
+      "category": "solid_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "B",
+          "description": "Brep input is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a brep to the Brep (B) input"
+        },
+        {
+          "type": "has_planar_holes",
+          "param": "B",
+          "description": "Brep should have planar holes that can be capped",
+          "severity": "warning",
+          "fix_suggestion": "Only planar naked edges can be capped; non-planar holes remain open"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "solid_closed",
+          "param": "B",
+          "description": "Output should be a closed solid if all holes were planar"
+        }
+      ]
+    },
+    "Offset Surface": {
+      "component_guid": null,
+      "category": "surface_ops",
+      "preconditions": [
+        {
+          "type": "input_required",
+          "param": "S",
+          "description": "Surface input is required",
+          "severity": "error",
+          "fix_suggestion": "Connect a surface to the Surface (S) input"
+        },
+        {
+          "type": "distance_vs_curvature",
+          "params": ["S", "D"],
+          "description": "Offset distance should be less than minimum surface radius",
+          "severity": "warning",
+          "fix_suggestion": "Reduce offset distance to avoid self-intersection"
+        }
+      ],
+      "postconditions": [
+        {
+          "type": "output_valid",
+          "param": "S",
+          "description": "Offset surface should be valid"
+        }
+      ]
+    }
+  }
+}

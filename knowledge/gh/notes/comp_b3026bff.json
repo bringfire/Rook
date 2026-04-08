@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_b3026bff",
+  "note_type": "component",
+  "name": "Mesh Difference",
+  "brief": "Mesh Difference | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Mesh Difference. Inputs: A (Mesh), B (Mesh). Outputs: R (Mesh).",
+  "keywords": [
+    "mesh difference",
+    "mesh",
+    "difference",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "mesh difference",
+    "mesh",
+    "difference"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Difference"
+  ],
+  "solution_principle": "Perform a solid difference on two sets of meshes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_dd2a0014",
+    "comp_6c86f7fd",
+    "comp_85767767",
+    "teaching_22255d24",
+    "comp_5f77f7fc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4f3147f4-9fcd-4a7e-be0e-b1841caa5f97",
+    "category": "intersection_shape",
+    "inputs": {
+      "A": "Mesh",
+      "B": "Mesh"
+    },
+    "outputs": {
+      "R": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "fab11c30-2d9c-4d15-ab3c-2289f1ae5c21"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|mesh difference"
+  }
+}

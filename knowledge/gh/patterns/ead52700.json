@@ -1,0 +1,470 @@
+{
+  "pattern_id": "ead52700",
+  "name": "S18E07",
+  "version": "1.0",
+  "created": "2026-02-22T14:08:20.608189Z",
+  "solution": {
+    "brief": "Recipe from FILES\\18\\S18E07.gh (29 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Rectangle",
+      "Range",
+      "Area",
+      "slider",
+      "Number",
+      "slider",
+      "Cross Reference",
+      "Number",
+      "Construct Point",
+      "panel",
+      "panel",
+      "Construct Point",
+      "Closest Point",
+      "Point",
+      "List Item",
+      "panel",
+      "List Item",
+      "panel",
+      "Rectangle",
+      "Area",
+      "Number",
+      "Number",
+      "slider",
+      "slider",
+      "Expression",
+      "Galapagos",
+      "panel",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s18e07"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "b199ac1c",
+    "a882942d",
+    "4c37e8be"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "recipe",
+    "surface-creation",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.9999
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4.0001
+        }
+      ],
+      "panels": [
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "12"
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "content": "14"
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/18/S18E07.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            26,
+            -18
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            512,
+            109
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            325,
+            105
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            601,
+            89
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            94.2,
+            69.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R6",
+          "type": "Param_Number",
+          "nick": "مساحت",
+          "name": "Number",
+          "pos": [
+            719.9,
+            46.5
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            101.6,
+            107.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R8",
+          "type": "Component_MatchListCrossReference",
+          "nick": "CrossRef",
+          "name": "Cross Reference",
+          "pos": [
+            415,
+            109
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Number",
+          "nick": "محیط",
+          "name": "Number",
+          "pos": [
+            722.7,
+            84.6
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            855,
+            166
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            647.8,
+            193.3
+          ],
+          "content": "12"
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "pos": [
+            648.2,
+            223.5
+          ],
+          "content": "14"
+        },
+        {
+          "id": "R13",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            853,
+            51
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            989,
+            152
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1086.1,
+            100.1
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1108,
+            225
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "panel",
+          "pos": [
+            1187.9,
+            122.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R18",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1119,
+            310
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            1188.7,
+            230.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R20",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            283,
+            560
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            372,
+            540
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Number",
+          "nick": "مساحت",
+          "name": "Number",
+          "pos": [
+            493.4,
+            484.5
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Param_Number",
+          "nick": "محیط",
+          "name": "Number",
+          "pos": [
+            493.3,
+            568.1
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            332.5,
+            651.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.9999
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            333.5,
+            677.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4.0001
+        },
+        {
+          "id": "R26",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            700,
+            520
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "GalapagosObject",
+          "name": "Galapagos",
+          "pos": [
+            930.1,
+            389.3
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "pos": [
+            549,
+            576.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R29",
+          "type": "panel",
+          "pos": [
+            553.7,
+            667.5
+          ],
+          "content": "Double click to edit panel content…"
+        }
+      ],
+      "flows": [
+        "R8.O0>R2.I1",
+        "R8.O1>R2.I2",
+        "R5.O0>R3.I0",
+        "R7.O0>R3.I1",
+        "R2.O0>R4.I0",
+        "R3.O0>R8.I0",
+        "R3.O0>R8.I1",
+        "R11.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R6.O0>R13.I0",
+        "R9.O0>R13.I1",
+        "R10.O0>R14.I0",
+        "R13.O0>R14.I1",
+        "R8.O0>R16.I0",
+        "R14.O1>R16.I1",
+        "R16.O0>R17.I0",
+        "R8.O1>R18.I0",
+        "R14.O1>R18.I1",
+        "R18.O0>R19.I0",
+        "R24.O0>R20.I1",
+        "R25.O0>R20.I2",
+        "R20.O0>R21.I0",
+        "R22.O0>R26.I0",
+        "R23.O0>R26.I1",
+        "R22.O0>R28.I0",
+        "R23.O0>R29.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

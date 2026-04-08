@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_8cc7ac3b",
+  "note_type": "component",
+  "name": "Quadrangulate",
+  "brief": "Quadrangulate | Inputs: M, A, R → M, N",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Quadrangulate. Inputs: M (Mesh), A (Number), R (Number). Outputs: M (Mesh), N (Integer).",
+  "keywords": [
+    "quadrangulate",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "quadrangulate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Quadrangulate"
+  ],
+  "solution_principle": "Quadrangulate as many triangles as possible in a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd",
+    "comp_d1c58c31",
+    "comp_d742578c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9266a2bb-918f-4675-9c91-f67d0dd33eac",
+    "category": "mesh_utilities",
+    "inputs": {
+      "M": "Mesh",
+      "A": "Number",
+      "R": "Number"
+    },
+    "outputs": {
+      "M": "Mesh",
+      "N": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|util|quadrangulate"
+  }
+}

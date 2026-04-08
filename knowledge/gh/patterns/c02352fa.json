@@ -1,0 +1,5304 @@
+{
+  "pattern_id": "c02352fa",
+  "name": "Unit-05-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:27:52.289253Z",
+  "solution": {
+    "brief": "Recipe from Unit-05-Class.gh (417 components)",
+    "principle": "\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-06-Class (364) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-06-Class provides important context for Unit-05-Class's position, showing the progression from 364 to 417 components in adjacent complexity levels.",
+    "components_needed": [
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Partition List",
+      "List of Lists",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "List of Items",
+      "Scribble",
+      "Sketch",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Param Viewer",
+      "Param Viewer",
+      "Param Viewer",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Flatten Tree",
+      "Data",
+      "panel",
+      "panel",
+      "Scribble",
+      "panel",
+      "Graft Tree",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Param Viewer",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Param Viewer",
+      "Param Viewer",
+      "Simplify Tree",
+      "panel",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Param Viewer",
+      "Sketch",
+      "Data",
+      "panel",
+      "Graft Tree",
+      "Param Viewer",
+      "panel",
+      "Graft Tree",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "Param Viewer",
+      "Param Viewer",
+      "Param Viewer",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Param Viewer",
+      "Param Viewer",
+      "Param Viewer",
+      "panel",
+      "Scribble",
+      "Square",
+      "Number Slider",
+      "Number Slider",
+      "Point",
+      "Area",
+      "Extrude",
+      "Unit Z",
+      "Number Slider",
+      "Extrude",
+      "Unit Z",
+      "Deconstruct",
+      "panel",
+      "Extrude",
+      "Unit Z",
+      "Distance",
+      "Construct Point",
+      "panel",
+      "Circle",
+      "Remap Numbers",
+      "Construct Domain",
+      "Flatten Tree",
+      "Bounds",
+      "Extrude",
+      "Unit Z",
+      "Distance",
+      "Construct Point",
+      "panel",
+      "Circle",
+      "Remap Numbers",
+      "Construct Domain",
+      "Flatten Tree",
+      "panel",
+      "Bounds",
+      "panel",
+      "Extrude",
+      "Unit Z",
+      "panel",
+      "Scribble",
+      "Surface",
+      "MD Slider",
+      "Divide Surface",
+      "Number Slider",
+      "Move",
+      "Amplitude",
+      "Distance",
+      "panel",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "Number Slider",
+      "Number Slider",
+      "Line",
+      "Interpolate",
+      "Loft",
+      "panel",
+      "panel",
+      "Pipe",
+      "Scribble",
+      "Cherry Picker",
+      "panel",
+      "Param Viewer",
+      "Circle",
+      "Number Slider",
+      "Cull Index",
+      "panel",
+      "panel",
+      "Deconstruct Domain",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "List Item",
+      "panel",
+      "Number Slider",
+      "Boolean Toggle",
+      "Explode Tree",
+      "panel",
+      "panel",
+      "List Item",
+      "panel",
+      "panel",
+      "Number Slider",
+      "Cull Index",
+      "panel",
+      "panel",
+      "Sketch",
+      "Partition List",
+      "panel",
+      "panel",
+      "Brep",
+      "Deconstruct Brep",
+      "panel",
+      "Move",
+      "Construct Point",
+      "Amplitude",
+      "Number Slider",
+      "Area",
+      "panel",
+      "Tree Branch",
+      "Param Viewer",
+      "panel",
+      "Trim Tree",
+      "Tree Branch",
+      "panel",
+      "Path Mapper",
+      "Param Viewer",
+      "Param Viewer",
+      "Path Mapper",
+      "Param Viewer",
+      "Explode Tree",
+      "Surface",
+      "Surface",
+      "Surface",
+      "Surface",
+      "panel",
+      "Area",
+      "Sketch",
+      "Sketch",
+      "Circle",
+      "Number Slider",
+      "Number Slider",
+      "Distance",
+      "Construct Point",
+      "panel",
+      "Explode Tree",
+      "Geometry",
+      "Param Viewer",
+      "Sketch",
+      "Explode Tree",
+      "Surface",
+      "Surface",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Explode Tree",
+      "Geometry",
+      "Geometry",
+      "Param Viewer",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "List of Items",
+      "panel",
+      "panel",
+      "Sketch",
+      "panel",
+      "panel",
+      "Geometry",
+      "Geometry",
+      "panel",
+      "Number Slider",
+      "Number Slider",
+      "Geometry",
+      "Geometry",
+      "Tree Branch",
+      "Number Slider",
+      "List Item",
+      "Number Slider",
+      "List Item",
+      "panel",
+      "panel",
+      "Scribble",
+      "panel",
+      "panel",
+      "Area",
+      "Scribble",
+      "Circle",
+      "MD Slider",
+      "panel",
+      "Deconstruct",
+      "Construct Domain",
+      "MD Slider",
+      "panel",
+      "panel",
+      "Flip Matrix",
+      "List of Items",
+      "Quad Panels",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Tree Branch",
+      "panel",
+      "Point",
+      "panel",
+      "Sketch",
+      "panel",
+      "Deconstruct",
+      "panel",
+      "MD Slider",
+      "Point",
+      "panel",
+      "Sketch",
+      "List of Lists",
+      "Param Viewer",
+      "Geometry",
+      "Param Viewer",
+      "Area",
+      "Area",
+      "Boolean Toggle",
+      "Geometry",
+      "Geometry",
+      "List Item",
+      "Flatten Tree",
+      "Number Slider",
+      "Explode Tree",
+      "Geometry",
+      "Geometry",
+      "Geometry",
+      "List Item",
+      "Number Slider",
+      "panel",
+      "Bounds",
+      "panel",
+      "Sketch",
+      "Explode Tree",
+      "Surface",
+      "Surface",
+      "List Item",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "Path Mapper",
+      "Distance",
+      "Area",
+      "Construct Point",
+      "panel",
+      "Line",
+      "Null Item",
+      "panel",
+      "Clean Tree",
+      "panel",
+      "Boolean Toggle",
+      "Sketch",
+      "Boolean Toggle",
+      "Sketch",
+      "Boolean Toggle",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "List Item",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "MD Slider",
+      "Point",
+      "Quad Panels",
+      "Scribble",
+      "Number Slider",
+      "Number Slider",
+      "Scribble",
+      "Area",
+      "Scribble",
+      "panel",
+      "panel",
+      "Sort List",
+      "panel",
+      "List Item",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "Number Slider",
+      "panel",
+      "panel",
+      "List Item",
+      "Number Slider",
+      "Clean Tree",
+      "panel",
+      "Boolean Toggle",
+      "panel",
+      "Sketch",
+      "Boolean Toggle",
+      "Sketch",
+      "Boolean Toggle",
+      "Sketch",
+      "Evaluate Surface",
+      "Multiplication",
+      "Evaluate Surface",
+      "Surface",
+      "Param Viewer",
+      "Param Viewer",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "panel",
+      "Sketch",
+      "Line"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 05 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "048b08a3",
+    "b71e60f2",
+    "8a71e405",
+    "c802b64e",
+    "370b1d02"
+  ],
+  "tags": [
+    "pipe-output",
+    "panelization",
+    "unit-05-class",
+    "unit-series",
+    "417-components",
+    "data-tree",
+    "surface-creation",
+    "high-complexity",
+    "recipe",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:28:52.458647",
+    "evolved_by": [
+      "370b1d02"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:28:52.458647",
+        "trigger": "New pattern: 370b1d02",
+        "changes": "Unit-06-Class helps establish Unit-05-Class's position in the complete spectrum and shows the tight clustering with Unit-04-Class"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R11",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R13",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R120",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R121",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R126",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 31
+        },
+        {
+          "id": "R160",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R168",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 300,
+          "value": 87
+        },
+        {
+          "id": "R169",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R181",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R192",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R200",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "R214",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 0.02,
+          "value": 0.001
+        },
+        {
+          "id": "R238",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 40,
+          "value": 2.36
+        },
+        {
+          "id": "R239",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 5.96
+        },
+        {
+          "id": "R273",
+          "nick": "Number Slider",
+          "min": 0.001,
+          "max": 10,
+          "value": 0.001
+        },
+        {
+          "id": "R274",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 110,
+          "value": 11.528
+        },
+        {
+          "id": "R278",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R280",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 9,
+          "value": 0
+        },
+        {
+          "id": "R300",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R301",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R326",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R332",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 90,
+          "value": 0
+        },
+        {
+          "id": "R376",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R377",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R391",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 5,
+          "value": 1
+        },
+        {
+          "id": "R395",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 9,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R9",
+          "nick": "List of Lists",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R14",
+          "nick": "List of Items",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R88",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R95",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R98",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R103",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R117",
+          "nick": "",
+          "content": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Get the center point of each cell using the \"Area\" component.\r\n\r\n3- Use these center points to construct circles.\r\n\r\n4- Give a defined radius.\r\n\r\n5- Extrude all circles in Z direction with a defined value.\r\n\r\n6- Monitor the data structure along the way.\r\n\r\n7- Use the X value of each circle's center point to feed the extrusion values.\r\n\r\n8- Use the Distance of each circle's center point from Origin to feed the extrusion values.\r\n\r\n9- Use the X value of each circle's center point to feed the radius values of each.\r\n\r\n10- Use the Distance of each circle's center point from Origin to feed the radius values of each.\r\n\r\n11- Notice that all along the way, you have been using Trees to feed other Trees!"
+        },
+        {
+          "id": "R130",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R135",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R145",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R150",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R152",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R155",
+          "nick": "",
+          "content": "Assignment 5:\r\n\r\n1- Build a non-planar surface in Rhino.\r\n\r\n2- Evaluate a point onto the surface using an MD Slider.\r\n\r\n3- Divide the Surface into many points.\r\n\r\n4- Move the points in the normal direction, with vector lengths in relationship with the evaluated point from the MD Slider.\r\n\r\n5- You may need to remap the values if needed.\r\n\r\n6- Move the MD Slider and see how the normal lines change their lengths in relationship with the point.\r\n\r\nCONGRATULATIONS!\r\nYou just made your first ATTRACTOR Definition in Grasshopper!"
+        },
+        {
+          "id": "R164",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R173",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R174",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R178",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R183",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R184",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R186",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R187",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R188",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R191",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R195",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R196",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R198",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R199",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R202",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R203",
+          "nick": "",
+          "content": "1\r\n2"
+        },
+        {
+          "id": "R206",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R207",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R210",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R216",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R219",
+          "nick": "",
+          "content": "0;1"
+        },
+        {
+          "id": "R222",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R233",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R242",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R264",
+          "nick": "List of Items",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R265",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R266",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R268",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R269",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R272",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R282",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R283",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R285",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R286",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R291",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R295",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R296",
+          "nick": "",
+          "content": "1 to 5"
+        },
+        {
+          "id": "R298",
+          "nick": "List of Items",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R302",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R304",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R306",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R308",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R310",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R313",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R315",
+          "nick": "List of Lists",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R333",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R335",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R341",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R342",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R343",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R354",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R357",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R359",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R381",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R382",
+          "nick": "",
+          "content": "1- List of Lists = Tree\r\n\r\n- While a List contains simple items, a Tree contains Lists.\r\n\r\n- The \"Partition List\" component produces many partitions from one List.\r\n\r\n\r\nEach one of these partitions is a List.\r\nThe \"Partition List\" produces a Tree, which is a List of Lists.\r\n\r\n- The Wire Display of a Tree is a dashed double line.\r\n\r\n- A Tree is composed of Branches. Each Branch is a List.\r\n\r\n- Many components are related to Trees Data structures and can be found under the Tab \"Sets\", then \"Tree\".\r\n\r\n- Like items inside a List, the ordering of Branches inside a Tree also starts with a 0.\r\n\r\n- In Grasshopper, the order of Branches is represented as number inside brackets. For example, the order of the first Branch of any Tree is {0}  (with brackets).\r\nLikewise, the order of the first item of any List is 0  (without any brackets).\r\n\r\n- Knowing this, realize that any List is actually a Tree of only one Branch! And the List itself is represented as {0}."
+        },
+        {
+          "id": "R384",
+          "nick": "",
+          "content": "2- Flattenning\r\n\r\n- \"Flattenning\" is a data restructuing concept in Grasshopper that brings any Tree to a basic List of items, getting rid of all branches.\r\n\r\n- This command is often very useful and we will see how to use it.\r\n\r\n- Type \"Flatten\" and choose \"Flatten Tree\".\r\n\r\n- Use the \"Panel\" to see what is happening with the data structure before and after flattenning."
+        },
+        {
+          "id": "R386",
+          "nick": "",
+          "content": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used."
+        },
+        {
+          "id": "R387",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R388",
+          "nick": "",
+          "content": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data."
+        },
+        {
+          "id": "R389",
+          "nick": "",
+          "content": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data."
+        },
+        {
+          "id": "R392",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R393",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R397",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R399",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R411",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R414",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R415",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "points",
+    "source_definition": "Unit-05-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_PartitionList",
+          "name": "Partition List",
+          "pos": [
+            866,
+            1618
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "nick": "List of Lists",
+          "pos": [
+            1232,
+            1479.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R10",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            760,
+            818
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            453.7,
+            782.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            453.7,
+            810.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            451.7,
+            837.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "nick": "List of Items",
+          "pos": [
+            1241.6,
+            713
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R15",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            473.5,
+            -37.2
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "panel",
+          "pos": [
+            739.1,
+            1630.1
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R18",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.8,
+            1497.7
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.8,
+            1565.3
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.8,
+            1632.4
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.8,
+            1695.4
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            745.2
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            761.6
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            777.5
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            794.3
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            810.3
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            826.3
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            842.3
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            859.1
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            875.4
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            891.4
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1513.9
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1530.3
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.7,
+            1546.7
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1581.8
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1598.1
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.7,
+            1614.5
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1648.6
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.4,
+            1665
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.7,
+            1681.4
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1224.7,
+            1716.1
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1234,
+            1226.1
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1234,
+            939.5
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1234,
+            1372.5
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1234,
+            1085.2
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1286.3,
+            1085.2
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1286.3,
+            1376.6
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.5,
+            1402.2
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.5,
+            1417.1
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.5,
+            1433.4
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.5,
+            1450.3
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1170.5,
+            1111.6
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            926.5,
+            1095.4
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            891.9,
+            1407.4
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            938.4,
+            1595.7
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1387,
+            1102.2
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1473,
+            1101.7
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1473,
+            1380.8
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1348.6,
+            729.2
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1376,
+            756.2
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1473,
+            1405.1
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1473,
+            1426.7
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1473,
+            1448.6
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1442,
+            1493.2
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1544,
+            1494.2
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1372,
+            1396.2
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2175.9,
+            -37.2
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            2562,
+            751
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            2162.3,
+            738.9
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "panel",
+          "pos": [
+            2298.1,
+            758.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R74",
+          "type": "panel",
+          "pos": [
+            2728.8,
+            777.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R75",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2947.9,
+            -37.2
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "panel",
+          "pos": [
+            3165.6,
+            776.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R77",
+          "type": "GraftTreeComponent",
+          "name": "Graft Tree",
+          "pos": [
+            3000,
+            758
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2187.2,
+            716.3
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2580,
+            726.5
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3029,
+            737.5
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            3165.7,
+            1223
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2300.1,
+            1344.2
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2651.5,
+            1343.1
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3165.8,
+            1429.7
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            2648,
+            1281.5
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            2298.5,
+            1233.5
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "SimplifyTreeComponent",
+          "name": "Simplify Tree",
+          "pos": [
+            5256,
+            774
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "panel",
+          "pos": [
+            5405.5,
+            776.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R89",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            5218.3,
+            -37.2
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            5501.7,
+            758.2
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            5405.5,
+            1223
+          ]
+        },
+        {
+          "id": "R93",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            5393.5,
+            1241.2
+          ]
+        },
+        {
+          "id": "R94",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            3705.8,
+            753.1
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "panel",
+          "pos": [
+            4353,
+            776.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R96",
+          "type": "GraftTreeComponent",
+          "name": "Graft Tree",
+          "pos": [
+            4191,
+            752
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            4353.2,
+            1223
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "panel",
+          "pos": [
+            4786.6,
+            776.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R99",
+          "type": "GraftTreeComponent",
+          "name": "Graft Tree",
+          "pos": [
+            4634,
+            752
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            4786.8,
+            1223
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4440.2,
+            758.2
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4866.5,
+            758.2
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "panel",
+          "pos": [
+            3871.2,
+            776.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R104",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            3871.3,
+            1223
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3965.6,
+            758.2
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3866.6,
+            1241.2
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            5405.5,
+            1448.1
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            4353.2,
+            1448.1
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            4786.8,
+            1448.1
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            3871.3,
+            1448.1
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4784.6,
+            1239.1
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4345.4,
+            1239.1
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3668.6,
+            -37.2
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            3165.2,
+            1587.1
+          ]
+        },
+        {
+          "id": "R115",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            2648.9,
+            1501.7
+          ]
+        },
+        {
+          "id": "R116",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            2298.9,
+            1501.7
+          ]
+        },
+        {
+          "id": "R117",
+          "type": "panel",
+          "pos": [
+            9558,
+            18.9
+          ],
+          "content": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Get the center point of each cell using the \"Area\" component.\r\n\r\n3- Use these center points to construct circles.\r\n\r\n4- Give a defined radius.\r\n\r\n5- Extrude all circles in Z direction with a defined value.\r\n\r\n6- Monitor the data structure along the way.\r\n\r\n7- Use the X value of each circle's center point to feed the extrusion values.\r\n\r\n8- Use the Distance of each circle's center point from Origin to feed the extrusion values.\r\n\r\n9- Use the X value of each circle's center point to feed the radius values of each.\r\n\r\n10- Use the Distance of each circle's center point from Origin to feed the radius values of each.\r\n\r\n11- Notice that all along the way, you have been using Trees to feed other Trees!"
+        },
+        {
+          "id": "R118",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            9562.7,
+            -37.2
+          ]
+        },
+        {
+          "id": "R119",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            9833,
+            994
+          ]
+        },
+        {
+          "id": "R120",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9531.7,
+            979.5
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R121",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9532.1,
+            1007.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R122",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            9959.1,
+            1029
+          ]
+        },
+        {
+          "id": "R123",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            10386,
+            1808
+          ]
+        },
+        {
+          "id": "R124",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            11668,
+            1865
+          ]
+        },
+        {
+          "id": "R125",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            11445,
+            1886
+          ]
+        },
+        {
+          "id": "R126",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11160,
+            1881.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 31
+        },
+        {
+          "id": "R127",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            11668,
+            1993
+          ]
+        },
+        {
+          "id": "R128",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            11419,
+            2111
+          ]
+        },
+        {
+          "id": "R129",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            9768,
+            3450
+          ]
+        },
+        {
+          "id": "R130",
+          "type": "panel",
+          "pos": [
+            9793,
+            2901.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R131",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            11669,
+            2336
+          ]
+        },
+        {
+          "id": "R132",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            11435,
+            2351
+          ]
+        },
+        {
+          "id": "R133",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            11213,
+            2359
+          ]
+        },
+        {
+          "id": "R134",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            11029,
+            2394
+          ]
+        },
+        {
+          "id": "R135",
+          "type": "panel",
+          "pos": [
+            10851.4,
+            2383.2
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R136",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            10732,
+            3629
+          ]
+        },
+        {
+          "id": "R137",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            10561,
+            3808
+          ]
+        },
+        {
+          "id": "R138",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            10381,
+            3852
+          ]
+        },
+        {
+          "id": "R139",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            10050,
+            3543
+          ]
+        },
+        {
+          "id": "R140",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            10226,
+            3621
+          ]
+        },
+        {
+          "id": "R141",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            11823,
+            3611
+          ]
+        },
+        {
+          "id": "R142",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            11569,
+            3663
+          ]
+        },
+        {
+          "id": "R143",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            11416,
+            3715
+          ]
+        },
+        {
+          "id": "R144",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            11269,
+            3796
+          ]
+        },
+        {
+          "id": "R145",
+          "type": "panel",
+          "pos": [
+            11093.5,
+            3800.3
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R146",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            10769,
+            4520
+          ]
+        },
+        {
+          "id": "R147",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            10499,
+            4591
+          ]
+        },
+        {
+          "id": "R148",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            10315,
+            4603
+          ]
+        },
+        {
+          "id": "R149",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            10363,
+            4297
+          ]
+        },
+        {
+          "id": "R150",
+          "type": "panel",
+          "pos": [
+            10677,
+            4124.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R151",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            10513,
+            4426
+          ]
+        },
+        {
+          "id": "R152",
+          "type": "panel",
+          "pos": [
+            10681.8,
+            4404
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R153",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            11759,
+            4522
+          ]
+        },
+        {
+          "id": "R154",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            11329,
+            4561
+          ]
+        },
+        {
+          "id": "R155",
+          "type": "panel",
+          "pos": [
+            12720.7,
+            18.9
+          ],
+          "content": "Assignment 5:\r\n\r\n1- Build a non-planar surface in Rhino.\r\n\r\n2- Evaluate a point onto the surface using an MD Slider.\r\n\r\n3- Divide the Surface into many points.\r\n\r\n4- Move the points in the normal direction, with vector lengths in relationship with the evaluated point from the MD Slider.\r\n\r\n5- You may need to remap the values if needed.\r\n\r\n6- Move the MD Slider and see how the normal lines change their lengths in relationship with the point.\r\n\r\nCONGRATULATIONS!\r\nYou just made your first ATTRACTOR Definition in Grasshopper!"
+        },
+        {
+          "id": "R156",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12721.9,
+            -46.9
+          ]
+        },
+        {
+          "id": "R157",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            12741.9,
+            632
+          ]
+        },
+        {
+          "id": "R158",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            12717.8,
+            763.4
+          ]
+        },
+        {
+          "id": "R159",
+          "type": "Component_DivideSurface",
+          "name": "Divide Surface",
+          "pos": [
+            13329,
+            666
+          ]
+        },
+        {
+          "id": "R160",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13008.9,
+            664.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R161",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            14410,
+            696
+          ]
+        },
+        {
+          "id": "R162",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14178,
+            733
+          ]
+        },
+        {
+          "id": "R163",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            13545,
+            797
+          ]
+        },
+        {
+          "id": "R164",
+          "type": "panel",
+          "pos": [
+            13744.1,
+            725.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R165",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            13979,
+            854
+          ]
+        },
+        {
+          "id": "R166",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            13777,
+            853
+          ]
+        },
+        {
+          "id": "R167",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            13778,
+            970
+          ]
+        },
+        {
+          "id": "R168",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13374.7,
+            979.4
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 87
+        },
+        {
+          "id": "R169",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13385.8,
+            956.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R170",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            14701,
+            647
+          ]
+        },
+        {
+          "id": "R171",
+          "type": "Component_InterpCurve",
+          "name": "Interpolate",
+          "pos": [
+            14680,
+            816
+          ]
+        },
+        {
+          "id": "R172",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            14940,
+            796
+          ]
+        },
+        {
+          "id": "R173",
+          "type": "panel",
+          "pos": [
+            5928.6,
+            24.5
+          ],
+          "content": ""
+        },
+        {
+          "id": "R174",
+          "type": "panel",
+          "pos": [
+            12470.2,
+            24.5
+          ],
+          "content": ""
+        },
+        {
+          "id": "R175",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            14934,
+            664
+          ]
+        },
+        {
+          "id": "R176",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36,
+            -37.8
+          ]
+        },
+        {
+          "id": "R177",
+          "type": "ItemPicker",
+          "name": "Cherry Picker",
+          "pos": [
+            1043,
+            2244
+          ]
+        },
+        {
+          "id": "R178",
+          "type": "panel",
+          "pos": [
+            1235.4,
+            2250.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R179",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            9767.3,
+            665.4
+          ]
+        },
+        {
+          "id": "R180",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            10562,
+            1847
+          ]
+        },
+        {
+          "id": "R181",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10255.3,
+            1849.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 4
+        },
+        {
+          "id": "R182",
+          "type": "Component_CullIndex",
+          "name": "Cull Index",
+          "pos": [
+            1138,
+            1884
+          ]
+        },
+        {
+          "id": "R183",
+          "type": "panel",
+          "pos": [
+            1236.6,
+            1779.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R184",
+          "type": "panel",
+          "pos": [
+            9547.9,
+            2899.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R185",
+          "type": "Component_DeconstructDomain",
+          "name": "Deconstruct Domain",
+          "pos": [
+            10548,
+            3460
+          ]
+        },
+        {
+          "id": "R186",
+          "type": "panel",
+          "pos": [
+            10630,
+            3398.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R187",
+          "type": "panel",
+          "pos": [
+            10631.8,
+            3465
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R188",
+          "type": "panel",
+          "pos": [
+            10705.6,
+            3786.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R189",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1241.4,
+            1392.9
+          ]
+        },
+        {
+          "id": "R190",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1689,
+            1669
+          ]
+        },
+        {
+          "id": "R191",
+          "type": "panel",
+          "pos": [
+            1840.4,
+            1587.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R192",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1408.4,
+            1659.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R193",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            1454,
+            1686
+          ],
+          "value": false
+        },
+        {
+          "id": "R194",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            950,
+            2500
+          ]
+        },
+        {
+          "id": "R195",
+          "type": "panel",
+          "pos": [
+            1088.8,
+            2388.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R196",
+          "type": "panel",
+          "pos": [
+            1089.1,
+            2651
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R197",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1409,
+            2581
+          ]
+        },
+        {
+          "id": "R198",
+          "type": "panel",
+          "pos": [
+            1295.3,
+            2571.5
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R199",
+          "type": "panel",
+          "pos": [
+            1484.3,
+            2552.1
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R200",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            855.4,
+            1874
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0
+        },
+        {
+          "id": "R201",
+          "type": "Component_CullIndex",
+          "name": "Cull Index",
+          "pos": [
+            1365,
+            2833
+          ]
+        },
+        {
+          "id": "R202",
+          "type": "panel",
+          "pos": [
+            1430.5,
+            2793
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R203",
+          "type": "panel",
+          "pos": [
+            1190.4,
+            2804.7
+          ],
+          "content": "1\r\n2"
+        },
+        {
+          "id": "R204",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1073,
+            2694.7
+          ]
+        },
+        {
+          "id": "R205",
+          "type": "Component_PartitionList",
+          "name": "Partition List",
+          "pos": [
+            3004,
+            558
+          ]
+        },
+        {
+          "id": "R206",
+          "type": "panel",
+          "pos": [
+            2886.5,
+            568.4
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R207",
+          "type": "panel",
+          "pos": [
+            3165,
+            349.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R208",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            6078.1,
+            2125.8
+          ]
+        },
+        {
+          "id": "R209",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            6294,
+            2125
+          ]
+        },
+        {
+          "id": "R210",
+          "type": "panel",
+          "pos": [
+            6773,
+            1342.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R211",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            6744,
+            2387
+          ]
+        },
+        {
+          "id": "R212",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            6222,
+            2495
+          ]
+        },
+        {
+          "id": "R213",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            6570,
+            2451
+          ]
+        },
+        {
+          "id": "R214",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6193.5,
+            2678.4
+          ],
+          "min": 0,
+          "max": 0.02,
+          "value": 0.001
+        },
+        {
+          "id": "R215",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            6332,
+            2631
+          ]
+        },
+        {
+          "id": "R216",
+          "type": "panel",
+          "pos": [
+            7490.4,
+            906.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R217",
+          "type": "Component_TreeBranch",
+          "name": "Tree Branch",
+          "pos": [
+            7569,
+            1741
+          ]
+        },
+        {
+          "id": "R218",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            7499.1,
+            1880.1
+          ]
+        },
+        {
+          "id": "R219",
+          "type": "panel",
+          "pos": [
+            7442.1,
+            1752.7
+          ],
+          "content": "0;1"
+        },
+        {
+          "id": "R220",
+          "type": "TrimTreeComponent",
+          "name": "Trim Tree",
+          "pos": [
+            7340,
+            3163
+          ]
+        },
+        {
+          "id": "R221",
+          "type": "Component_TreeBranch",
+          "name": "Tree Branch",
+          "pos": [
+            7735,
+            3191
+          ]
+        },
+        {
+          "id": "R222",
+          "type": "panel",
+          "pos": [
+            7614.3,
+            3208.1
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R223",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            7504.7,
+            2256.5
+          ]
+        },
+        {
+          "id": "R224",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            8073.8,
+            2135.8
+          ]
+        },
+        {
+          "id": "R225",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            7499.1,
+            2755
+          ]
+        },
+        {
+          "id": "R226",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            7504.7,
+            2422.3
+          ]
+        },
+        {
+          "id": "R227",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            8067.5,
+            2378.2
+          ]
+        },
+        {
+          "id": "R228",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            8126,
+            2685
+          ]
+        },
+        {
+          "id": "R229",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8242.3,
+            2634.5
+          ]
+        },
+        {
+          "id": "R230",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8242.2,
+            2656
+          ]
+        },
+        {
+          "id": "R231",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8242.7,
+            2674.5
+          ]
+        },
+        {
+          "id": "R232",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8242.2,
+            2694.3
+          ]
+        },
+        {
+          "id": "R233",
+          "type": "panel",
+          "pos": [
+            11138.9,
+            2431.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R234",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            11017,
+            2293
+          ]
+        },
+        {
+          "id": "R235",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R236",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2423,
+            758.2
+          ]
+        },
+        {
+          "id": "R237",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            9932,
+            3634
+          ]
+        },
+        {
+          "id": "R238",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10067.6,
+            3813
+          ],
+          "min": 0,
+          "max": 40,
+          "value": 2.36
+        },
+        {
+          "id": "R239",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10072.7,
+            3873.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 5.96
+        },
+        {
+          "id": "R240",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            10161,
+            4314
+          ]
+        },
+        {
+          "id": "R241",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            9980,
+            4337
+          ]
+        },
+        {
+          "id": "R242",
+          "type": "panel",
+          "pos": [
+            9777.7,
+            4314.2
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R243",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            10874,
+            760
+          ]
+        },
+        {
+          "id": "R244",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10967.2,
+            694.7
+          ]
+        },
+        {
+          "id": "R245",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            7498.7,
+            3004.2
+          ]
+        },
+        {
+          "id": "R246",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7522.7,
+            2776.6
+          ]
+        },
+        {
+          "id": "R247",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            8120,
+            2278
+          ]
+        },
+        {
+          "id": "R248",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8215,
+            2255.4
+          ]
+        },
+        {
+          "id": "R249",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            8213.6,
+            2300.8
+          ]
+        },
+        {
+          "id": "R250",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            7496.7,
+            1992.6
+          ]
+        },
+        {
+          "id": "R251",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7503.2,
+            2014.6
+          ]
+        },
+        {
+          "id": "R252",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7504.2,
+            2114.5
+          ]
+        },
+        {
+          "id": "R253",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7467.2,
+            1904.2
+          ]
+        },
+        {
+          "id": "R254",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            7049,
+            2137
+          ]
+        },
+        {
+          "id": "R255",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7193.6,
+            2145.1
+          ]
+        },
+        {
+          "id": "R256",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7193.9,
+            2028.1
+          ]
+        },
+        {
+          "id": "R257",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            7498.9,
+            2485.2
+          ]
+        },
+        {
+          "id": "R258",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R259",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1086.4,
+            2684.2
+          ]
+        },
+        {
+          "id": "R260",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R261",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1092.2,
+            2669.7
+          ]
+        },
+        {
+          "id": "R262",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R263",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            940,
+            2842.9
+          ]
+        },
+        {
+          "id": "R264",
+          "type": "panel",
+          "nick": "List of Items",
+          "pos": [
+            1937.8,
+            756
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R265",
+          "type": "panel",
+          "pos": [
+            3410.8,
+            1578.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R266",
+          "type": "panel",
+          "pos": [
+            3410,
+            1805.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R267",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            5018.6,
+            1426.4
+          ]
+        },
+        {
+          "id": "R268",
+          "type": "panel",
+          "pos": [
+            6120.5,
+            1826.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R269",
+          "type": "panel",
+          "pos": [
+            7851.9,
+            2978.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R270",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7194.4,
+            2047.3
+          ]
+        },
+        {
+          "id": "R271",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7194.4,
+            2067.1
+          ]
+        },
+        {
+          "id": "R272",
+          "type": "panel",
+          "pos": [
+            11724.2,
+            3777
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R273",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9957.7,
+            4584.9
+          ],
+          "min": 0.001,
+          "max": 10,
+          "value": 0.001
+        },
+        {
+          "id": "R274",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9956.7,
+            4604.6
+          ],
+          "min": 0,
+          "max": 110,
+          "value": 11.528
+        },
+        {
+          "id": "R275",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10967.2,
+            674.3
+          ]
+        },
+        {
+          "id": "R276",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10968.8,
+            713.7
+          ]
+        },
+        {
+          "id": "R277",
+          "type": "Component_TreeBranch",
+          "name": "Tree Branch",
+          "pos": [
+            11321,
+            629
+          ]
+        },
+        {
+          "id": "R278",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11050.4,
+            638.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R279",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11479,
+            702
+          ]
+        },
+        {
+          "id": "R280",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11169.1,
+            704.6
+          ],
+          "min": 0,
+          "max": 9,
+          "value": 0
+        },
+        {
+          "id": "R281",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1357,
+            2966
+          ]
+        },
+        {
+          "id": "R282",
+          "type": "panel",
+          "pos": [
+            1443.3,
+            2928.4
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R283",
+          "type": "panel",
+          "pos": [
+            9201.8,
+            24.5
+          ],
+          "content": ""
+        },
+        {
+          "id": "R284",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            6137.2,
+            -37.2
+          ]
+        },
+        {
+          "id": "R285",
+          "type": "panel",
+          "pos": [
+            6397.7,
+            1732.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R286",
+          "type": "panel",
+          "pos": [
+            7208.4,
+            3171.8
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R287",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            9562,
+            3722
+          ]
+        },
+        {
+          "id": "R288",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            9451.6,
+            3537.4
+          ]
+        },
+        {
+          "id": "R289",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            10402,
+            4193
+          ]
+        },
+        {
+          "id": "R290",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            11145.2,
+            3924.2
+          ]
+        },
+        {
+          "id": "R291",
+          "type": "panel",
+          "pos": [
+            12895.9,
+            906.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R292",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            13059,
+            1226
+          ]
+        },
+        {
+          "id": "R293",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            13327,
+            1211
+          ]
+        },
+        {
+          "id": "R294",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            12835.5,
+            1179.3
+          ]
+        },
+        {
+          "id": "R295",
+          "type": "panel",
+          "pos": [
+            10268.9,
+            3479.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R296",
+          "type": "panel",
+          "pos": [
+            10335.9,
+            4076.7
+          ],
+          "content": "1 to 5"
+        },
+        {
+          "id": "R297",
+          "type": "FlipDataMatrixComponent",
+          "name": "Flip Matrix",
+          "pos": [
+            10662,
+            604
+          ]
+        },
+        {
+          "id": "R298",
+          "type": "panel",
+          "nick": "List of Items",
+          "pos": [
+            576.5,
+            1486.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R299",
+          "type": "QuadA",
+          "name": "Quad Panels",
+          "pos": [
+            7050,
+            1706
+          ]
+        },
+        {
+          "id": "R300",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6743.1,
+            1699.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R301",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6744.5,
+            1728.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R302",
+          "type": "panel",
+          "pos": [
+            8528.7,
+            2110.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R303",
+          "type": "Component_TreeBranch",
+          "name": "Tree Branch",
+          "pos": [
+            7734,
+            3334
+          ]
+        },
+        {
+          "id": "R304",
+          "type": "panel",
+          "pos": [
+            7614.3,
+            3346
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R305",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            11349.3,
+            3992.4
+          ]
+        },
+        {
+          "id": "R306",
+          "type": "panel",
+          "pos": [
+            10329.2,
+            2889.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R307",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            6231.4,
+            1793.6
+          ]
+        },
+        {
+          "id": "R308",
+          "type": "panel",
+          "pos": [
+            6556.2,
+            1374.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R309",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            10984,
+            2139
+          ]
+        },
+        {
+          "id": "R310",
+          "type": "panel",
+          "pos": [
+            11152,
+            1972.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R311",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            11138.3,
+            4116.2
+          ]
+        },
+        {
+          "id": "R312",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            11361.8,
+            4183.8
+          ]
+        },
+        {
+          "id": "R313",
+          "type": "panel",
+          "pos": [
+            1088.3,
+            2516.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R314",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R315",
+          "type": "panel",
+          "nick": "List of Lists",
+          "pos": [
+            621.6,
+            2360.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R316",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            6416.7,
+            1641.3
+          ]
+        },
+        {
+          "id": "R317",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7194.4,
+            2085.5
+          ]
+        },
+        {
+          "id": "R318",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            10779.5,
+            1575.5
+          ]
+        },
+        {
+          "id": "R319",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            10834,
+            2129
+          ]
+        },
+        {
+          "id": "R320",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            10984,
+            3710
+          ]
+        },
+        {
+          "id": "R321",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            900,
+            1899
+          ],
+          "value": true
+        },
+        {
+          "id": "R322",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7194.3,
+            2104.3
+          ]
+        },
+        {
+          "id": "R323",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            7194.4,
+            2124.5
+          ]
+        },
+        {
+          "id": "R324",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            10625,
+            1106
+          ]
+        },
+        {
+          "id": "R325",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            10224,
+            1083
+          ]
+        },
+        {
+          "id": "R326",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10342.3,
+            1103.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R327",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            10130,
+            1348
+          ]
+        },
+        {
+          "id": "R328",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10224.5,
+            1281.5
+          ]
+        },
+        {
+          "id": "R329",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10224.5,
+            1258.1
+          ]
+        },
+        {
+          "id": "R330",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            10227.1,
+            1298.5
+          ]
+        },
+        {
+          "id": "R331",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            10895,
+            941
+          ]
+        },
+        {
+          "id": "R332",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10589.4,
+            931.5
+          ],
+          "min": 0,
+          "max": 90,
+          "value": 0
+        },
+        {
+          "id": "R333",
+          "type": "panel",
+          "pos": [
+            14606.4,
+            935.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R334",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            10049,
+            3409
+          ]
+        },
+        {
+          "id": "R335",
+          "type": "panel",
+          "pos": [
+            10051.5,
+            2898.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R336",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1446.8,
+            1680.6
+          ]
+        },
+        {
+          "id": "R337",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            6805,
+            1848
+          ]
+        },
+        {
+          "id": "R338",
+          "type": "Param_Surface",
+          "nick": "All 6 Surfaces of 1st Brep",
+          "name": "Surface",
+          "pos": [
+            6936.8,
+            1826.5
+          ]
+        },
+        {
+          "id": "R339",
+          "type": "Param_Surface",
+          "nick": "All 6 Surfaces of 2nd Brep",
+          "name": "Surface",
+          "pos": [
+            6939.1,
+            1873.1
+          ]
+        },
+        {
+          "id": "R340",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7149,
+            1847
+          ]
+        },
+        {
+          "id": "R341",
+          "type": "panel",
+          "pos": [
+            8528.9,
+            1619.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R342",
+          "type": "panel",
+          "pos": [
+            8818.2,
+            594.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R343",
+          "type": "panel",
+          "pos": [
+            8397.5,
+            488.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R344",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R345",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            8598.4,
+            995
+          ]
+        },
+        {
+          "id": "R346",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R347",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8506.9,
+            442.1
+          ]
+        },
+        {
+          "id": "R348",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8542,
+            442
+          ]
+        },
+        {
+          "id": "R349",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            8516.4,
+            468
+          ]
+        },
+        {
+          "id": "R350",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            8621.4,
+            378.9
+          ]
+        },
+        {
+          "id": "R351",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            11222,
+            2953
+          ]
+        },
+        {
+          "id": "R352",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            10967,
+            2838
+          ]
+        },
+        {
+          "id": "R353",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            10992,
+            2943
+          ]
+        },
+        {
+          "id": "R354",
+          "type": "panel",
+          "pos": [
+            11359.5,
+            2821.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R355",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            11240,
+            2869
+          ]
+        },
+        {
+          "id": "R356",
+          "type": "Component_IsNullOrInvalid",
+          "name": "Null Item",
+          "pos": [
+            1724,
+            2075
+          ]
+        },
+        {
+          "id": "R357",
+          "type": "panel",
+          "pos": [
+            1838.6,
+            1971.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R358",
+          "type": "CleanTreeComponent",
+          "name": "Clean Tree",
+          "pos": [
+            1764,
+            1879
+          ]
+        },
+        {
+          "id": "R359",
+          "type": "panel",
+          "pos": [
+            1839.9,
+            1803.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R360",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            1489,
+            1840
+          ],
+          "value": true
+        },
+        {
+          "id": "R361",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1491.2,
+            1830.7
+          ]
+        },
+        {
+          "id": "R362",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            1489,
+            1880
+          ],
+          "value": true
+        },
+        {
+          "id": "R363",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1491.2,
+            1871.2
+          ]
+        },
+        {
+          "id": "R364",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            1489,
+            1925
+          ],
+          "value": true
+        },
+        {
+          "id": "R365",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1491.2,
+            1916.2
+          ]
+        },
+        {
+          "id": "R366",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1229,
+            1930.2
+          ]
+        },
+        {
+          "id": "R367",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1960.1,
+            1708.4
+          ]
+        },
+        {
+          "id": "R368",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            6182,
+            1953
+          ]
+        },
+        {
+          "id": "R369",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            8626.3,
+            459.8
+          ]
+        },
+        {
+          "id": "R370",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            8719.5,
+            447
+          ]
+        },
+        {
+          "id": "R371",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            8594.4,
+            499
+          ]
+        },
+        {
+          "id": "R372",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            9761,
+            4424.7
+          ]
+        },
+        {
+          "id": "R373",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            10012.8,
+            4471.9
+          ]
+        },
+        {
+          "id": "R374",
+          "type": "QuadA",
+          "name": "Quad Panels",
+          "pos": [
+            6777,
+            737
+          ]
+        },
+        {
+          "id": "R375",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            7727.5,
+            2794.2
+          ]
+        },
+        {
+          "id": "R376",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6441.7,
+            734.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R377",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6443.1,
+            754.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 2
+        },
+        {
+          "id": "R378",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            46.6
+          ]
+        },
+        {
+          "id": "R379",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            6970,
+            687
+          ]
+        },
+        {
+          "id": "R380",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            112.9
+          ]
+        },
+        {
+          "id": "R381",
+          "type": "panel",
+          "pos": [
+            7016.5,
+            77.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R382",
+          "type": "panel",
+          "pos": [
+            478.8,
+            28.9
+          ],
+          "content": "1- List of Lists = Tree\r\n\r\n- While a List contains simple items, a Tree contains Lists.\r\n\r\n- The \"Partition List\" component produces many partitions from one List.\r\n\r\n\r\nEach one of these partitions is a List.\r\nThe \"Partition List\" produces a Tree, which is a List of Lists.\r\n\r\n- The Wire Display of a Tree is a dashed double line.\r\n\r\n- A Tree is composed of Branches. Each Branch is a List.\r\n\r\n- Many components are related to Trees Data structures and can be found under the Tab \"Sets\", then \"Tree\".\r\n\r\n- Like items inside a List, the ordering of Branches inside a Tree also starts with a 0.\r\n\r\n- In Grasshopper, the order of Branches is represented as number inside brackets. For example, the order of the first Branch of any Tree is {0}  (with brackets).\r\nLikewise, the order of the first item of any List is 0  (without any brackets).\r\n\r\n- Knowing this, realize that any List is actually a Tree of only one Branch! And the List itself is represented as {0}."
+        },
+        {
+          "id": "R383",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            7151,
+            725
+          ]
+        },
+        {
+          "id": "R384",
+          "type": "panel",
+          "pos": [
+            2170.1,
+            25
+          ],
+          "content": "2- Flattenning\r\n\r\n- \"Flattenning\" is a data restructuing concept in Grasshopper that brings any Tree to a basic List of items, getting rid of all branches.\r\n\r\n- This command is often very useful and we will see how to use it.\r\n\r\n- Type \"Flatten\" and choose \"Flatten Tree\".\r\n\r\n- Use the \"Panel\" to see what is happening with the data structure before and after flattenning."
+        },
+        {
+          "id": "R385",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7306,
+            774
+          ]
+        },
+        {
+          "id": "R386",
+          "type": "panel",
+          "pos": [
+            2953.2,
+            28.5
+          ],
+          "content": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used."
+        },
+        {
+          "id": "R387",
+          "type": "panel",
+          "pos": [
+            7284.2,
+            77.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R388",
+          "type": "panel",
+          "pos": [
+            5223.6,
+            28.9
+          ],
+          "content": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data."
+        },
+        {
+          "id": "R389",
+          "type": "panel",
+          "pos": [
+            3673.9,
+            28.9
+          ],
+          "content": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data."
+        },
+        {
+          "id": "R390",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            6920,
+            980.6
+          ]
+        },
+        {
+          "id": "R391",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6869.7,
+            1904.3
+          ],
+          "min": 0,
+          "max": 5,
+          "value": 1
+        },
+        {
+          "id": "R392",
+          "type": "panel",
+          "pos": [
+            9692.6,
+            1099
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R393",
+          "type": "panel",
+          "pos": [
+            10275.4,
+            695.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R394",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            10628,
+            1287
+          ]
+        },
+        {
+          "id": "R395",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10346.2,
+            1284.8
+          ],
+          "min": 0,
+          "max": 9,
+          "value": 2
+        },
+        {
+          "id": "R396",
+          "type": "CleanTreeComponent",
+          "name": "Clean Tree",
+          "pos": [
+            1220,
+            2067
+          ]
+        },
+        {
+          "id": "R397",
+          "type": "panel",
+          "pos": [
+            1401.6,
+            1975.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R398",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            945,
+            2028
+          ],
+          "value": true
+        },
+        {
+          "id": "R399",
+          "type": "panel",
+          "pos": [
+            6771.4,
+            77.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R400",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            948,
+            2019.5
+          ]
+        },
+        {
+          "id": "R401",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            945,
+            2068
+          ],
+          "value": true
+        },
+        {
+          "id": "R402",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            948,
+            2060
+          ]
+        },
+        {
+          "id": "R403",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            945,
+            2113
+          ],
+          "value": true
+        },
+        {
+          "id": "R404",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            948,
+            2105
+          ]
+        },
+        {
+          "id": "R405",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            6365,
+            2453
+          ]
+        },
+        {
+          "id": "R406",
+          "type": "Component_VariableMultiplication",
+          "name": "Multiplication",
+          "pos": [
+            6452,
+            2647
+          ]
+        },
+        {
+          "id": "R407",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            12965,
+            784
+          ]
+        },
+        {
+          "id": "R408",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            6148.5,
+            2374.4
+          ]
+        },
+        {
+          "id": "R409",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            6119.5,
+            1703.3
+          ]
+        },
+        {
+          "id": "R410",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            6979.2,
+            1568.1
+          ]
+        },
+        {
+          "id": "R411",
+          "type": "panel",
+          "pos": [
+            8528.7,
+            2558.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R412",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7542,
+            2515
+          ]
+        },
+        {
+          "id": "R413",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7515.9,
+            2509.2
+          ]
+        },
+        {
+          "id": "R414",
+          "type": "panel",
+          "pos": [
+            7404,
+            3275.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R415",
+          "type": "panel",
+          "pos": [
+            11038.3,
+            113.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R416",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            9876,
+            954
+          ]
+        },
+        {
+          "id": "R417",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            11551,
+            3969
+          ]
+        }
+      ],
+      "flows": [
+        "R298.O0>R8.I0",
+        "R17.O0>R8.I1",
+        "R8.O0>R9.I0",
+        "R11.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R13.O0>R10.I2",
+        "R10.O0>R14.I0",
+        "R72.O0>R71.I0",
+        "R72.O0>R73.I0",
+        "R71.O0>R74.I0",
+        "R77.O0>R76.I0",
+        "R71.O0>R77.I0",
+        "R99.O0>R87.I0",
+        "R87.O0>R88.I0",
+        "R96.O0>R95.I0",
+        "R94.O0>R96.I0",
+        "R99.O0>R98.I0",
+        "R96.O0>R99.I0",
+        "R94.O0>R103.I0",
+        "R120.O0>R119.I1",
+        "R121.O0>R119.I2",
+        "R121.O0>R119.I3",
+        "R119.O0>R123.I0",
+        "R180.O0>R124.I0",
+        "R125.O0>R124.I1",
+        "R126.O0>R125.I0",
+        "R180.O0>R127.I0",
+        "R128.O0>R127.I1",
+        "R310.O0>R128.I0",
+        "R287.O1>R129.I0",
+        "R129.O0>R130.I0",
+        "R180.O0>R131.I0",
+        "R132.O0>R131.I1",
+        "R133.O0>R132.I0",
+        "R234.O1>R133.I0",
+        "R134.O0>R133.I1",
+        "R135.O0>R134.I0",
+        "R135.O0>R134.I1",
+        "R135.O0>R134.I2",
+        "R287.O1>R136.I0",
+        "R137.O0>R136.I1",
+        "R129.O0>R137.I0",
+        "R140.O0>R137.I1",
+        "R138.O0>R137.I2",
+        "R238.O0>R138.I0",
+        "R239.O0>R138.I1",
+        "R129.O0>R139.I0",
+        "R139.O0>R140.I0",
+        "R136.O0>R141.I0",
+        "R142.O0>R141.I1",
+        "R143.O0>R142.I0",
+        "R320.O1>R143.I0",
+        "R312.O0>R143.I1",
+        "R145.O0>R144.I0",
+        "R145.O0>R144.I1",
+        "R145.O0>R144.I2",
+        "R287.O1>R146.I0",
+        "R147.O0>R146.I1",
+        "R240.O0>R147.I0",
+        "R151.O0>R147.I1",
+        "R148.O0>R147.I2",
+        "R273.O0>R148.I0",
+        "R274.O0>R148.I1",
+        "R240.O0>R149.I0",
+        "R149.O0>R150.I0",
+        "R149.O0>R151.I0",
+        "R151.O0>R152.I0",
+        "R146.O0>R153.I0",
+        "R154.O0>R153.I1",
+        "R147.O0>R154.I0",
+        "R157.O0>R159.I0",
+        "R160.O0>R159.I1",
+        "R160.O0>R159.I2",
+        "R159.O0>R161.I0",
+        "R162.O0>R161.I1",
+        "R159.O1>R162.I0",
+        "R165.O0>R162.I1",
+        "R159.O0>R163.I0",
+        "R407.O0>R163.I1",
+        "R166.O0>R164.I0",
+        "R163.O0>R165.I0",
+        "R166.O0>R165.I1",
+        "R167.O0>R165.I2",
+        "R163.O0>R166.I0",
+        "R169.O0>R167.I0",
+        "R168.O0>R167.I1",
+        "R159.O0>R170.I0",
+        "R161.O0>R170.I1",
+        "R161.O0>R171.I0",
+        "R171.O0>R172.I0",
+        "R170.O0>R175.I0",
+        "R177.O0>R178.I0",
+        "R123.O1>R180.I0",
+        "R181.O0>R180.I1",
+        "R8.O0>R182.I0",
+        "R200.O0>R182.I1",
+        "R321.O0>R182.I2",
+        "R182.O0>R183.I0",
+        "R287.O1>R184.I0",
+        "R140.O0>R185.I0",
+        "R185.O0>R186.I0",
+        "R185.O1>R187.I0",
+        "R137.O0>R188.I0",
+        "R9.O0>R190.I0",
+        "R192.O0>R190.I1",
+        "R193.O0>R190.I2",
+        "R190.O0>R191.I0",
+        "R315.O0>R194.I0",
+        "R194.O0>R195.I0",
+        "R194.O1>R196.I0",
+        "R313.O0>R197.I0",
+        "R198.O0>R197.I1",
+        "R197.O0>R199.I0",
+        "R196.O0>R201.I0",
+        "R203.O0>R201.I1",
+        "R201.O0>R202.I0",
+        "R71.O0>R205.I0",
+        "R206.O0>R205.I1",
+        "R205.O0>R207.I0",
+        "R208.O0>R209.I0",
+        "R209.O0>R210.I0",
+        "R408.O0>R211.I0",
+        "R213.O0>R211.I1",
+        "R405.O1>R213.I0",
+        "R406.O0>R213.I1",
+        "R408.O0>R215.I0",
+        "R299.O0>R216.I0",
+        "R299.O0>R217.I0",
+        "R219.O0>R217.I1",
+        "R299.O0>R220.I0",
+        "R286.O0>R220.I1",
+        "R220.O0>R221.I0",
+        "R222.O0>R221.I1",
+        "R226.O0>R228.I0",
+        "R133.O0>R233.I0",
+        "R180.O0>R234.I0",
+        "R287.O1>R237.I0",
+        "R129.O0>R237.I1",
+        "R287.O1>R240.I0",
+        "R373.O0>R240.I1",
+        "R242.O0>R241.I0",
+        "R242.O0>R241.I1",
+        "R242.O0>R241.I2",
+        "R297.O0>R243.I0",
+        "R223.O0>R247.I0",
+        "R299.O0>R254.I0",
+        "R10.O0>R264.I0",
+        "R114.O0>R265.I0",
+        "R77.O0>R266.I0",
+        "R208.O0>R268.I0",
+        "R221.O0>R269.I0",
+        "R143.O0>R272.I0",
+        "R297.O0>R277.I0",
+        "R278.O0>R277.I1",
+        "R277.O0>R279.I0",
+        "R280.O0>R279.I1",
+        "R196.O0>R281.I0",
+        "R203.O0>R281.I1",
+        "R281.O0>R282.I0",
+        "R209.O0>R285.I0",
+        "R119.O0>R287.I0",
+        "R287.O1>R289.I0",
+        "R240.O0>R289.I1",
+        "R158.O0>R291.I0",
+        "R294.O0>R292.I0",
+        "R292.O0>R293.I0",
+        "R292.O1>R293.I1",
+        "R140.O0>R295.I0",
+        "R119.O0>R297.I0",
+        "R10.O0>R298.I0",
+        "R209.O0>R299.I0",
+        "R300.O0>R299.I1",
+        "R301.O0>R299.I2",
+        "R248.O0>R302.I0",
+        "R220.O0>R303.I0",
+        "R304.O0>R303.I1",
+        "R139.O0>R306.I0",
+        "R208.O0>R308.I0",
+        "R319.O1>R309.I0",
+        "R309.O0>R310.I0",
+        "R194.O1>R313.I0",
+        "R8.O0>R315.I0",
+        "R180.O0>R319.I0",
+        "R136.O0>R320.I0",
+        "R325.O0>R324.I0",
+        "R326.O0>R324.I1",
+        "R119.O0>R325.I0",
+        "R119.O0>R327.I0",
+        "R297.O0>R331.I0",
+        "R332.O0>R331.I1",
+        "R161.O0>R333.I0",
+        "R129.O0>R334.I0",
+        "R334.O0>R335.I0",
+        "R209.O0>R337.I0",
+        "R338.O0>R340.I0",
+        "R391.O0>R340.I1",
+        "R223.O0>R341.I0",
+        "R223.O0>R342.I0",
+        "R299.O0>R343.I0",
+        "R352.O1>R351.I0",
+        "R353.O0>R351.I1",
+        "R180.O0>R352.I0",
+        "R351.O0>R354.I0",
+        "R352.O1>R355.I0",
+        "R353.O0>R355.I1",
+        "R190.O0>R356.I0",
+        "R356.O0>R357.I0",
+        "R360.O0>R358.I0",
+        "R362.O0>R358.I1",
+        "R364.O0>R358.I2",
+        "R190.O0>R358.I3",
+        "R358.O0>R359.I0",
+        "R208.O0>R368.I0",
+        "R209.O0>R374.I0",
+        "R376.O0>R374.I1",
+        "R377.O0>R374.I2",
+        "R374.O0>R379.I0",
+        "R379.O0>R381.I0",
+        "R379.O0>R383.I0",
+        "R374.O0>R383.I1",
+        "R383.O1>R385.I0",
+        "R383.O0>R387.I0",
+        "R119.O0>R392.I0",
+        "R325.O0>R393.I0",
+        "R329.O0>R394.I0",
+        "R395.O0>R394.I1",
+        "R398.O0>R396.I0",
+        "R401.O0>R396.I1",
+        "R403.O0>R396.I2",
+        "R182.O0>R396.I3",
+        "R396.O0>R397.I0",
+        "R374.O0>R399.I0",
+        "R408.O0>R405.I0",
+        "R212.O0>R405.I1",
+        "R215.O0>R406.I0",
+        "R214.O0>R406.I1",
+        "R157.O0>R407.I0",
+        "R158.O0>R407.I1",
+        "R229.O0>R411.I0",
+        "R220.O0>R414.I0",
+        "R297.O0>R415.I0",
+        "R320.O1>R417.I0",
+        "R312.O0>R417.I1"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R117",
+          "text": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Get the center point of each cell using the \"Area\" component.\r\n\r\n3- Use these center points to construct circles.\r\n\r\n4- Give a defined radius.\r\n\r\n5- Extrude all circles in Z direction with a defined value.\r\n\r\n6- Monitor the data structure along the way.\r\n\r\n7- Use the X value of each circle's center point to feed the extrusion values.\r\n\r\n8- Use the Distance of each circle's center point from Origin to feed the extrusion values.\r\n\r\n9- Use the X value of each circle's center point to feed the radius values of each.\r\n\r\n10- Use the Distance of each circle's center point from Origin to feed the radius values of each.\r\n\r\n11- Notice that all along the way, you have been using Trees to feed other Trees!",
+          "pos": [
+            9558,
+            18.9
+          ],
+          "nearby": [
+            "R118"
+          ]
+        },
+        {
+          "panel_id": "R155",
+          "text": "Assignment 5:\r\n\r\n1- Build a non-planar surface in Rhino.\r\n\r\n2- Evaluate a point onto the surface using an MD Slider.\r\n\r\n3- Divide the Surface into many points.\r\n\r\n4- Move the points in the normal direction, with vector lengths in relationship with the evaluated point from the MD Slider.\r\n\r\n5- You may need to remap the values if needed.\r\n\r\n6- Move the MD Slider and see how the normal lines change their lengths in relationship with the point.\r\n\r\nCONGRATULATIONS!\r\nYou just made your first ATTRACTOR Definition in Grasshopper!",
+          "pos": [
+            12720.7,
+            18.9
+          ],
+          "nearby": [
+            "R156"
+          ]
+        },
+        {
+          "panel_id": "R296",
+          "text": "1 to 5",
+          "pos": [
+            10335.9,
+            4076.7
+          ],
+          "nearby": [
+            "R289",
+            "R149",
+            "R138"
+          ]
+        },
+        {
+          "panel_id": "R382",
+          "text": "1- List of Lists = Tree\r\n\r\n- While a List contains simple items, a Tree contains Lists.\r\n\r\n- The \"Partition List\" component produces many partitions from one List.\r\n\r\n\r\nEach one of these partitions is a List.\r\nThe \"Partition List\" produces a Tree, which is a List of Lists.\r\n\r\n- The Wire Display of a Tree is a dashed double line.\r\n\r\n- A Tree is composed of Branches. Each Branch is a List.\r\n\r\n- Many components are related to Trees Data structures and can be found under the Tab \"Sets\", then \"Tree\".\r\n\r\n- Like items inside a List, the ordering of Branches inside a Tree also starts with a 0.\r\n\r\n- In Grasshopper, the order of Branches is represented as number inside brackets. For example, the order of the first Branch of any Tree is {0}  (with brackets).\r\nLikewise, the order of the first item of any List is 0  (without any brackets).\r\n\r\n- Knowing this, realize that any List is actually a Tree of only one Branch! And the List itself is represented as {0}.",
+          "pos": [
+            478.8,
+            28.9
+          ],
+          "nearby": [
+            "R15"
+          ]
+        },
+        {
+          "panel_id": "R384",
+          "text": "2- Flattenning\r\n\r\n- \"Flattenning\" is a data restructuing concept in Grasshopper that brings any Tree to a basic List of items, getting rid of all branches.\r\n\r\n- This command is often very useful and we will see how to use it.\r\n\r\n- Type \"Flatten\" and choose \"Flatten Tree\".\r\n\r\n- Use the \"Panel\" to see what is happening with the data structure before and after flattenning.",
+          "pos": [
+            2170.1,
+            25
+          ],
+          "nearby": [
+            "R70"
+          ]
+        },
+        {
+          "panel_id": "R386",
+          "text": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used.",
+          "pos": [
+            2953.2,
+            28.5
+          ],
+          "nearby": [
+            "R75"
+          ]
+        },
+        {
+          "panel_id": "R388",
+          "text": "5- Simplify\r\n\r\n- \"Simplify\" is a component that simplifies a Tree with empty Branches.\r\n\r\n- Simplify the gafted Trees and check out the structure of the data.",
+          "pos": [
+            5223.6,
+            28.9
+          ],
+          "nearby": [
+            "R89"
+          ]
+        },
+        {
+          "panel_id": "R389",
+          "text": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data.",
+          "pos": [
+            3673.9,
+            28.9
+          ],
+          "nearby": [
+            "R113"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "pattern_id": "f36cab3e",
+  "name": "wasp_05_collider_teaching_0_05_Transform_Part_",
+  "version": "1.0",
+  "created": "2026-03-19T17:27:02.199832Z",
+  "solution": {
+    "brief": "0_05_Transform_Part_Aggregation_Start",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "0_05_transform_part_aggregation_start"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "collision",
+    "containment",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

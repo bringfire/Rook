@@ -1,0 +1,74 @@
+{
+  "pattern_id": "f6b5c953",
+  "name": "wasp_23_teaching_The_Orient_Field_com",
+  "version": "1.0",
+  "created": "2026-03-19T18:22:02.493613Z",
+  "solution": {
+    "brief": "The Orient Field component allows to replace the Base Plane\r\nof the given field, resulting in a transformation of the Field in \r\nthe new given location and orientation.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "NumberSlider",
+      "NumberSlider",
+      "Wasp_Field"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "given",
+      "plane",
+      "resulting",
+      "base",
+      "field,",
+      "orient",
+      "replace",
+      "allows",
+      "component"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

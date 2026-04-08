@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_3b0a0e72",
+  "note_type": "component",
+  "name": "Edges from Points",
+  "brief": "Edges from Points | Inputs: B, P, V, T → E, I, M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Edges from Points. Inputs: B (Brep), P (Point), V (Integer), T (Number). Outputs: E (Curve), I (Integer), M (Text).",
+  "keywords": [
+    "edges from points",
+    "edges",
+    "from",
+    "points",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "edges from points",
+    "edges",
+    "from",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Edges from Points"
+  ],
+  "solution_principle": "Select brep edges based on point coincidence",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_34d8f8d6",
+    "comp_254c74f6",
+    "comp_41d64cc8",
+    "comp_e929f98f",
+    "comp_46c625c1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "73269f6a-9645-4638-8d5e-88064dd289bd",
+    "category": "surface_utilities",
+    "inputs": {
+      "B": "Brep",
+      "P": "Point",
+      "V": "Integer",
+      "T": "Number"
+    },
+    "outputs": {
+      "E": "Curve",
+      "I": "Integer",
+      "M": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "64ff9813-8fe8-4708-ac9f-61b825213e83"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|util|edges from points"
+  }
+}

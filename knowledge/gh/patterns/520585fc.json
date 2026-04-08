@@ -1,0 +1,73 @@
+{
+  "pattern_id": "520585fc",
+  "name": "wasp_basic_aggregation_04_teaching_3._Aggregate!",
+  "version": "1.0",
+  "created": "2026-03-19T15:57:41.696974Z",
+  "solution": {
+    "brief": "3. Aggregate!\r\nStochastic Aggregation builds an aggregation by randomly selecting one part\r\nand one rule to be applied at every step. The component adds parts additively \r\nover the already aggregated parts. If a new aggregation has to be created,\r\nthe RESET button allows to reset the aggregation and restart.",
+    "principle": "",
+    "components_needed": [
+      "Merge",
+      "PARTS_NUM",
+      "Wasp_Basic Part"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "builds",
+      "part",
+      "applied",
+      "selecting",
+      "aggregation",
+      "aggregate!",
+      "stochastic",
+      "randomly",
+      "rule"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "aggregation",
+    "tutorial"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

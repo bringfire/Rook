@@ -1,0 +1,79 @@
+{
+  "note_id": "comp_b4f8e5de",
+  "note_type": "component",
+  "name": "Graph Mapper",
+  "brief": "Graph Mapper | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Graph Mapper.",
+  "keywords": [
+    "graph mapper",
+    "graph",
+    "mapper",
+    "input_params"
+  ],
+  "category": "input_params",
+  "tags": [
+    "input_params"
+  ],
+  "trigger_intents": [
+    "graph mapper",
+    "graph",
+    "mapper"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Graph Mapper"
+  ],
+  "solution_principle": "Represents a numeric mapping function",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_fab85179",
+    "teaching_64feecee",
+    "teaching_d7542586",
+    "teaching_e26477b2",
+    "comp_ed53587c",
+    "comp_8ab6343c",
+    "comp_b0f5c835",
+    "comp_84b2aeb1",
+    "comp_634f8c70",
+    "comp_00a1c393",
+    "comp_a8f88743",
+    "comp_8733cef5",
+    "comp_2cdd16f6",
+    "comp_b08aa81b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "bc984576-7aa6-491f-a91d-e444c33675a7",
+    "category": "input_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 38
+      },
+      {
+        "target": "Bounds",
+        "param": "Numbers",
+        "count": 17
+      }
+    ],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|input|graph mapper"
+  }
+}

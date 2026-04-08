@@ -1,0 +1,79 @@
+{
+  "note_id": "comp_6ba8b0a6",
+  "note_type": "component",
+  "name": "Braced Grid 2-D Structure",
+  "brief": "Braced Grid 2-D Structure | Inputs: Srf, U, V → LinesA, LinesB, Nodes",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Braced Grid 2-D Structure. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: LinesA (Generic Data), LinesB (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "braced grid 2-d structure",
+    "braced",
+    "grid",
+    "2-d",
+    "structure",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "braced grid 2-d structure",
+    "braced",
+    "grid",
+    "structure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Braced Grid 2-D Structure"
+  ],
+  "solution_principle": "Creates a 2-Direction braced grid structure on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_97771130",
+    "teaching_220e8091",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_e8ddc722",
+    "comp_7c67292c",
+    "comp_8209536f"
+  ],
+  "times_used": 1,
+  "times_succeeded": 1,
+  "retrieval_count": 0,
+  "last_accessed": "2026-03-16T16:16:33.712990Z",
+  "last_verified": "2026-03-16T16:16:33.712990Z",
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5b7d8c5f-6be2-478f-9602-91ef21f0ef07",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "LinesA": "Generic Data",
+      "LinesB": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1a94ee6b-7fec-4484-bd54-1e8376770b9b",
+      "5eb96a5f-25c4-4e53-8d8f-d31479da272e"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|braced grid 2-d structure"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

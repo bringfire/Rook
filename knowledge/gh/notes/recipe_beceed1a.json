@@ -1,0 +1,320 @@
+{
+  "note_id": "recipe_beceed1a",
+  "note_type": "recipe",
+  "name": "Trigometry Pipe",
+  "brief": "Trigonometric curve piped into 3D geometry",
+  "version": "1.0",
+  "created": "2026-02-02T19:36:03.390514Z",
+  "context": "Trigonometric curve piped into 3D geometry",
+  "keywords": [
+    "trigonometric_parametric_pipe-output",
+    "trigonometric",
+    "parametric",
+    "pipe-output",
+    "point-sequence"
+  ],
+  "category": "trigonometric",
+  "tags": [
+    "3d-geometry",
+    "anchor-component",
+    "angle-component",
+    "arc",
+    "c-s-n",
+    "cluster",
+    "cull-index",
+    "curve",
+    "curve-division",
+    "curve-generation",
+    "end-points",
+    "evaluate-surface_-o",
+    "explode-curve",
+    "extend-curve",
+    "foundational",
+    "geometry-component",
+    "graft-tree-component",
+    "kangaroo-g-h",
+    "line",
+    "line-s-d",
+    "list-item-variable",
+    "list-length",
+    "merge-variable",
+    "mesh",
+    "mesh-colour",
+    "mesh-edges",
+    "mesh-join",
+    "on-curve-component",
+    "operator-sign",
+    "operator_-modulus",
+    "pi",
+    "planarize-component",
+    "point-construction",
+    "polyline",
+    "quad-face",
+    "range",
+    "rev-surface",
+    "scale-n-u",
+    "series",
+    "spring-by-line",
+    "sub-list",
+    "unit-vector-z",
+    "weave",
+    "x-z-plane"
+  ],
+  "trigger_intents": [
+    "sine wave",
+    "cosine wave",
+    "number sequence",
+    "range of values",
+    "oscillation",
+    "sinusoidal",
+    "pipe a curve",
+    "tubular form",
+    "create tube",
+    "smooth curve",
+    "curve through points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sine",
+    "Series",
+    "Number Slider",
+    "Number Slider",
+    "Series",
+    "Number Slider",
+    "Radians",
+    "Construct Point",
+    "Remap Numbers",
+    "Construct Domain",
+    "Panel",
+    "Negative",
+    "Number Slider",
+    "Series",
+    "Number Slider",
+    "Interpolate",
+    "Cosine",
+    "Remap Numbers",
+    "Pipe",
+    "Custom Preview"
+  ],
+  "solution_principle": "Trigonometric curve piped into 3D geometry",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "recipe_1afd7951",
+    "recipe_4da99b59",
+    "recipe_2f310f59",
+    "recipe_68d8cb33"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "09bbf2e6-aa7d-4b49-9309-1281aac83848",
+        "from_param": "R",
+        "to": "c6ff7e27-7fbf-4cdb-9ec0-b2274e468803",
+        "to_param": "x"
+      },
+      {
+        "from": "1591fda8-7d4a-4ed1-989d-fbe76825c90a",
+        "from_param": "Number Slider",
+        "to": "06dee94a-6189-483c-b0c7-316faaefe8cf",
+        "to_param": "N"
+      },
+      {
+        "from": "a662465e-6f82-4685-a0f3-041fdd0497c6",
+        "from_param": "Number Slider",
+        "to": "06dee94a-6189-483c-b0c7-316faaefe8cf",
+        "to_param": "C"
+      },
+      {
+        "from": "06dee94a-6189-483c-b0c7-316faaefe8cf",
+        "from_param": "S",
+        "to": "917e2799-eff5-4042-b7a0-ece851231dbb",
+        "to_param": "S"
+      },
+      {
+        "from": "551134a8-e271-440b-85d7-0bd2ef809adb",
+        "from_param": "Number Slider",
+        "to": "917e2799-eff5-4042-b7a0-ece851231dbb",
+        "to_param": "N"
+      },
+      {
+        "from": "a662465e-6f82-4685-a0f3-041fdd0497c6",
+        "from_param": "Number Slider",
+        "to": "917e2799-eff5-4042-b7a0-ece851231dbb",
+        "to_param": "C"
+      },
+      {
+        "from": "917e2799-eff5-4042-b7a0-ece851231dbb",
+        "from_param": "S",
+        "to": "09bbf2e6-aa7d-4b49-9309-1281aac83848",
+        "to_param": "D"
+      },
+      {
+        "from": "d3f0f768-b6b6-4dde-a124-e966dbcecb66",
+        "from_param": "S",
+        "to": "2c3de58e-1395-489b-873e-61cb736aa9de",
+        "to_param": "X"
+      },
+      {
+        "from": "b86b6863-4e7a-4871-b724-f02cd10f1247",
+        "from_param": "R",
+        "to": "2c3de58e-1395-489b-873e-61cb736aa9de",
+        "to_param": "Y"
+      },
+      {
+        "from": "539d8ef7-7d71-4186-b761-f991bdf43b8f",
+        "from_param": "R",
+        "to": "2c3de58e-1395-489b-873e-61cb736aa9de",
+        "to_param": "Z"
+      },
+      {
+        "from": "c6ff7e27-7fbf-4cdb-9ec0-b2274e468803",
+        "from_param": "y",
+        "to": "b86b6863-4e7a-4871-b724-f02cd10f1247",
+        "to_param": "V"
+      },
+      {
+        "from": "dac2ba5e-5952-48f4-9e8e-2259e216cff9",
+        "from_param": "I",
+        "to": "b86b6863-4e7a-4871-b724-f02cd10f1247",
+        "to_param": "S"
+      },
+      {
+        "from": "e406d8af-0f44-46c8-a1d8-8a78d3771aa1",
+        "from_param": "Number Slider",
+        "to": "b86b6863-4e7a-4871-b724-f02cd10f1247",
+        "to_param": "T"
+      },
+      {
+        "from": "08ad210c-6a3e-4c9c-a9d1-b8b06d8c6d6d",
+        "from_param": "y",
+        "to": "dac2ba5e-5952-48f4-9e8e-2259e216cff9",
+        "to_param": "A"
+      },
+      {
+        "from": "264e41b2-74f1-4428-b28d-24dd2f08aedb",
+        "from_param": "Panel",
+        "to": "dac2ba5e-5952-48f4-9e8e-2259e216cff9",
+        "to_param": "B"
+      },
+      {
+        "from": "264e41b2-74f1-4428-b28d-24dd2f08aedb",
+        "from_param": "Panel",
+        "to": "08ad210c-6a3e-4c9c-a9d1-b8b06d8c6d6d",
+        "to_param": "x"
+      },
+      {
+        "from": "ca4f2494-42ad-4a54-a7d3-91818f716628",
+        "from_param": "Number Slider",
+        "to": "d3f0f768-b6b6-4dde-a124-e966dbcecb66",
+        "to_param": "N"
+      },
+      {
+        "from": "a662465e-6f82-4685-a0f3-041fdd0497c6",
+        "from_param": "Number Slider",
+        "to": "d3f0f768-b6b6-4dde-a124-e966dbcecb66",
+        "to_param": "C"
+      },
+      {
+        "from": "2c3de58e-1395-489b-873e-61cb736aa9de",
+        "from_param": "Pt",
+        "to": "44e638d6-c3fc-4ba0-99c4-74b247ae571b",
+        "to_param": "V"
+      },
+      {
+        "from": "09bbf2e6-aa7d-4b49-9309-1281aac83848",
+        "from_param": "R",
+        "to": "aa0c3138-6817-459c-bb8c-5aa10f6f3fec",
+        "to_param": "x"
+      },
+      {
+        "from": "aa0c3138-6817-459c-bb8c-5aa10f6f3fec",
+        "from_param": "y",
+        "to": "539d8ef7-7d71-4186-b761-f991bdf43b8f",
+        "to_param": "V"
+      },
+      {
+        "from": "dac2ba5e-5952-48f4-9e8e-2259e216cff9",
+        "from_param": "I",
+        "to": "539d8ef7-7d71-4186-b761-f991bdf43b8f",
+        "to_param": "S"
+      },
+      {
+        "from": "e406d8af-0f44-46c8-a1d8-8a78d3771aa1",
+        "from_param": "Number Slider",
+        "to": "539d8ef7-7d71-4186-b761-f991bdf43b8f",
+        "to_param": "T"
+      },
+      {
+        "from": "44e638d6-c3fc-4ba0-99c4-74b247ae571b",
+        "from_param": "C",
+        "to": "01084f72-1417-4255-a610-dabcdcc8cde4",
+        "to_param": "C"
+      },
+      {
+        "from": "01084f72-1417-4255-a610-dabcdcc8cde4",
+        "from_param": "P",
+        "to": "73ac1503-3768-4b98-85b4-76f05256d01f",
+        "to_param": "G"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "a662465e-6f82-4685-a0f3-041fdd0497c6",
+          "role": "parameter",
+          "connected_to": "Series",
+          "param": "C"
+        },
+        {
+          "guid": "1591fda8-7d4a-4ed1-989d-fbe76825c90a",
+          "role": "count",
+          "connected_to": "Series",
+          "param": "N"
+        },
+        {
+          "guid": "551134a8-e271-440b-85d7-0bd2ef809adb",
+          "role": "count",
+          "connected_to": "Series",
+          "param": "N"
+        },
+        {
+          "guid": "e406d8af-0f44-46c8-a1d8-8a78d3771aa1",
+          "role": "parameter",
+          "connected_to": "Remap Numbers",
+          "param": "T"
+        },
+        {
+          "guid": "ca4f2494-42ad-4a54-a7d3-91818f716628",
+          "role": "count",
+          "connected_to": "Series",
+          "param": "N"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "264e41b2-74f1-4428-b28d-24dd2f08aedb",
+          "role": "text",
+          "connected_to": "dac2ba5e-5952-48f4-9e8e-2259e216cff9",
+          "param": "B"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Trigometry Pipe.gh",
+    "pattern_type": "recipe",
+    "component_count": 20
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "pattern_id": "c19bb3ff",
+  "name": "Wasp_Rule — Component I/O",
+  "version": "1.0",
+  "created": "2026-03-19T13:25:18.445844Z",
+  "solution": {
+    "brief": "Wasp_Rule defines one directional connection; create two swapped-index rules for mutual bidirectional connections between parts.",
+    "principle": "Wasp aggregation uses directional rules to control which connections can mate, requiring explicit definition of each allowed direction; part names and 0-based connection indices must precisely match their source definitions to avoid silent failures.\n\nRelated insight: Related insight: WaspRule objects produced by Wasp_Rule are required inputs to Wasp_Stochastic Aggregation — the aggregation component cannot run without both WaspPart definitions and WaspRule objects. Rules are consumed each aggregation step as the engine randomly selects which connections to grow.",
+    "components_needed": [
+      "Wasp_Rule",
+      "Merge"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I define connection rules in Wasp",
+      "set up aggregation rules between parts",
+      "make two parts connect to each other in Wasp",
+      "why aren't my Wasp parts connecting",
+      "how to use Wasp_Rule component"
+    ],
+    "symptoms": [
+      "parts not connecting during aggregation despite rules being set",
+      "aggregation runs but ignores certain part combinations",
+      "only one-directional connection happening when bidirectional expected",
+      "rule output shows unexpected part name or index mismatch"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Wasp_Basic Part components already defined with named parts",
+      "Wasp_Connection From Direction used to define connections on each part (providing 0-based indices)",
+      "Part names used in P1/P2 exactly match the NAME input on corresponding Wasp_Basic Part components",
+      "Integer sliders or panels prepared for C1/C2 inputs referencing valid connection indices"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ad19a9bc",
+    "e1f1c3cf",
+    "fe6b0648",
+    "e429efda",
+    "842e394c",
+    "d1f677ba"
+  ],
+  "tags": [
+    "directional",
+    "wasp-connection",
+    "connections",
+    "component-reference",
+    "rules",
+    "directionality",
+    "bidirectional",
+    "growth",
+    "gotcha",
+    "aggregation",
+    "wasp",
+    "grasshopper-plugin",
+    "discrete-design",
+    "discrete-aggregation",
+    "part-setup"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T09:27:37.040660",
+    "evolved_by": [
+      "d1f677ba"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:27:37.040660",
+        "trigger": "New pattern: d1f677ba",
+        "changes": "The new pattern confirms WaspRule objects are a required pipeline prerequisite for the aggregation component, clarifying the downstream role of rules in the assembly growth process."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

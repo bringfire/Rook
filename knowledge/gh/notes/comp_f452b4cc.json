@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_f452b4cc",
+  "note_type": "component",
+  "name": "Flip Curve",
+  "brief": "Flip Curve | Inputs: C, G → C, F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Flip Curve. Inputs: C (Curve), G (Curve). Outputs: C (Curve), F (Boolean).",
+  "keywords": [
+    "flip curve",
+    "flip",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "flip curve",
+    "flip",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Flip Curve"
+  ],
+  "solution_principle": "Flip a curve using an optional guide curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_7d656ef6",
+    "teaching_21c34834",
+    "comp_61fb6287"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "22990b1f-9be6-477c-ad89-f775cd347105",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "G": "Curve"
+    },
+    "outputs": {
+      "C": "Curve",
+      "F": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|util|flip curve"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_b6f7b7c7",
+  "note_type": "component",
+  "name": "Volume",
+  "brief": "Volume | Inputs: M, V, Strength → V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Volume. Inputs: M (Mesh), V (Number), Strength (Number). Outputs: V (Generic Data).",
+  "keywords": [
+    "volume",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "volume"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Volume"
+  ],
+  "solution_principle": "Set the total volume of a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64690b85",
+    "comp_ec557765",
+    "comp_07a34b21",
+    "comp_0e24416c",
+    "comp_a950612e",
+    "comp_192b3a74",
+    "comp_423504a1",
+    "comp_721292da",
+    "comp_30b5d502",
+    "comp_1ca68d02",
+    "comp_bb62e1bd",
+    "comp_66650a97",
+    "comp_dc5d5161",
+    "comp_1dc5ec6e",
+    "comp_87d86890"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "26efde70-0c5c-4181-af3e-1a767d64b449",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "V": "Number",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "V": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2e1fb4fb-22a8-4853-a9f5-ab65602aad77"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|volume"
+  }
+}

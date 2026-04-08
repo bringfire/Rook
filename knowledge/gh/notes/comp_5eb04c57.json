@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_5eb04c57",
+  "note_type": "component",
+  "name": "Pick'n'Choose",
+  "brief": "Pick'n'Choose | Inputs: P, 0, 1 → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Pick'n'Choose. Inputs: P (Integer), 0 (Generic Data), 1 (Generic Data). Outputs: R (Generic Data).",
+  "keywords": [
+    "pick'n'choose",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "pick'n'choose",
+    "pick'n'",
+    "choose"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Pick'n'Choose"
+  ],
+  "solution_principle": "Pick and choose from a set of input data.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_535c0613",
+    "comp_b573a316"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "03b801eb-87cd-476a-a591-257fe5d5bf0f",
+    "category": "list_operations",
+    "inputs": {
+      "P": "Integer",
+      "0": "Generic Data",
+      "1": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d8332545-21b2-4716-96e3-8559a9876e17"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|pick'n'choose"
+  }
+}

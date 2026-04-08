@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_6882f6f6",
+  "note_type": "component",
+  "name": "Object Display Colour",
+  "brief": "Object Display Colour | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Object Display Colour.",
+  "keywords": [
+    "object display colour",
+    "object",
+    "display",
+    "colour",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "object display colour",
+    "object",
+    "display",
+    "colour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Object Display Colour"
+  ],
+  "solution_principle": "Contains a collection of object display colours",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00e8e127",
+    "comp_8333efcd",
+    "comp_525a73a1",
+    "comp_e7c02afd",
+    "comp_f355701d",
+    "comp_c65b6b32",
+    "comp_f0c75db8",
+    "comp_db0a14d5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3653cf51-4fa3-473b-b742-746c59a33796",
+    "category": "rhino_objects",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|object display colour"
+  }
+}

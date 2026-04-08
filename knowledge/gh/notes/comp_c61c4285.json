@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_c61c4285",
+  "note_type": "component",
+  "name": "Match Curve",
+  "brief": "Match Curve | Inputs: A, B, C → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Match Curve. Inputs: A (Curve), B (Curve), C (Integer). Outputs: M (Curve).",
+  "keywords": [
+    "match curve",
+    "match",
+    "curve",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "match curve",
+    "match",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Match Curve"
+  ],
+  "solution_principle": "Match two curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a78fa17f",
+    "comp_8868d815",
+    "comp_938cfcaf",
+    "comp_67ac1d47",
+    "comp_f1747a84"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "282bf4eb-668a-4a2c-81af-2432ac863ddd",
+    "category": "curves",
+    "inputs": {
+      "A": "Curve",
+      "B": "Curve",
+      "C": "Integer"
+    },
+    "outputs": {
+      "M": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "139619d2-8b18-47b6-b3b9-bf4fec0d6eb1",
+      "14cf43b6-5eb9-460f-899c-bdece732213a"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|match curve"
+  }
+}

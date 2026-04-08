@@ -1,0 +1,120 @@
+{
+  "pattern_id": "e429efda",
+  "name": "Wasp_Connection From Direction — Component I/O",
+  "version": "1.0",
+  "created": "2026-03-19T13:23:37.950335Z",
+  "solution": {
+    "brief": "Wasp_Connection From Direction takes geometry, center points, and direction curves to create sequentially-IDed WaspConnection objects for part aggregation.",
+    "principle": "Wasp connections are defined by a plane at each face — the center point sets the origin and the direction curve sets the X-axis. Sequential input order determines connection IDs, which must match what Wasp_Rule references.\n\nRelated insight: Related insight: WaspConnection objects created by this component are passed as inputs to Wasp_Basic Part, which bundles them with geometry and a name string into a WaspPart object. The name string (not the connection IDs) is what Wasp_Rule uses to identify part types — connection IDs identify specific faces within a part.\n\nRelated insight: Related insight: Connection IDs assigned by this component are 0-based integers determined by sequential input order. Wasp_Rule references these 0-based indices — an off-by-one assumption (treating them as 1-based) silently breaks rule matching without any error.\n\nRelated insight: Related insight: The geometry, center points, and direction curves consumed by Wasp_Connection From Direction are typically referenced from a paired Rhino .3dm file via GH parameter components (Brep, Point, Curve params). The correct .3dm must be open in Rhino before the GH file solves — if it is not open, these references will be empty and the entire downstream part/connection/aggregation chain will fail silently.",
+    "components_needed": [
+      "Wasp_Connection From Direction"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I set up wasp connections for a part",
+      "what inputs does Connection From Direction need",
+      "how are wasp connection IDs assigned",
+      "I need to define where parts attach to each other in wasp",
+      "how to create WaspConnection objects"
+    ],
+    "symptoms": [
+      "WaspConnection objects not appearing or wrongly IDed in Wasp_Rule",
+      "connections not aligning correctly on aggregated parts",
+      "unsure what geometry or points to feed into ConnDir",
+      "part connections referencing wrong faces"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Wasp plugin is installed in Grasshopper",
+      "Part geometry (Brep or Mesh) is available and referenced from Rhino",
+      "Connection face center points are prepared and positioned correctly",
+      "Direction curves/lines are drawn to indicate X-axis orientation for each connection plane",
+      "Wasp_Basic Part component is available to receive the same geometry and the connection outputs"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "842e394c",
+    "ad19a9bc",
+    "fe6b0648",
+    "e1f1c3cf",
+    "c19bb3ff",
+    "03658e8c"
+  ],
+  "tags": [
+    "foundation",
+    "connections",
+    "directionality",
+    "discrete-assembly",
+    "discrete-design",
+    "geometry-referencing",
+    "part-based",
+    "rhino-params",
+    "direction-curves",
+    "sequential-id",
+    "part-definition",
+    "prerequisite",
+    "3dm-file",
+    "wasp-connection",
+    "external-reference",
+    "wasppart",
+    "0-based-index",
+    "grasshopper-plugin",
+    "wasp",
+    "part-setup",
+    "discrete-aggregation"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T09:30:00.685154",
+    "evolved_by": [
+      "e1f1c3cf",
+      "c19bb3ff",
+      "03658e8c"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:25:04.565044",
+        "trigger": "New pattern: e1f1c3cf",
+        "changes": "The new pattern clarifies the downstream consumer of WaspConnection objects (Wasp_Basic Part) and distinguishes the role of connection IDs (face-level) vs. the part name string (type-level) in rule matching — a precision distinction worth capturing here."
+      },
+      {
+        "date": "2026-03-19T09:26:10.285316",
+        "trigger": "New pattern: c19bb3ff",
+        "changes": "New pattern explicitly states '0-based connection indices' — this precision clarifies the sequential-ID behavior already described in this neighbor and prevents off-by-one errors."
+      },
+      {
+        "date": "2026-03-19T09:30:00.685154",
+        "trigger": "New pattern: 03658e8c",
+        "changes": "The new pattern establishes that Wasp part geometry originates in a paired .3dm file referenced via Rhino params. This is a prerequisite that directly affects how inputs to Wasp_Connection From Direction are sourced, and users need to know this before setting up connections."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

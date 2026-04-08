@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_e707a5c7",
+  "note_type": "component",
+  "name": "Braced Grid 1-D Structure",
+  "brief": "Braced Grid 1-D Structure | Inputs: Srf, U, V → LinesA, LinesB, Nodes",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Braced Grid 1-D Structure. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: LinesA (Generic Data), LinesB (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "braced grid 1-d structure",
+    "braced",
+    "grid",
+    "1-d",
+    "structure",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "braced grid 1-d structure",
+    "braced",
+    "grid",
+    "structure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Braced Grid 1-D Structure"
+  ],
+  "solution_principle": "Creates a 1-Direction braced grid structure on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c315151d",
+    "comp_e9ed5b19",
+    "comp_6ba8b0a6",
+    "comp_7c67292c",
+    "comp_710ca4b0",
+    "comp_8209536f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1a94ee6b-7fec-4484-bd54-1e8376770b9b",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "LinesA": "Generic Data",
+      "LinesB": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5b7d8c5f-6be2-478f-9602-91ef21f0ef07",
+      "5eb96a5f-25c4-4e53-8d8f-d31479da272e"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|braced grid 1-d structure"
+  }
+}

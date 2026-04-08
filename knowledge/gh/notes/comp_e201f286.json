@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_e201f286",
+  "note_type": "component",
+  "name": "Stack Data",
+  "brief": "Stack Data | Inputs: D, S → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Stack Data. Inputs: D (Generic Data), S (Integer). Outputs: D (Generic Data).",
+  "keywords": [
+    "stack data",
+    "stack",
+    "data",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "stack data",
+    "stack",
+    "data"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Stack Data"
+  ],
+  "solution_principle": "Duplicate individual items in a list of data",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_398fe067",
+    "comp_a84bec2b",
+    "comp_bd229a26",
+    "comp_4ee05670",
+    "comp_31bd5de8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5fa4e736-0d82-4af0-97fb-30a79f4cbf41",
+    "category": "sequence_ops",
+    "inputs": {
+      "D": "Generic Data",
+      "S": "Integer"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "dd8134c0-109b-4012-92be-51d843edfff7"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|stack data"
+  }
+}

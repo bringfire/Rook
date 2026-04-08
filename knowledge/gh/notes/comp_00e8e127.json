@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_00e8e127",
+  "note_type": "component",
+  "name": "Render Material",
+  "brief": "Render Material | Inputs: Om, S, M \u2192 Om, S, M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Render Material. Inputs: Om (Object Material), S (Integer), M (Model Material). Outputs: Om (Object Material), S (Integer), M (Model Material).",
+  "keywords": [
+    "render material",
+    "render",
+    "material",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "render material",
+    "render",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Render Material"
+  ],
+  "solution_principle": "Object render material attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_db0a14d5",
+    "comp_6882f6f6",
+    "comp_e7c02afd",
+    "comp_f355701d",
+    "comp_525a73a1",
+    "comp_f0c75db8",
+    "comp_8333efcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2846e179-728a-4146-b0ce-a33e7d591873",
+    "category": "rhino_objects",
+    "inputs": {
+      "Om": "Object Material",
+      "S": "Integer",
+      "M": "Model Material"
+    },
+    "outputs": {
+      "Om": "Object Material",
+      "S": "Integer",
+      "M": "Model Material"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7fe5b7ab-f156-48e2-bc80-b97a046e109f",
+      "41995f16-087e-425a-97c4-ec4fa0f78e1c",
+      "6c814c77-ec1b-44d6-bf5a-e637d4b34256"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|render material",
+    "family": "rhino_objects"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_192b3a74",
+  "note_type": "component",
+  "name": "Pressure",
+  "brief": "Pressure | Inputs: M, Strength → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Pressure. Inputs: M (Mesh), Strength (Number). Outputs: P (Generic Data).",
+  "keywords": [
+    "pressure",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "pressure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Pressure"
+  ],
+  "solution_principle": "A force normal to each triangle, and proportional to its area",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64690b85",
+    "comp_ec557765",
+    "comp_07a34b21",
+    "comp_0e24416c",
+    "comp_b6f7b7c7"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2e1fb4fb-22a8-4853-a9f5-ab65602aad77",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "P": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "26efde70-0c5c-4181-af3e-1a767d64b449"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|pressure"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_38f1c08d",
+  "note_type": "component",
+  "name": "Mesh Depth",
+  "brief": "Mesh Depth | Inputs: M, Min, Max → M, V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Mesh Depth. Inputs: M (Mesh), Min (Number), Max (Number). Outputs: M (Mesh), V (Boolean).",
+  "keywords": [
+    "mesh depth",
+    "mesh",
+    "depth",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "mesh depth",
+    "mesh",
+    "depth"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Depth"
+  ],
+  "solution_principle": "Validate the depth of a mesh.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7bcf3a3a",
+    "comp_c97d1752",
+    "comp_7ec0071a",
+    "comp_fff2002f",
+    "comp_0693fc0f",
+    "comp_bf1c655b",
+    "comp_686c9721",
+    "comp_437178bb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "07a3b2a0-c4d0-4638-9044-39ac4681e782",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh",
+      "Min": "Number",
+      "Max": "Number"
+    },
+    "outputs": {
+      "M": "Mesh",
+      "V": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "01e3991d-18bd-474f-9fbd-076a8700159f"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|mesh depth"
+  }
+}

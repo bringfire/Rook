@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_e92aab6b",
+  "note_type": "component",
+  "name": "Plane Normal",
+  "brief": "Plane Normal | Inputs: O, Z → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Plane Normal. Inputs: O (Point), Z (Vector). Outputs: P (Plane).",
+  "keywords": [
+    "plane normal",
+    "plane",
+    "normal",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane normal",
+    "plane",
+    "normal"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Normal"
+  ],
+  "solution_principle": "Create a plane perpendicular to a vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "cfb6b17f-ca82-4f5d-b604-d4f69f569de3",
+    "category": "plane_ops",
+    "inputs": {
+      "O": "Point",
+      "Z": "Vector"
+    },
+    "outputs": {
+      "P": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "bc3e379e-7206-4e7b-b63a-ff61f4b38a3e"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane normal"
+  }
+}

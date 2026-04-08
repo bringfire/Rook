@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_3ef7b850",
+  "note_type": "component",
+  "name": "Point Light",
+  "brief": "Point Light | Inputs: Pl, L → Pl, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Point Light. Inputs: Pl (Light), L (Point). Outputs: Pl (Light), L (Point).",
+  "keywords": [
+    "point light",
+    "point",
+    "light",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "point light",
+    "point",
+    "light"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Light"
+  ],
+  "solution_principle": "Point Light",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1662c3ae",
+    "comp_d83bab54",
+    "comp_7fb47f33",
+    "comp_3f462047",
+    "comp_07e6e9b8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7ed18011-746c-415e-88a7-dd1c9d7ffc8d",
+    "category": "rhino_render",
+    "inputs": {
+      "Pl": "Light",
+      "L": "Point"
+    },
+    "outputs": {
+      "Pl": "Light",
+      "L": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1cc79cc4-7839-4e6e-ba3f-c5a3e0c4a88f"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|point light"
+  }
+}

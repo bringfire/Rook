@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_f0012bbd",
+  "note_type": "component",
+  "name": "Plane Offset",
+  "brief": "Plane Offset | Inputs: P, O → Pl",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Plane Offset. Inputs: P (Plane), O (Number). Outputs: Pl (Plane).",
+  "keywords": [
+    "plane offset",
+    "plane",
+    "offset",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane offset",
+    "plane",
+    "offset"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Offset"
+  ],
+  "solution_principle": "Offset a plane.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3a0c7bda-3d22-4588-8bab-03f57a52a6ea",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Plane",
+      "O": "Number"
+    },
+    "outputs": {
+      "Pl": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "75eec078-a905-47a1-b0d2-0934182b1e3d"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane offset"
+  }
+}

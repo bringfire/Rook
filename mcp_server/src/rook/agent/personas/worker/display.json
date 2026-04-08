@@ -1,0 +1,8 @@
+{
+  "label": "Worker",
+  "description": "Routine geometry creation, wiring, and layer management",
+  "color": "#1d9bf0",
+  "model_role": "worker",
+  "tool_access": "full",
+  "avatar": null
+}

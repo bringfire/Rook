@@ -1,0 +1,67 @@
+{
+  "pattern_id": "e2efccd3",
+  "name": "teaching_Newly aggregated sub-parts",
+  "version": "1.0",
+  "created": "2026-03-19T19:25:25.736020Z",
+  "solution": {
+    "brief": "Newly aggregated sub-parts",
+    "principle": "",
+    "components_needed": [
+      "Swatch",
+      "Wasp_Get Part Geometry",
+      "Swatch",
+      "Wasp_Get Part Geometry",
+      "Split List"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "newly",
+      "aggregated",
+      "sub-parts"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

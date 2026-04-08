@@ -1,0 +1,56 @@
+{
+  "note_id": "comp_66650a97",
+  "note_type": "component",
+  "name": "Developablize",
+  "brief": "Developablize | Inputs: M, Strength → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Developablize. Inputs: M (Mesh), Strength (Number). Outputs: D (Generic Data).",
+  "keywords": [
+    "developablize",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "developablize"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Developablize"
+  ],
+  "solution_principle": "Turn a triangular mesh into developable patches with creases. Based on the paper 'Developability of Triangle Meshes' by Stein, Grinspun & Crane",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "856bd786-9f29-4052-b721-0d64b7b3f3ea",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "54443347-13e2-4ad6-b68f-53c878d32c84"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|developablize"
+  }
+}

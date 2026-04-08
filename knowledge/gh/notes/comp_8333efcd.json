@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_8333efcd",
+  "note_type": "component",
+  "name": "Display Colour",
+  "brief": "Display Colour | Inputs: Dc, S, C → Dc, S, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Display Colour. Inputs: Dc (Display Colour), S (Integer), C (Colour). Outputs: Dc (Display Colour), S (Integer), C (Colour).",
+  "keywords": [
+    "display colour",
+    "display",
+    "colour",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "display colour",
+    "display",
+    "colour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Display Colour"
+  ],
+  "solution_principle": "Object display colour attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6882f6f6",
+    "comp_00e8e127",
+    "comp_e7c02afd",
+    "comp_f355701d",
+    "comp_525a73a1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7fe5b7ab-f156-48e2-bc80-b97a046e109f",
+    "category": "rhino_objects",
+    "inputs": {
+      "Dc": "Display Colour",
+      "S": "Integer",
+      "C": "Colour"
+    },
+    "outputs": {
+      "Dc": "Display Colour",
+      "S": "Integer",
+      "C": "Colour"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "52a53903-46bf-42c2-818f-c23344fc53c5"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|display colour"
+  }
+}

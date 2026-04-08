@@ -1,0 +1,585 @@
+{
+  "pattern_id": "197f9935",
+  "name": "parametric_pipe-output",
+  "version": "1.0",
+  "created": "2026-02-02T20:29:25.903704Z",
+  "solution": {
+    "brief": "Parametric workflow with 5 adjustable parameters",
+    "principle": "\n\nRelated insight: 5-parameter workflows can scale to more complex multi-component systems (69+ components)",
+    "components_needed": [
+      "Mesh Plane",
+      "Rectangle",
+      "slider",
+      "slider",
+      "Boundary Surfaces",
+      "Surface",
+      "MD Slider",
+      "Evaluate Surface",
+      "Explode",
+      "Point",
+      "Deconstruct Mesh",
+      "Closest Point",
+      "Solver",
+      "Merge",
+      "Show",
+      "Geometry",
+      "Merge",
+      "Mesh Edges",
+      "Merge",
+      "Length(Line)",
+      "Unit Z",
+      "Load",
+      "Negative",
+      "slider",
+      "List Item",
+      "Button",
+      "Gene Pool",
+      "Move",
+      "Unit Z",
+      "Line",
+      "Cull Index",
+      "panel",
+      "Pipe",
+      "slider",
+      "Custom Preview",
+      "Swatch",
+      "Custom Preview",
+      "Swatch",
+      "Anchor"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "tubular form",
+      "create tube",
+      "pipe a curve"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "1498dbbd",
+    "64ff9dee",
+    "ab7fb612"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T09:10:52.129331",
+    "evolved_by": [
+      "ab7fb612"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:30:34.638334Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 46 wires -> 39 components, 46 flows"
+      },
+      {
+        "date": "2026-02-22T09:10:52.129331",
+        "trigger": "New pattern: ab7fb612",
+        "changes": "Establishes scalability context from simple 5-parameter to complex 69-component workflows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.06
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        }
+      ],
+      "panels": [
+        {
+          "id": "R32",
+          "nick": "",
+          "content": "0"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Simple Tent-fixed.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            394,
+            163
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            233,
+            63
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            4.4,
+            68.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            89,
+            181.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R5",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            339,
+            -19
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            448,
+            -12.2
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            271.2,
+            -248.6
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_EvaluateSurface_OBSOLETE",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            561,
+            -99
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            363,
+            48
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            694.8,
+            -28.2
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            503,
+            227
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            677,
+            35
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "KangarooGH",
+          "name": "Solver",
+          "pos": [
+            1442,
+            130
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1241,
+            94
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            790,
+            -213
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            683.8,
+            -212.2
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            818,
+            5
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            679,
+            186
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            783,
+            196
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            970,
+            196
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            855,
+            365
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "UnaryComponent",
+          "name": "Load",
+          "pos": [
+            957,
+            329
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            775,
+            377
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            528.8,
+            402.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.06
+        },
+        {
+          "id": "R25",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1602,
+            175
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            857,
+            487
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            460.2,
+            -492.2
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            804,
+            -317
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            698,
+            -428
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            904,
+            -352
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            464,
+            62
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "panel",
+          "pos": [
+            323.9,
+            89
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R33",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1025,
+            -339
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            782.1,
+            -460.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R35",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1170,
+            -389
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            991.2,
+            -453.2
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1763,
+            194
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1607,
+            270
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            1061,
+            82
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R4.O0>R1.I1",
+        "R4.O0>R1.I2",
+        "R3.O0>R2.I1",
+        "R3.O0>R2.I2",
+        "R2.O0>R5.I0",
+        "R6.O0>R8.I0",
+        "R7.O0>R8.I1",
+        "R2.O0>R9.I0",
+        "R1.O0>R11.I0",
+        "R8.O0>R12.I0",
+        "R11.O0>R12.I1",
+        "R14.O0>R13.I0",
+        "R26.O0>R13.I2",
+        "R15.O0>R14.I0",
+        "R39.O0>R14.I1",
+        "R20.O0>R14.I2",
+        "R22.O0>R14.I3",
+        "R16.O0>R15.I0",
+        "R10.O0>R17.I0",
+        "R12.O0>R17.I1",
+        "R1.O0>R18.I0",
+        "R18.O0>R19.I0",
+        "R18.O1>R19.I1",
+        "R18.O2>R19.I2",
+        "R19.O0>R20.I0",
+        "R23.O0>R21.I0",
+        "R11.O0>R22.I0",
+        "R21.O0>R22.I1",
+        "R24.O0>R23.I0",
+        "R13.O1>R25.I0",
+        "R17.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R27.O0>R29.I0",
+        "R17.O0>R30.I0",
+        "R28.O0>R30.I1",
+        "R9.O1>R31.I0",
+        "R32.O0>R31.I1",
+        "R30.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R33.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R25.O0>R37.I0",
+        "R38.O0>R37.I1",
+        "R17.O0>R39.I0",
+        "R28.O0>R39.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

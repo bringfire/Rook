@@ -1,0 +1,449 @@
+{
+  "pattern_id": "a933868f",
+  "name": "11-3",
+  "version": "1.0",
+  "created": "2026-02-22T13:54:56.858476Z",
+  "solution": {
+    "brief": "Recipe from FILES\\11\\11-3.gh (28 components)",
+    "principle": "\n\nRelated insight: Part of a complexity scaling pattern where parametric recipes range from 28 components (like this recipe) up to 39 components (recipe '14-5') and beyond to 40+ components.",
+    "components_needed": [
+      "Bifocals",
+      "Polygon",
+      "slider",
+      "Plane",
+      "Explode",
+      "Divide Curve",
+      "panel",
+      "List Item",
+      "Line",
+      "Move",
+      "Perp Frame",
+      "Deconstruct Plane",
+      "Multiplication",
+      "Line",
+      "Line",
+      "List Item",
+      "Length",
+      "Division",
+      "Tangent",
+      "panel",
+      "Multiplication",
+      "Line",
+      "Line",
+      "Join Curves",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "slider",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "11 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "139f766a",
+    "02f0af8b",
+    "2f310f59",
+    "d3901b70"
+  ],
+  "tags": [
+    "complexity-scaling",
+    "curve-division",
+    "trigonometric",
+    "recipe",
+    "parametric",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:01:33.601932",
+    "evolved_by": [
+      "d3901b70"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:01:33.601932",
+        "trigger": "New pattern: d3901b70",
+        "changes": "Adding complexity-scaling context helps position this 28-component recipe within the broader pattern of parametric workflow complexity ranges."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 5,
+          "value": 5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "content": "60"
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "content": "0.5"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/11/11-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            66,
+            48
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            317,
+            222
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            82.9,
+            222.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R4",
+          "type": "Param_Plane",
+          "nick": "P",
+          "name": "Plane",
+          "pos": [
+            246.1,
+            193.1
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            525,
+            270
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            696,
+            280
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            615.5,
+            270.8
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R8",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            792,
+            287
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1084,
+            470
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1486,
+            504
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_CurvePerpFrame",
+          "nick": "PFrame",
+          "name": "Perp Frame",
+          "pos": [
+            1192,
+            480
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_DeconstructPlane",
+          "nick": "DePlane",
+          "name": "Deconstruct Plane",
+          "pos": [
+            1273,
+            480
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1409,
+            555
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1787,
+            251
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1787,
+            299
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            664,
+            513
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            739,
+            513
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            821,
+            523
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "FuncTan",
+          "nick": "Tan",
+          "name": "Tangent",
+          "pos": [
+            823,
+            572
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "pos": [
+            723.9,
+            565
+          ],
+          "content": "60"
+        },
+        {
+          "id": "R21",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            919,
+            541
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1787,
+            389
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1787,
+            437
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1980,
+            338
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            427,
+            179
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            2285,
+            179
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            172.4,
+            154.6
+          ],
+          "min": 0,
+          "max": 5,
+          "value": 5
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "pos": [
+            1076.3,
+            495.9
+          ],
+          "content": "0.5"
+        }
+      ],
+      "flows": [
+        "R4.O0>R2.I0",
+        "R3.O0>R2.I2",
+        "R5.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R8.I0",
+        "R8.O1>R9.I0",
+        "R8.O2>R9.I1",
+        "R12.O0>R10.I0",
+        "R13.O0>R10.I1",
+        "R9.O0>R11.I0",
+        "R28.O0>R11.I1",
+        "R11.O0>R12.I0",
+        "R12.O2>R13.I0",
+        "R21.O0>R13.I1",
+        "R8.O0>R14.I0",
+        "R8.O1>R14.I1",
+        "R8.O2>R15.I0",
+        "R8.O3>R15.I1",
+        "R5.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R17.O0>R18.I0",
+        "R20.O0>R19.I0",
+        "R18.O0>R21.I0",
+        "R19.O0>R21.I1",
+        "R10.O0>R22.I0",
+        "R8.O1>R22.I1",
+        "R10.O0>R23.I0",
+        "R8.O2>R23.I1",
+        "R23.O0>R24.I0",
+        "R22.O0>R24.I0",
+        "R14.O0>R24.I0",
+        "R15.O0>R24.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

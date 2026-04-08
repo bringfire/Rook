@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_74d4671d",
+  "note_type": "component",
+  "name": "Pi",
+  "brief": "Pi | Inputs: N â†’ y",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Pi. Inputs: N (Number). Outputs: y (Number).",
+  "keywords": [
+    "pi",
+    "pi"
+  ],
+  "category": "math_utilities",
+  "tags": [
+    "mathematical-constant",
+    "trigonometric",
+    "fundamental-component",
+    "prerequisite",
+    "mathematical-functions"
+  ],
+  "trigger_intents": [
+    "pi"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Pi"
+  ],
+  "solution_principle": "Returns a factor of Pi.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_4da99b59",
+    "recipe_8bc58a33",
+    "recipe_130f6b1d",
+    "recipe_70c7a21a",
+    "recipe_11cb8be9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0d2ccfb3-9d41-4759-9452-da6a522c3eaa",
+    "category": "math_utilities",
+    "inputs": {
+      "N": "Number"
+    },
+    "outputs": {
+      "y": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 179,
+    "stable_key": "maths|util|pi"
+  }
+}

@@ -1,0 +1,383 @@
+{
+  "pattern_id": "a92739b4",
+  "name": "10-5",
+  "version": "1.0",
+  "created": "2026-02-22T14:17:58.498396Z",
+  "solution": {
+    "brief": "Recipe from FILES\\8\\10-5.gh (22 components)",
+    "principle": "\n\nRelated insight: Shares identical 22-component efficiency with 8-5 pattern, suggesting standardized workflow template for parametric surface creation in this tutorial series.",
+    "components_needed": [
+      "Bifocals",
+      "Construct Point",
+      "Move",
+      "Unit X",
+      "Series",
+      "slider",
+      "slider",
+      "Deconstruct",
+      "Construct Point",
+      "Expression",
+      "Expression",
+      "Voronoi",
+      "slider",
+      "Extrude",
+      "Unit Z",
+      "Remap+",
+      "Graph Mapper",
+      "Remap+",
+      "slider",
+      "slider",
+      "Cap Holes",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 5"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a2a197b3",
+    "287f9d46",
+    "6a391ba0",
+    "61b52783"
+  ],
+  "tags": [
+    "22-components",
+    "tutorial-series",
+    "surface-creation",
+    "component-efficiency",
+    "recipe",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:21:11.711502",
+    "evolved_by": [
+      "61b52783"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:21:11.711502",
+        "trigger": "New pattern: 61b52783",
+        "changes": "Adding component-efficiency tag and context about the shared template pattern with 8-5"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 94
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.6
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 19
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.32
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8.25
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "FILES/8/10-5.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            51,
+            14
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            140,
+            164
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            418,
+            160
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            340,
+            170
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            269,
+            170
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            15.6,
+            222.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 94
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            17.5,
+            199.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.6
+        },
+        {
+          "id": "R8",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            505,
+            170
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            791,
+            170
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            636,
+            152
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            637,
+            187
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            890,
+            180
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            658.5,
+            239.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 19
+        },
+        {
+          "id": "R14",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1029,
+            196
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            927,
+            301
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            388,
+            232
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            477.2,
+            210.6
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            708,
+            301
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            475,
+            355.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.32
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            475.1,
+            379
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8.25
+        },
+        {
+          "id": "R21",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1107,
+            196
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1200,
+            206
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R4.I0",
+        "R7.O0>R5.I1",
+        "R6.O0>R5.I2",
+        "R3.O0>R8.I0",
+        "R10.O0>R9.I0",
+        "R11.O0>R9.I1",
+        "R8.O0>R10.I0",
+        "R8.O0>R11.I0",
+        "R9.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R12.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R18.O0>R15.I0",
+        "R5.O0>R16.I0",
+        "R17.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R20.O0>R18.I2",
+        "R14.O0>R21.I0",
+        "R21.O0>R22.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

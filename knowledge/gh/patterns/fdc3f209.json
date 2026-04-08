@@ -1,0 +1,597 @@
+{
+  "pattern_id": "fdc3f209",
+  "name": "Grass 12-8",
+  "version": "1.0",
+  "created": "2026-02-22T13:58:58.175384Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\Grass 12-8.gh (41 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Mesh",
+      "Mesh WeldVertices",
+      "Mesh Edges",
+      "Join Curves",
+      "Rod",
+      "panel",
+      "panel",
+      "panel",
+      "BouncySolver",
+      "LiveSoap",
+      "Button",
+      "NakedVertices",
+      "AnchorXYZ",
+      "PlasticAnchor",
+      "Grab",
+      "List Item",
+      "Weaverbird's Loop Subdivision",
+      "slider",
+      "Mesh",
+      "Mesh WeldVertices",
+      "Mesh Edges",
+      "Join Curves",
+      "Rod",
+      "panel",
+      "panel",
+      "panel",
+      "BouncySolver",
+      "LiveSoap",
+      "Button",
+      "NakedVertices",
+      "AnchorXYZ",
+      "PlasticAnchor",
+      "Grab",
+      "List Item",
+      "Weaverbird's Loop Subdivision",
+      "Toggle",
+      "Toggle",
+      "Weaverbird's Mesh Thicken",
+      "slider",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "grass 12 8"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "af62b8d8",
+    "1498dbbd",
+    "ef483dc2",
+    "da5e2260"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "workflow",
+    "series",
+    "grasshopper"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.23
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "30"
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "100"
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "content": "30"
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "content": "100"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/12/Grass 12-8.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            82,
+            -32
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            99.8,
+            84.7
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            215,
+            94
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            307,
+            104
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            400,
+            94
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "RodBendComponent",
+          "name": "Rod",
+          "pos": [
+            609,
+            134
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            460.2,
+            124.2
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            453.1,
+            149.5
+          ],
+          "content": "30"
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            447.1,
+            172.5
+          ],
+          "content": "100"
+        },
+        {
+          "id": "R10",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            849,
+            192
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "LiveSoapComponent",
+          "nick": "LS",
+          "name": "LiveSoap",
+          "pos": [
+            606,
+            267
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            505,
+            372
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "NakedVertices",
+          "nick": "NV",
+          "name": "NakedVertices",
+          "pos": [
+            547,
+            460
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "AnchorXYZComponent",
+          "name": "AnchorXYZ",
+          "pos": [
+            770,
+            651
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "PlasticAnchorComponent2",
+          "name": "PlasticAnchor",
+          "pos": [
+            766,
+            525
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "GrabComponent_NoKey",
+          "name": "Grab",
+          "pos": [
+            629,
+            17
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            968,
+            276
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "LoopComponent",
+          "nick": "wbLoop",
+          "name": "Weaverbird's Loop Subdivision",
+          "pos": [
+            1107,
+            278
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            882.2,
+            448.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.23
+        },
+        {
+          "id": "R20",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            87,
+            1282.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            159,
+            1292
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            291,
+            1303
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            410,
+            1294
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "RodBendComponent",
+          "name": "Rod",
+          "pos": [
+            584,
+            1337
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "pos": [
+            422.8,
+            1326.7
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R26",
+          "type": "panel",
+          "pos": [
+            416.8,
+            1347.8
+          ],
+          "content": "30"
+        },
+        {
+          "id": "R27",
+          "type": "panel",
+          "pos": [
+            409.8,
+            1369.2
+          ],
+          "content": "100"
+        },
+        {
+          "id": "R28",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            870,
+            1390
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "LiveSoapComponent",
+          "nick": "LS",
+          "name": "LiveSoap",
+          "pos": [
+            580,
+            1448
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            304,
+            1531
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "NakedVertices",
+          "nick": "NV",
+          "name": "NakedVertices",
+          "pos": [
+            291,
+            1381
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "AnchorXYZComponent",
+          "name": "AnchorXYZ",
+          "pos": [
+            584,
+            1651
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "PlasticAnchorComponent2",
+          "name": "PlasticAnchor",
+          "pos": [
+            584,
+            1549
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "GrabComponent_NoKey",
+          "name": "Grab",
+          "pos": [
+            583,
+            1246
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            960,
+            1456
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "LoopComponent",
+          "nick": "wbLoop",
+          "name": "Weaverbird's Loop Subdivision",
+          "pos": [
+            1127,
+            1496
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            803,
+            345
+          ],
+          "value": false
+        },
+        {
+          "id": "R38",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            662,
+            1439
+          ],
+          "value": false
+        },
+        {
+          "id": "R39",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1038,
+            1476
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "pos": [
+            812.8,
+            1492.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R41",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1211,
+            1506
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R3.O1>R4.I0",
+        "R4.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R7.O0>R6.I2",
+        "R8.O0>R6.I3",
+        "R9.O0>R6.I4",
+        "R6.O0>R10.I0",
+        "R11.O0>R10.I0",
+        "R15.O0>R10.I0",
+        "R16.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R37.O0>R10.I6",
+        "R3.O1>R11.I0",
+        "R12.O0>R11.I4",
+        "R3.O1>R13.I0",
+        "R13.O3>R15.I0",
+        "R12.O0>R15.I3",
+        "R10.O2>R17.I0",
+        "R17.O0>R18.I0",
+        "R20.O0>R21.I0",
+        "R21.O1>R22.I0",
+        "R22.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R25.O0>R24.I2",
+        "R26.O0>R24.I3",
+        "R27.O0>R24.I4",
+        "R24.O0>R28.I0",
+        "R29.O0>R28.I0",
+        "R33.O0>R28.I0",
+        "R34.O0>R28.I0",
+        "R30.O0>R28.I1",
+        "R38.O0>R28.I6",
+        "R21.O1>R29.I0",
+        "R30.O0>R29.I4",
+        "R21.O1>R31.I0",
+        "R31.O3>R33.I0",
+        "R30.O0>R33.I3",
+        "R28.O2>R35.I0",
+        "R39.O0>R36.I0",
+        "R35.O0>R39.I0",
+        "R40.O0>R39.I1",
+        "R36.O0>R41.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

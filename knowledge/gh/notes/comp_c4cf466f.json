@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_c4cf466f",
+  "note_type": "component",
+  "name": "Flatness Check",
+  "brief": "Flatness Check | Inputs: Panels → F, P, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Flatness Check. Inputs: Panels (Surface). Outputs: F (Generic Data), P (Generic Data), D (Generic Data).",
+  "keywords": [
+    "flatness check",
+    "flatness",
+    "check",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "flatness check",
+    "flatness",
+    "check"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Flatness Check"
+  ],
+  "solution_principle": "Checks the flatness of a quad panel.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_47c8c55a",
+    "teaching_90de351e",
+    "comp_52a1c40b",
+    "comp_14a90a47",
+    "comp_cdb1b8b1",
+    "comp_d3ee4423",
+    "comp_11e0782b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "259e0d29-431e-47e3-b556-2ed9bd797b00",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Panels": "Surface"
+    },
+    "outputs": {
+      "F": "Generic Data",
+      "P": "Generic Data",
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|flatness check"
+  }
+}

@@ -1,0 +1,508 @@
+{
+  "pattern_id": "82a8a824",
+  "name": "parametric_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T20:26:58.651956Z",
+  "solution": {
+    "brief": "Parametric workflow with 5 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Weaverbird's Mesh Mesh Icosahedron",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "slider",
+      "Deconstruct Mesh",
+      "Deconstruct Mesh",
+      "Construct Point",
+      "Closest Point",
+      "Mesh Edges",
+      "Merge",
+      "Length(Line)",
+      "Anchor",
+      "Merge",
+      "Solver",
+      "Show",
+      "List Item",
+      "Load",
+      "Vector 2Pt",
+      "Amplitude",
+      "slider",
+      "Length",
+      "Multiplication",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Mesh",
+      "Button",
+      "Distance",
+      "Deconstruct Mesh",
+      "Remap Numbers",
+      "Bounds",
+      "Gradient",
+      "Mesh Colours"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:27:24.485541Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 42 wires -> 33 components, 42 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": -1,
+          "max": 1,
+          "value": 0.3619
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Needle Ball.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Icosahedron",
+          "nick": "wbIcosahedron",
+          "name": "Weaverbird's Mesh Mesh Icosahedron",
+          "pos": [
+            47,
+            176
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            363,
+            309
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            134.6,
+            335.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            -172.9,
+            215.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R5",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            314,
+            137
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            483,
+            244
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            26,
+            59
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            685,
+            114
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            480,
+            368
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            577,
+            368
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            883,
+            200
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "AnchorComponent",
+          "name": "Anchor",
+          "pos": [
+            888,
+            114
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1037,
+            106
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "KangarooGH",
+          "name": "Solver",
+          "pos": [
+            1286,
+            186
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            892,
+            33
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1420,
+            232
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "UnaryComponent",
+          "name": "Load",
+          "pos": [
+            937,
+            410
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            697,
+            469
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            812,
+            464
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            550.4,
+            572.4
+          ],
+          "min": -1,
+          "max": 1,
+          "value": 0.3619
+        },
+        {
+          "id": "R21",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            704,
+            322
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            823,
+            332
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            641.9,
+            389.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R24",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            217,
+            241
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            -96,
+            290
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R26",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            124,
+            176
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1047,
+            281
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            1550,
+            50
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1499,
+            148
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1766,
+            78
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1657,
+            80
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1836,
+            18
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_MeshColour",
+          "nick": "MCol",
+          "name": "Mesh Colours",
+          "pos": [
+            2015,
+            203
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I0",
+        "R4.O0>R1.I1",
+        "R24.O0>R2.I0",
+        "R3.O0>R2.I1",
+        "R24.O0>R5.I0",
+        "R2.O0>R6.I0",
+        "R5.O0>R8.I0",
+        "R6.O0>R8.I1",
+        "R2.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R9.O1>R10.I1",
+        "R10.O0>R11.I0",
+        "R22.O0>R11.I1",
+        "R8.O0>R12.I0",
+        "R15.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R11.O0>R13.I2",
+        "R17.O0>R13.I3",
+        "R13.O0>R14.I0",
+        "R27.O0>R14.I2",
+        "R2.O0>R15.I0",
+        "R14.O1>R16.I0",
+        "R6.O0>R17.I0",
+        "R19.O0>R17.I1",
+        "R6.O0>R18.I0",
+        "R7.O0>R18.I1",
+        "R18.O0>R19.I0",
+        "R20.O0>R19.I1",
+        "R10.O0>R21.I0",
+        "R21.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R26.O0>R24.I0",
+        "R25.O0>R24.I1",
+        "R7.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R16.O0>R29.I0",
+        "R28.O0>R30.I0",
+        "R31.O0>R30.I1",
+        "R28.O0>R31.I0",
+        "R30.O0>R32.I2",
+        "R16.O0>R33.I0",
+        "R32.O0>R33.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

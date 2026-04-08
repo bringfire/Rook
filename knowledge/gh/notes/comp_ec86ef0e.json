@@ -1,0 +1,111 @@
+{
+  "note_id": "comp_ec86ef0e",
+  "note_type": "component",
+  "name": "Annotation Dimension Settings",
+  "brief": "Annotation Dimension Settings | Inputs: Di, Vo, Tl, Tr → Di, Vo, Tl",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Annotation Dimension Settings. Inputs: Di (Dimension Settings), Vo (Boolean), Tl (Integer), Tr (Integer), Ro (Boolean), Rl (Integer), Rr (Integer), De (Number), Ee (Number), Eo (Number), Fe (Boolean), Fl (Number), S1 (Boolean), S2 (Boolean), Bs (Number), Cs (Number), Ct (Integer), S (Text). Outputs: Di (Dimension Settings), Vo (Boolean), Tl (Integer), Tr (Integer), Ro (Boolean), Rl (Integer), Rr (Integer), De (Number), Ee (Number), Eo (Number), Fe (Boolean), Fl (Number), S1 (Boolean), S2 (Boolean), Bs (Number), Cs (Number), Ct (Integer), S (Text).",
+  "keywords": [
+    "annotation dimension settings",
+    "annotation",
+    "dimension",
+    "settings",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation dimension settings",
+    "annotation",
+    "dimension",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Dimension Settings"
+  ],
+  "solution_principle": "Annotation Style Dimension Settings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_c63df18b",
+    "comp_e4c56a6c",
+    "comp_375a03ab",
+    "comp_237876e8",
+    "comp_ac161ae6",
+    "comp_a474810a",
+    "comp_c02c11a2",
+    "comp_8bf7b320",
+    "comp_226ccb6f",
+    "comp_2cd7d271",
+    "comp_7510f021",
+    "comp_f427ada5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "28f6d54b-68cf-4044-a1ff-6949aae1921b",
+    "category": "rhino_annotations",
+    "inputs": {
+      "Di": "Dimension Settings",
+      "Vo": "Boolean",
+      "Tl": "Integer",
+      "Tr": "Integer",
+      "Ro": "Boolean",
+      "Rl": "Integer",
+      "Rr": "Integer",
+      "De": "Number",
+      "Ee": "Number",
+      "Eo": "Number",
+      "Fe": "Boolean",
+      "Fl": "Number",
+      "S1": "Boolean",
+      "S2": "Boolean",
+      "Bs": "Number",
+      "Cs": "Number",
+      "Ct": "Integer",
+      "S": "Text"
+    },
+    "outputs": {
+      "Di": "Dimension Settings",
+      "Vo": "Boolean",
+      "Tl": "Integer",
+      "Tr": "Integer",
+      "Ro": "Boolean",
+      "Rl": "Integer",
+      "Rr": "Integer",
+      "De": "Number",
+      "Ee": "Number",
+      "Eo": "Number",
+      "Fe": "Boolean",
+      "Fl": "Number",
+      "S1": "Boolean",
+      "S2": "Boolean",
+      "Bs": "Number",
+      "Cs": "Number",
+      "Ct": "Integer",
+      "S": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "169fee80-074f-4b6a-9e60-cde26129d10b",
+      "2eccca8b-b190-4eef-9ead-0659ac1ef900",
+      "3cfd77d3-30d0-45f6-adeb-ea8defed58d3"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation dimension settings"
+  }
+}

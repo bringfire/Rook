@@ -1,0 +1,58 @@
+{
+  "note_id": "comp_1ca68d02",
+  "note_type": "component",
+  "name": "TangentialSmooth",
+  "brief": "TangentialSmooth | Inputs: M, Strength → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: TangentialSmooth. Inputs: M (Mesh), Strength (Number). Outputs: P (Generic Data).",
+  "keywords": [
+    "tangentialsmooth",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "tangentialsmooth",
+    "tangential",
+    "smooth"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "TangentialSmooth"
+  ],
+  "solution_principle": "Smooth a mesh only in the local tangent planes. Used in conjunction with SoapFilm",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "72dadfdd-3be9-44e3-a352-9343f3d5d3b1",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "P": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0b7b2ba2-7ecd-4f33-b138-883f6e96d08c"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|tangentialsmooth"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "pattern_id": "da10d432",
+  "name": "wasp_12_teaching_RULE_GENERATOR_#02",
+  "version": "1.0",
+  "created": "2026-03-19T17:46:55.467272Z",
+  "solution": {
+    "brief": "RULE GENERATOR #02\r\nIf connection types have been set when creating\r\nConnections, it is possible to use the RuleGenerator\r\nto create all possible rules between Connections\r\nof the same type.\r\nTo enable this, the TYP input needs to be set to True.",
+    "principle": "",
+    "components_needed": [
+      "Toggle",
+      "Wasp_Rules Generator",
+      "Wasp_Basic Part"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "generator",
+      "been",
+      "connection",
+      "rule",
+      "possible",
+      "creating",
+      "types",
+      "when",
+      "connections,",
+      "have"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "rules",
+    "rule-generator",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

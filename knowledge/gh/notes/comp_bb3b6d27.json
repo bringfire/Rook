@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_bb3b6d27",
+  "note_type": "component",
+  "name": "Colour Swatch",
+  "brief": "Colour Swatch | Inputs: none â†’ output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Colour Swatch.",
+  "keywords": [
+    "colour swatch",
+    "colour",
+    "swatch"
+  ],
+  "category": "input_params",
+  "tags": [
+    "color",
+    "visualization",
+    "user-interface",
+    "display",
+    "color-selection",
+    "preview",
+    "component"
+  ],
+  "trigger_intents": [
+    "colour swatch",
+    "colour",
+    "swatch"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Colour Swatch"
+  ],
+  "solution_principle": "Colour (palette) swatch",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_48613be3",
+    "recipe_36b862a1",
+    "recipe_1c4628ff",
+    "comp_79adb5f1",
+    "comp_a87bd296"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9c53bac0-ba66-40bd-8154-ce9829b9db1a",
+    "category": "input_params",
+    "inputs": [],
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 702,
+    "stable_key": "params|input|colour swatch"
+  }
+}

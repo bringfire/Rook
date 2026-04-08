@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_8209536f",
+  "note_type": "component",
+  "name": "2D Truss",
+  "brief": "2D Truss | Inputs: CrvA, CrvB, N, T → LinesA, LinesB, LinesC",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: 2D Truss. Inputs: CrvA (Curve), CrvB (Curve), N (Integer), T (Integer). Outputs: LinesA (Generic Data), LinesB (Generic Data), LinesC (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "2d truss",
+    "2d",
+    "truss",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "2d truss",
+    "truss"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "2D Truss"
+  ],
+  "solution_principle": "Creates a 2-D Truss using a set of edge curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6ba8b0a6",
+    "comp_7c67292c",
+    "teaching_97771130"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "521f5358-c59b-4a64-be84-3a88e5aef29d",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "CrvA": "Curve",
+      "CrvB": "Curve",
+      "N": "Integer",
+      "T": "Integer"
+    },
+    "outputs": {
+      "LinesA": "Generic Data",
+      "LinesB": "Generic Data",
+      "LinesC": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "146eeff7-41e4-4218-826a-138b2664911b"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|2d truss"
+  }
+}

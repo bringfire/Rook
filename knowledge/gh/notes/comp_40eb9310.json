@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_40eb9310",
+  "note_type": "component",
+  "name": "Number Set",
+  "brief": "Number Set | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Number Set.",
+  "keywords": [
+    "number set",
+    "number",
+    "set",
+    "special_params"
+  ],
+  "category": "special_params",
+  "tags": [
+    "special_params"
+  ],
+  "trigger_intents": [
+    "number set",
+    "number",
+    "set"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Number Set"
+  ],
+  "solution_principle": "A set of mutable numerics",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_80a9609c",
+    "comp_09d68cd9",
+    "comp_cb2615cb",
+    "teaching_47c6c682",
+    "teaching_56fc7a76"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6d62dc91-25dc-415c-a3b3-03d0a39c575a",
+    "category": "special_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "33eb59b9-5f81-4ef5-8c89-46e6e744522b"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|special|number set"
+  }
+}

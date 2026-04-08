@@ -1,0 +1,941 @@
+{
+  "commands": {
+    "-Box": [
+      "obs_690fcfc8f581",
+      "obs_06190682e2c3",
+      "obs_d8f3d9f3bf3a",
+      "obs_f55559c8a8af",
+      "obs_b8fa6582beb8",
+      "obs_94b7dcdc9085",
+      "obs_7c41961b8eea",
+      "obs_cf179376f7e0",
+      "obs_6b71727cca46",
+      "obs_3acef9850dcd",
+      "obs_ac5e729de88b",
+      "obs_5c4bca3ef29f",
+      "obs_7f459136fc7f",
+      "obs_4fbdd2e1ff3d",
+      "obs_a9bcbba0f71b",
+      "obs_2f5be1666f69",
+      "obs_63f0216a5fb9",
+      "obs_a334e3cd8f50",
+      "obs_366946c06de0",
+      "obs_77ed66bdfa32",
+      "obs_6b83221b497e",
+      "obs_7f0a1ce54f43",
+      "obs_7da7b3ca9976",
+      "obs_522b79448f4d",
+      "obs_9e89d71e5903"
+    ],
+    "-Sphere": [
+      "obs_eea678d6908b",
+      "obs_b44b248d3e02",
+      "obs_76e16357acbb",
+      "obs_a070432fb657",
+      "obs_0057bd1f688c",
+      "obs_c34edad6019a",
+      "obs_6ab39184d164",
+      "obs_57be4d76ded7",
+      "obs_6ac9c016bf30",
+      "obs_38bbeadcbd54",
+      "obs_f9e1eb2bc655",
+      "obs_fe52a17550c0"
+    ],
+    "-Cylinder": [
+      "obs_e6e0f024edab",
+      "obs_1251c09b7ea1",
+      "obs_777d2bcfd959",
+      "obs_be05435f2784",
+      "obs_5cadf9224f14",
+      "obs_c241ccea718a",
+      "obs_3b82aa49f216",
+      "obs_f1a3f2ddf2c7",
+      "obs_1a61062ae050"
+    ],
+    "-Cone": [
+      "obs_36e903e88707",
+      "obs_eda4b6e05e1c",
+      "obs_c1fb570d6432",
+      "obs_af8a476c7036",
+      "obs_0b40f4c468b0",
+      "obs_3155fdc307ee",
+      "obs_4d9f6849897b",
+      "obs_50e1258efe1f",
+      "obs_6edc20238496",
+      "obs_322bdb4f7fa6"
+    ],
+    "-Torus": [
+      "obs_62bce860d4b5",
+      "obs_40a7feb2d2b8",
+      "obs_88bf084ff9dc"
+    ],
+    "-Line": [
+      "obs_ca3d172db8c9",
+      "obs_2f506937d6ab",
+      "obs_1ca181aee455",
+      "obs_b092f01c7283",
+      "obs_b5f0ef42de48",
+      "obs_099d1621d371",
+      "obs_c56d71fe4819",
+      "obs_3c76a88a498b",
+      "obs_a3edc58d2cf7",
+      "obs_7498a35e5a0b",
+      "obs_cc9b5d224ed7",
+      "obs_0f3fe4abcb45",
+      "obs_7fa8480d2158",
+      "obs_f427219bfaed",
+      "obs_908bf920df52",
+      "obs_0a19da9db192"
+    ],
+    "-Circle": [
+      "obs_914fe41b4a88",
+      "obs_a1bd91ea118c",
+      "obs_d05f761e8737",
+      "obs_69d486424bea",
+      "obs_b260642a178c",
+      "obs_ff59e1586f17",
+      "obs_b7f159472cf4",
+      "obs_93c5c4cb6ce8",
+      "obs_bd4455e3db5d",
+      "obs_7993a96ddc93",
+      "obs_3ee29a783dec",
+      "obs_fea6946d8938",
+      "obs_65213a514076",
+      "obs_12fbbb2894dc",
+      "obs_d78781eaccf3",
+      "obs_b4d1d8a898af",
+      "obs_d81c28f968f5",
+      "obs_9711451a2a03",
+      "obs_5920c82ddbd6",
+      "obs_38fa554a90ad",
+      "obs_c6d0a75e3920",
+      "obs_5445f125fa00",
+      "obs_861b7351b2bf",
+      "obs_af2afb5471dd",
+      "obs_889e3a8ae734",
+      "obs_3068fc5a2f4c",
+      "obs_dd23697bb6f3"
+    ],
+    "-Rectangle": [
+      "obs_c0f751ba51f5",
+      "obs_26c73c40ac54",
+      "obs_388c7cc41c36",
+      "obs_23a35def5f10",
+      "obs_7d8c7feb28f5",
+      "obs_c9bc330368cf",
+      "obs_e02fe59f4451",
+      "obs_470cea32e3c7",
+      "obs_cb5f0f1bca92",
+      "obs_3500ae3ad6a2"
+    ],
+    "-Polyline": [
+      "obs_64a1887754a7",
+      "obs_bcc418bf69fa"
+    ],
+    "-Arc": [
+      "obs_2a02b0320d2f",
+      "obs_85b9a6d0fca5",
+      "obs_ac31470a61eb",
+      "obs_1d55d7c811a1",
+      "obs_b79476e4969e"
+    ],
+    "-Ellipse": [
+      "obs_005110ed5241",
+      "obs_81ce5c031ba8",
+      "obs_7c270c280599",
+      "obs_bda5f772e2cc",
+      "obs_1135426aa237",
+      "obs_1d7113a3ee11",
+      "obs_b1346add8ef0",
+      "obs_55236e623b05"
+    ],
+    "-ExtrudeCrv": [
+      "obs_4f6568ba9d99",
+      "obs_088fdd66297d",
+      "obs_b8d2e5ab2ae3"
+    ],
+    "-Loft": [
+      "obs_351556dabdc7",
+      "obs_06c7594f4120",
+      "obs_143ed985e3ef",
+      "obs_9d080b8eb800",
+      "obs_feb4e8f4a4b1",
+      "obs_5a96dfb8c766",
+      "obs_8638b8ec9468",
+      "obs_b8f36204f487",
+      "obs_c164e5180030",
+      "obs_f8465ae64b49",
+      "obs_0d70d4b37d52",
+      "obs_348bb81cb709",
+      "obs_591de242dfca",
+      "obs_119166757101"
+    ],
+    "-PlanarSrf": [
+      "obs_d8581d06a642",
+      "obs_2411e8ccabd2"
+    ],
+    "-Move": [
+      "obs_922e63c7b515",
+      "obs_fa1f6b136690"
+    ],
+    "-Copy": [
+      "obs_d8e3d9ef0b20",
+      "obs_94aecfdd6b79"
+    ],
+    "-Rotate": [
+      "obs_f87fe2cef1db",
+      "obs_c22a8105d13f"
+    ],
+    "-Scale": [
+      "obs_bd10edcd1cfe",
+      "obs_15dce36bc175"
+    ],
+    "-Mirror": [
+      "obs_bbb6d042372c",
+      "obs_ccdd297bc3d5"
+    ],
+    "-BooleanUnion": [
+      "obs_7f59331c97ed",
+      "obs_dccfa9fd0941"
+    ],
+    "-BooleanDifference": [
+      "obs_582cad07b870",
+      "obs_ba874573c77f",
+      "obs_34b3c776c22d",
+      "obs_8f5cacaa224f"
+    ],
+    "-BooleanIntersection": [
+      "obs_9576fd1ae8b0",
+      "obs_ff2debf2912c"
+    ],
+    "-Join": [
+      "obs_66db961f5747",
+      "obs_314087c056b8"
+    ],
+    "-Explode": [
+      "obs_85eb1b903eb3",
+      "obs_6e0fe7de4f3e"
+    ],
+    "-Offset": [
+      "obs_292635c13e34",
+      "obs_6a3a3b2f8198"
+    ],
+    "-Intersect": [
+      "obs_f225f546ed63",
+      "obs_b4d72358b50a",
+      "obs_dbebf434576a",
+      "obs_c37bec760c79",
+      "obs_edec529aa59e",
+      "obs_d1cd77b62933",
+      "obs_0b1f0f700da8",
+      "obs_548726cd15e1",
+      "obs_3e47830e5ab0",
+      "obs_3efe5eb841ec",
+      "obs_dec5d22855b8",
+      "obs_51e691e1c051",
+      "obs_0a1cdd81fb64",
+      "obs_2427d2ae44f0",
+      "obs_d733f1e6e015",
+      "obs_967e96369b46",
+      "obs_f65a7f75063b",
+      "obs_4113cc136573",
+      "obs_b30f0b854a21",
+      "obs_2e41caedd223",
+      "obs_c85f93f6c665"
+    ],
+    "-IntersectSelf": [
+      "obs_4c7325b8b0f8"
+    ],
+    "-IntersectTwoSets": [
+      "obs_a615b9ae486e"
+    ],
+    "-Ellipsoid": [
+      "obs_3a77999fa0f3",
+      "obs_a67074abbb1f",
+      "obs_84e1ceb9df05",
+      "obs_f7fe3f02514d",
+      "obs_f5c783be20b9",
+      "obs_8e9777f51990",
+      "obs_77a8686fdf03",
+      "obs_9d91faca64ca",
+      "obs_340c0a73db36",
+      "obs_0aad1670d19a",
+      "obs_6ab4a029a4f2"
+    ],
+    "-Plane": [
+      "obs_c26bdcf8915c",
+      "obs_4c3b1bd0d8f9",
+      "obs_d404bbbfcd22",
+      "obs_23da54489983",
+      "obs_1c95ecb242d8",
+      "obs_fc5b50d6f5de",
+      "obs_648416f898ac"
+    ],
+    "-Polygon": [
+      "obs_24bd7a6d4eb9"
+    ],
+    "-Pyramid": [
+      "obs_eb96f54edc2d"
+    ],
+    "-Tube": [
+      "obs_be43333a8729"
+    ],
+    "-RectangularLight": [
+      "obs_2ac81b869fe6",
+      "obs_897bb716d36f",
+      "obs_ba215f662a22",
+      "obs_77cf4849747f",
+      "obs_96653a8f7a08",
+      "obs_fd8a6f1cbf8b"
+    ],
+    "-ArcBlend": [
+      "obs_68634bcd799a"
+    ],
+    "-BlendCrv": [
+      "obs_ebe0839a5511"
+    ],
+    "-CloseCrv": [
+      "obs_0f5543542c32",
+      "obs_78eb085e787d"
+    ],
+    "-Conic": [
+      "obs_ddc9e6d560cb"
+    ],
+    "-Catenary": [
+      "obs_691d3f89d0f8"
+    ],
+    "-CrvEnd": [
+      "obs_00f61aca684b"
+    ],
+    "-CrvStart": [
+      "obs_3f6f2e43eda9"
+    ],
+    "-CrvSeam": [
+      "obs_282ee2090a17"
+    ],
+    "-CrvDeviation": [
+      "obs_6184378f5167"
+    ],
+    "-ContinueCurve": [
+      "obs_038d79ea887c"
+    ],
+    "-ContinueInterpCrv": [
+      "obs_caaa41482272"
+    ],
+    "-ApplyCrv": [
+      "obs_3cf3b4d86a05"
+    ],
+    "-ArrayCrv": [
+      "obs_67c524b51d8a"
+    ],
+    "-CreateUVCrv": [
+      "obs_8a4d0aa686b1"
+    ],
+    "-Array": [
+      "obs_933d8d726ded",
+      "obs_189bbb70d4c9"
+    ],
+    "-Helix": [
+      "obs_74538ba9c07f",
+      "obs_7aee24fca7df",
+      "obs_bd605daef6de"
+    ],
+    "-Spiral": [
+      "obs_bd4a0a106b68",
+      "obs_ea7550ea81f9",
+      "obs_8f290f5196bd"
+    ],
+    "-InterpCrv": [
+      "obs_dd3db81bd9c8",
+      "obs_01a314e7a7b7",
+      "obs_e7f302d9fa40"
+    ],
+    "-Parabola": [
+      "obs_0e8cdad5e98b",
+      "obs_bf1e2a09251c",
+      "obs_ca809493eaa8"
+    ],
+    "-Pipe": [
+      "obs_7643216a4cc4",
+      "obs_040b50a4dd7b",
+      "obs_bba25aef2210",
+      "obs_3370025035d2",
+      "obs_b33131ea5d38",
+      "obs_2ec33e86360c",
+      "obs_a778724339ee",
+      "obs_030818a903a4"
+    ],
+    "-Hyperbola": [
+      "obs_79912aa9a8d7",
+      "obs_6489748c9a87"
+    ],
+    "-Sweep1": [
+      "obs_c2c2c23c0f11",
+      "obs_1f4d2302cd82",
+      "obs_9aff472bc5f1"
+    ],
+    "-Sweep2": [
+      "obs_5cefd749e305",
+      "obs_a0f6c8bde4e2"
+    ],
+    "-Curve": [
+      "obs_0ae249e84e91",
+      "obs_fb2b7d317d48"
+    ],
+    "-Revolve": [
+      "obs_8fb4e9975c62",
+      "obs_e39c4c9a1cc4",
+      "obs_7f977481cb4d",
+      "obs_cf442464ca18",
+      "obs_8dc43ffebfc8",
+      "obs_6ab220b8c4c3"
+    ],
+    "-NetworkSrf": [
+      "obs_3f531425a101"
+    ],
+    "-Patch": [
+      "obs_35e6e2c8d2a1"
+    ],
+    "-FilletEdge": [
+      "obs_82caf99f2dcc",
+      "obs_691c8a479f24",
+      "obs_33c158e6244e",
+      "obs_ef2a88f79a6f"
+    ],
+    "-Point": [
+      "obs_ddf039fd9a35",
+      "obs_45e17a55eaa7"
+    ],
+    "-Points": [
+      "obs_8c999a2a2cf2"
+    ],
+    "-Text": [
+      "obs_1694d9206cb2"
+    ],
+    "-TextObject": [
+      "obs_5f8f5ed1f231"
+    ],
+    "-PointCloud": [
+      "obs_8e7f380132b4"
+    ],
+    "-PlaneThroughPt": [
+      "obs_ca249de9ea4f"
+    ],
+    "-DupBorder": [
+      "obs_a8fa270ee61d"
+    ],
+    "-ArrayPolar": [
+      "obs_95799a928fb7"
+    ],
+    "-ArrayLinear": [
+      "obs_7411a1976592",
+      "obs_983a88cf910e"
+    ],
+    "-Divide": [
+      "obs_420e1550c207"
+    ],
+    "-Split": [
+      "obs_7a4a4469500d"
+    ],
+    "-Cap": [
+      "obs_9ed537f3acf1"
+    ],
+    "-OffsetSrf": [
+      "obs_bb11a4643ae1",
+      "obs_d6e2d5ecbfa6"
+    ],
+    "-ExtrudeSrf": [
+      "obs_8d5cd042025a"
+    ],
+    "-Extend": [
+      "obs_a4eb33f9299d",
+      "obs_3cc50f0b9759"
+    ],
+    "-SimplifyCrv": [
+      "obs_d134d89d1762"
+    ],
+    "-Dot": [
+      "obs_36cc1bc5581b",
+      "obs_d3652c292b42",
+      "obs_73bc9adbc562"
+    ],
+    "-Leader": [
+      "obs_0ebd474f8cdc"
+    ],
+    "-Dim": [
+      "obs_182993978ace"
+    ],
+    "-DimRadius": [
+      "obs_4ce205ab6528",
+      "obs_88f41ed59845"
+    ],
+    "-DimDiameter": [
+      "obs_2cf3e7540eed",
+      "obs_720b941c4741"
+    ],
+    "-Zoom": [
+      "obs_34b9c993b17d",
+      "obs_3aa5b6888e04",
+      "obs_26f21d3fcd75",
+      "obs_5773d52c93bd",
+      "obs_0997f5983d4f",
+      "obs_c14b3956d0ff",
+      "obs_f5b3e88e917a",
+      "obs_f42922228078"
+    ],
+    "-Camera": [
+      "obs_23e9957b0e22"
+    ],
+    "-SetCamera": [
+      "obs_ea8b859dd831"
+    ],
+    "-ViewportProperties": [
+      "obs_dd8681356ab4",
+      "obs_e63f329d233a",
+      "obs_e744dfe396d5",
+      "obs_4e1a9e2fb4e2"
+    ],
+    "-NamedView": [
+      "obs_afbb1fa9a8ef",
+      "obs_629b8bd5aa99",
+      "obs_d0b8c9be49ec",
+      "obs_c446f03c5b3a"
+    ],
+    "-SetView": [
+      "obs_29fc098e3f3d",
+      "obs_57a7a4cd4b2d",
+      "obs_6897faa3893e",
+      "obs_026e791af3a2",
+      "obs_a673627c30cf"
+    ],
+    "-Pan": [
+      "obs_197bb110971b",
+      "obs_461e3545b824",
+      "obs_bd6398e33ce4",
+      "obs_9aa324505c72",
+      "obs_0f136ae13197"
+    ],
+    "-RotateView": [
+      "obs_943b0e8f5ec6",
+      "obs_67938e389fd2",
+      "obs_9ae2297a9665",
+      "obs_e03cc51f4c69",
+      "obs_d6a35a0a5274"
+    ],
+    "-Turntable": [
+      "obs_6383c9ea5a3d"
+    ],
+    "-PointLight": [
+      "obs_42671d540dbd",
+      "obs_c8a5a40880c8",
+      "obs_ff18560a6821",
+      "obs_ab379a0a111d"
+    ],
+    "-SpotLight": [
+      "obs_20a8abc9a68d",
+      "obs_53c5708e8059",
+      "obs_40949a8ea14f",
+      "obs_0a872b7641d8"
+    ],
+    "-DirectionalLight": [
+      "obs_db924664fb6b",
+      "obs_af1a78c3eb5f",
+      "obs_be0c1ba37fec",
+      "obs_e589bb68a3ae",
+      "obs_805c7cbcd772"
+    ],
+    "-LinearLight": [
+      "obs_0476df9e6612",
+      "obs_fbb003cc4c0f",
+      "obs_e58d6c1fa537",
+      "obs_2dd0d76b22b9"
+    ],
+    "-MeshBox": [
+      "obs_dfa73d3f6b1d",
+      "obs_c617343bb8f1",
+      "obs_2a3d41378202"
+    ],
+    "-MeshSphere": [
+      "obs_e718dce60501",
+      "obs_7cc5a157d4e6",
+      "obs_67eee79d29c8"
+    ],
+    "-MeshCylinder": [
+      "obs_9efb593fa568",
+      "obs_a78f46941730"
+    ],
+    "-MeshCone": [
+      "obs_f3ae7f43e41a",
+      "obs_b76e982eefb6"
+    ],
+    "-MeshPlane": [
+      "obs_af8d61dc6a2e",
+      "obs_c84889998291",
+      "obs_f1261728632f"
+    ],
+    "-MeshTorus": [
+      "obs_fc0c2ec26e23",
+      "obs_2fb83fddde47"
+    ],
+    "-Mesh": [
+      "obs_97f3a500c5c5",
+      "obs_366b7a1ec3a5",
+      "obs_9cc9a1e11c2e",
+      "obs_1963c9c19b36"
+    ],
+    "-QuadRemesh": [
+      "obs_e42344397747",
+      "obs_30fa37a9f7b1"
+    ],
+    "-SelAll": [
+      "obs_e585591e3415"
+    ],
+    "-SelNone": [
+      "obs_0410c3b450cd"
+    ],
+    "-SelLast": [
+      "obs_148b78d395d0"
+    ],
+    "-SelPrev": [
+      "obs_6b2c5d101463"
+    ],
+    "-Invert": [
+      "obs_433bb3f57002"
+    ],
+    "-SelCrv": [
+      "obs_71d7be496d0e",
+      "obs_f685380e039e",
+      "obs_457c73eec2e2"
+    ],
+    "-SelClosedCrv": [
+      "obs_787504b85e36",
+      "obs_c96a7760420c"
+    ],
+    "-SelOpenCrv": [
+      "obs_d61a7042fbf6",
+      "obs_3150fe742e37"
+    ],
+    "-SelSrf": [
+      "obs_b73fbb7854ea",
+      "obs_c50e677115f4"
+    ],
+    "-SelPolysrf": [
+      "obs_5634ab2e4509",
+      "obs_78e7978c51b1"
+    ],
+    "-SelClosedPolysrf": [
+      "obs_9c8e5ed555e3",
+      "obs_2e33d7ff30b3"
+    ],
+    "-SelLayer": [
+      "obs_a003d56a589b"
+    ],
+    "-SelColor": [
+      "obs_557ddf478107"
+    ],
+    "-SelName": [
+      "obs_948d57fe07d0"
+    ],
+    "-SelDup": [
+      "obs_364eefc62bc7"
+    ],
+    "-SelSmall": [
+      "obs_a38ff0644443"
+    ],
+    "-SelBadObjects": [
+      "obs_fdd63adb8939"
+    ],
+    "-SelBlockInstance": [
+      "obs_65756462f58f"
+    ],
+    "-SelGroup": [
+      "obs_f5c5b89615ab"
+    ],
+    "-SelPt": [
+      "obs_ad7c919db23c"
+    ],
+    "-SelText": [
+      "obs_0c1b0aca7bb8"
+    ],
+    "-SelDim": [
+      "obs_d0b345ec6d2e"
+    ],
+    "-SelHatch": [
+      "obs_a6b62197f99b"
+    ],
+    "-SelLight": [
+      "obs_ec5650f4deae"
+    ],
+    "-SelOpenPolysrf": [
+      "obs_aa83030902f4"
+    ],
+    "-SelClosedSrf": [
+      "obs_f5e14c31bad8"
+    ],
+    "-SelOpenSrf": [
+      "obs_55fd05fd69e2"
+    ],
+    "-SelPlanarCrv": [
+      "obs_4ca124b375fb"
+    ],
+    "-SelLinearCrv": [
+      "obs_fb651e5b269a"
+    ],
+    "-SelPolyline": [
+      "obs_633aa8e60052"
+    ],
+    "-SelClippingPlane": [
+      "obs_b2d2d48a7661"
+    ],
+    "-SelMesh": [
+      "obs_e14862525631"
+    ],
+    "-SelClosedMesh": [
+      "obs_d953f47135a6"
+    ],
+    "-SelOpenMesh": [
+      "obs_835ba1606934"
+    ],
+    "-CurveBoolean": [
+      "obs_20796aa4901d",
+      "obs_34bc80d281e9",
+      "obs_f00a578d5ed4",
+      "obs_eb804ca7acb3",
+      "obs_2990341ea30d",
+      "obs_bd97c7092fc6",
+      "obs_2bdbc4e01360",
+      "obs_2e8d9cadb1a6"
+    ],
+    "-CurveThroughPt": [
+      "obs_30570bfb7fed",
+      "obs_1f3348b9674b",
+      "obs_fdc0e49a0247",
+      "obs_7960affa864a",
+      "obs_0542e14cf863",
+      "obs_f96749276bd7",
+      "obs_d7faa1888714",
+      "obs_242a5a08bc27"
+    ],
+    "-DeleteSubCrv": [
+      "obs_cac999e634b6",
+      "obs_7d33d47d5dc7",
+      "obs_38cd9886af93",
+      "obs_b7e429eb54f9",
+      "obs_359eace25e9a",
+      "obs_9447713cc985"
+    ],
+    "-ExtractSubCrv": [
+      "obs_687a14c90b32",
+      "obs_aa4f07d3b46c",
+      "obs_60400d532c15",
+      "obs_c2a4c6a2752f",
+      "obs_efb50c9092d9",
+      "obs_26ed8ccb13df"
+    ],
+    "-ExtrudeCrvAlongCrv": [
+      "obs_f396db988aeb",
+      "obs_33735a96d4f8",
+      "obs_122ae09ea434",
+      "obs_098bbfd93721",
+      "obs_abf6b07f6b11",
+      "obs_bc2f7b64d038"
+    ],
+    "-ExtrudeSrfAlongCrv": [
+      "obs_37de341e0acb",
+      "obs_a96e7257cd25",
+      "obs_57347fcf6872",
+      "obs_bccca8cc46f7"
+    ],
+    "-FilletCorners": [
+      "obs_5a4a479349f7",
+      "obs_c9f87a6d14af",
+      "obs_1be81fbd74eb",
+      "obs_1130735fd99e",
+      "obs_188da4dda963",
+      "obs_d17104ffc552",
+      "obs_7263d8438d90",
+      "obs_b54b87593e20",
+      "obs_205269325ed0"
+    ],
+    "-FilletSrfCrv": [
+      "obs_6d62b9d09e10",
+      "obs_e95c79338e1b"
+    ],
+    "-FitCrv": [
+      "obs_14f58486a9e3",
+      "obs_e48fc87ac7a4",
+      "obs_7ea88b020e4d",
+      "obs_afe331e1b065"
+    ],
+    "-InsertLineIntoCrv": [
+      "obs_e35e61455af6",
+      "obs_34861f74c3cd"
+    ],
+    "-SelSelfIntersectingCrv": [
+      "obs_4202e86e65d6"
+    ],
+    "-SelShortCrv": [
+      "obs_cc02ad3950b3"
+    ],
+    "-SelSubDFriendlyCrv": [
+      "obs_43882cd53d65"
+    ],
+    "-MergeCrv": [
+      "obs_8bb62486b33b"
+    ],
+    "-SubCrv": [
+      "obs_128d085d5fbb"
+    ],
+    "-TweenCurves": [
+      "obs_b1116143113f"
+    ],
+    "-SlopeCrv": [
+      "obs_c0cdf9b01c94"
+    ],
+    "-OrientOnCrv": [
+      "obs_e3ba5aa5a446"
+    ],
+    "-Align": [
+      "obs_16cc21eb368d"
+    ],
+    "-Bend": [
+      "obs_2d47777a16e1"
+    ],
+    "-BoxEdit": [
+      "obs_b6b622c859ac"
+    ],
+    "-BringForward": [
+      "obs_aa50e79711c6"
+    ],
+    "-BringToFront": [
+      "obs_98c5a688a754"
+    ],
+    "-Cage": [
+      "obs_35a291546e76"
+    ],
+    "-CageEdit": [
+      "obs_795fe63a50f7"
+    ],
+    "-Distribute": [
+      "obs_da1d698663d9"
+    ],
+    "-DragMode": [
+      "obs_aca17aafa3c7"
+    ],
+    "-DragStrength": [
+      "obs_a3c8799219f2"
+    ],
+    "-Flow": [
+      "obs_a244aec2d690"
+    ],
+    "-Gumball": [
+      "obs_8dde9fe03dd6"
+    ],
+    "-Maelstrom": [
+      "obs_fe2a10ee3665"
+    ],
+    "-Orient": [
+      "obs_d7890f560567"
+    ],
+    "-Project": [
+      "obs_97ad42dfb1fa"
+    ],
+    "-Pull": [
+      "obs_6fa10613f9d6"
+    ],
+    "-ReleaseFromCage": [
+      "obs_aa1ceed3f8da"
+    ],
+    "-SendBackward": [
+      "obs_a4ea2a10f3fc"
+    ],
+    "-SendToBack": [
+      "obs_4c12b0581676"
+    ],
+    "-SetPt": [
+      "obs_722f1f280e46"
+    ],
+    "-Shear": [
+      "obs_b879ca3240ad"
+    ],
+    "-Smash": [
+      "obs_31e7814c99d9"
+    ],
+    "-Stretch": [
+      "obs_aa7fef019ff2"
+    ],
+    "-Taper": [
+      "obs_39037d931477"
+    ],
+    "-Twist": [
+      "obs_01d09467364d"
+    ],
+    "-SetUserText": [
+      "obs_3326035c7fcc",
+      "obs_3b28d987f109",
+      "obs_dd7dafc5526e",
+      "obs_3687100ab076"
+    ],
+    "-GetUserText": [
+      "obs_644b9b52b561",
+      "obs_73a9760bbab8"
+    ],
+    "-SetDocumentUserText": [
+      "obs_4e23d6fcb48e",
+      "obs_8da872023201"
+    ],
+    "-GetDocumentUserText": [
+      "obs_375d7156c28d",
+      "obs_378cb5fc53ee"
+    ],
+    "-SelUserText": [
+      "obs_84d1d0d63e94",
+      "obs_32f8efe4dc49"
+    ],
+    "-Layer": [
+      "obs_b06512ce3c84",
+      "obs_02d5df6c9ce6",
+      "obs_399bf6e0277d",
+      "obs_9340e7c7c571",
+      "obs_af54f31319c8",
+      "obs_4fbbf29cc910",
+      "obs_07125494e8c0",
+      "obs_4b3722324cc4",
+      "obs_f4cf19dcb52b",
+      "obs_0ecfc11e4abe"
+    ],
+    "-ChangeLayer": [
+      "obs_8cd19361d479"
+    ],
+    "-ChangeToCurrentLayer": [
+      "obs_b1a252e2e144"
+    ],
+    "-CopyToLayer": [
+      "obs_971920d7853d"
+    ],
+    "-OneLayerOn": [
+      "obs_89afe0cd9e5f"
+    ],
+    "-OneLayerOff": [
+      "obs_d71a35507b97"
+    ],
+    "-SelObjectsOnLayer": [
+      "obs_771df1ff1e6d"
+    ],
+    "-Trim": [
+      "obs_4aa6e364dc3f",
+      "obs_7e216b06704c"
+    ],
+    "-Fillet": [
+      "obs_54ddc9b5101a",
+      "obs_3d9171ea3c33",
+      "obs_3ee14d2e1b81"
+    ],
+    "-Chamfer": [
+      "obs_ff3c71373d4f",
+      "obs_cdc95e36303c"
+    ]
+  },
+  "total_observations": 543,
+  "last_updated": "2026-01-18T22:17:53.852501Z"
+}

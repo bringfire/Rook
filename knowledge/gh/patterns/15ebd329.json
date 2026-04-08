@@ -1,0 +1,902 @@
+{
+  "pattern_id": "15ebd329",
+  "name": "13-3",
+  "version": "1.0",
+  "created": "2026-02-22T14:00:07.937550Z",
+  "solution": {
+    "brief": "Recipe from FILES\\13\\13-3.gh (54 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Venation I",
+      "Populate 2D",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Mesh Sphere",
+      "slider",
+      "Populate Geometry",
+      "slider",
+      "Venation I",
+      "slider",
+      "slider",
+      "slider",
+      "MultiPipe",
+      "Growth On Brep",
+      "Surface",
+      "Button",
+      "Trigger",
+      "slider",
+      "Explode",
+      "Nurbs Curve",
+      "slider",
+      "Growth On Mesh",
+      "Mesh Sphere",
+      "slider",
+      "slider",
+      "Button",
+      "Trigger",
+      "Explode",
+      "Nurbs Curve",
+      "Pipe",
+      "slider",
+      "Polyline Fractal",
+      "Polygon",
+      "slider",
+      "slider",
+      "Curve",
+      "Plane",
+      "Dash Pattern",
+      "slider",
+      "slider",
+      "slider",
+      "Maze",
+      "Mesh Plane",
+      "slider",
+      "slider",
+      "Knit",
+      "slider",
+      "slider",
+      "slider",
+      "Pipe",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "13 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "8eebcb1b",
+    "169489f1"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "complex-workflow",
+    "54-components"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.33
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 419
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.48
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 2
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 0.3,
+          "value": 0.3
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.43
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.3
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R51",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.54
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/13/13-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            35,
+            -31
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "VenationV1",
+          "name": "Venation I",
+          "pos": [
+            445,
+            101
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            282,
+            61
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            120,
+            130.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            116.9,
+            106.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            105.2,
+            153.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.33
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            70.1,
+            44.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R8",
+          "type": "Component_MeshSphere",
+          "nick": "MSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            307,
+            248
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            68.4,
+            257.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 22
+        },
+        {
+          "id": "R10",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            392,
+            286
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            183,
+            292.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 419
+        },
+        {
+          "id": "R12",
+          "type": "VenationV1",
+          "name": "Venation I",
+          "pos": [
+            590,
+            335
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            269.8,
+            341.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            267.1,
+            363.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            250.8,
+            388
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.48
+        },
+        {
+          "id": "R16",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            738,
+            405
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "GrowthS",
+          "nick": "GrowthB",
+          "name": "Growth On Brep",
+          "pos": [
+            484,
+            714
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            332.4,
+            664.2
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            293,
+            810
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Timer",
+          "name": "Trigger",
+          "pos": [
+            240,
+            849
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            222.9,
+            707.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R22",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            579,
+            757
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            692,
+            777
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            228,
+            741.2
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 2
+        },
+        {
+          "id": "R25",
+          "type": "GrowthM",
+          "nick": "GrowthM",
+          "name": "Growth On Mesh",
+          "pos": [
+            529,
+            1109
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_MeshSphere",
+          "nick": "MSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            386,
+            1036
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            79.9,
+            1064.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            249.4,
+            1085.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R29",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            314,
+            1110
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Timer",
+          "name": "Trigger",
+          "pos": [
+            261,
+            1168
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            623,
+            1119
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            709,
+            1149
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            820,
+            1149
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            576,
+            1187.9
+          ],
+          "min": 0,
+          "max": 0.3,
+          "value": 0.3
+        },
+        {
+          "id": "R35",
+          "type": "PlaceholderComponent",
+          "name": "Polyline Fractal",
+          "pos": [
+            567,
+            1345
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            265,
+            1386
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            13,
+            1386.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            32.5,
+            1365.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R39",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            269.3,
+            1308
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Param_Plane",
+          "nick": "P",
+          "name": "Plane",
+          "pos": [
+            132.2,
+            1346.8
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_DashCurve",
+          "nick": "Dash",
+          "name": "Dash Pattern",
+          "pos": [
+            296,
+            1544
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            61.4,
+            1557.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.43
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            63.4,
+            1580.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.3
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "pos": [
+            319.9,
+            1431
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R45",
+          "type": "Maze",
+          "name": "Maze",
+          "pos": [
+            497,
+            1778
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            371,
+            1783
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            249.5,
+            1818.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "pos": [
+            128.4,
+            1781.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R49",
+          "type": "Knit",
+          "name": "Knit",
+          "pos": [
+            498,
+            1959
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            232.7,
+            1930.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R51",
+          "type": "slider",
+          "pos": [
+            243.7,
+            1959.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.54
+        },
+        {
+          "id": "R52",
+          "type": "slider",
+          "pos": [
+            249.5,
+            1986.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R53",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            822,
+            1942
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "pos": [
+            609.7,
+            1942.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R4.O0>R2.I1",
+        "R5.O0>R2.I2",
+        "R6.O0>R2.I3",
+        "R7.O0>R3.I1",
+        "R9.O0>R8.I2",
+        "R9.O0>R8.I3",
+        "R8.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R10.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R14.O0>R12.I2",
+        "R15.O0>R12.I3",
+        "R12.O0>R16.I0",
+        "R18.O0>R17.I0",
+        "R21.O0>R17.I1",
+        "R24.O0>R17.I2",
+        "R19.O0>R17.I5",
+        "R17.O0>R22.I0",
+        "R22.O1>R23.I0",
+        "R26.O0>R25.I0",
+        "R28.O0>R25.I1",
+        "R29.O0>R25.I6",
+        "R27.O0>R26.I2",
+        "R27.O0>R26.I3",
+        "R25.O0>R31.I0",
+        "R31.O1>R32.I0",
+        "R32.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R39.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R44.O0>R35.I3",
+        "R40.O0>R36.I0",
+        "R38.O0>R36.I1",
+        "R37.O0>R36.I2",
+        "R36.O0>R41.I0",
+        "R42.O0>R41.I1",
+        "R43.O0>R41.I1",
+        "R46.O0>R45.I0",
+        "R47.O0>R45.I1",
+        "R48.O0>R46.I1",
+        "R48.O0>R46.I2",
+        "R50.O0>R49.I1",
+        "R50.O0>R49.I2",
+        "R51.O0>R49.I3",
+        "R52.O0>R49.I4",
+        "R49.O0>R53.I0",
+        "R49.O1>R53.I0",
+        "R54.O0>R53.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_e0ff9810",
+  "note_type": "component",
+  "name": "Evaluate Length",
+  "brief": "Evaluate Length | Inputs: C, L, N â†’ P, T, t",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Evaluate Length. Inputs: C (Curve), L (Number), N (Boolean). Outputs: P (Point), T (Vector), t (Number).",
+  "keywords": [
+    "evaluate length",
+    "evaluate",
+    "length"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve-analysis",
+    "measurement",
+    "geometric-analysis",
+    "fundamental-component",
+    "curve-property",
+    "length-evaluation",
+    "prerequisite-component"
+  ],
+  "trigger_intents": [
+    "evaluate length",
+    "evaluate",
+    "length"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Evaluate Length"
+  ],
+  "solution_principle": "Evaluate a curve at a certain factor along its length. Length factors can be supplied both in curve units and normalized units. Change the [N] parameter to toggle between the two modes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_130f6b1d",
+    "recipe_4da99b59",
+    "recipe_70c7a21a",
+    "comp_ba6a3f1a",
+    "comp_f1021587"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6b021f56-b194-4210-b9a1-6cef3b7d0848",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "L": "Number",
+      "N": "Boolean"
+    },
+    "outputs": {
+      "P": "Point",
+      "T": "Vector",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 57,
+    "stable_key": "curve|analysis|evaluate length"
+  }
+}

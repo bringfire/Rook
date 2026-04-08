@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_598dbb71",
+  "note_type": "component",
+  "name": "Named Group",
+  "brief": "Named Group | Inputs: G, N → G, N",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Named Group. Inputs: G (Geometry), N (Text). Outputs: G (Geometry), N (Text).",
+  "keywords": [
+    "named group",
+    "named",
+    "group",
+    "transform_utilities"
+  ],
+  "category": "transform_utilities",
+  "tags": [
+    "transform_utilities"
+  ],
+  "trigger_intents": [
+    "named group",
+    "named",
+    "group"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Named Group"
+  ],
+  "solution_principle": "Group a geometry set under a name",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1d32f65a",
+    "comp_efb4e927",
+    "comp_75c18312",
+    "comp_7112fbb5",
+    "comp_15bf21c0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "19e1c6e9-6823-4c37-a222-db06efbd998b",
+    "category": "transform_utilities",
+    "inputs": {
+      "G": "Geometry",
+      "N": "Text"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "N": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "610e689b-5adc-47b3-af8f-e3a32b7ea341"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|util|named group"
+  }
+}

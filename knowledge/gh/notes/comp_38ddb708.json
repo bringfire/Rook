@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_38ddb708",
+  "note_type": "component",
+  "name": "4Point Surface",
+  "brief": "4Point Surface | Inputs: A, B, C, D → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: 4Point Surface. Inputs: A (Point), B (Point), C (Point), D (Point). Outputs: S (Surface).",
+  "keywords": [
+    "4point surface",
+    "4point",
+    "surface",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "4point surface",
+    "point",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "4Point Surface"
+  ],
+  "solution_principle": "Create a surface connecting three or four corner points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d543dc52",
+    "comp_3d0d84f6",
+    "comp_99fa7cbe",
+    "comp_a9c4c4ba",
+    "comp_62fb6741"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "c77a8b3b-c569-4d81-9b59-1c27299a1c45",
+    "category": "surface_ops",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point",
+      "D": "Point"
+    },
+    "outputs": {
+      "S": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5e33c760-adcd-4235-b1dd-05cf72eb7a38"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|4point surface"
+  }
+}

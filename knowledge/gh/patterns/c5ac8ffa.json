@@ -1,0 +1,672 @@
+{
+  "pattern_id": "c5ac8ffa",
+  "name": "wasp_11",
+  "version": "1.0",
+  "created": "2026-03-19T17:41:08.471842Z",
+  "solution": {
+    "brief": "Wasp example 11: further aggregation techniques",
+    "principle": "\n\nRelated insight: Related insight: Tutorial 12 (wasp_12) continues directly from tutorial 11, extending the RuleGenerator series with further rule-grammar and generative-assembly techniques. Tutorial 11 is a direct prerequisite for tutorial 12, and the two share closely related content around multi-part advanced aggregation with rule-generator workflows.\n\nRelated insight: Related insight: Tutorial 13 (wasp_13) further extends the RuleGenerator series beyond tutorial 12, continuing the advanced multi-part aggregation and rule-grammar workflow. Tutorial 11 is thus an indirect prerequisite for tutorial 13 as well.\n\nRelated insight: Related insight: Tutorial 14 (wasp_14) continues the advanced topics series beyond tutorial 13, extending the multi-part aggregation and rule-grammar progression further. Tutorial 11 is thus an indirect prerequisite for the advanced topics explored in tutorial 14 via the chain 11 → 12 → 13 → 14.\n\nRelated insight: Related insight: The advanced multi-part aggregation series that includes tutorial 11 extends well beyond tutorial 14, progressing through a dedicated constraints sub-series that includes tutorial 29 (wasp_29), which covers constraint-based stochastic aggregation with adjacency and connection-configuration rules. Tutorial 11 is thus an indirect prerequisite for this extended constraints progression.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Basic Part",
+      "Wasp_Get Part Geometry",
+      "Brep",
+      "Point",
+      "Point List",
+      "slider",
+      "Curve",
+      "PART_NAME",
+      "PARTS_NUM",
+      "Swatch",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Custom Preview",
+      "Brep",
+      "Point",
+      "Point List",
+      "slider",
+      "Curve",
+      "PART_NAME",
+      "Merge",
+      "Wasp_Rules Generator",
+      "Toggle",
+      "Toggle",
+      "Wasp_Filter Parts by Name",
+      "panel",
+      "Swatch",
+      "Merge",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a stochastic aggregation with two parts",
+      "set up wasp discrete aggregation",
+      "generate random part assembly with wasp",
+      "build wasp aggregation from two brep parts",
+      "stochastic part aggregation grasshopper",
+      "wasp two-part rule-based assembly"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "48a1b9fb",
+    "fe6b0648",
+    "490bc17e",
+    "e1ce3524",
+    "2fe5805e",
+    "c9f10925",
+    "8487fbeb",
+    "c46205e4",
+    "823e6778"
+  ],
+  "tags": [
+    "discrete-element",
+    "advanced",
+    "assembly",
+    "discrete-design",
+    "modular",
+    "generative",
+    "stochastic",
+    "tutorial",
+    "wasp",
+    "intermediate",
+    "part-based",
+    "rule-grammar",
+    "grasshopper",
+    "brep-geometry",
+    "rule-generator",
+    "connections",
+    "multiple-part-types",
+    "rules",
+    "aggregation",
+    "workflow",
+    "plugin-workflow",
+    "multi-part",
+    "connection-configurations"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:38:26.385876",
+    "evolved_by": [
+      "c9f10925",
+      "8487fbeb",
+      "c46205e4",
+      "823e6778"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T13:46:55.440846",
+        "trigger": "New pattern: c9f10925",
+        "changes": "wasp_11 is the direct predecessor to wasp_12 and its context was empty. The new pattern introduces the RuleGenerator series continuation, which should be reflected in wasp_11's context and tags."
+      },
+      {
+        "date": "2026-03-19T13:53:42.240049",
+        "trigger": "New pattern: 8487fbeb",
+        "changes": "Tutorial 11 is the starting point of the RuleGenerator series; tutorial 13 is a further continuation, so tutorial 11's context should acknowledge that the series now extends to tutorial 13."
+      },
+      {
+        "date": "2026-03-19T13:55:39.420174",
+        "trigger": "New pattern: c46205e4",
+        "changes": "wasp_11 currently notes tutorials 12 and 13 as successors in the RuleGenerator series. Since wasp_14 continues after tutorial 13, the full sequence extends to 14, and this context helps learners understand the complete learning path."
+      },
+      {
+        "date": "2026-03-19T14:38:26.385876",
+        "trigger": "New pattern: 823e6778",
+        "changes": "wasp_29 extends the known series beyond what was previously documented in wasp_11's context."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R13",
+          "nick": "PARTS_NUM",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R12",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R25",
+          "nick": "PART_NAME",
+          "content": "BOX"
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "content": "HEXA\r\nBOX"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            286,
+            830
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            287,
+            462
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1869,
+            663
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            508,
+            769
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            498,
+            402
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            2381,
+            713
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Brep",
+          "nick": "PART_GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            121.3,
+            382
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            123.5,
+            452.5
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            407,
+            587
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            208,
+            595
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R11",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_X_AXIS",
+          "name": "Curve",
+          "pos": [
+            129.7,
+            514.5
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            273.9,
+            316.2
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "nick": "PARTS_NUM",
+          "pos": [
+            1560.7,
+            598.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R14",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2250.6,
+            817.5
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -15.6,
+            -195.1
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "panel",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R17",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "ButtonObject",
+          "nick": "RESET",
+          "name": "Button",
+          "pos": [
+            1673,
+            742
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2567,
+            723
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Param_Brep",
+          "nick": "PART_GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            121.9,
+            749.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            124.1,
+            820.1
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            407,
+            954
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            208.6,
+            962.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R24",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_X_AXIS",
+          "name": "Curve",
+          "pos": [
+            130.3,
+            882.1
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            274.5,
+            683.8
+          ],
+          "content": "BOX"
+        },
+        {
+          "id": "R26",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            700,
+            568
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            1144,
+            469
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            967,
+            438
+          ],
+          "value": false
+        },
+        {
+          "id": "R29",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            967,
+            465
+          ],
+          "value": false
+        },
+        {
+          "id": "R30",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            2191,
+            723
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "panel",
+          "pos": [
+            2013.3,
+            747
+          ],
+          "content": "HEXA\r\nBOX"
+        },
+        {
+          "id": "R32",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2250.8,
+            852.5
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2392,
+            843
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            870.4,
+            134.8
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -336.8,
+            -7.4
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -93,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R20.O0>R1.I0",
+        "R21.O0>R1.I1",
+        "R24.O0>R1.I2",
+        "R7.O0>R2.I0",
+        "R8.O0>R2.I1",
+        "R11.O0>R2.I2",
+        "R26.O0>R3.I0",
+        "R13.O0>R3.I2",
+        "R27.O0>R3.I3",
+        "R18.O0>R3.I9",
+        "R25.O0>R4.I0",
+        "R20.O0>R4.I1",
+        "R1.O0>R4.I2",
+        "R12.O0>R5.I0",
+        "R7.O0>R5.I1",
+        "R2.O0>R5.I2",
+        "R30.O0>R6.I0",
+        "R8.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R6.O0>R19.I0",
+        "R33.O0>R19.I1",
+        "R21.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R5.O0>R26.I0",
+        "R4.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R28.O0>R27.I1",
+        "R29.O0>R27.I2",
+        "R3.O1>R30.I0",
+        "R31.O0>R30.I1",
+        "R14.O0>R33.I0",
+        "R32.O0>R33.I1",
+        "R35.O0>R37.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R16",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "nearby": [
+            "R37",
+            "R35",
+            "R7",
+            "R8",
+            "R5",
+            "R2",
+            "R11",
+            "R10"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -336.8,
+            -7.4
+          ]
+        },
+        {
+          "step": "2",
+          "title": "1_01_Rules_Generator_Basics",
+          "text": "1_01_Rules_Generator_Basics",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "RULE GENERATOR #01",
+          "text": "RULE GENERATOR #01\r\nThe RuleGenerator component allows to quickly\r\ngenerate aggregation rules without the need to\r\ntype them one by one.\r\nBy default, the Generator creates rules between\r\neach part and each connection available in the\r\naggregation.\r\nThe SELF_P input allows to decide if a part is allowed\r\nto connect to itself (Must be True for aggregations with\r\nonly one part type).\r\nThe SELF_C input allows to decide if a connection is \r\nallowed to connect to itself.",
+          "nearby_components": [
+            "Toggle",
+            "Toggle",
+            "Wasp_Rules Generator",
+            "Wasp_Basic Part",
+            "Merge"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            870.4,
+            134.8
+          ]
+        }
+      ]
+    }
+  }
+}

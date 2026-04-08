@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_b175c81a",
+  "note_type": "component",
+  "name": "Mirror",
+  "brief": "Mirror | Inputs: G, P → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Mirror. Inputs: G (Geometry), P (Plane). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "mirror",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "mirror"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mirror"
+  ],
+  "solution_principle": "Mirror an object.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_244d1b5f",
+    "comp_a9db3b5d",
+    "comp_2964153b",
+    "comp_d36704e4",
+    "comp_12a6f75a",
+    "comp_e74c0f76",
+    "comp_e6c85431",
+    "comp_71142f9e",
+    "comp_d9a8dc72",
+    "comp_f9f28dc8",
+    "comp_67c14e69",
+    "comp_1f42817a",
+    "comp_02a2143c",
+    "comp_4e26bfb7",
+    "comp_2709010f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f12daa2f-4fd5-48c1-8ac3-5dea476912ca",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "P": "Plane"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "23285717-156c-468f-a691-b242488c06a6"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|euclidean|mirror"
+  }
+}

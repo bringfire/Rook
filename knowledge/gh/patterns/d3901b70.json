@@ -1,0 +1,657 @@
+{
+  "pattern_id": "d3901b70",
+  "name": "14-5",
+  "version": "1.0",
+  "created": "2026-02-22T14:01:12.516368Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\14-5.gh (39 components)",
+    "principle": "\n\nRelated insight: Related insight: Recipe complexity progression: This 39-component workflow scales up to 73-component surface creation recipes like '14-6', demonstrating significant complexity growth within the same recipe series.\n\nRelated insight: Complete 14-series progression: 39 components (this) → 73 components (14-6) → 154 components (14-7), demonstrating exponential complexity growth within a single recipe family.",
+    "components_needed": [
+      "Bifocals",
+      "Polygon",
+      "slider",
+      "slider",
+      "Division",
+      "Rotate Plane",
+      "Plane",
+      "Explode",
+      "List Item",
+      "Rotate 3D",
+      "List Item",
+      "slider",
+      "slider",
+      "End Points",
+      "Rectangle 2Pt",
+      "List Item",
+      "List Item",
+      "slider",
+      "Line",
+      "Rotate 3D",
+      "Rectangle 3Pt",
+      "End Points",
+      "Rectangular Array",
+      "slider",
+      "Rectangular Array",
+      "List Item",
+      "slider",
+      "List Item",
+      "slider",
+      "Line",
+      "Move",
+      "Rectangular Array",
+      "List Item",
+      "slider",
+      "List Item",
+      "slider",
+      "Line",
+      "Move",
+      "Rectangular Array"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "14 5"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "02f0af8b",
+    "a933868f",
+    "c33fbf3c",
+    "87d9288c"
+  ],
+  "tags": [
+    "complexity-scaling",
+    "parametric",
+    "14-series",
+    "surface-creation",
+    "39-components",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:02:28.298860",
+    "evolved_by": [
+      "c33fbf3c",
+      "87d9288c"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:02:00.891291",
+        "trigger": "New pattern: c33fbf3c",
+        "changes": "14-6 provides the next step in the complexity progression from 14-5, showing how recipes can nearly double in complexity for surface creation tasks"
+      },
+      {
+        "date": "2026-02-22T09:02:28.298860",
+        "trigger": "New pattern: 87d9288c",
+        "changes": "Adding 14-series tag and updating the progression to include the new 154-component endpoint"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 180
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/14/14-5.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            86,
+            15
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            522,
+            122
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            42.4,
+            144.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            39.7,
+            105.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 180
+        },
+        {
+          "id": "R5",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            312,
+            117
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_RotatePlane",
+          "nick": "PRot",
+          "name": "Rotate Plane",
+          "pos": [
+            438,
+            92
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            345,
+            83.6
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            619,
+            112
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            788,
+            118
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Rotate3D",
+          "nick": "Rot3D",
+          "name": "Rotate 3D",
+          "pos": [
+            1108,
+            147
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            189
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            542.5,
+            180.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            757.1,
+            38.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R14",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            1198,
+            130
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Rectangle2Pt",
+          "nick": "Rec 2Pt",
+          "name": "Rectangle 2Pt",
+          "pos": [
+            1485,
+            113
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            261
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            333
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            542.7,
+            323.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R19",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1288,
+            233
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_Rotate3D",
+          "nick": "Rot3D",
+          "name": "Rotate 3D",
+          "pos": [
+            1395,
+            268
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Rectangle3Pt",
+          "nick": "Rec 3Pt",
+          "name": "Rectangle 3Pt",
+          "pos": [
+            1583,
+            258
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            1480,
+            248
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_ArrayRectangular",
+          "nick": "ArrRec",
+          "name": "Rectangular Array",
+          "pos": [
+            2200,
+            181
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            1777.2,
+            317.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R25",
+          "type": "Component_ArrayRectangular",
+          "nick": "ArrRec",
+          "name": "Rectangular Array",
+          "pos": [
+            2216,
+            271
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            404
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            542.8,
+            395.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R28",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            476
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            542,
+            467.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R30",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            884,
+            419
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1693,
+            352
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_ArrayRectangular",
+          "nick": "ArrRec",
+          "name": "Rectangular Array",
+          "pos": [
+            2216,
+            361
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            548
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            542.3,
+            539
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R35",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            791,
+            620
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            542.9,
+            611.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R37",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            884,
+            558
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1693,
+            410
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_ArrayRectangular",
+          "nick": "ArrRec",
+          "name": "Rectangular Array",
+          "pos": [
+            2216,
+            451
+          ]
+        }
+      ],
+      "flows": [
+        "R6.O0>R2.I0",
+        "R3.O0>R2.I2",
+        "R4.O0>R5.I0",
+        "R3.O0>R5.I1",
+        "R7.O0>R6.I0",
+        "R5.O0>R6.I1",
+        "R2.O0>R8.I0",
+        "R8.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R13.O0>R10.I1",
+        "R11.O0>R10.I2",
+        "R8.O1>R11.I0",
+        "R12.O0>R11.I1",
+        "R10.O0>R14.I0",
+        "R16.O0>R15.I1",
+        "R14.O1>R15.I2",
+        "R8.O1>R16.I0",
+        "R8.O1>R17.I0",
+        "R18.O0>R17.I1",
+        "R17.O0>R19.I0",
+        "R14.O1>R19.I1",
+        "R19.O0>R20.I0",
+        "R13.O0>R20.I1",
+        "R17.O0>R20.I2",
+        "R17.O0>R21.I0",
+        "R22.O1>R21.I1",
+        "R14.O1>R21.I2",
+        "R20.O0>R22.I0",
+        "R2.O0>R23.I0",
+        "R21.O0>R23.I1",
+        "R24.O0>R23.I2",
+        "R24.O0>R23.I3",
+        "R15.O0>R25.I0",
+        "R21.O0>R25.I1",
+        "R24.O0>R25.I2",
+        "R24.O0>R25.I3",
+        "R8.O1>R26.I0",
+        "R27.O0>R26.I1",
+        "R8.O1>R28.I0",
+        "R29.O0>R28.I1",
+        "R26.O0>R30.I0",
+        "R28.O0>R30.I1",
+        "R2.O0>R31.I0",
+        "R30.O0>R31.I1",
+        "R31.O0>R32.I0",
+        "R21.O0>R32.I1",
+        "R24.O0>R32.I2",
+        "R24.O0>R32.I3",
+        "R8.O1>R33.I0",
+        "R34.O0>R33.I1",
+        "R8.O1>R35.I0",
+        "R36.O0>R35.I1",
+        "R33.O0>R37.I0",
+        "R35.O0>R37.I1",
+        "R15.O0>R38.I0",
+        "R37.O0>R38.I1",
+        "R38.O0>R39.I0",
+        "R21.O0>R39.I1",
+        "R24.O0>R39.I2",
+        "R24.O0>R39.I3"
+      ],
+      "subgraphs": []
+    }
+  }
+}

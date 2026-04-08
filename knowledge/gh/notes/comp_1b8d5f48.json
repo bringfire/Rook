@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_1b8d5f48",
+  "note_type": "component",
+  "name": "Model Font",
+  "brief": "Model Font | Inputs: F, Ff, W, S → F, Ff, W",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Model Font. Inputs: F (Font), Ff (Text), W (Integer), S (Integer). Outputs: F (Font), Ff (Text), W (Integer), S (Integer).",
+  "keywords": [
+    "model font",
+    "model",
+    "font",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "model font",
+    "model",
+    "font"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Font"
+  ],
+  "solution_principle": "Typography Font",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_6e038908",
+    "comp_c63df18b",
+    "comp_e4c56a6c",
+    "comp_375a03ab"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "522ffa00-cf42-4e34-90b6-eb375d901c74",
+    "category": "rhino_annotations",
+    "inputs": {
+      "F": "Font",
+      "Ff": "Text",
+      "W": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "F": "Font",
+      "Ff": "Text",
+      "W": "Integer",
+      "S": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|model font"
+  }
+}

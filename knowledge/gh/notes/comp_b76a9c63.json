@@ -1,0 +1,58 @@
+{
+  "note_id": "comp_b76a9c63",
+  "note_type": "component",
+  "name": "ByParent",
+  "brief": "ByParent | Inputs: M, L → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: ByParent. Inputs: M (Mesh), L (Integer). Outputs: M (Mesh).",
+  "keywords": [
+    "byparent",
+    "kangaroo2_mesh"
+  ],
+  "category": "kangaroo2_mesh",
+  "tags": [
+    "kangaroo2_mesh"
+  ],
+  "trigger_intents": [
+    "byparent",
+    "parent"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "ByParent"
+  ],
+  "solution_principle": "Refine a Mesh, separating outputs by parent face",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5a4ba654-7203-474d-83d6-7f1cdfc0a41f",
+    "category": "kangaroo2_mesh",
+    "inputs": {
+      "M": "Mesh",
+      "L": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "39a12e0c-25a7-43ce-9546-115f3a211a0c",
+      "6003658a-c422-41cf-8a2f-8e106b09cc10"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|mesh|byparent"
+  }
+}

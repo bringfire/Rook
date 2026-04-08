@@ -1,0 +1,477 @@
+{
+  "version": "2.0",
+  "created": "2026-01-18T03:51:26.378452",
+  "last_consolidation": "2026-01-18T03:51:26.378463",
+  "consolidation_count": 1,
+  "command_count": 148,
+  "families": {
+    "primitives": {
+      "name": "primitives",
+      "description": "Basic 3D geometric primitives and fundamental shape generation",
+      "commands": [
+        "-Box",
+        "-Sphere",
+        "-Cylinder",
+        "-Cone",
+        "-Torus",
+        "-Ellipsoid",
+        "-Pyramid",
+        "-Tube",
+        "-Plane",
+        "-Polygon"
+      ],
+      "shared_traits": [
+        "center_point",
+        "radius",
+        "dimension_specification"
+      ],
+      "shared_gotchas": []
+    },
+    "curves": {
+      "name": "curves",
+      "description": "2D and 3D curve creation and manipulation",
+      "commands": [
+        "-Line",
+        "-Circle",
+        "-Rectangle",
+        "-Polyline",
+        "-Arc",
+        "-Ellipse",
+        "-Helix",
+        "-Spiral",
+        "-InterpCrv",
+        "-Parabola",
+        "-Hyperbola",
+        "-Conic",
+        "-Catenary",
+        "-CrvEnd",
+        "-CrvStart"
+      ],
+      "shared_traits": [
+        "point_definition",
+        "geometric_constraints",
+        "interpolation"
+      ],
+      "shared_gotchas": []
+    },
+    "surfaces": {
+      "name": "surfaces",
+      "description": "Surface generation and manipulation techniques",
+      "commands": [
+        "-ExtrudeCrv",
+        "-Loft",
+        "-PlanarSrf",
+        "-Sweep1",
+        "-Sweep2",
+        "-NetworkSrf",
+        "-Patch",
+        "-Revolve",
+        "-OffsetSrf",
+        "-ExtrudeSrf"
+      ],
+      "shared_traits": [
+        "curve_based",
+        "extrusion",
+        "interpolation"
+      ],
+      "shared_gotchas": []
+    },
+    "transforms": {
+      "name": "transforms",
+      "description": "Geometric transformation and replication operations",
+      "commands": [
+        "-Move",
+        "-Copy",
+        "-Rotate",
+        "-Scale",
+        "-Mirror",
+        "-Array",
+        "-ArrayPolar",
+        "-ArrayLinear"
+      ],
+      "shared_traits": [
+        "base_point",
+        "direction",
+        "scaling"
+      ],
+      "shared_gotchas": []
+    },
+    "booleans": {
+      "name": "booleans",
+      "description": "Geometric combination and intersection operations",
+      "commands": [
+        "-BooleanUnion",
+        "-BooleanDifference",
+        "-BooleanIntersection",
+        "-CurveBoolean",
+        "-Join",
+        "-Split",
+        "-Intersect"
+      ],
+      "shared_traits": [
+        "set_operations",
+        "topology_modification"
+      ],
+      "shared_gotchas": []
+    },
+    "annotations": {
+      "name": "annotations",
+      "description": "Annotation and dimensioning tools",
+      "commands": [
+        "-Dot",
+        "-Leader",
+        "-Dim",
+        "-DimRadius",
+        "-DimDiameter",
+        "-Text",
+        "-TextObject"
+      ],
+      "shared_traits": [
+        "text_placement",
+        "measurement"
+      ],
+      "shared_gotchas": []
+    },
+    "editing": {
+      "name": "editing",
+      "description": "Geometric editing and modification operations",
+      "commands": [
+        "-Offset",
+        "-Extend",
+        "-SimplifyCrv",
+        "-FilletEdge",
+        "-FilletCorners",
+        "-Cap",
+        "-Explode",
+        "-CloseCrv"
+      ],
+      "shared_traits": [
+        "geometry_adjustment",
+        "topology_modification"
+      ],
+      "shared_gotchas": []
+    },
+    "points_and_clouds": {
+      "name": "points_and_clouds",
+      "description": "Point and coordinate-based operations",
+      "commands": [
+        "-Point",
+        "-Points",
+        "-PointCloud",
+        "-PlaneThroughPt",
+        "-CrvDeviation",
+        "-Divide"
+      ],
+      "shared_traits": [
+        "coordinate_specification",
+        "spatial_analysis"
+      ],
+      "shared_gotchas": []
+    },
+    "lights": {
+      "name": "lights",
+      "description": "Light source creation and management",
+      "commands": [
+        "-PointLight",
+        "-SpotLight",
+        "-DirectionalLight",
+        "-LinearLight",
+        "-RectangularLight"
+      ],
+      "shared_traits": [
+        "position_specification",
+        "illumination_parameters"
+      ],
+      "shared_gotchas": []
+    },
+    "mesh": {
+      "name": "mesh",
+      "description": "Mesh geometry creation and manipulation",
+      "commands": [
+        "-Mesh",
+        "-MeshBox",
+        "-MeshSphere",
+        "-MeshCylinder",
+        "-MeshCone",
+        "-MeshPlane",
+        "-MeshTorus",
+        "-QuadRemesh"
+      ],
+      "shared_traits": [
+        "primitive_generation",
+        "topology_conversion"
+      ],
+      "shared_gotchas": []
+    },
+    "viewport_and_view": {
+      "name": "viewport_and_view",
+      "description": "Viewport navigation and camera management",
+      "commands": [
+        "-Zoom",
+        "-ViewportProperties",
+        "-NamedView",
+        "-SetView",
+        "-Pan",
+        "-RotateView",
+        "-Camera",
+        "-SetCamera",
+        "-Turntable"
+      ],
+      "shared_traits": [
+        "view_manipulation",
+        "perspective_control"
+      ],
+      "shared_gotchas": []
+    },
+    "selection": {
+      "name": "selection",
+      "description": "Object selection and filtering tools",
+      "commands": [
+        "-SelAll",
+        "-SelNone",
+        "-SelLast",
+        "-SelPrev",
+        "-Invert",
+        "-SelCrv",
+        "-SelSrf",
+        "-SelLayer",
+        "-SelColor",
+        "-SelName"
+      ],
+      "shared_traits": [
+        "selection_criteria",
+        "object_filtering"
+      ],
+      "shared_gotchas": []
+    }
+  },
+  "shared_gotchas": {
+    "collinear_points": {
+      "id": "collinear_points",
+      "text": "Points cannot be collinear when creating geometric objects",
+      "applies_to": [
+        "-Sphere",
+        "-Cylinder",
+        "-Cone",
+        "-Circle",
+        "-Rectangle",
+        "-Arc",
+        "-Parabola",
+        "-Plane"
+      ],
+      "family": null,
+      "confidence": 0.9
+    },
+    "coordinate_precision": {
+      "id": "coordinate_precision",
+      "text": "Coordinate input requires precise comma-separated 3D points (x,y,z)",
+      "applies_to": [
+        "-Point",
+        "-Points",
+        "-Text",
+        "-TextObject",
+        "-RectangularLight",
+        "-Ellipse",
+        "-Plane"
+      ],
+      "family": null,
+      "confidence": 0.8
+    },
+    "command_line_selection": {
+      "id": "command_line_selection",
+      "text": "Command requires objects to be selected before running - will fail silently if no objects are selected",
+      "applies_to": [
+        "-Move",
+        "-Copy",
+        "-Rotate",
+        "-Scale",
+        "-Mirror",
+        "-Sweep1",
+        "-ExtrudeCrv",
+        "-Loft",
+        "-Intersect"
+      ],
+      "family": null,
+      "confidence": 0.7
+    },
+    "closed_geometry_requirement": {
+      "id": "closed_geometry_requirement",
+      "text": "Operation requires closed curves or surfaces",
+      "applies_to": [
+        "-Circle",
+        "-ExtrudeCrv",
+        "-PlanarSrf",
+        "-BooleanUnion",
+        "-BooleanDifference",
+        "-BooleanIntersection"
+      ],
+      "family": null,
+      "confidence": 0.8
+    }
+  },
+  "similar_pairs": [
+    {
+      "cmd1": "-Sphere",
+      "cmd2": "-Ellipsoid",
+      "similarity_score": 0.85,
+      "shared_modes": [
+        "default",
+        "diameter",
+        "3point",
+        "fitpoints"
+      ],
+      "shared_gotchas": [],
+      "reason": "Both are 3D geometric primitives with similar construction methods, representing spherical and ellipsoidal surfaces"
+    },
+    {
+      "cmd1": "-Circle",
+      "cmd2": "-Ellipse",
+      "similarity_score": 0.8,
+      "shared_modes": [
+        "default",
+        "center",
+        "diameter"
+      ],
+      "shared_gotchas": [],
+      "reason": "Both are 2D curved geometric primitives with similar construction methods and shared modes"
+    },
+    {
+      "cmd1": "-Box",
+      "cmd2": "-Sphere",
+      "similarity_score": 0.7,
+      "shared_modes": [
+        "default",
+        "center"
+      ],
+      "shared_gotchas": [],
+      "reason": "Both are 3D geometric primitives with basic positioning modes"
+    },
+    {
+      "cmd1": "-Cylinder",
+      "cmd2": "-Cone",
+      "similarity_score": 0.75,
+      "shared_modes": [
+        "default",
+        "diameter",
+        "vertical"
+      ],
+      "shared_gotchas": [],
+      "reason": "Both are rotational 3D primitives with similar construction methods"
+    },
+    {
+      "cmd1": "-Move",
+      "cmd2": "-Copy",
+      "similarity_score": 0.9,
+      "shared_modes": [
+        "default"
+      ],
+      "shared_gotchas": [],
+      "reason": "Closely related transformation commands that duplicate or relocate geometric objects"
+    },
+    {
+      "cmd1": "-Line",
+      "cmd2": "-Polyline",
+      "similarity_score": 0.65,
+      "shared_modes": [
+        "default"
+      ],
+      "shared_gotchas": [],
+      "reason": "Both are curve creation commands representing linear geometric elements"
+    },
+    {
+      "cmd1": "-Mesh",
+      "cmd2": "-MeshSphere",
+      "similarity_score": 0.75,
+      "shared_modes": [
+        "default"
+      ],
+      "shared_gotchas": [],
+      "reason": "Mesh generation commands with similar geometric representation goals"
+    },
+    {
+      "cmd1": "-BooleanUnion",
+      "cmd2": "-Join",
+      "similarity_score": 0.8,
+      "shared_modes": [
+        "default"
+      ],
+      "shared_gotchas": [],
+      "reason": "Commands that combine or merge geometric elements"
+    }
+  ],
+  "mode_patterns": {
+    "center": {
+      "name": "center",
+      "commands": [
+        "-Box",
+        "-Rectangle",
+        "-Arc",
+        "-Ellipse"
+      ],
+      "typical_syntax": "_Center <center_point> <width/radius> <length/height>",
+      "typical_gotcha": "Ensure center point is correctly specified relative to other parameters"
+    },
+    "3point": {
+      "name": "3point",
+      "commands": [
+        "-Sphere",
+        "-Cylinder",
+        "-Cone",
+        "-Rectangle",
+        "-Circle",
+        "-Ellipsoid",
+        "-Plane"
+      ],
+      "typical_syntax": "_3Point <point1> <point2> <point3> [optional_height]",
+      "typical_gotcha": "Points must not be collinear"
+    },
+    "diameter": {
+      "name": "diameter",
+      "commands": [
+        "-Sphere",
+        "-Cylinder",
+        "-Cone",
+        "-Circle",
+        "-Ellipse",
+        "-Ellipsoid"
+      ],
+      "typical_syntax": "_Diameter <point1> <point2> [optional_height/radius]",
+      "typical_gotcha": "Diameter points define the full width/length"
+    },
+    "vertical": {
+      "name": "vertical",
+      "commands": [
+        "-Cylinder",
+        "-Cone",
+        "-Line",
+        "-Ellipsoid",
+        "-Plane"
+      ],
+      "typical_syntax": "_Vertical <center_point> <radius/width> <height>",
+      "typical_gotcha": "Vertical axis must be perpendicular to base"
+    },
+    "2point": {
+      "name": "2point",
+      "commands": [
+        "-Torus",
+        "-Line",
+        "-Sphere",
+        "-Cone",
+        "-MeshSphere",
+        "-MeshCylinder",
+        "-Ellipsoid"
+      ],
+      "typical_syntax": "_2Point <point1> <point2> [optional_radius]",
+      "typical_gotcha": "Points define axis or diameter"
+    },
+    "diagonal": {
+      "name": "diagonal",
+      "commands": [
+        "-Box",
+        "-MeshBox"
+      ],
+      "typical_syntax": "_Diagonal <corner1> <corner2>",
+      "typical_gotcha": "Diagonal points define opposite corners"
+    }
+  }
+}

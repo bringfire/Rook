@@ -1,0 +1,1218 @@
+{
+  "pattern_id": "8f250f41",
+  "name": "wasp_20",
+  "version": "1.0",
+  "created": "2026-03-19T18:14:30.175766Z",
+  "solution": {
+    "brief": "Wasp example 20: field-driven series continued",
+    "principle": "\n\nRelated insight: Related insight: Tutorial 21 (wasp_21) advances into a new topic series beyond tutorial 20, indicating that tutorial 20 is the culmination of the field-driven series (tutorials 16–20). Tutorial 20 is a direct prerequisite for tutorial 21, but tutorial 21 introduces new topics distinct from field-driven aggregation.\n\nRelated insight: Related insight: Tutorial 22 (wasp_22) further confirms that tutorial 20 is the culmination of the field-driven series, as the new series (part-based, file-io, multi-part) continues through tutorials 21 and 22 with entirely distinct topics.\n\nRelated insight: Related insight: Tutorial 23 (wasp_23) continues the new topic series through at least tutorial 23, further confirming that tutorial 20 is the culmination of the field-driven series and that the new series (part-based, multi-part, rule-based) extends well beyond tutorial 21.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Field Points",
+      "Wasp_Plane Constraint",
+      "Wasp_Field-driven Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Get Part Geometry",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Brep",
+      "Point",
+      "Point List",
+      "slider",
+      "Curve",
+      "PART_NAME",
+      "OCTA -> OCTA",
+      "PARTS_NUM",
+      "Button",
+      "Swatch",
+      "Wasp_Rule From Text",
+      "Custom Preview",
+      "Plane Surface",
+      "slider",
+      "slider",
+      "Isotrim",
+      "Divide Domain²",
+      "Mesh Brep",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "EdgeLengths",
+      "slider",
+      "Load",
+      "Deconstruct Mesh",
+      "Anchor",
+      "Unit Z",
+      "slider",
+      "ZombieSolver",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "Bounding Box",
+      "Volume",
+      "slider",
+      "Scale NU",
+      "slider",
+      "slider",
+      "slider",
+      "Wasp_Field",
+      "panel",
+      "Pull Point",
+      "Remap Numbers",
+      "Bounds",
+      "panel",
+      "Graph Mapper",
+      "Area",
+      "Distance",
+      "Area",
+      "Larger Than",
+      "slider",
+      "Cull Pattern",
+      "Mesh Edges",
+      "Join Curves",
+      "Explode",
+      "XY Plane",
+      "slider",
+      "Mesh Edges",
+      "Custom Preview",
+      "Swatch",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a field-driven aggregation with Wasp",
+      "assemble parts using a vector field",
+      "generate discrete aggregation with constraints",
+      "wasp aggregation driven by field",
+      "place modular parts using field influence",
+      "create self-organizing assembly with Wasp",
+      "field-guided part placement grasshopper",
+      "wasp discrete design aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "9d5169fc",
+    "fa2528c3",
+    "da63ff29",
+    "2fe5805e",
+    "7bb677d9",
+    "35afaaf5",
+    "4e918d2c",
+    "fdf0db8a"
+  ],
+  "tags": [
+    "parametric",
+    "advanced",
+    "discrete-design",
+    "generative",
+    "parametric-assembly",
+    "tutorial",
+    "constraint-based",
+    "field-driven",
+    "wasp",
+    "intermediate",
+    "series-culmination",
+    "grasshopper",
+    "discrete-assembly",
+    "parametric-growth",
+    "voxel",
+    "aggregation",
+    "workflow",
+    "isoline",
+    "scalar-field",
+    "attribute-based",
+    "plugin-workflow",
+    "3d-populate",
+    "mesh",
+    "biased-growth",
+    "custom-preview"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:22:02.463021",
+    "evolved_by": [
+      "35afaaf5",
+      "4e918d2c",
+      "fdf0db8a"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T14:17:00.559092",
+        "trigger": "New pattern: 35afaaf5",
+        "changes": "wasp_20 is the direct predecessor of wasp_21 and the last in the field-driven series; it should reflect that the field-driven series concludes here and a new topic series begins with tutorial 21."
+      },
+      {
+        "date": "2026-03-19T14:18:37.247658",
+        "trigger": "New pattern: 4e918d2c",
+        "changes": "wasp_22 provides additional confirmation that wasp_20 is the field-driven series endpoint, reinforcing its series-culmination role."
+      },
+      {
+        "date": "2026-03-19T14:22:02.463021",
+        "trigger": "New pattern: fdf0db8a",
+        "changes": "wasp_20 already tracks the series boundary; updating to note the new series now confirmed through tutorial 23."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R17",
+          "nick": "PARTS_NUM",
+          "min": 0,
+          "max": 5000,
+          "value": 1000
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R65",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R15",
+          "nick": "PART_NAME",
+          "content": "OCTA"
+        },
+        {
+          "id": "R16",
+          "nick": "OCTA -> OCTA",
+          "content": "OCTA|0_OCTA|6\r\nOCTA|6_OCTA|0\r\nOCTA|1_OCTA|7\r\nOCTA|7_OCTA|1\r\nOCTA|2_OCTA|4\r\nOCTA|4_OCTA|2\r\nOCTA|3_OCTA|5\r\nOCTA|5_OCTA|3"
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "content": "kangarooField"
+        },
+        {
+          "id": "R53",
+          "nick": "",
+          "content": "1 To 0"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            2146,
+            503
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldPts",
+          "name": "Wasp_Field Points",
+          "pos": [
+            2280,
+            1002
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "PlaneConst",
+          "name": "Wasp_Plane Constraint",
+          "pos": [
+            2908,
+            1556
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldAggregation",
+          "name": "Wasp_Field-driven Aggregation",
+          "pos": [
+            3500,
+            524
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            2469,
+            446
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            3683,
+            574
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R9",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Brep",
+          "nick": "PART_GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            1970.6,
+            422.7
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            1972.7,
+            493.2
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            2250,
+            625
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            2042.3,
+            628.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R14",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_X_AXIS",
+          "name": "Curve",
+          "pos": [
+            1979,
+            555.2
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            2266.9,
+            361.2
+          ],
+          "content": "OCTA"
+        },
+        {
+          "id": "R16",
+          "type": "panel",
+          "nick": "OCTA -> OCTA",
+          "pos": [
+            2601.1,
+            177.7
+          ],
+          "content": "OCTA|0_OCTA|6\r\nOCTA|6_OCTA|0\r\nOCTA|1_OCTA|7\r\nOCTA|7_OCTA|1\r\nOCTA|2_OCTA|4\r\nOCTA|4_OCTA|2\r\nOCTA|3_OCTA|5\r\nOCTA|5_OCTA|3"
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "nick": "PARTS_NUM",
+          "pos": [
+            3203.1,
+            476.6
+          ],
+          "min": 0,
+          "max": 5000,
+          "value": 1000
+        },
+        {
+          "id": "R18",
+          "type": "ButtonObject",
+          "nick": "RESET",
+          "name": "Button",
+          "pos": [
+            3300,
+            603
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3642.6,
+            641
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleTxt",
+          "name": "Wasp_Rule From Text",
+          "pos": [
+            2831,
+            264
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3802,
+            584
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            266,
+            812
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            44.5,
+            813.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            145.3,
+            862.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R25",
+          "type": "Component_IsoTrim",
+          "nick": "SubSrf",
+          "name": "Isotrim",
+          "pos": [
+            467,
+            822
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Divide2DInterval",
+          "nick": "Divide",
+          "name": "Divide Domain²",
+          "pos": [
+            379,
+            855
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            751,
+            951
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            840,
+            951
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            934,
+            961
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            1151,
+            991
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            822.5,
+            1011.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R32",
+          "type": "UnaryComponent2",
+          "name": "Load",
+          "pos": [
+            1163,
+            1126
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1026,
+            1086
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            1158,
+            1311
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1027,
+            1171
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            815,
+            1164.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R37",
+          "type": "KangarooZombie",
+          "name": "ZombieSolver",
+          "pos": [
+            1441,
+            1156
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            1155,
+            1388
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1541,
+            1152
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1637,
+            1178
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            1956,
+            976
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_VolumeProperties_OBSOLETE",
+          "name": "Volume",
+          "pos": [
+            2041,
+            1025
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            1910.1,
+            1057.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R44",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            2159,
+            1007
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            1910.9,
+            1087.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            1910.9,
+            1115.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            2034.2,
+            927.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R48",
+          "type": "ZuiPythonComponent",
+          "nick": "Field",
+          "name": "Wasp_Field",
+          "pos": [
+            2966,
+            982
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "panel",
+          "pos": [
+            2752.5,
+            938.1
+          ],
+          "content": "kangarooField"
+        },
+        {
+          "id": "R50",
+          "type": "Component_PullPoint",
+          "nick": "Pull",
+          "name": "Pull Point",
+          "pos": [
+            2474,
+            1170
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2672,
+            1200
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2577,
+            1204
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "panel",
+          "pos": [
+            2544.7,
+            1238.5
+          ],
+          "content": "1 To 0"
+        },
+        {
+          "id": "R54",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            2731.6,
+            1161.4
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            376,
+            1045
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            480,
+            1022
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            377,
+            979
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_LargerThan",
+          "nick": "Larger",
+          "name": "Larger Than",
+          "pos": [
+            579,
+            1057
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            310.7,
+            1091.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R60",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            663,
+            940
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            840,
+            1281
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            937,
+            1271
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1025,
+            1281
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            2803,
+            1516
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "slider",
+          "pos": [
+            3226.3,
+            538
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R66",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            1728,
+            1255
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1842,
+            1286
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1692.4,
+            1306.8
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            589.2,
+            644.4
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2088.8,
+            814.5
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2678.5,
+            1324.5
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -88,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R10.O0>R1.I0",
+        "R11.O0>R1.I1",
+        "R14.O0>R1.I2",
+        "R44.O0>R2.I0",
+        "R47.O0>R2.I1",
+        "R64.O0>R3.I0",
+        "R5.O0>R4.I0",
+        "R17.O0>R4.I2",
+        "R20.O0>R4.I3",
+        "R48.O0>R4.I4",
+        "R65.O0>R4.I6",
+        "R3.O0>R4.I7",
+        "R18.O0>R4.I9",
+        "R15.O0>R5.I0",
+        "R10.O0>R5.I1",
+        "R1.O0>R5.I2",
+        "R4.O1>R6.I0",
+        "R11.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R16.O0>R20.I0",
+        "R6.O0>R21.I0",
+        "R19.O0>R21.I1",
+        "R23.O0>R22.I1",
+        "R23.O0>R22.I2",
+        "R22.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R22.O0>R26.I0",
+        "R24.O0>R26.I1",
+        "R24.O0>R26.I2",
+        "R60.O0>R27.I0",
+        "R27.O0>R28.I0",
+        "R28.O0>R29.I0",
+        "R29.O1>R30.I0",
+        "R31.O0>R30.I1",
+        "R33.O0>R32.I0",
+        "R35.O0>R32.I1",
+        "R29.O1>R33.I0",
+        "R63.O1>R34.I0",
+        "R36.O0>R35.I0",
+        "R30.O0>R37.I0",
+        "R32.O0>R37.I0",
+        "R34.O0>R37.I0",
+        "R38.O0>R37.I0",
+        "R29.O1>R38.I0",
+        "R37.O2>R39.I3",
+        "R39.O0>R40.I0",
+        "R40.O0>R41.I0",
+        "R41.O0>R42.I0",
+        "R41.O0>R44.I0",
+        "R42.O1>R44.I1",
+        "R43.O0>R44.I2",
+        "R45.O0>R44.I3",
+        "R46.O0>R44.I4",
+        "R49.O0>R48.I0",
+        "R2.O0>R48.I1",
+        "R54.O0>R48.I2",
+        "R2.O1>R50.I0",
+        "R40.O0>R50.I1",
+        "R50.O1>R51.I0",
+        "R52.O0>R51.I1",
+        "R53.O0>R51.I2",
+        "R50.O1>R52.I0",
+        "R22.O0>R55.I0",
+        "R57.O1>R56.I0",
+        "R55.O1>R56.I1",
+        "R25.O0>R57.I0",
+        "R56.O0>R58.I0",
+        "R59.O0>R58.I1",
+        "R25.O0>R60.I0",
+        "R58.O0>R60.I1",
+        "R29.O1>R61.I0",
+        "R61.O0>R62.I0",
+        "R62.O0>R63.I0",
+        "R40.O0>R66.I0",
+        "R66.O0>R67.I0",
+        "R66.O1>R67.I0",
+        "R68.O0>R67.I1",
+        "R72.O0>R74.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R8",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R74",
+            "R72"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "2_05_Field_From_Kangaroo_Meshes",
+          "text": "2_05_Field_From_Kangaroo_Meshes",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "KANGAROO SPRING NETWORK",
+          "text": "KANGAROO SPRING NETWORK\r\nIn this example, Kangaroo is used to create a spring network from a mesh and then relax\r\nthe network under a constant force. The Kangaroo Zombie solver is used to avoid having\r\ncalculation loops in Grasshopper.",
+          "nearby_components": [
+            "Isotrim",
+            "Divide Domain²",
+            "Cull Pattern",
+            "Mesh Brep",
+            "Plane Surface",
+            "Distance",
+            "Mesh Join",
+            "Area"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            589.2,
+            644.4
+          ]
+        },
+        {
+          "step": "4",
+          "title": "FIELD FROM KANGAROO",
+          "text": "FIELD FROM KANGAROO\r\nThe resulting mesh is used to generate a distance field, driving the aggregation\r\nto grow along the mesh itself.\r\nA graph mapper is used to sharpen the transition between values in the field.",
+          "nearby_components": [
+            "NumberSlider",
+            "NumberSlider",
+            "Scale NU",
+            "Bounding Box",
+            "Volume",
+            "Point List"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2088.8,
+            814.5
+          ]
+        },
+        {
+          "step": "5",
+          "title": "PLANE CONSTRAINT",
+          "text": "PLANE CONSTRAINT\r\nA Plane Constraint is used to prevent\r\nthe aggregation from growing below\r\nthe XY plane.\r\n\r\nNB: for more info on Constraints, see\r\nthe relative example section.",
+          "nearby_components": [
+            "Remap Numbers",
+            "Bounds",
+            "Graph Mapper",
+            "XY Plane"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2678.5,
+            1324.5
+          ]
+        }
+      ]
+    }
+  }
+}

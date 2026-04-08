@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_fbb7cef4",
+  "note_type": "component",
+  "name": "Sub List",
+  "brief": "Sub List | Inputs: List, Domain, Wrap → List, Index",
+  "version": "1.0",
+  "created": "2026-03-19T17:58:04.442327Z",
+  "context": "Grasshopper component: Sub List. ",
+  "keywords": [
+    "sub list",
+    "unknown",
+    "sub",
+    "list"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "sub list",
+    "sub",
+    "list",
+    "subset"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sub List"
+  ],
+  "solution_principle": "Sub List | Inputs: List, Domain, Wrap → List, Index",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "b333ff42-93bd-406b-8e17-15780719b6ec",
+    "category": "unknown",
+    "inputs": {
+      "List": "List",
+      "Domain": "Domain",
+      "Wrap": "Wrap"
+    },
+    "outputs": {
+      "List": "List",
+      "Index": "Index"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|list|sub list"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

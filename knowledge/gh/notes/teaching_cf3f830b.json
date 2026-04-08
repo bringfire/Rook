@@ -1,0 +1,155 @@
+{
+  "note_id": "teaching_cf3f830b",
+  "note_type": "teaching",
+  "name": "U01 - Lines",
+  "brief": "Teaching: Lines",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of th",
+  "keywords": [
+    "lines",
+    "construct point",
+    "line",
+    "end points",
+    "point",
+    "numberslider",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "unit-01",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "annotated",
+    "foundational",
+    "line-construction",
+    "geometry-fundamentals",
+    "prerequisite-for-curves",
+    "requires-points"
+  ],
+  "trigger_intents": [
+    "lines",
+    "how to use lines",
+    "how to use construct point",
+    "how to use line",
+    "how to use end points",
+    "how to use point",
+    "a line is a connection between two points",
+    "create line between two points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Point",
+    "Line",
+    "End Points",
+    "Point",
+    "NumberSlider"
+  ],
+  "solution_principle": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line.",
+  "anti_patterns": [],
+  "preconditions": [
+    "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing param"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_06731c52",
+    "comp_13c22f6b",
+    "comp_456642c8",
+    "teaching_0a6208a3",
+    "teaching_0df0144b",
+    "teaching_37677299",
+    "teaching_7e5815f9",
+    "teaching_c103fe78",
+    "teaching_e23cfc74",
+    "teaching_e8ddc722",
+    "teaching_b85f762f",
+    "tutorial_5cbe092b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 4,
+    "section_index": 4,
+    "x_range": [
+      2774.3,
+      3534.0
+    ],
+    "full_teaching_text": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line.",
+    "sub_annotations": [
+      {
+        "id": "C58",
+        "text": "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing parameters of the points that make the Line...\r\n\r\nThis is a very simplifed example of what Grasshopper can do...",
+        "topic": "Parametric Line!",
+        "pos": [
+          2771.9,
+          1156.8
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C24",
+      "C25",
+      "C32",
+      "C105",
+      "C106",
+      "C107",
+      "C118",
+      "C119",
+      "C26",
+      "C27",
+      "C28",
+      "C29",
+      "C30",
+      "C31"
+    ],
+    "intra_section_flows": [
+      "C26.O0>C24.I0",
+      "C27.O0>C24.I1",
+      "C28.O0>C24.I2",
+      "C29.O0>C25.I0",
+      "C30.O0>C25.I1",
+      "C31.O0>C25.I2",
+      "C24.O0>C32.I0",
+      "C25.O0>C32.I1",
+      "C32.O0>C92.I0",
+      "C24.O0>C93.I0",
+      "C32.O0>C105.I0",
+      "C106.O0>C123.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G4",
+        "name": "",
+        "colour": "#FF000096"
+      }
+    ],
+    "components_demonstrated": {
+      "Construct Point": 2,
+      "Line": 1,
+      "End Points": 1,
+      "Point": 4,
+      "NumberSlider": 6
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 14,
+      "sub_labels": 0,
+      "connected_panels": 3,
+      "flows": 12,
+      "groups": 1
+    }
+  }
+}

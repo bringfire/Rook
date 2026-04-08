@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_251fc0d2",
+  "note_type": "component",
+  "name": "Import Content",
+  "brief": "Import Content | Inputs: F → T, O, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Import Content. Inputs: F (Text). Outputs: T (Transform), O (Model Object), L (Model Layer), Lt (Model Linetype), H (Model Hatch Pattern), As (Model Annotation Style), M (Model Material), Bd (Model Block Definition).",
+  "keywords": [
+    "import content",
+    "import",
+    "content",
+    "rhino_content"
+  ],
+  "category": "rhino_content",
+  "tags": [
+    "rhino_content"
+  ],
+  "trigger_intents": [
+    "import content",
+    "import",
+    "content"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Import Content"
+  ],
+  "solution_principle": "Import a model from file",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_af914e81",
+    "comp_47acc61b",
+    "comp_4aab4206",
+    "comp_a8019a19",
+    "comp_1174796c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4cb37955-a5a7-4251-8675-aa136cf9b84d",
+    "category": "rhino_content",
+    "inputs": {
+      "F": "Text"
+    },
+    "outputs": {
+      "T": "Transform",
+      "O": "Model Object",
+      "L": "Model Layer",
+      "Lt": "Model Linetype",
+      "H": "Model Hatch Pattern",
+      "As": "Model Annotation Style",
+      "M": "Model Material",
+      "Bd": "Model Block Definition"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|content|import content"
+  }
+}

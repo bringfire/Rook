@@ -1,0 +1,65 @@
+{
+  "pattern_id": "d877a72d",
+  "name": "wasp_30_teaching_04_4_Local_Constrain",
+  "version": "1.0",
+  "created": "2026-03-19T18:44:15.086970Z",
+  "solution": {
+    "brief": "04_4_Local_Constraints_Orientation",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Geometry",
+      "Point"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "04_4_local_constraints_orientation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

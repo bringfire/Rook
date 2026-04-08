@@ -1,0 +1,1000 @@
+{
+  "pattern_id": "0486b272",
+  "name": "parametric_pipe-output_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T20:01:00.031942Z",
+  "solution": {
+    "brief": "Parametric workflow with 7 adjustable parameters",
+    "principle": "\n\nRelated insight: Complex parametric workflows can involve 70+ components for surface creation from curves.",
+    "components_needed": [
+      "Polygon",
+      "slider",
+      "slider",
+      "Explode",
+      "MidPoint",
+      "Construct Point",
+      "Scale",
+      "slider",
+      "End Points",
+      "Merge",
+      "PolyLine",
+      "Join Curves",
+      "Boundary Surfaces",
+      "slider",
+      "Mesh Brep",
+      "Settings (Custom)",
+      "Toggle",
+      "MeshMachine",
+      "PlanktonMesh",
+      "Mesh Edges",
+      "Join Curves",
+      "Control Points",
+      "removeDuplicatePts",
+      "Mesh",
+      "slider",
+      "Sequence",
+      "slider",
+      "Reverse List",
+      "List Item",
+      "Multiplication",
+      "slider",
+      "Deconstruct Mesh",
+      "Closest Point",
+      "Larger Than",
+      "Dispatch",
+      "Move",
+      "Unit Z",
+      "Merge",
+      "Negative",
+      "Weave",
+      "Construct Mesh",
+      "Explode Tree",
+      "Mesh Flip",
+      "Merge",
+      "Mesh Join",
+      "Point",
+      "Anchor",
+      "Mesh Edges",
+      "Merge",
+      "removeDuplicateLines",
+      "Length(Line)",
+      "Merge",
+      "Pressure",
+      "slider",
+      "Solver",
+      "Show",
+      "List Item",
+      "Toggle",
+      "slider",
+      "Mesh WeldVertices",
+      "Reverse List",
+      "List Item",
+      "Deconstruct Mesh",
+      "Deconstruct",
+      "Bounds",
+      "Remap Numbers",
+      "Gradient",
+      "Mesh Colours",
+      "Sequence",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "tubular form",
+      "create tube",
+      "pipe a curve"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ef483dc2"
+  ],
+  "tags": [
+    "pipe-output",
+    "panelization",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T08:58:56.572157",
+    "evolved_by": [
+      "ef483dc2"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:32:07.046423Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 75 wires -> 70 components, 85 flows"
+      },
+      {
+        "date": "2026-02-22T08:58:56.572157",
+        "trigger": "New pattern: ef483dc2",
+        "changes": "New pattern demonstrates workflow complexity scale that informs parametric workflow understanding"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 1,
+          "max": 2,
+          "value": 1.41
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "min": 0,
+          "max": 0.3,
+          "value": 0.106
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Text Pin.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            450,
+            131
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            57.1,
+            123.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            64.5,
+            171.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R4",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            556,
+            113
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Cluster",
+          "name": "MidPoint",
+          "pos": [
+            699,
+            62
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            332,
+            2
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            884,
+            5
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            69.4,
+            231
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.67
+        },
+        {
+          "id": "R9",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            881,
+            90
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1004,
+            75
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1094,
+            81
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1201,
+            76
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            1310,
+            129
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            981.2,
+            382.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R15",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            1466,
+            164
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_MeshSettingsCustom",
+          "nick": "Custom Mesh Settings",
+          "name": "Settings (Custom)",
+          "pos": [
+            1344,
+            305
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1583,
+            330
+          ],
+          "value": false
+        },
+        {
+          "id": "R18",
+          "type": "PlaceholderComponent",
+          "name": "MeshMachine",
+          "pos": [
+            1841,
+            53
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "PlanktonMeshParam",
+          "nick": "PMesh",
+          "name": "PlanktonMesh",
+          "pos": [
+            1947.4,
+            53.2
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            1273,
+            -31
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1379,
+            -39
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_ControlPoints",
+          "nick": "CP",
+          "name": "Control Points",
+          "pos": [
+            1457,
+            -45
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            1550,
+            -51
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            2177.9,
+            47.5
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            1517.4,
+            205
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R26",
+          "type": "PlaceholderComponent",
+          "name": "Sequence",
+          "pos": [
+            1675,
+            288
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            1433,
+            279.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R28",
+          "type": "Component_ReverseList",
+          "nick": "Rev",
+          "name": "Reverse List",
+          "pos": [
+            2021,
+            50
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2105,
+            77
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1628,
+            -158
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            1391.7,
+            -170
+          ],
+          "min": 1,
+          "max": 2,
+          "value": 1.41
+        },
+        {
+          "id": "R32",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            2256,
+            47
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            2343,
+            -80
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_LargerThan",
+          "nick": "Larger",
+          "name": "Larger Than",
+          "pos": [
+            2441,
+            -50
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            2550,
+            -66
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2665,
+            -66
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2569,
+            -139
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2473,
+            -214
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2380,
+            -237
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            2788,
+            -68
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            2754,
+            86
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "ExplodeTreeComponent",
+          "nick": "BANG!",
+          "name": "Explode Tree",
+          "pos": [
+            2863,
+            82
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_MeshFlip",
+          "nick": "Flip",
+          "name": "Mesh Flip",
+          "pos": [
+            2959,
+            68
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3059,
+            92
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            3156,
+            1
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            3465.4,
+            -87
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "AnchorComponent",
+          "name": "Anchor",
+          "pos": [
+            3605,
+            -68
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            3273,
+            93
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3382,
+            86
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicateLines",
+          "pos": [
+            3461,
+            82
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            3603,
+            34
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3775,
+            45
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "PressureComponent",
+          "name": "Pressure",
+          "pos": [
+            3604,
+            197
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "pos": [
+            3335.2,
+            237.2
+          ],
+          "min": 0,
+          "max": 0.3,
+          "value": 0.106
+        },
+        {
+          "id": "R55",
+          "type": "KangarooGH2",
+          "name": "Solver",
+          "pos": [
+            4060,
+            116
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            3597,
+            -124
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            4172,
+            150
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            3795,
+            350
+          ],
+          "value": true
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            2150.6,
+            -204
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R60",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            3314,
+            -121
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_ReverseList",
+          "nick": "Rev",
+          "name": "Reverse List",
+          "pos": [
+            4272,
+            159
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            4362,
+            155
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            4377,
+            291
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            4468,
+            261
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            4563,
+            281
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            4648,
+            281
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            4711,
+            195
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_MeshColour",
+          "nick": "MCol",
+          "name": "Mesh Colours",
+          "pos": [
+            5036,
+            165
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "PlaceholderComponent",
+          "name": "Sequence",
+          "pos": [
+            3870,
+            287
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "slider",
+          "pos": [
+            3618.6,
+            277.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "flows": [
+        "R6.O0>R1.I0",
+        "R2.O0>R1.I1",
+        "R3.O0>R1.I2",
+        "R1.O0>R4.I0",
+        "R4.O0>R5.I0",
+        "R5.O0>R7.I0",
+        "R6.O0>R7.I1",
+        "R8.O0>R7.I2",
+        "R4.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R7.O0>R10.I1",
+        "R9.O1>R10.I2",
+        "R10.O0>R11.I0",
+        "R11.O0>R12.I0",
+        "R12.O0>R13.I0",
+        "R13.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R14.O0>R16.I8",
+        "R14.O0>R16.I9",
+        "R15.O0>R18.I0",
+        "R30.O0>R18.I1",
+        "R23.O0>R18.I3",
+        "R25.O0>R18.I13",
+        "R26.O0>R18.I14",
+        "R15.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R21.O0>R22.I0",
+        "R22.O0>R23.I0",
+        "R27.O0>R26.I0",
+        "R19.O0>R28.I0",
+        "R28.O0>R29.I0",
+        "R14.O0>R30.I0",
+        "R31.O0>R30.I1",
+        "R24.O0>R32.I0",
+        "R32.O0>R33.I0",
+        "R23.O0>R33.I1",
+        "R33.O2>R34.I0",
+        "R32.O0>R35.I0",
+        "R34.O0>R35.I1",
+        "R35.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R38.O0>R37.I0",
+        "R39.O0>R38.I0",
+        "R59.O0>R38.I1",
+        "R59.O0>R39.I0",
+        "R34.O0>R40.I0",
+        "R35.O1>R40.I1",
+        "R36.O0>R40.I2",
+        "R40.O0>R41.I0",
+        "R32.O1>R41.I1",
+        "R41.O0>R42.I0",
+        "R42.O0>R43.I0",
+        "R43.O0>R44.I0",
+        "R42.O1>R44.I1",
+        "R44.O0>R45.I0",
+        "R46.O0>R47.I0",
+        "R45.O0>R48.I0",
+        "R48.O0>R49.I0",
+        "R48.O1>R49.I1",
+        "R49.O0>R50.I0",
+        "R50.O0>R51.I0",
+        "R50.O0>R51.I1",
+        "R56.O0>R52.I0",
+        "R47.O0>R52.I1",
+        "R51.O0>R52.I2",
+        "R53.O0>R52.I3",
+        "R45.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R52.O0>R55.I0",
+        "R69.O0>R55.I1",
+        "R58.O0>R55.I4",
+        "R60.O1>R56.I0",
+        "R55.O2>R57.I0",
+        "R45.O0>R60.I0",
+        "R57.O0>R61.I0",
+        "R61.O0>R62.I0",
+        "R62.O0>R63.I0",
+        "R63.O0>R64.I0",
+        "R64.O2>R65.I0",
+        "R64.O2>R66.I0",
+        "R65.O0>R66.I1",
+        "R66.O0>R67.I2",
+        "R62.O0>R68.I0",
+        "R67.O0>R68.I1",
+        "R70.O0>R69.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_77cfd279",
+  "note_type": "component",
+  "name": "Vector Length",
+  "brief": "Vector Length | Inputs: V → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Vector Length. Inputs: V (Vector). Outputs: L (Number).",
+  "keywords": [
+    "vector length",
+    "vector",
+    "length",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "vector length",
+    "vector",
+    "length"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector Length"
+  ],
+  "solution_principle": "Compute the length (amplitude) of a vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_53b0ce5c",
+    "comp_b9817b61",
+    "comp_5557fa99",
+    "comp_a5dcb66a",
+    "comp_e3269f6b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "675e31bf-1775-48d7-bb8d-76b77786dd53",
+    "category": "vector_ops",
+    "inputs": {
+      "V": "Vector"
+    },
+    "outputs": {
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d2da1306-259a-4994-85a4-672d8a4c7805"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|vector length"
+  }
+}

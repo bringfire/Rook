@@ -1,0 +1,157 @@
+{
+  "note_id": "teaching_0ae1e0de",
+  "note_type": "teaching",
+  "name": "U04 - Mesh",
+  "brief": "Teaching: Mesh",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\"",
+  "keywords": [
+    "mesh",
+    "mesh box",
+    "mesh sphere",
+    "mesh brep",
+    "simple mesh",
+    "numberslider",
+    "center box",
+    "brep",
+    "unit 04 class"
+  ],
+  "category": "Unit 04",
+  "tags": [
+    "mesh-fundamentals",
+    "builds-on-lists",
+    "prerequisite-for-mesh-analysis",
+    "tutorial",
+    "requires-mesh-fundamentals-theory",
+    "hands-on",
+    "requires-brep-fundamentals",
+    "intermediate",
+    "teaching",
+    "prerequisite-for-mesh-operations",
+    "prerequisite-for-morphing",
+    "requires-U03",
+    "geometry-data",
+    "brep-to-mesh-conversion",
+    "unit-04"
+  ],
+  "trigger_intents": [
+    "mesh",
+    "how to use mesh",
+    "how to use mesh box",
+    "how to use mesh sphere",
+    "how to use mesh brep",
+    "how to use simple mesh",
+    "how to use center box",
+    "how to use brep",
+    "mesh box",
+    "mesh sphere",
+    "mesh brep",
+    "simple mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Box",
+    "Mesh Sphere",
+    "Mesh Brep",
+    "Simple Mesh",
+    "NumberSlider",
+    "Center Box",
+    "Brep"
+  ],
+  "solution_principle": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\"",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_2a15f208",
+    "teaching_ecde5523",
+    "teaching_22255d24",
+    "teaching_9a2ab0b7",
+    "teaching_f520f3eb",
+    "comp_0b96a579",
+    "comp_249dabb0",
+    "comp_3d7c1b11",
+    "comp_85134c60",
+    "comp_ead277e0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-04-Class",
+    "unit_number": 4,
+    "section_number": 6,
+    "section_index": 5,
+    "x_range": [
+      6967.1,
+      7779.4
+    ],
+    "full_teaching_text": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\"",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C253",
+      "C254",
+      "C260",
+      "C261",
+      "C266",
+      "C274",
+      "C276",
+      "C277"
+    ],
+    "intra_section_flows": [
+      "C266.O0>C253.I1",
+      "C266.O0>C253.I2",
+      "C266.O0>C253.I3",
+      "C274.O0>C254.I1",
+      "C276.O0>C260.I0",
+      "C276.O0>C261.I0",
+      "C277.O0>C281.I0",
+      "C260.O0>C282.I0",
+      "C261.O0>C283.I0",
+      "C253.O0>C284.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G42",
+        "name": "",
+        "colour": "#FF000085"
+      },
+      {
+        "group_id": "G43",
+        "name": "",
+        "colour": "#FF000085"
+      },
+      {
+        "group_id": "G44",
+        "name": "",
+        "colour": "#FF000085"
+      }
+    ],
+    "components_demonstrated": {
+      "Mesh Box": 1,
+      "Mesh Sphere": 1,
+      "Mesh Brep": 1,
+      "Simple Mesh": 1,
+      "NumberSlider": 2,
+      "Center Box": 1,
+      "Brep": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 8,
+      "sub_labels": 0,
+      "connected_panels": 4,
+      "flows": 10,
+      "groups": 3
+    }
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "pattern_id": "e1f1c3cf",
+  "name": "Wasp_Basic Part — Component I/O",
+  "version": "1.0",
+  "created": "2026-03-19T13:24:25.961976Z",
+  "solution": {
+    "brief": "Wasp_Basic Part creates WaspPart objects from geometry, connections, and a name string for use in discrete aggregation workflows.",
+    "principle": "WaspPart is a container that bundles geometry, connection points, and identity (name) into a single object that aggregation algorithms can reference, place, and track — the name string is the key identifier used in rules to specify which part types connect where.\n\nRelated insight: Related insight: When Wasp_Rule references this part's connections, it uses 0-based integer indices corresponding to the sequential order connections were passed into Wasp_Basic Part. The combination of exact part name string + correct 0-based connection index is required for rules to fire — either mismatch causes silent failure.\n\nRelated insight: Related insight: WaspPart objects produced by Wasp_Basic Part are consumed by Wasp_Stochastic Aggregation as a required prerequisite input. Geometry is not retrieved directly from the aggregation output — a separate Wasp_Get Part Geometry component must be connected to the PART_OUT output of the aggregation component to extract geometry for visualization.\n\nRelated insight: Related insight: The geometry input to Wasp_Basic Part is a Brep (or mesh) referenced from a paired Rhino .3dm file via a GH Brep parameter component. The .3dm must be open in Rhino before the GH file solves. This external-reference model means part geometry lives in Rhino and remains editable there, while aggregation logic lives in GH — but it also means the .3dm is a hard prerequisite for the definition to solve correctly.",
+    "components_needed": [
+      "Wasp_Basic Part",
+      "Wasp_Connection From Direction"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I create a wasp part for aggregation",
+      "what inputs does Wasp_Basic Part need",
+      "how to set up a part for discrete aggregation in Wasp",
+      "how do I define a building block for wasp stochastic aggregation",
+      "what is the wiring pattern for WaspPart"
+    ],
+    "symptoms": [
+      "WaspPart output shows id: None before aggregation",
+      "aggregation component not accepting part input",
+      "unsure which geometry to feed into GEO vs COLL inputs",
+      "part name not matching rule definitions"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Wasp plugin is installed in Grasshopper",
+      "Part geometry exists as a Brep or Mesh in Rhino or as a GH parameter",
+      "At least one WaspConnection object has been created via Wasp_Connection From Direction",
+      "A unique string name has been chosen for the part type (used consistently in aggregation rules)"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "842e394c",
+    "e429efda",
+    "fe6b0648",
+    "c19bb3ff",
+    "d1f677ba",
+    "03658e8c"
+  ],
+  "tags": [
+    "foundation",
+    "connections",
+    "discrete-assembly",
+    "discrete-design",
+    "geometry-referencing",
+    "part-based",
+    "rhino-params",
+    "part-definition",
+    "prerequisite",
+    "3dm-file",
+    "component-reference",
+    "external-reference",
+    "wasppart",
+    "growth",
+    "0-based-index",
+    "grasshopper-plugin",
+    "wasp",
+    "part-setup",
+    "workflow",
+    "aggregation",
+    "discrete-aggregation"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T09:30:00.685154",
+    "evolved_by": [
+      "c19bb3ff",
+      "d1f677ba",
+      "03658e8c"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:26:10.285316",
+        "trigger": "New pattern: c19bb3ff",
+        "changes": "New pattern highlights that both part names AND 0-based connection indices must precisely match — reinforcing the silent failure risk already noted for name strings, now extended to index references."
+      },
+      {
+        "date": "2026-03-19T09:27:37.040660",
+        "trigger": "New pattern: d1f677ba",
+        "changes": "The new pattern clarifies the downstream role of WaspPart objects (fed into aggregation) and that geometry retrieval from aggregation results requires a dedicated Wasp_Get Part Geometry step, which is not currently documented in this pattern's context."
+      },
+      {
+        "date": "2026-03-19T09:30:00.685154",
+        "trigger": "New pattern: 03658e8c",
+        "changes": "The new pattern clarifies that the geometry bundled into WaspPart objects originates from a paired .3dm file. This is a prerequisite that affects the Wasp_Basic Part setup step and should be documented here so users know to open the .3dm first."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

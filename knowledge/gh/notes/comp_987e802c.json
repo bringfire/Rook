@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_987e802c",
+  "note_type": "component",
+  "name": "Integer",
+  "brief": "Integer | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Integer.",
+  "keywords": [
+    "integer",
+    "primitive_params"
+  ],
+  "category": "primitive_params",
+  "tags": [
+    "primitive_params"
+  ],
+  "trigger_intents": [
+    "integer"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Integer"
+  ],
+  "solution_principle": "Contains a collection of integer numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c3eb8fee",
+    "comp_b73dcd54",
+    "comp_74e5481c",
+    "comp_966377f2",
+    "comp_ce555ad5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "34a22050-8484-44cf-b2ee-974739434b18",
+    "category": "primitive_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "2e3ab970-8545-46bb-836c-1c11e5610bce",
+      "29fa3b21-fe33-43aa-95ec-8bda10536e46"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|primitive|integer"
+  },
+  "deprecated": true,
+  "deprecated_by": "29fa3b21-fe33-43aa-95ec-8bda10536e46"
+}

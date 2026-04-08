@@ -1,0 +1,91 @@
+{
+  "note_id": "tutorial_0e40ec54",
+  "note_type": "teaching",
+  "name": "Intermediate 4-5: Conditional Statements \u00e2\u20ac\u201d Boolean Logic for Filtering",
+  "brief": "Conditional algorithms using boolean logic: comparison operators generate True/False patterns for filtering geometry through Cull Pattern.",
+  "version": "1.0",
+  "created": "2026-02-23T04:21:58.770973Z",
+  "context": "Demonstrates conditional statement patterns in Grasshopper using boolean operations. Multiple filtering stages using comparison operators (Larger Than, Smaller Than, Equality). Comparison outputs generate boolean (True/False) patterns. These boolean patterns feed into Cull Pattern or Dispatch to filter geometry. Shows how mathematical conditions translate to geometric selection. Multiple levels of conditional filtering can be chained for complex selection logic.",
+  "keywords": [
+    "conditional",
+    "boolean logic",
+    "comparison",
+    "larger than",
+    "filter chain",
+    "conditional algorithm",
+    "multi-criteria"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "boolean-logic",
+    "conditional",
+    "comparison",
+    "filtering",
+    "algorithm",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "conditional logic grasshopper",
+    "boolean comparison filter",
+    "larger than smaller than",
+    "if statement grasshopper",
+    "conditional filtering",
+    "comparison operators grasshopper"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Larger Than",
+    "Smaller Than",
+    "Equality",
+    "Cull Pattern",
+    "Dispatch",
+    "Number Slider",
+    "Panel"
+  ],
+  "solution_principle": "Conditional logic in Grasshopper uses comparison components that output boolean values. Larger Than, Smaller Than, Equality produce True/False for each element. These booleans feed Cull Pattern or Dispatch for filtering. Chaining comparisons creates multi-criteria selection. This replaces 'if statements' from text programming.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_0b9dde96",
+    "tutorial_041c47d4",
+    "tutorial_88182103",
+    "tutorial_a0c71175",
+    "tutorial_c11f2ab4",
+    "tutorial_0e7af367",
+    "tutorial_1afdc366",
+    "tutorial_36e3a473",
+    "tutorial_9e2a929b",
+    "tutorial_4d1f21a2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:21:58.770973Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-5.jpg",
+    "lesson_number": 4,
+    "step_number": 5,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Larger Than": 1,
+      "Smaller Than": 1,
+      "Equality": 1,
+      "Cull Pattern": 1,
+      "Dispatch": 1,
+      "Number Slider": 1,
+      "Panel": 1
+    }
+  }
+}

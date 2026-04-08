@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_c33aa162",
+  "note_type": "component",
+  "name": "Hyperbolic Paraboloid",
+  "brief": "Hyperbolic Paraboloid | Inputs: U, V, a, b → Srf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Hyperbolic Paraboloid. Inputs: U (Integer), V (Integer), a (Number), b (Number), S (Number), D1 (Domain), D2 (Domain). Outputs: Srf (Generic Data).",
+  "keywords": [
+    "hyperbolic paraboloid",
+    "hyperbolic",
+    "paraboloid",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "hyperbolic paraboloid",
+    "hyperbolic",
+    "paraboloid"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Hyperbolic Paraboloid"
+  ],
+  "solution_principle": "Create a parametric paraboloid surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_13d603c5",
+    "comp_40dc966b",
+    "comp_b72c3416"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a16a3c53-7ae9-4bb0-a0c2-fcc67e0c432c",
+    "category": "lunchbox_form",
+    "inputs": {
+      "U": "Integer",
+      "V": "Integer",
+      "a": "Number",
+      "b": "Number",
+      "S": "Number",
+      "D1": "Domain",
+      "D2": "Domain"
+    },
+    "outputs": {
+      "Srf": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "390c8a3b-9f14-4c66-bacd-13410333c118"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|hyperbolic paraboloid"
+  }
+}

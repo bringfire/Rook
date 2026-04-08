@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_4c7b012f",
+  "note_type": "component",
+  "name": "SubD Edge Tags",
+  "brief": "SubD Edge Tags | Inputs: S, T, E → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: SubD Edge Tags. Inputs: S (SubD), T (Text), E (Integer). Outputs: S (SubD).",
+  "keywords": [
+    "subd edge tags",
+    "subd",
+    "edge",
+    "tags",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd edge tags",
+    "sub",
+    "edge",
+    "tags"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD Edge Tags"
+  ],
+  "solution_principle": "Set the edge tags of a SubD shape.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0207e96f",
+    "comp_e7712cc1",
+    "comp_f0650611",
+    "comp_8d440de0",
+    "comp_d1f4bc67",
+    "comp_a08bb022",
+    "comp_eae3ae94"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "048b219e-284a-49f2-ae40-a60465b08447",
+    "category": "subd_ops",
+    "inputs": {
+      "S": "SubD",
+      "T": "Text",
+      "E": "Integer"
+    },
+    "outputs": {
+      "S": "SubD"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "954a8963-bb2c-4847-9012-69ff34acddd5"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd edge tags"
+  }
+}

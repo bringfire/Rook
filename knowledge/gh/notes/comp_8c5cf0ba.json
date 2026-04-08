@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_8c5cf0ba",
+  "note_type": "component",
+  "name": "Deconstruct Brep",
+  "brief": "Deconstruct Brep | Inputs: B → F, E, V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Deconstruct Brep. Inputs: B (Brep). Outputs: F (Surface), E (Curve), V (Point).",
+  "keywords": [
+    "deconstruct brep",
+    "deconstruct",
+    "brep",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "deconstruct brep",
+    "deconstruct",
+    "brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Brep"
+  ],
+  "solution_principle": "Deconstruct a brep into its constituent parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_570eb369",
+    "comp_93df8f05",
+    "comp_dc18aa71",
+    "comp_c177edf2",
+    "teaching_26b87a73"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8d372bdc-9800-45e9-8a26-6e33c5253e21",
+    "category": "surface_analysis",
+    "inputs": {
+      "B": "Brep"
+    },
+    "outputs": {
+      "F": "Surface",
+      "E": "Curve",
+      "V": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0148a65d-6f42-414a-9db7-9a9b2eb78437"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|deconstruct brep"
+  }
+}

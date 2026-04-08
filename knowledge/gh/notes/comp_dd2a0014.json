@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_dd2a0014",
+  "note_type": "component",
+  "name": "Solid Difference",
+  "brief": "Solid Difference | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Solid Difference. Inputs: A (Brep), B (Brep). Outputs: R (Brep).",
+  "keywords": [
+    "solid difference",
+    "solid",
+    "difference",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "solid difference",
+    "solid",
+    "difference"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Solid Difference"
+  ],
+  "solution_principle": "Perform a solid difference on two Brep sets.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5f77f7fc",
+    "comp_af436c13",
+    "comp_7d8acb67",
+    "comp_b3026bff",
+    "comp_85550cda",
+    "comp_0ce60bf8",
+    "comp_10d58079",
+    "comp_cfa94a6b",
+    "comp_c6dc49bb",
+    "comp_107c3cf2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "fab11c30-2d9c-4d15-ab3c-2289f1ae5c21",
+    "category": "intersection_shape",
+    "inputs": {
+      "A": "Brep",
+      "B": "Brep"
+    },
+    "outputs": {
+      "R": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4f3147f4-9fcd-4a7e-be0e-b1841caa5f97",
+      "10434a15-da85-4281-bb64-a2b3a995b9c6",
+      "5723c845-cafc-442d-a667-8c76532845e6"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|solid difference"
+  }
+}

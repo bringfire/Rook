@@ -1,0 +1,82 @@
+{
+  "note_id": "comp_e6aa0ae1",
+  "note_type": "component",
+  "name": "Curve Closest Point",
+  "brief": "Curve Closest Point | Inputs: P, C → P, t, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Curve Closest Point. Inputs: P (Point), C (Curve). Outputs: P (Point), t (Number), D (Number).",
+  "keywords": [
+    "curve closest point",
+    "curve",
+    "closest",
+    "point",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "curve closest point",
+    "curve",
+    "closest",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Closest Point"
+  ],
+  "solution_principle": "Find the closest point on a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_0d20e65c",
+    "comp_262f1d29",
+    "comp_07cd32cc",
+    "comp_b59df947",
+    "comp_7340243b",
+    "comp_3579e6e9",
+    "comp_443199ee",
+    "comp_be7ed355",
+    "comp_123bf176",
+    "comp_af439b55",
+    "comp_3913d03d",
+    "comp_bf71cfc8",
+    "comp_aaf059b3",
+    "comp_fb45532b",
+    "comp_866778e2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2dc44b22-b1dd-460a-a704-6462d6e91096",
+    "category": "curve_analysis",
+    "inputs": {
+      "P": "Point",
+      "C": "Curve"
+    },
+    "outputs": {
+      "P": "Point",
+      "t": "Number",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0b04e8b9-00d7-47a7-95c3-0d51e654fe88"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|curve closest point"
+  }
+}

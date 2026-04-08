@@ -1,0 +1,77 @@
+{
+  "pattern_id": "e06873ac",
+  "name": "wasp_15_teaching_Using_the_Rules_from",
+  "version": "1.0",
+  "created": "2026-03-19T17:58:03.092379Z",
+  "solution": {
+    "brief": "Using the Rules from Aggregation component it is possible\r\nto extract the rules sequence that created one aggregation.\r\nThis sequence can then be used in a Graph-Grammar Aggregation\r\nprocess to recreate the aggregation.\r\nWhen recreating the aggregation, it is possible to modify the base\r\npart using the Transform Part component before aggregating.",
+    "principle": "",
+    "components_needed": [
+      "Swatch",
+      "Wasp_Get Part Geometry",
+      "Data",
+      "Wasp_Rules from Aggregation",
+      "Wasp_Get Attribute by Name",
+      "Swatch",
+      "Wasp_Transform Part",
+      "Wasp_Stochastic Aggregation"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "from",
+      "aggregation",
+      "possible",
+      "rules",
+      "that",
+      "using",
+      "sequence",
+      "extract",
+      "component"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

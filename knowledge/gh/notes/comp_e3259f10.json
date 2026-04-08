@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_e3259f10",
+  "note_type": "component",
+  "name": "Weaverbird's Join Meshes and Weld",
+  "brief": "Weaverbird's Join Meshes and Weld | Inputs: M+, W → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Weaverbird's Join Meshes and Weld. Inputs: M+ (Mesh), W (Boolean). Outputs: M (Mesh).",
+  "keywords": [
+    "weaverbird's join meshes and weld",
+    "weaverbird's",
+    "join",
+    "meshes",
+    "and",
+    "weld",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's join meshes and weld",
+    "weaverbird's",
+    "join",
+    "meshes",
+    "and",
+    "weld"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Join Meshes and Weld"
+  ],
+  "solution_principle": "Returns a singular mesh object made out of a list of meshes.\nThe new mesh is lighter, meaning that the footprint of the new mesh is less than the sum of the originals.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_093bbf10",
+    "comp_a2608fd8",
+    "comp_0e69e087",
+    "comp_80deaa79",
+    "comp_b56590cd",
+    "comp_3756d5bc",
+    "comp_fd4acea1",
+    "comp_249dabb0",
+    "comp_5706c591",
+    "comp_63fecbcb",
+    "comp_31d184dc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0fe8dc7a-869b-4cfd-8112-86036dac9712",
+    "category": "wb_extract",
+    "inputs": {
+      "M+": "Mesh",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "33d13c41-30e0-55d9-4144-c40791381949"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's join meshes and weld"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "note_id": "teaching_26a7814e",
+  "note_type": "teaching",
+  "name": "U05 - Grafting a Tree",
+  "brief": "Teaching: Grafting a Tree",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data.",
+  "keywords": [
+    "grafting",
+    "tree",
+    "data",
+    "graft tree",
+    "param viewer",
+    "unit 05 class"
+  ],
+  "category": "Unit 05",
+  "tags": [
+    "builds-on-U04",
+    "complex-wiring",
+    "hands-on",
+    "data-management",
+    "grafting",
+    "tree-simplification",
+    "data-trees",
+    "unit-05",
+    "tutorial",
+    "list-manipulation",
+    "intermediate",
+    "tree-manipulation",
+    "teaching"
+  ],
+  "trigger_intents": [
+    "grafting a tree",
+    "how to use grafting a tree",
+    "how to use data",
+    "how to use graft tree",
+    "how to use param viewer",
+    "grafting a tree adds a branch to every branch",
+    "in grasshopper, a branch is also known as path",
+    "param viewer"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Data",
+    "Graft Tree",
+    "Param Viewer"
+  ],
+  "solution_principle": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_088f486f",
+    "teaching_f4cf1383",
+    "teaching_dc564d70",
+    "teaching_836d6f1c",
+    "teaching_e8ddc722",
+    "comp_1db206a9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-05-Class",
+    "unit_number": 5,
+    "section_number": 4,
+    "section_index": 3,
+    "x_range": [
+      3668.6,
+      5213.3
+    ],
+    "full_teaching_text": "4- Grafting a Tree:\r\n\r\n- Grafting a Tree adds a Branch to every Branch.\r\n\r\n- In Grasshopper, a Branch is also known as Path.\r\n\r\n- Graft the previous grafted List and use the \"Param Viewer\" to see what is hapenning to the structure of the data.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C94",
+      "C96",
+      "C97",
+      "C99",
+      "C100",
+      "C104",
+      "C108",
+      "C109",
+      "C110"
+    ],
+    "intra_section_flows": [
+      "C96.O0>C95.I0",
+      "C94.O0>C96.I0",
+      "C99.O0>C98.I0",
+      "C96.O0>C99.I0",
+      "C94.O0>C103.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G28",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G37",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G38",
+        "name": "",
+        "colour": "#FF333396"
+      }
+    ],
+    "components_demonstrated": {
+      "Data": 1,
+      "Graft Tree": 2,
+      "Param Viewer": 6
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 9,
+      "sub_labels": 0,
+      "connected_panels": 3,
+      "flows": 5,
+      "groups": 3
+    }
+  }
+}

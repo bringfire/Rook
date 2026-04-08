@@ -1,0 +1,81 @@
+{
+  "note_id": "comp_wasp_partgeo",
+  "note_type": "component",
+  "name": "Wasp_Get Part Geometry",
+  "brief": "Wasp_Get Part Geometry | Inputs: PART -> GEO",
+  "version": "1.0",
+  "created": "2026-03-19T13:30:00.000000Z",
+  "context": "Wasp plugin component: extracts placed geometry from aggregated parts. Transforms abstract WaspPart objects into world-space geometry for visualization or further processing.",
+  "keywords": [
+    "wasp",
+    "part geometry",
+    "extract geometry",
+    "visualization",
+    "partgeo"
+  ],
+  "category": "wasp",
+  "tags": [
+    "wasp",
+    "discrete-design",
+    "visualization",
+    "geometry-extraction"
+  ],
+  "trigger_intents": [
+    "part geometry",
+    "extract part geometry",
+    "wasp geometry",
+    "get part geo",
+    "wasp part geometry",
+    "visualize aggregation",
+    "wasp visualization"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Wasp_Get Part Geometry"
+  ],
+  "solution_principle": "Extracts and transforms the underlying geometry of placed WaspPart objects to their world-space positions. Parts are abstract objects with position/orientation data until this component makes geometry accessible. Wire from Stochastic Aggregation PART_OUT, then to Custom Preview with ColourSwatch for display.",
+  "anti_patterns": [
+    "Wiring AGGR output instead of PART_OUT -- AGGR is the aggregation object, not parts",
+    "Expecting geometry directly from aggregation without this extraction step"
+  ],
+  "preconditions": [
+    "WaspPart objects from aggregation PART_OUT"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_wasp_stochastic"
+  ],
+  "times_used": 1,
+  "times_succeeded": 1,
+  "retrieval_count": 0,
+  "last_accessed": "2026-03-19T15:48:21.903826Z",
+  "last_verified": "2026-03-19T15:48:21.903826Z",
+  "citations": [],
+  "created_from": "wasp_learning",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0bef95ca-029b-423c-9ca8-8b1c750266fa",
+    "category": "wasp",
+    "inputs": {
+      "PART": "Generic Data"
+    },
+    "outputs": {
+      "GEO": "Generic Data"
+    },
+    "typical_wiring": [
+      "Wasp_Stochastic Aggregation.PART_OUT -> PART",
+      "GEO -> Custom Preview.G"
+    ],
+    "similar_to": [
+      "0a8d9f31-d0ba-4c4d-9d22-65fd829d8d62"
+    ],
+    "usage_count": 0,
+    "stable_key": "wasp|2 | parts|wasp_get part geometry"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

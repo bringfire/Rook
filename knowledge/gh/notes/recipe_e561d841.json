@@ -1,0 +1,259 @@
+{
+  "note_id": "recipe_e561d841",
+  "note_type": "recipe",
+  "name": "Arc Windmill",
+  "brief": "Arc Windmill: LineSDL \u00e2\u2020\u2019 ConstructPoint \u00e2\u2020\u2019 UnitVectorY \u00e2\u2020\u2019 Arc3Pt \u00e2\u2020\u2019 DivideCurve +16 more (37 components, 5 sliders, 45 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T20:47:15.064152Z",
+  "context": "Extracted from: Arc Windmill.gh",
+  "keywords": [
+    "parametric_surface-creation_point-sequence",
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "curve-division"
+  ],
+  "category": "parametric",
+  "tags": [
+    "arc3-pt",
+    "colour",
+    "construct-vector",
+    "cull-index",
+    "curve-division",
+    "custom-preview-component",
+    "explode-tree-component",
+    "foundational",
+    "line-s-d",
+    "list-item-variable",
+    "loft-surface",
+    "move",
+    "operator_-division",
+    "operator_-modulus",
+    "parametric-modeling",
+    "pi",
+    "point-construction",
+    "range",
+    "rotate",
+    "scale",
+    "unit-vector-y",
+    "variable-addition",
+    "weave"
+  ],
+  "trigger_intents": [
+    "surface from curves",
+    "loft curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line SDL",
+    "Construct Point",
+    "Unit Y",
+    "Number Slider",
+    "Arc 3Pt",
+    "Divide Curve",
+    "Panel",
+    "Explode Tree",
+    "Move",
+    "Vector XYZ",
+    "Number Slider",
+    "Number Slider",
+    "Scale",
+    "Number Slider",
+    "Explode Tree",
+    "Vector XYZ",
+    "Move",
+    "Arc 3Pt",
+    "Range",
+    "Pi",
+    "Panel",
+    "Number Slider",
+    "Cull Index",
+    "Panel",
+    "Rotate",
+    "List Item",
+    "Panel",
+    "Division",
+    "Panel",
+    "Addition",
+    "Modulus",
+    "Rotate",
+    "Weave",
+    "Loft",
+    "Custom Preview",
+    "Colour Swatch",
+    "Mesh"
+  ],
+  "solution_principle": "Processing chain: LineSDL \u00e2\u2020\u2019 ConstructPoint \u00e2\u2020\u2019 UnitVectorY \u00e2\u2020\u2019 Arc3Pt \u00e2\u2020\u2019 DivideCurve \u00e2\u2020\u2019 ExplodeTreeComponent \u00e2\u2020\u2019 ... \u00e2\u2020\u2019 colour.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_fdbc67df",
+    "recipe_70c7a21a",
+    "recipe_287f9d46",
+    "recipe_db9d7583",
+    "recipe_91aa15f3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "77c5e2c2-845a-4a8a-8a4d-4034a31cd32d",
+        "from_param": "Pt",
+        "to": "b1cfa85d-212d-4227-97d6-7154c29a8b15",
+        "to_param": "S"
+      },
+      {
+        "from": "8fb37b66-4008-4424-8af2-b6a27509711a",
+        "from_param": "V",
+        "to": "b1cfa85d-212d-4227-97d6-7154c29a8b15",
+        "to_param": "D"
+      },
+      {
+        "from": "67558daf-ef47-4552-8529-b8459c379c0f",
+        "from_param": "Number Slider",
+        "to": "b1cfa85d-212d-4227-97d6-7154c29a8b15",
+        "to_param": "L"
+      },
+      {
+        "from": "c85c6811-76f5-46a8-8b00-8f76757c6e6c",
+        "from_param": "{0}",
+        "to": "180b46bc-5219-4343-b303-8aa50b965088",
+        "to_param": "A"
+      },
+      {
+        "from": "5141f930-b8a8-46a1-a585-13212bda6cdf",
+        "from_param": "G",
+        "to": "180b46bc-5219-4343-b303-8aa50b965088",
+        "to_param": "B"
+      },
+      {
+        "from": "c85c6811-76f5-46a8-8b00-8f76757c6e6c",
+        "from_param": "{2}",
+        "to": "180b46bc-5219-4343-b303-8aa50b965088",
+        "to_param": "C"
+      },
+      {
+        "from": "b1cfa85d-212d-4227-97d6-7154c29a8b15",
+        "from_param": "L",
+        "to": "482e5c3e-23f3-4773-848a-b902cebec752",
+        "to_param": "C"
+      },
+      {
+        "from": "427b7077-9b21-4cc1-8044-e70ec4b90f48",
+        "from_param": "Panel",
+        "to": "482e5c3e-23f3-4773-848a-b902cebec752",
+        "to_param": "N"
+      },
+      {
+        "from": "482e5c3e-23f3-4773-848a-b902cebec752",
+        "from_param": "P",
+        "to": "c85c6811-76f5-46a8-8b00-8f76757c6e6c",
+        "to_param": "D"
+      },
+      {
+        "from": "c85c6811-76f5-46a8-8b00-8f76757c6e6c",
+        "from_param": "{1}",
+        "to": "5141f930-b8a8-46a1-a585-13212bda6cdf",
+        "to_param": "G"
+      },
+      {
+        "from": "69c39990-bed2-4a69-83e6-f7d68a33c74a",
+        "from_param": "V",
+        "to": "5141f930-b8a8-46a1-a585-13212bda6cdf",
+        "to_param": "T"
+      },
+      {
+        "from": "0e060716-c4fd-418f-931e-5b69d5a943ae",
+        "from_param": "Number Slider",
+        "to": "69c39990-bed2-4a69-83e6-f7d68a33c74a",
+        "to_param": "X"
+      },
+      {
+        "from": "149815c5-dcb6-4791-85a0-74e36c602a1a",
+        "from_param": "Number Slider",
+        "to": "69c39990-bed2-4a69-83e6-f7d68a33c74a",
+        "to_param": "Z"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "67558daf-ef47-4552-8529-b8459c379c0f",
+          "role": "parameter",
+          "connected_to": "Line SDL",
+          "param": "L"
+        },
+        {
+          "guid": "0e060716-c4fd-418f-931e-5b69d5a943ae",
+          "role": "x_coordinate",
+          "connected_to": "Vector XYZ",
+          "param": "X"
+        },
+        {
+          "guid": "149815c5-dcb6-4791-85a0-74e36c602a1a",
+          "role": "z_coordinate",
+          "connected_to": "Vector XYZ",
+          "param": "Z"
+        },
+        {
+          "guid": "9b83dfba-43dc-475b-9e62-bb2d647b6393",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "9efd0e1f-53bc-46e7-9d76-c143979eed7f",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        }
+      ],
+      "panels": [
+        {
+          "guid": "427b7077-9b21-4cc1-8044-e70ec4b90f48",
+          "role": "text",
+          "connected_to": "482e5c3e-23f3-4773-848a-b902cebec752",
+          "param": "N"
+        },
+        {
+          "guid": "b06dd74e-592b-477a-9a1c-b3c574458dd2",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "ce1ac5c5-a8cf-405b-bc17-08a199f4be82",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "d08b4c02-e3ce-4af1-af0f-5449a9421fa6",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "91ec7f26-2901-4961-a6b3-41adc1644fcd",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Arc Windmill.gh",
+    "pattern_type": "recipe",
+    "component_count": 37
+  }
+}

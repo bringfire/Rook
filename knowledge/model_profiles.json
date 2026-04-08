@@ -1,0 +1,47 @@
+{
+  "_comment": "Rook model profiles. Change 'active' to switch all models.",
+  "active": "cloud",
+  "profiles": {
+    "cloud": {
+      "description": "Full Anthropic API (highest quality, costs money)",
+      "planner": "anthropic/claude-opus-4-6",
+      "worker": "anthropic/claude-sonnet-4-6",
+      "specialist": "anthropic/claude-sonnet-4-6",
+      "guardian": "anthropic/claude-sonnet-4-6",
+      "dspy": "anthropic/claude-sonnet-4-6"
+    },
+    "hybrid": {
+      "description": "Cloud planner + local workers (best balance)",
+      "planner": "anthropic/claude-sonnet-4-6",
+      "worker": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "specialist": "anthropic/claude-sonnet-4-6",
+      "guardian": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "dspy": "ollama_chat/qwen3-coder:30b-a3b-q8_0"
+    },
+    "lmstudio": {
+      "description": "Cloud planner + LM Studio local workers",
+      "planner": "anthropic/claude-sonnet-4-6",
+      "worker": "openai/lmstudio-model",
+      "specialist": "anthropic/claude-sonnet-4-6",
+      "guardian": "openai/lmstudio-model",
+      "dspy": "openai/lmstudio-model",
+      "api_base": "http://127.0.0.1:1234/v1"
+    },
+    "local": {
+      "description": "All local models (zero API cost)",
+      "planner": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "worker": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "specialist": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "guardian": "ollama_chat/qwen3-coder:30b-a3b-q8_0",
+      "dspy": "ollama_chat/qwen3-coder:30b-a3b-q8_0"
+    },
+    "finetuned": {
+      "description": "Cloud planner + fine-tuned local workers",
+      "planner": "anthropic/claude-sonnet-4-6",
+      "worker": "ollama_chat/rook-worker",
+      "specialist": "anthropic/claude-sonnet-4-6",
+      "guardian": "ollama_chat/rook-worker",
+      "dspy": "ollama_chat/rook-worker"
+    }
+  }
+}

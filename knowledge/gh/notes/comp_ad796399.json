@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_ad796399",
+  "note_type": "component",
+  "name": "Query Model Block Definitions",
+  "brief": "Query Model Block Definitions | Inputs: N → Bd",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Query Model Block Definitions. Inputs: N (Text Pattern). Outputs: Bd (Model Block Definition).",
+  "keywords": [
+    "query model block definitions",
+    "query",
+    "model",
+    "block",
+    "definitions",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "query model block definitions",
+    "query",
+    "model",
+    "block",
+    "definitions"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Block Definitions"
+  ],
+  "solution_principle": "Query a Rhino document for all available block definitions",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_84da874b",
+    "comp_2d8cfb46",
+    "comp_4b17fa39",
+    "comp_b4164a54",
+    "comp_ae5e70e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "960a32ab-3e64-4075-855d-df701ee924e7",
+    "category": "rhino_model",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "Bd": "Model Block Definition"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1778f81a-dbab-422c-9d84-98a5f6d260fb"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|model|query model block definitions"
+  }
+}

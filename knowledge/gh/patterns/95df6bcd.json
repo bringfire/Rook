@@ -1,0 +1,73 @@
+{
+  "pattern_id": "95df6bcd",
+  "name": "wasp_06_multi_part_teaching_2._Part_Attributes",
+  "version": "1.0",
+  "created": "2026-03-19T17:28:51.203522Z",
+  "solution": {
+    "brief": "2. Part Attributes\r\nIt is possible to define an unlimited number of attributes,\r\nwhich are associated to the part and carried along during\r\naggregation.\r\nAttributes can be both geometric or non-geometric types.\r\nIn the case of non-geometric types, the TR input must\r\nbe set to False (as the attributes cannot be transformed).\r\n\r\nNB: a large amount or complex geometric attributes will slow\r\ndown the aggregation process. In the case of very complex\r\ngeometries, the Part Replacement approach is more suitable\r\nand less computationally expensive.\r\n(see example file: 0_04_Part_Geometry_Replacement).",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Point",
+      "Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "associated",
+      "unlimited",
+      "possible",
+      "define",
+      "attributes,",
+      "which",
+      "number",
+      "part",
+      "attributes"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "multi-part",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

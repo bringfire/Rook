@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_ad4942bb",
+  "note_type": "component",
+  "name": "Shift Paths",
+  "brief": "Shift Paths | Inputs: D, O â†’ D",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Shift Paths. Inputs: D (Generic Data), O (Integer). Outputs: D (Generic Data).",
+  "keywords": [
+    "shift paths",
+    "shift",
+    "paths"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "data-tree",
+    "path-manipulation",
+    "data-structure",
+    "organization",
+    "data-management",
+    "tree-operations",
+    "grasshopper-component"
+  ],
+  "trigger_intents": [
+    "shift paths",
+    "shift",
+    "paths"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Shift Paths"
+  ],
+  "solution_principle": "Shift the indices in all data tree paths",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1328b7f4",
+    "comp_2b7b6770",
+    "comp_9b20f23c",
+    "recipe_1c4628ff",
+    "comp_fc285b34",
+    "recipe_70c7a21a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2d61f4e0-47c5-41d6-a41d-6afa96ee63af",
+    "category": "tree_operations",
+    "inputs": {
+      "D": "Generic Data",
+      "O": "Integer"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "usage_count": 77,
+    "stable_key": "sets|tree|shift paths"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "note_id": "tutorial_a3d0f1ab",
+  "note_type": "teaching",
+  "name": "Intermediate 4-15: Image Sampler on Panels \u00e2\u20ac\u201d Pixel Values Driving Geometry",
+  "brief": "Image Sampler component maps pixel brightness to panel parameters. Sub List selections + image-driven parameter variation for facade effect.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.219590Z",
+  "context": "Extends 4-14. Shows the Image Sampler component in detail. Top: Same Sub List panel range selections as 4-13/4-14. Bottom: Extended pipeline using Image Sampler. Image Sampler maps XY coordinates to pixel values from a referenced image. Pixel brightness/color \u00e2\u2020\u2019 numeric values \u00e2\u2020\u2019 drive geometry parameters (scale, extrusion, color). Panel centroids provide the XY coordinates for sampling. The pipeline connects panel positions to image-derived values to geometry operations. Result: panels whose properties are driven by an image \u00e2\u20ac\u201d classic image-based facade patterning.",
+  "keywords": [
+    "image sampler",
+    "pixel driven",
+    "image based design",
+    "facade pattern",
+    "brightness to parameter",
+    "heightmap",
+    "image control"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "progression",
+    "image-sampler",
+    "facade",
+    "pixel-driven",
+    "parametric-image",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "image sampler grasshopper",
+    "pixel values drive geometry",
+    "image based facade pattern",
+    "brightness to parameter",
+    "image driven design",
+    "image sampler panel parameters"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Quad Panels",
+    "Sub List",
+    "Image Sampler",
+    "Custom Preview",
+    "Number Slider",
+    "Panel",
+    "Area"
+  ],
+  "solution_principle": "Image Sampler maps spatial (XY) coordinates to pixel values from an image file. The brightness/color at each panel's centroid position becomes a numeric driver. This enables image-driven parametric design \u00e2\u20ac\u201d any image becomes a control surface. Common uses: facade pattern from image, topographic surfaces from heightmaps, gradient-based material assignment.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_73280c22",
+    "tutorial_50eb6be6",
+    "tutorial_81c4b339",
+    "tutorial_20a9ede0",
+    "tutorial_24373789",
+    "tutorial_2d1ce64c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.219590Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-15.jpg",
+    "lesson_number": 4,
+    "step_number": 15,
+    "cluster_type": "progression",
+    "components_demonstrated": {
+      "Surface": 1,
+      "Quad Panels": 1,
+      "Sub List": 1,
+      "Image Sampler": 1,
+      "Custom Preview": 1,
+      "Number Slider": 1,
+      "Panel": 1,
+      "Area": 1
+    }
+  }
+}

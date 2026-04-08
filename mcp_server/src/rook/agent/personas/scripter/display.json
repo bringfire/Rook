@@ -1,0 +1,8 @@
+{
+  "label": "Scripter",
+  "description": "Python 3 script generation for GH Script components",
+  "color": "#2ecc71",
+  "model_role": "specialist",
+  "tool_access": "full",
+  "avatar": null
+}

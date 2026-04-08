@@ -1,0 +1,980 @@
+{
+  "pattern_id": "4da99b59",
+  "name": "trigonometric_parametric_surface-creation",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:19.315764Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Line SDL",
+      "Unit X",
+      "Construct Point",
+      "slider",
+      "List Length",
+      "Rotate",
+      "Consecutive Domains",
+      "Range",
+      "slider",
+      "Deconstruct Domain",
+      "Bounds",
+      "Remap Numbers",
+      "Evaluate Length",
+      "Range",
+      "Subtraction",
+      "Pi",
+      "panel",
+      "slider",
+      "Interpolate",
+      "Line",
+      "Project Point",
+      "Vector 2Pt",
+      "Cull Index",
+      "Divide Curve",
+      "Rotate",
+      "Unit Z",
+      "Pi",
+      "slider",
+      "Sine",
+      "List Length",
+      "Series",
+      "Bounds",
+      "Pi",
+      "Amplitude",
+      "Remap Numbers",
+      "Bounds",
+      "Move",
+      "Negative",
+      "Interpolate",
+      "Remap Numbers",
+      "Remap Numbers",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Tree Statistics",
+      "List Length",
+      "Series",
+      "Bounds",
+      "Move",
+      "Unit Z",
+      "End Points",
+      "MakePair",
+      "Toggle",
+      "Loft",
+      "Remap Numbers",
+      "Bounds",
+      "Graph Mapper",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Custom Preview",
+      "List Length",
+      "Gradient",
+      "Range"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "sinusoidal",
+      "range of values",
+      "number sequence",
+      "smooth curve",
+      "curve through points",
+      "surface from curves",
+      "loft curves",
+      "sine wave",
+      "oscillation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "curve-division"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:22:37.312978Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 83 wires -> 68 components, 83 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "min": 0,
+          "max": 300,
+          "value": 211
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R64",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.27
+        }
+      ],
+      "panels": [
+        {
+          "id": "R17",
+          "nick": "",
+          "content": "1"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Fractal Shell.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            423,
+            201
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            257,
+            201
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            263,
+            136
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            143.4,
+            235.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R5",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            665,
+            276
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            1061,
+            116
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_MakeConsecutiveDomains",
+          "nick": "Consec",
+          "name": "Consecutive Domains",
+          "pos": [
+            247,
+            -123
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            117,
+            -123
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            -156.2,
+            -105.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R10",
+          "type": "Component_DeconstructDomain",
+          "nick": "DeDomain",
+          "name": "Deconstruct Domain",
+          "pos": [
+            384,
+            -123
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            488,
+            -161
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            593,
+            -154
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_ArcLengthPoint",
+          "nick": "Eval",
+          "name": "Evaluate Length",
+          "pos": [
+            707,
+            -139
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            970,
+            353
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Operator_Subtraction_OBSOLETE",
+          "nick": "A-B",
+          "name": "Subtraction",
+          "pos": [
+            785,
+            298
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            820,
+            388
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "panel",
+          "pos": [
+            627.6,
+            295.5
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            557.2,
+            386.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R19",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1293,
+            160
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1536,
+            55
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ProjectPoint",
+          "nick": "Project",
+          "name": "Project Point",
+          "pos": [
+            1459,
+            -31
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            1310,
+            -3
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            1190,
+            -54
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            1734,
+            64
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_VectorRotate",
+          "nick": "VRot",
+          "name": "Rotate",
+          "pos": [
+            1875,
+            108
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1736,
+            130
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            1763,
+            192
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            1494.4,
+            193.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R29",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            2148,
+            -258
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1643,
+            -278
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1757,
+            -268
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1866,
+            -235
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            1858,
+            -197
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            2775,
+            150
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2449,
+            -217
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2312,
+            -217
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2879,
+            110
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2612,
+            155
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            3018,
+            178
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2004,
+            -248
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2271,
+            -127
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            2145,
+            -133
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            1823.8,
+            -161.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "pos": [
+            1813.7,
+            -122.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R45",
+          "type": "Component_TreeStatistics",
+          "nick": "TStat",
+          "name": "Tree Statistics",
+          "pos": [
+            1849,
+            -5
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1950,
+            -25
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2056,
+            -45
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2166,
+            -45
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2993,
+            31
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2869,
+            48
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            1616,
+            -8
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_CSNET_Script",
+          "name": "MakePair",
+          "pos": [
+            3247,
+            60
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            3046,
+            87
+          ],
+          "value": false
+        },
+        {
+          "id": "R54",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            3378,
+            63
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2369,
+            -514
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2263,
+            -514
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            2441.5,
+            -633.7
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2762,
+            -512
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2654,
+            -508
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            2664,
+            -438
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "pos": [
+            2313.5,
+            -406.6
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 211
+        },
+        {
+          "id": "R62",
+          "type": "slider",
+          "pos": [
+            2331.4,
+            -457.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R63",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            2598,
+            -316
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "slider",
+          "pos": [
+            2330.2,
+            -330.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.27
+        },
+        {
+          "id": "R65",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            4077,
+            77
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            3504,
+            23
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            3739,
+            -35
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            3652,
+            13
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R1.I0",
+        "R2.O0>R1.I1",
+        "R4.O0>R1.I2",
+        "R13.O0>R5.I0",
+        "R13.O0>R6.I0",
+        "R14.O0>R6.I1",
+        "R3.O0>R6.I2",
+        "R8.O0>R7.I0",
+        "R9.O0>R8.I1",
+        "R7.O0>R10.I0",
+        "R10.O0>R11.I0",
+        "R10.O0>R12.I0",
+        "R11.O0>R12.I1",
+        "R1.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R16.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R5.O0>R15.I0",
+        "R17.O0>R15.I1",
+        "R18.O0>R16.I0",
+        "R6.O0>R19.I0",
+        "R23.O0>R20.I0",
+        "R21.O0>R20.I1",
+        "R23.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R19.O0>R21.I2",
+        "R23.O0>R22.I0",
+        "R3.O0>R22.I1",
+        "R6.O0>R23.I0",
+        "R20.O0>R24.I0",
+        "R24.O1>R25.I0",
+        "R26.O0>R25.I1",
+        "R27.O0>R25.I2",
+        "R28.O0>R27.I0",
+        "R40.O0>R29.I0",
+        "R24.O1>R30.I0",
+        "R30.O0>R31.I2",
+        "R31.O0>R32.I0",
+        "R25.O0>R34.I0",
+        "R38.O0>R34.I1",
+        "R29.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R41.O0>R35.I2",
+        "R29.O0>R36.I0",
+        "R24.O0>R37.I0",
+        "R34.O0>R37.I1",
+        "R35.O0>R38.I0",
+        "R49.O0>R39.I0",
+        "R31.O0>R40.I0",
+        "R32.O0>R40.I1",
+        "R33.O0>R40.I2",
+        "R47.O0>R41.I0",
+        "R48.O0>R41.I1",
+        "R42.O0>R41.I2",
+        "R43.O0>R42.I0",
+        "R44.O0>R42.I1",
+        "R24.O0>R45.I0",
+        "R45.O0>R46.I0",
+        "R46.O0>R47.I2",
+        "R47.O0>R48.I0",
+        "R37.O0>R49.I0",
+        "R50.O0>R49.I1",
+        "R58.O0>R50.I0",
+        "R20.O0>R51.I0",
+        "R39.O0>R52.I0",
+        "R53.O0>R52.I1",
+        "R52.O1>R54.I0",
+        "R29.O0>R55.I0",
+        "R56.O0>R55.I1",
+        "R29.O0>R56.I0",
+        "R57.O0>R58.I0",
+        "R59.O0>R58.I1",
+        "R60.O0>R58.I2",
+        "R57.O0>R59.I0",
+        "R62.O0>R60.I0",
+        "R63.O0>R60.I1",
+        "R41.O0>R63.I0",
+        "R64.O0>R63.I1",
+        "R54.O0>R65.I0",
+        "R67.O0>R65.I1",
+        "R54.O0>R66.I0",
+        "R68.O0>R67.I2",
+        "R66.O0>R68.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

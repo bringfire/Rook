@@ -1,0 +1,242 @@
+{
+  "note_id": "recipe_41f76822",
+  "note_type": "recipe",
+  "name": "Swarm Intelligence",
+  "brief": "Swarm Intelligence: ZuiPythonComponent \u00e2\u2020\u2019 Sphere \u00e2\u2020\u2019 PopulateGeometry \u00e2\u2020\u2019 toggle \u00e2\u2020\u2019 Timer +1 more (18 components, 9 sliders, 17 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T20:46:51.469915Z",
+  "context": "Extracted from: Swarm Intelligence.gh",
+  "keywords": [
+    "parametric",
+    "parametric"
+  ],
+  "category": "parametric",
+  "tags": [
+    "9-parameter-workflow",
+    "adjustable-parameters",
+    "button-object",
+    "complexity-spectrum",
+    "intermediate-parametric",
+    "parametric-modeling",
+    "populate-geometry",
+    "sphere",
+    "timer",
+    "workflow",
+    "zui-python-component"
+  ],
+  "trigger_intents": [
+    "create a sphere",
+    "parametric sphere"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "GhPython Script",
+    "GhPython Script",
+    "Number Slider",
+    "Sphere",
+    "Populate Geometry",
+    "GhPython Script",
+    "Boolean Toggle",
+    "Timer",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Button",
+    "Boolean Toggle"
+  ],
+  "solution_principle": "Processing chain: ZuiPythonComponent \u00e2\u2020\u2019 Sphere \u00e2\u2020\u2019 PopulateGeometry \u00e2\u2020\u2019 toggle \u00e2\u2020\u2019 Timer \u00e2\u2020\u2019 ButtonObject.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_47f20cca",
+    "recipe_012865d1",
+    "recipe_169489f1",
+    "recipe_7de55487",
+    "recipe_8eebcb1b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "pattern_migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "5c6a3a16-1c5c-4055-9e31-1ead91218d4a",
+        "from_param": "agent",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "agent"
+      },
+      {
+        "from": "033d240e-7cb5-4c3b-9d7d-82d08cef5074",
+        "from_param": "P",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "positions"
+      },
+      {
+        "from": "aba094b3-30fa-4ec1-89af-defeb48c6568",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "max_speed"
+      },
+      {
+        "from": "d291a500-4d6c-4aa5-93c7-432589d9b394",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "sep_radius"
+      },
+      {
+        "from": "e04ff57f-99a3-4b28-bd3f-8411da733b24",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "coh_radius"
+      },
+      {
+        "from": "9df09920-4616-46ad-b7cc-b8989a5a5e98",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "ali_radius"
+      },
+      {
+        "from": "90ca0ef9-76fa-4e79-aceb-278a7d79d78a",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "sep_scale"
+      },
+      {
+        "from": "0e41541b-157e-49b4-bc5a-a55c9086333c",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "coh_scale"
+      },
+      {
+        "from": "515109ac-33a9-400e-bb89-c6178b43742e",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "ali_scale"
+      },
+      {
+        "from": "9b13adad-287e-4bb6-82c0-976f9b5bd448",
+        "from_param": "Number Slider",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "boundary_size"
+      },
+      {
+        "from": "58c4cf24-92b2-47a1-88ac-0422577323ae",
+        "from_param": "Button",
+        "to": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "to_param": "reset"
+      },
+      {
+        "from": "64da57dc-69fc-4276-8366-b72fde3a0d8c",
+        "from_param": "S",
+        "to": "033d240e-7cb5-4c3b-9d7d-82d08cef5074",
+        "to_param": "G"
+      },
+      {
+        "from": "a7e12294-aec8-4084-8fc7-eb36e6543afb",
+        "from_param": "Number Slider",
+        "to": "033d240e-7cb5-4c3b-9d7d-82d08cef5074",
+        "to_param": "N"
+      },
+      {
+        "from": "5c6a3a16-1c5c-4055-9e31-1ead91218d4a",
+        "from_param": "agent",
+        "to": "8adfd532-ae57-459c-aa72-8bc017207fd8",
+        "to_param": "agent"
+      },
+      {
+        "from": "0f1989dd-d599-47b6-b448-f0e45878ca3c",
+        "from_param": "instances",
+        "to": "8adfd532-ae57-459c-aa72-8bc017207fd8",
+        "to_param": "instances"
+      },
+      {
+        "from": "16e85cf0-afae-49c0-a9e3-0692e16f264b",
+        "from_param": "Toggle",
+        "to": "8adfd532-ae57-459c-aa72-8bc017207fd8",
+        "to_param": "run"
+      },
+      {
+        "from": "55e4ae03-9e4c-46b0-b2f1-412313f8b433",
+        "from_param": "Toggle",
+        "to": "8adfd532-ae57-459c-aa72-8bc017207fd8",
+        "to_param": "parallel"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "a7e12294-aec8-4084-8fc7-eb36e6543afb",
+          "role": "count",
+          "connected_to": "Populate Geometry",
+          "param": "N"
+        },
+        {
+          "guid": "aba094b3-30fa-4ec1-89af-defeb48c6568",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "max_speed"
+        },
+        {
+          "guid": "d291a500-4d6c-4aa5-93c7-432589d9b394",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "sep_radius"
+        },
+        {
+          "guid": "9b13adad-287e-4bb6-82c0-976f9b5bd448",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "boundary_size"
+        },
+        {
+          "guid": "e04ff57f-99a3-4b28-bd3f-8411da733b24",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "coh_radius"
+        },
+        {
+          "guid": "9df09920-4616-46ad-b7cc-b8989a5a5e98",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "ali_radius"
+        },
+        {
+          "guid": "90ca0ef9-76fa-4e79-aceb-278a7d79d78a",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "sep_scale"
+        },
+        {
+          "guid": "0e41541b-157e-49b4-bc5a-a55c9086333c",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "coh_scale"
+        },
+        {
+          "guid": "515109ac-33a9-400e-bb89-c6178b43742e",
+          "role": "parameter",
+          "connected_to": "GhPython Script",
+          "param": "ali_scale"
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Swarm Intelligence.gh",
+    "pattern_type": "recipe",
+    "component_count": 18
+  }
+}

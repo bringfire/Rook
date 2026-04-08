@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_ba658789",
+  "note_type": "component",
+  "name": "Modified Arc",
+  "brief": "Modified Arc | Inputs: A, R → A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Modified Arc. Inputs: A (Domain), R (Number). Outputs: A (Arc).",
+  "keywords": [
+    "modified arc",
+    "modified",
+    "arc",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "modified arc",
+    "modified",
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Modified Arc"
+  ],
+  "solution_principle": "Create an arc based on another arc.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e499f2a6",
+    "comp_8340a347",
+    "comp_bd64fa41",
+    "comp_abdf444b",
+    "comp_919aeca8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9d8dec9c-3fd1-481c-9c3d-75ea5e15eb1a",
+    "category": "curves",
+    "inputs": {
+      "A": "Domain",
+      "R": "Number"
+    },
+    "outputs": {
+      "A": "Arc"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|modified arc"
+  }
+}

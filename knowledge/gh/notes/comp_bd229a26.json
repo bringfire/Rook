@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_bd229a26",
+  "note_type": "component",
+  "name": "Cull Index",
+  "brief": "Cull Index | Inputs: L, I, W → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Cull Index. Inputs: L (Generic Data), I (Integer), W (Boolean). Outputs: L (Generic Data).",
+  "keywords": [
+    "cull index",
+    "cull",
+    "index",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "cull index",
+    "cull",
+    "index"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cull Index"
+  ],
+  "solution_principle": "Cull (remove) indexed elements from a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a84bec2b",
+    "comp_7507500e",
+    "comp_398fe067",
+    "comp_4ee05670",
+    "comp_31bd5de8",
+    "comp_bea3c0dc",
+    "comp_e201f286",
+    "comp_01c8f0b3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "501aecbb-c191-4d13-83d6-7ee32445ac50",
+    "category": "sequence_ops",
+    "inputs": {
+      "L": "Generic Data",
+      "I": "Integer",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "008e9a6f-478a-4813-8c8a-546273bc3a6b",
+      "932b9817-fcc6-4ac3-b5fd-c0e8eeadc53f"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|cull index"
+  }
+}

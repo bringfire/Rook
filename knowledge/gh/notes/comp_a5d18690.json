@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_a5d18690",
+  "note_type": "component",
+  "name": "Jump",
+  "brief": "Jump | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Jump.",
+  "keywords": [
+    "jump",
+    "param_utilities"
+  ],
+  "category": "param_utilities",
+  "tags": [
+    "param_utilities"
+  ],
+  "trigger_intents": [
+    "jump"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Jump"
+  ],
+  "solution_principle": "Jump between different locations",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00dd8796",
+    "comp_a8859f74",
+    "comp_8a34358d",
+    "comp_b77812c7",
+    "comp_62b2ee46"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "86720a45-ee9e-49d6-b65e-494c06f66e59",
+    "category": "param_utilities",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "7f5c6c55-f846-4a08-9c9a-cfdc285cc6fe"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|util|jump"
+  }
+}

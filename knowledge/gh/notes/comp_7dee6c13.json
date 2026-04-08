@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_7dee6c13",
+  "note_type": "component",
+  "name": "BiArc",
+  "brief": "BiArc | Inputs: S, Ts, E, Te → A1, A2, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: BiArc. Inputs: S (Point), Ts (Vector), E (Point), Te (Vector), R (Number). Outputs: A1 (Arc), A2 (Arc), B (Curve).",
+  "keywords": [
+    "biarc",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "biarc",
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "BiArc"
+  ],
+  "solution_principle": "Create a bi-arc based on endpoints and tangents.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ffc4216",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75f4b0fd-9721-47b1-99e7-9c098b342e67",
+    "category": "curves",
+    "inputs": {
+      "S": "Point",
+      "Ts": "Vector",
+      "E": "Point",
+      "Te": "Vector",
+      "R": "Number"
+    },
+    "outputs": {
+      "A1": "Arc",
+      "A2": "Arc",
+      "B": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|biarc"
+  }
+}

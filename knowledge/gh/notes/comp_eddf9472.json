@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_eddf9472",
+  "note_type": "component",
+  "name": "Tree Statistics",
+  "brief": "Tree Statistics | Inputs: T → P, L, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Tree Statistics. Inputs: T (Generic Data). Outputs: P (Path), L (Integer), C (Integer).",
+  "keywords": [
+    "tree statistics",
+    "tree",
+    "statistics",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "tree statistics",
+    "tree",
+    "statistics"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Tree Statistics"
+  ],
+  "solution_principle": "Get some statistics regarding a data tree.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8e643df3",
+    "comp_d547bd03",
+    "comp_609c22e2",
+    "comp_9cc0adac",
+    "comp_50ed8e56",
+    "comp_a92595dd",
+    "comp_d2a1e0b8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "99bee19d-588c-41a0-b9b9-1d00fb03ea1a",
+    "category": "tree_operations",
+    "inputs": {
+      "T": "Generic Data"
+    },
+    "outputs": {
+      "P": "Path",
+      "L": "Integer",
+      "C": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "74cad441-2264-45fe-a57d-85034751208a"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|tree statistics"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "arterial_with_bike_lanes",
+  "version": 1,
+  "description": "Urban arterial road with separated bike lanes on both sides. 15m carriageway, 1m buffers, 3m bike lanes, 3.5m shoulders to ROW.",
+  "source": {
+    "project": "Riyadh",
+    "file": "civil_cad_export",
+    "extractedAt": "2026-03-10T11:00:00Z",
+    "centerlineId": "b63d031f-9244-4ef7-a790-2f24a646f68a",
+    "chainage": 62.87
+  },
+  "symmetric": true,
+  "totalWidth": 30.0,
+  "features": [
+    {
+      "type": "carriageway_edge",
+      "offset": 7.5,
+      "width": 7.5,
+      "label": "Curb line"
+    },
+    {
+      "type": "bike_lane_inner",
+      "offset": 8.5,
+      "width": 1.0,
+      "label": "Buffer (curb to bike lane)"
+    },
+    {
+      "type": "bike_lane_outer",
+      "offset": 11.5,
+      "width": 3.0,
+      "label": "Bike lane"
+    },
+    {
+      "type": "row",
+      "offset": 15.0,
+      "width": 3.5,
+      "label": "Shoulder to right-of-way"
+    }
+  ],
+  "layerMap": {
+    "CPCNTRAV": "centerline",
+    "CPCURBNL": "carriageway_edge",
+    "MIC_bike": "bike_lane",
+    "APBLROW": "row"
+  },
+  "intersectionDefaults": {
+    "armLengthOuterEnvelopeMultiplier": 2.25,
+    "armLengthCarriagewayMultiplier": 3.5,
+    "armLengthDiagonalMultiplier": 0.72,
+    "armLengthRadiusMultiplier": 2.4,
+    "armLengthMin": 10.0,
+    "armLengthMax": 48.0
+  },
+  "tags": ["arterial", "bike_lanes", "urban", "separated_bike", "riyadh"]
+}

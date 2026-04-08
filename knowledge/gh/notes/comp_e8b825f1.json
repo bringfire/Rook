@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_e8b825f1",
+  "note_type": "component",
+  "name": "Surface Split",
+  "brief": "Surface Split | Inputs: S, C → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Surface Split. Inputs: S (Surface), C (Curve). Outputs: F (Surface).",
+  "keywords": [
+    "surface split",
+    "surface",
+    "split",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "surface split",
+    "surface",
+    "split"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Split"
+  ],
+  "solution_principle": "Split a surface with a bunch of curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_22d23745",
+    "comp_4e3057cb",
+    "comp_df6a8c9a",
+    "comp_1f874e01",
+    "comp_279c2a0b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7db14002-c09c-4d7b-9f80-e4e2b00dfa1d",
+    "category": "intersection_physical",
+    "inputs": {
+      "S": "Surface",
+      "C": "Curve"
+    },
+    "outputs": {
+      "F": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "68546dd0-aa82-471c-87e9-81cb16ac50ed"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|surface split"
+  }
+}

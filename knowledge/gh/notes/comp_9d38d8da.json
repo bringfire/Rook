@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_9d38d8da",
+  "note_type": "component",
+  "name": "InCircle",
+  "brief": "InCircle | Inputs: A, B, C → C, P, R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: InCircle. Inputs: A (Point), B (Point), C (Point). Outputs: C (Circle), P (Plane), R (Number).",
+  "keywords": [
+    "incircle",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "incircle",
+    "circle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "InCircle"
+  ],
+  "solution_principle": "Create the incircle of a triangle.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "28b1c4d4-ab1c-4309-accd-1b7a954ed948",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "C": "Circle",
+      "P": "Plane",
+      "R": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "50b204ef-d3de-41bb-a006-02fba2d3f709"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|incircle"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_3913d03d",
+  "note_type": "component",
+  "name": "Control Polygon",
+  "brief": "Control Polygon | Inputs: C → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Control Polygon. Inputs: C (Curve). Outputs: C (Curve), P (Point).",
+  "keywords": [
+    "control polygon",
+    "control",
+    "polygon",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "control polygon",
+    "control",
+    "polygon"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Control Polygon"
+  ],
+  "solution_principle": "Extract the nurbs control polygon of a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_be7ed355",
+    "comp_af439b55",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "66d2a68e-2f1d-43d2-a53b-c6a4d17e627b",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve"
+    },
+    "outputs": {
+      "C": "Curve",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "424eb433-2b3a-4859-beaf-804d8af0afd7"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|control polygon"
+  }
+}

@@ -1,0 +1,534 @@
+{
+  "pattern_id": "53d4186b",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T20:15:26.794525Z",
+  "solution": {
+    "brief": "Parametric workflow with 7 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Sphere",
+      "slider",
+      "Populate Geometry",
+      "slider",
+      "Facet Dome",
+      "Area",
+      "Curve Closest Point",
+      "Point",
+      "Populate Geometry",
+      "Number",
+      "Weaverbird's Mesh Mesh Icosahedron",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Deconstruct Mesh",
+      "Pull Point",
+      "Number",
+      "Multiplication",
+      "slider",
+      "Pull Point",
+      "Smaller Than",
+      "Colour RGB (f)",
+      "Mesh Colours",
+      "Blur Mesh",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Deconstruct Mesh",
+      "Split ARGB",
+      "Remap Numbers",
+      "slider",
+      "Amplitude",
+      "Move",
+      "Construct Mesh"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a sphere",
+      "parametric sphere"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:35:01.046129Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 42 wires -> 33 components, 42 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 700
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 1.5,
+          "value": 1.34
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "min": 0,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14.4
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Reaction Diffusion.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            289,
+            110
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            5,
+            190
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            416,
+            182
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            143.2,
+            270.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 700
+        },
+        {
+          "id": "R5",
+          "type": "Component_FacetDome",
+          "nick": "Facet",
+          "name": "Facet Dome",
+          "pos": [
+            525,
+            153
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            621,
+            81
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            709,
+            123
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            810.2,
+            103.2
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            952,
+            172
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            812.7,
+            178.6
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Icosahedron",
+          "nick": "wbIcosahedron",
+          "name": "Weaverbird's Mesh Mesh Icosahedron",
+          "pos": [
+            944,
+            269
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1046,
+            289
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            824,
+            300.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R14",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1164,
+            189
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_PullPoint",
+          "nick": "Pull",
+          "name": "Pull Point",
+          "pos": [
+            1313,
+            103
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            731.2,
+            226.5
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            814,
+            264
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            594.5,
+            274.5
+          ],
+          "min": 0,
+          "max": 1.5,
+          "value": 1.34
+        },
+        {
+          "id": "R19",
+          "type": "Component_PullPoint",
+          "nick": "Pull",
+          "name": "Pull Point",
+          "pos": [
+            1310,
+            194
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_SmallerThan",
+          "nick": "Smaller",
+          "name": "Smaller Than",
+          "pos": [
+            1436,
+            161
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ColourRGB_Fractional",
+          "nick": "fRGB",
+          "name": "Colour RGB (f)",
+          "pos": [
+            1543,
+            141
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_MeshColour",
+          "nick": "MCol",
+          "name": "Mesh Colours",
+          "pos": [
+            1582,
+            302
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_MeshBlur",
+          "nick": "MBlur",
+          "name": "Blur Mesh",
+          "pos": [
+            1718,
+            312
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            1477.5,
+            344.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R25",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1158,
+            315
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "pos": [
+            903.7,
+            352.9
+          ],
+          "min": 0,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R27",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1806,
+            222
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_ColourSplitARGB",
+          "nick": "ARGB",
+          "name": "Split ARGB",
+          "pos": [
+            1903,
+            322
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2021,
+            399
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            1797.6,
+            416.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14.4
+        },
+        {
+          "id": "R31",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            2107,
+            352
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2196,
+            292
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            2312,
+            227
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R3.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R6.O1>R7.I0",
+        "R5.O0>R7.I1",
+        "R1.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R8.O0>R9.I3",
+        "R17.O0>R11.I1",
+        "R11.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R25.O0>R14.I0",
+        "R14.O0>R15.I0",
+        "R8.O0>R15.I1",
+        "R16.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R14.O0>R19.I0",
+        "R9.O0>R19.I1",
+        "R15.O1>R20.I0",
+        "R19.O1>R20.I1",
+        "R20.O0>R21.I1",
+        "R20.O0>R21.I2",
+        "R20.O0>R21.I3",
+        "R25.O0>R22.I0",
+        "R21.O0>R22.I1",
+        "R22.O0>R23.I0",
+        "R24.O0>R23.I1",
+        "R12.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R23.O0>R27.I0",
+        "R27.O2>R28.I0",
+        "R28.O1>R29.I0",
+        "R30.O0>R29.I2",
+        "R27.O3>R31.I0",
+        "R29.O0>R31.I1",
+        "R27.O0>R32.I0",
+        "R31.O0>R32.I1",
+        "R32.O0>R33.I0",
+        "R27.O1>R33.I1",
+        "R27.O2>R33.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

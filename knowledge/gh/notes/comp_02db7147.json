@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_02db7147",
+  "note_type": "component",
+  "name": "Set Intersection",
+  "brief": "Set Intersection | Inputs: A, B \u2192 U",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Set Intersection. Inputs: A (Generic Data), B (Generic Data). Outputs: U (Generic Data).",
+  "keywords": [
+    "set intersection",
+    "set",
+    "intersection",
+    "set_operations"
+  ],
+  "category": "set_operations",
+  "tags": [
+    "set_operations"
+  ],
+  "trigger_intents": [
+    "set intersection",
+    "set",
+    "intersection"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Set Intersection"
+  ],
+  "solution_principle": "Creates the intersection of two sets (the collection of unique objects present in both sets).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_63672325",
+    "comp_e4d5c4f3",
+    "comp_afef693b",
+    "comp_4c0bfd03",
+    "comp_a983a843",
+    "comp_93c6ad35",
+    "comp_3da2c6c5"
+  ],
+  "times_used": 3,
+  "times_succeeded": 3,
+  "retrieval_count": 0,
+  "last_accessed": "2026-03-14T02:11:35.653517Z",
+  "last_verified": "2026-03-14T02:11:35.653517Z",
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "82f19c48-9e73-43a4-ae6c-3a8368099b08",
+    "category": "set_operations",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "outputs": {
+      "U": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8eed5d78-7810-4ba1-968e-8a1f1db98e39",
+      "4cfc0bb0-0745-4772-a520-39f9bf3d99bc",
+      "81800098-1060-4e2b-80d4-17f835cc825f"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sets|set intersection",
+    "family": "set_operations"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

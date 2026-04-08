@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_02a2143c",
+  "note_type": "component",
+  "name": "Rotate Direction",
+  "brief": "Rotate Direction | Inputs: G, C, F, T \u2192 G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Rotate Direction. Inputs: G (Geometry), C (Point), F (Vector), T (Vector). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "rotate direction",
+    "rotate",
+    "direction",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "rotate direction",
+    "rotate",
+    "direction"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate Direction"
+  ],
+  "solution_principle": "Rotate an object from one direction to another.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2964153b",
+    "comp_12a6f75a",
+    "comp_d9a8dc72",
+    "comp_b175c81a",
+    "comp_244d1b5f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5edaea74-32cb-4586-bd72-66694eb73160",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "C": "Point",
+      "F": "Vector",
+      "T": "Vector"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1602b2cc-007c-4b79-8926-0067c6184e44",
+      "3ac8e589-37f5-477d-aa61-6699702c5728"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|euclidean|rotate direction",
+    "family": "transforms"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

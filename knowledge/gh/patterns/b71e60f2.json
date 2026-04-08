@@ -1,0 +1,4569 @@
+{
+  "pattern_id": "b71e60f2",
+  "name": "Unit-03-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:26:57.432185Z",
+  "solution": {
+    "brief": "Recipe from Unit-03-Class.gh (317 components)",
+    "principle": "\n\nRelated insight: Updated complexity spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-04-Class (414) → Unit-02-Class (467). Unit-02-Class remains the most complex in the series.\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-03-Class represents the bridge between foundational and ultra-complex tiers.",
+    "components_needed": [
+      "Scribble",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "List Item",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "List Item",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "List Item",
+      "panel",
+      "Scribble",
+      "List Item",
+      "panel",
+      "Boolean Toggle",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Boolean Toggle",
+      "panel",
+      "panel",
+      "Scribble",
+      "Cull Index",
+      "List Item",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "List Length",
+      "Series",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Insert Items",
+      "Reverse List",
+      "Shift List",
+      "Split List",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Shift List",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "panel",
+      "panel",
+      "Sort List",
+      "panel",
+      "Jitter",
+      "panel",
+      "Sketch",
+      "Square",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Scribble",
+      "Area",
+      "Deconstruct",
+      "panel",
+      "Cull Pattern",
+      "List Item",
+      "Number Slider",
+      "Random Reduce",
+      "Scribble",
+      "panel",
+      "panel",
+      "List Length",
+      "panel",
+      "Split List",
+      "Division",
+      "panel",
+      "panel",
+      "Equality",
+      "panel",
+      "Dispatch",
+      "Data",
+      "Dispatch",
+      "Data",
+      "panel",
+      "List Item",
+      "Jitter",
+      "Area",
+      "Deconstruct",
+      "Sort List",
+      "panel",
+      "panel",
+      "List Item",
+      "Number Slider",
+      "panel",
+      "Area",
+      "Deconstruct",
+      "panel",
+      "List Length",
+      "panel",
+      "Split List",
+      "Division",
+      "panel",
+      "panel",
+      "Equality",
+      "panel",
+      "Dispatch",
+      "Integer",
+      "panel",
+      "Data",
+      "panel",
+      "panel",
+      "Hexagonal",
+      "Number Slider",
+      "Number Slider",
+      "Cull Pattern",
+      "Deconstruct",
+      "Sort List",
+      "panel",
+      "panel",
+      "Data",
+      "Jitter",
+      "Data",
+      "Dispatch",
+      "Data",
+      "Jitter",
+      "List Length",
+      "panel",
+      "Split List",
+      "Division",
+      "panel",
+      "panel",
+      "Data",
+      "Data",
+      "List Item",
+      "List Item",
+      "Extrude",
+      "Unit Z",
+      "Area",
+      "Scribble",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Data",
+      "panel",
+      "panel",
+      "List Item",
+      "Number Slider",
+      "panel",
+      "List Item",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Partition List",
+      "panel",
+      "Sketch",
+      "panel",
+      "panel",
+      "Number Slider",
+      "panel",
+      "Surface",
+      "Surface",
+      "Split List",
+      "Surface",
+      "Surface",
+      "panel",
+      "panel",
+      "Percent",
+      "Division",
+      "panel",
+      "Split List",
+      "Division",
+      "panel",
+      "Surface",
+      "Surface",
+      "List Item",
+      "panel",
+      "panel",
+      "Boundary Surfaces",
+      "Square",
+      "Number Slider",
+      "Number Slider",
+      "Boundary Surfaces",
+      "Sketch",
+      "Replace Items",
+      "panel",
+      "panel",
+      "panel",
+      "Point",
+      "panel",
+      "Number Slider",
+      "panel",
+      "Scribble",
+      "Data",
+      "Curve",
+      "Dispatch",
+      "Data",
+      "Data",
+      "List Item",
+      "Number Slider",
+      "List Length",
+      "panel",
+      "panel",
+      "Scribble",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Percent",
+      "Division",
+      "panel",
+      "Division",
+      "panel",
+      "panel",
+      "Number Slider",
+      "Boolean Toggle",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Number Slider",
+      "List Item",
+      "Curve",
+      "List Item",
+      "Area",
+      "Sort List",
+      "List Item",
+      "Length",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "panel",
+      "Boolean Toggle",
+      "Boolean Toggle",
+      "Surface",
+      "panel",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Text Split",
+      "panel",
+      "panel",
+      "List Item",
+      "Expression",
+      "panel",
+      "Scribble",
+      "panel",
+      "Surface",
+      "panel",
+      "panel",
+      "panel",
+      "Clock",
+      "Trigger",
+      "Counter",
+      "Button",
+      "panel",
+      "Addition",
+      "panel",
+      "Expression",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "Scribble"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 03 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "f44ca915",
+    "c802b64e",
+    "8a71e405",
+    "f2b6451c",
+    "048b08a3",
+    "c02352fa"
+  ],
+  "tags": [
+    "parametric",
+    "unit-03-class",
+    "317-components",
+    "unit-series",
+    "foundational-tier",
+    "surface-creation",
+    "high-complexity",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:28:18.067327",
+    "evolved_by": [
+      "048b08a3",
+      "c02352fa"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:27:49.082358",
+        "trigger": "New pattern: 048b08a3",
+        "changes": "Unit-04-Class fills the gap in complexity progression between Unit-03 and Unit-02"
+      },
+      {
+        "date": "2026-02-22T09:28:18.067327",
+        "trigger": "New pattern: c02352fa",
+        "changes": "Unit-05-Class completes the series, showing Unit-03-Class as a transitional complexity level"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R5",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R11",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R13",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R37",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R38",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R39",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R56",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R57",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R58",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R73",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R74",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R75",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R101",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R102",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R110",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 899,
+          "value": 0
+        },
+        {
+          "id": "R136",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 9,
+          "value": 1
+        },
+        {
+          "id": "R156",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R157",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 15
+        },
+        {
+          "id": "R183",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R184",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 12
+        },
+        {
+          "id": "R190",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R203",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R225",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R226",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R235",
+          "nick": "Number Slider",
+          "min": 0.001,
+          "max": 100,
+          "value": 80.401
+        },
+        {
+          "id": "R244",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 70,
+          "value": 0
+        },
+        {
+          "id": "R262",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R268",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R289",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R290",
+          "nick": "Number Slider",
+          "min": 0.001,
+          "max": 100,
+          "value": 58.52
+        }
+      ],
+      "panels": [
+        {
+          "id": "R6",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "content": "9"
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "content": "10"
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "content": "10"
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "content": "-1"
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "content": "5"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R82",
+          "nick": "",
+          "content": "Grasshopper"
+        },
+        {
+          "id": "R83",
+          "nick": "",
+          "content": "5"
+        },
+        {
+          "id": "R84",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R85",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R86",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R88",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R92",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R94",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R96",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R98",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R103",
+          "nick": "",
+          "content": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction."
+        },
+        {
+          "id": "R107",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R113",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R114",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R116",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R119",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R120",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R122",
+          "nick": "",
+          "content": "15"
+        },
+        {
+          "id": "R127",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R133",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R134",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R137",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R140",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R142",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R145",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R146",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R148",
+          "nick": "",
+          "content": "120"
+        },
+        {
+          "id": "R151",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R153",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R154",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R161",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R162",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R170",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R173",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R174",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R185",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R187",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R188",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R191",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R199",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R201",
+          "nick": "",
+          "content": "Hover over the S INPUT and check Grasshopper's default values.\r\n\r\nMany ways to edit the S values:\r\n1- Right-click on S, click on \"Set Integer\"\r\n2- Right-click on S, click on \"Set Multiple Integers\"\r\n3- Build a new \"Number Slider\" and input it into S\r\nMany more ways will be explored later in the course"
+        },
+        {
+          "id": "R202",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R204",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R210",
+          "nick": "",
+          "content": "110"
+        },
+        {
+          "id": "R211",
+          "nick": "",
+          "content": "100"
+        },
+        {
+          "id": "R212",
+          "nick": "Percent",
+          "content": "80"
+        },
+        {
+          "id": "R214",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R217",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R221",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R222",
+          "nick": "",
+          "content": "-1"
+        },
+        {
+          "id": "R230",
+          "nick": "",
+          "content": "Grasshopper"
+        },
+        {
+          "id": "R231",
+          "nick": "",
+          "content": "5"
+        },
+        {
+          "id": "R232",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R234",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R236",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R246",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R247",
+          "nick": "",
+          "content": "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images"
+        },
+        {
+          "id": "R249",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R250",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R251",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R252",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R253",
+          "nick": "",
+          "content": "False\r\nFalse\r\nTrue\r\nTrue\r\nTrue\r\nFalse\r\nFalse"
+        },
+        {
+          "id": "R254",
+          "nick": "",
+          "content": "False\r\nTrue\r\nTrue\r\nTrue"
+        },
+        {
+          "id": "R255",
+          "nick": "",
+          "content": "100"
+        },
+        {
+          "id": "R256",
+          "nick": "Percent",
+          "content": "50"
+        },
+        {
+          "id": "R258",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R260",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R261",
+          "nick": "",
+          "content": "Display > Draw Fancy Wires"
+        },
+        {
+          "id": "R276",
+          "nick": "",
+          "content": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines."
+        },
+        {
+          "id": "R277",
+          "nick": "",
+          "content": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on."
+        },
+        {
+          "id": "R278",
+          "nick": "",
+          "content": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.\r\n\r\n"
+        },
+        {
+          "id": "R279",
+          "nick": "",
+          "content": "5- Lists: More components\r\n\r\n- The following components are often used in Grasshopper. Use the previous List generated by the Series and try:\r\n- \"List Length\"\r\n- \"Insert Items\"\r\n- \"Replace Items\"\r\n- \"Reverse List\"\r\n- \"Shift List\"\r\n- \"Sort List\"\r\n- \"Jitter\"\r\n- \"Split List\"\r\n- \"Partition List\""
+        },
+        {
+          "id": "R280",
+          "nick": "",
+          "content": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Use the \"Boundary\" component to make surfaces out of the cells.\r\n\r\n3- Get the center point of each cell using the \"Area\" component.\r\n\r\n4- Extract the XYZ information from the center points.\r\n\r\n5- Select only the ones with the Y = 15.\r\n\r\n7- Jitter the resultant List.\r\n\r\n6- Organize (sort) these ones from smallest to largest X value.\r\n\r\n7- Back to step 2, randomly cull 25 surfaces.\r\n\r\n8- Back to step 2, use a pattern to cull surfaces.\r\n\r\n9- Back to step 2, find the length of the List of surfaces and split the List in half parametrically."
+        },
+        {
+          "id": "R283",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R284",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R288",
+          "nick": "",
+          "content": "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue"
+        },
+        {
+          "id": "R291",
+          "nick": "",
+          "content": "IMPORTANT:\r\nThe Number of Inputs in \"List\" should have the same number of Boolean Results entering \"Dispatch Pattern\""
+        },
+        {
+          "id": "R293",
+          "nick": "",
+          "content": ":"
+        },
+        {
+          "id": "R294",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R297",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R299",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R301",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R302",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R303",
+          "nick": "",
+          "content": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed."
+        },
+        {
+          "id": "R308",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R310",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R312",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R313",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R314",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R315",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "Unit-03-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            463.6,
+            -37.2
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            757,
+            804
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            461.1,
+            767.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            461.7,
+            794.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            459.7,
+            821.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R6",
+          "type": "panel",
+          "pos": [
+            862.6,
+            694.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            863.6,
+            709.4
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            866.8,
+            854
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1137,
+            -37.2
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1404,
+            803
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1087.8,
+            764.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1087.8,
+            792.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1085.8,
+            819.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            1502.8,
+            697
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R15",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1503.4,
+            712.5
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1509.1,
+            856.3
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1492,
+            991
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "panel",
+          "pos": [
+            1578,
+            960.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R19",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            649.1,
+            757
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            786.4,
+            789
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            1262.8,
+            977
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R23",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1492,
+            1106
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "panel",
+          "pos": [
+            1578,
+            1076.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R25",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1273,
+            970.5
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1316.2,
+            745.4
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1551,
+            724.5
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "panel",
+          "pos": [
+            1260.1,
+            1097.4
+          ],
+          "content": "9"
+        },
+        {
+          "id": "R30",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            2360,
+            997
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "panel",
+          "pos": [
+            2449.7,
+            955.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R32",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1895,
+            -37.2
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            2360,
+            1149
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "panel",
+          "pos": [
+            2449.7,
+            1108.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R35",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            2109,
+            1035
+          ],
+          "value": false
+        },
+        {
+          "id": "R36",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2155,
+            803
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1831.3,
+            766.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1831.3,
+            794.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1829.3,
+            821.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R40",
+          "type": "panel",
+          "pos": [
+            2448.9,
+            684.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R41",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            2113,
+            1186
+          ],
+          "value": true
+        },
+        {
+          "id": "R42",
+          "type": "panel",
+          "pos": [
+            2200.6,
+            970.5
+          ],
+          "content": "10"
+        },
+        {
+          "id": "R43",
+          "type": "panel",
+          "pos": [
+            2211.9,
+            1131.2
+          ],
+          "content": "10"
+        },
+        {
+          "id": "R44",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2737.3,
+            -37.2
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_CullIndex",
+          "name": "Cull Index",
+          "pos": [
+            3185,
+            1060
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            1492,
+            1233
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "panel",
+          "pos": [
+            1578,
+            1203.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R48",
+          "type": "panel",
+          "pos": [
+            1260.1,
+            1224.5
+          ],
+          "content": "-1"
+        },
+        {
+          "id": "R49",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1633.8,
+            1103.8
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2200.5,
+            1027.4
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2200.5,
+            1175.8
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2284,
+            1156.5
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2284,
+            1005.9
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            3034,
+            803
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2738.2,
+            766.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2738.2,
+            794.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2736.2,
+            821.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R59",
+          "type": "panel",
+          "pos": [
+            3285.2,
+            695.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R60",
+          "type": "panel",
+          "pos": [
+            3020,
+            1051.8
+          ],
+          "content": "5"
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            3287,
+            955.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R62",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3024.7,
+            1054.5
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3052,
+            793.5
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3333.4,
+            810.9
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3279.1,
+            1050.9
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3633.8,
+            -37.2
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            4078,
+            1015
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            3899,
+            803
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3586.6,
+            766.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R74",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3586.6,
+            794.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R75",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3584.6,
+            821.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R76",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            695.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R77",
+          "type": "Component_InsertItems",
+          "name": "Insert Items",
+          "pos": [
+            4078,
+            1210
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Component_ReverseList",
+          "name": "Reverse List",
+          "pos": [
+            4078,
+            1759
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Component_ShiftList",
+          "name": "Shift List",
+          "pos": [
+            4078,
+            2034
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            4076,
+            3673
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "panel",
+          "pos": [
+            4194.8,
+            986.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R82",
+          "type": "panel",
+          "pos": [
+            3860.7,
+            1204.3
+          ],
+          "content": "Grasshopper"
+        },
+        {
+          "id": "R83",
+          "type": "panel",
+          "pos": [
+            3925,
+            1232.4
+          ],
+          "content": "5"
+        },
+        {
+          "id": "R84",
+          "type": "panel",
+          "pos": [
+            4195.1,
+            1107.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R85",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            1647.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R86",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            1929.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R87",
+          "type": "Component_ShiftList",
+          "name": "Shift List",
+          "pos": [
+            4078,
+            2296
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            2191
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R89",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4194.8,
+            2087
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4195.6,
+            2348.9
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "panel",
+          "pos": [
+            3947.4,
+            3676.4
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R93",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            3532.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R94",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            3690.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R95",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            4073,
+            2661
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "panel",
+          "pos": [
+            4193.9,
+            2536.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R97",
+          "type": "Component_Jitter",
+          "name": "Jitter",
+          "pos": [
+            3718,
+            2659
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "panel",
+          "pos": [
+            3817.8,
+            2536.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R99",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            4979,
+            1381
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4688.7,
+            1366.4
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R102",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4688.7,
+            1397.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R103",
+          "type": "panel",
+          "pos": [
+            10145.6,
+            45.9
+          ],
+          "content": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction."
+        },
+        {
+          "id": "R104",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            10152.2,
+            -37.2
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            5524,
+            1260
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            5780,
+            1175
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "panel",
+          "pos": [
+            5768.5,
+            545.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R108",
+          "type": "Component_CullPattern",
+          "name": "Cull Pattern",
+          "pos": [
+            9484,
+            767
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            9479,
+            645
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9168.4,
+            636.7
+          ],
+          "min": 0,
+          "max": 899,
+          "value": 0
+        },
+        {
+          "id": "R111",
+          "type": "Component_RandomReduce",
+          "name": "Random Reduce",
+          "pos": [
+            9446,
+            1596
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            4736.4,
+            -37.2
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "panel",
+          "pos": [
+            4502.1,
+            28.7
+          ],
+          "content": ""
+        },
+        {
+          "id": "R114",
+          "type": "panel",
+          "pos": [
+            9939.7,
+            50.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R115",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            8843,
+            1113
+          ]
+        },
+        {
+          "id": "R116",
+          "type": "panel",
+          "pos": [
+            8986.7,
+            1033.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R117",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            9368,
+            1113
+          ]
+        },
+        {
+          "id": "R118",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            9110,
+            1128
+          ]
+        },
+        {
+          "id": "R119",
+          "type": "panel",
+          "pos": [
+            9002.8,
+            1124.7
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R120",
+          "type": "panel",
+          "pos": [
+            9209.2,
+            1100
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R121",
+          "type": "Component_EqualTo",
+          "name": "Equality",
+          "pos": [
+            6110,
+            1243
+          ]
+        },
+        {
+          "id": "R122",
+          "type": "panel",
+          "pos": [
+            5918.8,
+            1244.6
+          ],
+          "content": "15"
+        },
+        {
+          "id": "R123",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            6552,
+            1351
+          ]
+        },
+        {
+          "id": "R124",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6654.6,
+            1335.6
+          ]
+        },
+        {
+          "id": "R125",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            6552,
+            1638
+          ]
+        },
+        {
+          "id": "R126",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6654.6,
+            1622.4
+          ]
+        },
+        {
+          "id": "R127",
+          "type": "panel",
+          "pos": [
+            6044.3,
+            545.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R128",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7041,
+            1676
+          ]
+        },
+        {
+          "id": "R129",
+          "type": "Component_Jitter",
+          "name": "Jitter",
+          "pos": [
+            6767,
+            1539
+          ]
+        },
+        {
+          "id": "R130",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            7044,
+            1597
+          ]
+        },
+        {
+          "id": "R131",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            7178,
+            1484
+          ]
+        },
+        {
+          "id": "R132",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            7420,
+            1605
+          ]
+        },
+        {
+          "id": "R133",
+          "type": "panel",
+          "pos": [
+            7459.5,
+            1230.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R134",
+          "type": "panel",
+          "pos": [
+            7086.7,
+            1060.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R135",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7921,
+            1632
+          ]
+        },
+        {
+          "id": "R136",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            7576.3,
+            1737.6
+          ],
+          "min": 0,
+          "max": 9,
+          "value": 1
+        },
+        {
+          "id": "R137",
+          "type": "panel",
+          "pos": [
+            6383.2,
+            545.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R138",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            10895,
+            733
+          ]
+        },
+        {
+          "id": "R139",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            11076,
+            690
+          ]
+        },
+        {
+          "id": "R140",
+          "type": "panel",
+          "pos": [
+            10953.2,
+            77
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R141",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            12769,
+            838
+          ]
+        },
+        {
+          "id": "R142",
+          "type": "panel",
+          "pos": [
+            12852,
+            751.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R143",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            13274,
+            827
+          ]
+        },
+        {
+          "id": "R144",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            13016,
+            856
+          ]
+        },
+        {
+          "id": "R145",
+          "type": "panel",
+          "pos": [
+            12921.1,
+            861.2
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R146",
+          "type": "panel",
+          "pos": [
+            13079.1,
+            839.6
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R147",
+          "type": "Component_EqualTo",
+          "name": "Equality",
+          "pos": [
+            11498,
+            686
+          ]
+        },
+        {
+          "id": "R148",
+          "type": "panel",
+          "pos": [
+            11297.3,
+            710.9
+          ],
+          "content": "120"
+        },
+        {
+          "id": "R149",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            11972,
+            826
+          ]
+        },
+        {
+          "id": "R150",
+          "type": "Param_Integer",
+          "name": "Integer",
+          "pos": [
+            11261.9,
+            671.8
+          ]
+        },
+        {
+          "id": "R151",
+          "type": "panel",
+          "pos": [
+            11166.4,
+            77
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R152",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            12076.4,
+            811.2
+          ]
+        },
+        {
+          "id": "R153",
+          "type": "panel",
+          "pos": [
+            11527.4,
+            76.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R154",
+          "type": "panel",
+          "pos": [
+            11754.9,
+            76.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R155",
+          "type": "Component_HexagonalGrid",
+          "name": "Hexagonal",
+          "pos": [
+            10521,
+            837
+          ]
+        },
+        {
+          "id": "R156",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10186.3,
+            818.9
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R157",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10188.9,
+            849.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 15
+        },
+        {
+          "id": "R158",
+          "type": "Component_CullPattern",
+          "name": "Cull Pattern",
+          "pos": [
+            10724,
+            833
+          ]
+        },
+        {
+          "id": "R159",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            12334,
+            744
+          ]
+        },
+        {
+          "id": "R160",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            12514,
+            822
+          ]
+        },
+        {
+          "id": "R161",
+          "type": "panel",
+          "pos": [
+            12464.8,
+            442.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R162",
+          "type": "panel",
+          "pos": [
+            12289.3,
+            428.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R163",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            12636.2,
+            811.4
+          ]
+        },
+        {
+          "id": "R164",
+          "type": "Component_Jitter",
+          "name": "Jitter",
+          "pos": [
+            12177,
+            829
+          ]
+        },
+        {
+          "id": "R165",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            13370.4,
+            821.1
+          ]
+        },
+        {
+          "id": "R166",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            11972,
+            1185
+          ]
+        },
+        {
+          "id": "R167",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            12076.4,
+            1172
+          ]
+        },
+        {
+          "id": "R168",
+          "type": "Component_Jitter",
+          "name": "Jitter",
+          "pos": [
+            12177,
+            1188
+          ]
+        },
+        {
+          "id": "R169",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            12769,
+            987
+          ]
+        },
+        {
+          "id": "R170",
+          "type": "panel",
+          "pos": [
+            12852,
+            900.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R171",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            13274,
+            976
+          ]
+        },
+        {
+          "id": "R172",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            13016,
+            1005
+          ]
+        },
+        {
+          "id": "R173",
+          "type": "panel",
+          "pos": [
+            12921.1,
+            1010.2
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R174",
+          "type": "panel",
+          "pos": [
+            13097,
+            979.6
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R175",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            12624.4,
+            975.8
+          ]
+        },
+        {
+          "id": "R176",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            13370.4,
+            970.1
+          ]
+        },
+        {
+          "id": "R177",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            12258,
+            996
+          ]
+        },
+        {
+          "id": "R178",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            12258,
+            911
+          ]
+        },
+        {
+          "id": "R179",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            13783,
+            919
+          ]
+        },
+        {
+          "id": "R180",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            13704,
+            1051
+          ]
+        },
+        {
+          "id": "R181",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            13527,
+            1032
+          ]
+        },
+        {
+          "id": "R182",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            33.8,
+            -37.8
+          ]
+        },
+        {
+          "id": "R183",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3788,
+            2023.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R184",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3396.9,
+            2672
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 12
+        },
+        {
+          "id": "R185",
+          "type": "panel",
+          "pos": [
+            5466.7,
+            545.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R186",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6654.6,
+            1369.2
+          ]
+        },
+        {
+          "id": "R187",
+          "type": "panel",
+          "pos": [
+            6790.1,
+            1840.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R188",
+          "type": "panel",
+          "pos": [
+            6798.6,
+            1060.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R189",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            6658,
+            1777
+          ]
+        },
+        {
+          "id": "R190",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6371.6,
+            1767.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R191",
+          "type": "panel",
+          "pos": [
+            7324.3,
+            1230.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R192",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7924,
+            1747
+          ]
+        },
+        {
+          "id": "R193",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7289.9,
+            1146.5
+          ]
+        },
+        {
+          "id": "R194",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7375.9,
+            1256.1
+          ]
+        },
+        {
+          "id": "R195",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            7312.6,
+            1186.4
+          ]
+        },
+        {
+          "id": "R196",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7453.1,
+            1253.2
+          ]
+        },
+        {
+          "id": "R197",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1167,
+            1104.5
+          ]
+        },
+        {
+          "id": "R198",
+          "type": "Component_PartitionList",
+          "name": "Partition List",
+          "pos": [
+            4076,
+            4039
+          ]
+        },
+        {
+          "id": "R199",
+          "type": "panel",
+          "pos": [
+            4195.1,
+            3882.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R200",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4018.9,
+            4052.1
+          ]
+        },
+        {
+          "id": "R201",
+          "type": "panel",
+          "pos": [
+            3646.7,
+            4150.9
+          ],
+          "content": "Hover over the S INPUT and check Grasshopper's default values.\r\n\r\nMany ways to edit the S values:\r\n1- Right-click on S, click on \"Set Integer\"\r\n2- Right-click on S, click on \"Set Multiple Integers\"\r\n3- Build a new \"Number Slider\" and input it into S\r\nMany more ways will be explored later in the course"
+        },
+        {
+          "id": "R202",
+          "type": "panel",
+          "pos": [
+            3851.4,
+            1651.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R203",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3798.2,
+            2280.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R204",
+          "type": "panel",
+          "pos": [
+            3715.3,
+            3909.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R205",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.5,
+            1094.3
+          ]
+        },
+        {
+          "id": "R206",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.5,
+            1131.5
+          ]
+        },
+        {
+          "id": "R207",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            9368,
+            999
+          ]
+        },
+        {
+          "id": "R208",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.5,
+            984.5
+          ]
+        },
+        {
+          "id": "R209",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.4,
+            1013.6
+          ]
+        },
+        {
+          "id": "R210",
+          "type": "panel",
+          "pos": [
+            9202,
+            1000.4
+          ],
+          "content": "110"
+        },
+        {
+          "id": "R211",
+          "type": "panel",
+          "pos": [
+            8761,
+            1212
+          ],
+          "content": "100"
+        },
+        {
+          "id": "R212",
+          "type": "panel",
+          "nick": "Percent",
+          "pos": [
+            8760,
+            1263.8
+          ],
+          "content": "80"
+        },
+        {
+          "id": "R213",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            8896,
+            1245
+          ]
+        },
+        {
+          "id": "R214",
+          "type": "panel",
+          "pos": [
+            8976.2,
+            1218.4
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R215",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            9368,
+            1222
+          ]
+        },
+        {
+          "id": "R216",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            9118,
+            1233
+          ]
+        },
+        {
+          "id": "R217",
+          "type": "panel",
+          "pos": [
+            9209.3,
+            1208.6
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R218",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.3,
+            1205.3
+          ]
+        },
+        {
+          "id": "R219",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            9488.1,
+            1240.9
+          ]
+        },
+        {
+          "id": "R220",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            2363,
+            1323
+          ]
+        },
+        {
+          "id": "R221",
+          "type": "panel",
+          "pos": [
+            2449.2,
+            1293.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R222",
+          "type": "panel",
+          "pos": [
+            2216.4,
+            1305.3
+          ],
+          "content": "-1"
+        },
+        {
+          "id": "R223",
+          "type": "Component_BoundarySurfaces",
+          "name": "Boundary Surfaces",
+          "pos": [
+            8717,
+            632
+          ]
+        },
+        {
+          "id": "R224",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            8528,
+            652
+          ]
+        },
+        {
+          "id": "R225",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8229,
+            633.4
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 10
+        },
+        {
+          "id": "R226",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8228.6,
+            663.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R227",
+          "type": "Component_BoundarySurfaces",
+          "name": "Boundary Surfaces",
+          "pos": [
+            5539,
+            1579
+          ]
+        },
+        {
+          "id": "R228",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7430.5,
+            1586.3
+          ]
+        },
+        {
+          "id": "R229",
+          "type": "Component_ReplaceItems",
+          "name": "Replace Items",
+          "pos": [
+            4077,
+            1484
+          ]
+        },
+        {
+          "id": "R230",
+          "type": "panel",
+          "pos": [
+            3862,
+            1461.1
+          ],
+          "content": "Grasshopper"
+        },
+        {
+          "id": "R231",
+          "type": "panel",
+          "pos": [
+            3925,
+            1497.5
+          ],
+          "content": "5"
+        },
+        {
+          "id": "R232",
+          "type": "panel",
+          "pos": [
+            4180.3,
+            1375.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R233",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            5130.3,
+            1470.1
+          ]
+        },
+        {
+          "id": "R234",
+          "type": "panel",
+          "pos": [
+            5054.5,
+            841.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R235",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8742.7,
+            1346.6
+          ],
+          "min": 0.001,
+          "max": 100,
+          "value": 80.401
+        },
+        {
+          "id": "R236",
+          "type": "panel",
+          "pos": [
+            8048.5,
+            50.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R237",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8214.3,
+            -37.2
+          ]
+        },
+        {
+          "id": "R238",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6654.6,
+            1657.4
+          ]
+        },
+        {
+          "id": "R239",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            5270.5,
+            1447.2
+          ]
+        },
+        {
+          "id": "R240",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            6552,
+            1481
+          ]
+        },
+        {
+          "id": "R241",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6657,
+            1465.8
+          ]
+        },
+        {
+          "id": "R242",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6654.6,
+            1500.4
+          ]
+        },
+        {
+          "id": "R243",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            5623,
+            1373
+          ]
+        },
+        {
+          "id": "R244",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            5332.1,
+            1364
+          ],
+          "min": 0,
+          "max": 70,
+          "value": 0
+        },
+        {
+          "id": "R245",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            8851,
+            1473
+          ]
+        },
+        {
+          "id": "R246",
+          "type": "panel",
+          "pos": [
+            8958.2,
+            1444.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R247",
+          "type": "panel",
+          "pos": [
+            8739.1,
+            1835.9
+          ],
+          "content": "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images"
+        },
+        {
+          "id": "R248",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8742.9,
+            1771
+          ]
+        },
+        {
+          "id": "R249",
+          "type": "panel",
+          "pos": [
+            3670.4,
+            1353.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R250",
+          "type": "panel",
+          "pos": [
+            3689.4,
+            1082.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R251",
+          "type": "panel",
+          "pos": [
+            3231.3,
+            2530.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R252",
+          "type": "panel",
+          "pos": [
+            3678.3,
+            3550.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R253",
+          "type": "panel",
+          "pos": [
+            9067.8,
+            729.4
+          ],
+          "content": "False\r\nFalse\r\nTrue\r\nTrue\r\nTrue\r\nFalse\r\nFalse"
+        },
+        {
+          "id": "R254",
+          "type": "panel",
+          "pos": [
+            9280.4,
+            740.5
+          ],
+          "content": "False\r\nTrue\r\nTrue\r\nTrue"
+        },
+        {
+          "id": "R255",
+          "type": "panel",
+          "pos": [
+            8758,
+            1569.5
+          ],
+          "content": "100"
+        },
+        {
+          "id": "R256",
+          "type": "panel",
+          "nick": "Percent",
+          "pos": [
+            8758.7,
+            1617
+          ],
+          "content": "50"
+        },
+        {
+          "id": "R257",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            8862,
+            1603
+          ]
+        },
+        {
+          "id": "R258",
+          "type": "panel",
+          "pos": [
+            8961.5,
+            1577.3
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R259",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            9124,
+            1595
+          ]
+        },
+        {
+          "id": "R260",
+          "type": "panel",
+          "pos": [
+            9206.1,
+            1563.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R261",
+          "type": "panel",
+          "pos": [
+            495.9,
+            610.3
+          ],
+          "content": "Display > Draw Fancy Wires"
+        },
+        {
+          "id": "R262",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3395.3,
+            2649.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R263",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            2119,
+            1365
+          ],
+          "value": true
+        },
+        {
+          "id": "R264",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3683.3,
+            1181.2
+          ]
+        },
+        {
+          "id": "R265",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3750,
+            1109.5
+          ]
+        },
+        {
+          "id": "R266",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3667.8,
+            1451.3
+          ]
+        },
+        {
+          "id": "R267",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3734.5,
+            1379.6
+          ]
+        },
+        {
+          "id": "R268",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6756.9,
+            1778
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R269",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7202,
+            1771
+          ]
+        },
+        {
+          "id": "R270",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            7137.5,
+            2415.3
+          ]
+        },
+        {
+          "id": "R271",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7317,
+            2509
+          ]
+        },
+        {
+          "id": "R272",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            7324,
+            2366
+          ]
+        },
+        {
+          "id": "R273",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            7507,
+            2399
+          ]
+        },
+        {
+          "id": "R274",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            7663,
+            2473
+          ]
+        },
+        {
+          "id": "R275",
+          "type": "Component_Length",
+          "name": "Length",
+          "pos": [
+            7323,
+            2277
+          ]
+        },
+        {
+          "id": "R276",
+          "type": "panel",
+          "pos": [
+            454.2,
+            32.1
+          ],
+          "content": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines."
+        },
+        {
+          "id": "R277",
+          "type": "panel",
+          "pos": [
+            1127.6,
+            32.1
+          ],
+          "content": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on."
+        },
+        {
+          "id": "R278",
+          "type": "panel",
+          "pos": [
+            2743.4,
+            32.1
+          ],
+          "content": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.\r\n\r\n"
+        },
+        {
+          "id": "R279",
+          "type": "panel",
+          "pos": [
+            3639.1,
+            28.9
+          ],
+          "content": "5- Lists: More components\r\n\r\n- The following components are often used in Grasshopper. Use the previous List generated by the Series and try:\r\n- \"List Length\"\r\n- \"Insert Items\"\r\n- \"Replace Items\"\r\n- \"Reverse List\"\r\n- \"Shift List\"\r\n- \"Sort List\"\r\n- \"Jitter\"\r\n- \"Split List\"\r\n- \"Partition List\""
+        },
+        {
+          "id": "R280",
+          "type": "panel",
+          "pos": [
+            4741.7,
+            28.9
+          ],
+          "content": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Use the \"Boundary\" component to make surfaces out of the cells.\r\n\r\n3- Get the center point of each cell using the \"Area\" component.\r\n\r\n4- Extract the XYZ information from the center points.\r\n\r\n5- Select only the ones with the Y = 15.\r\n\r\n7- Jitter the resultant List.\r\n\r\n6- Organize (sort) these ones from smallest to largest X value.\r\n\r\n7- Back to step 2, randomly cull 25 surfaces.\r\n\r\n8- Back to step 2, use a pattern to cull surfaces.\r\n\r\n9- Back to step 2, find the length of the List of surfaces and split the List in half parametrically."
+        },
+        {
+          "id": "R281",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            56.9,
+            56.6
+          ]
+        },
+        {
+          "id": "R282",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            56.9,
+            122.9
+          ]
+        },
+        {
+          "id": "R283",
+          "type": "panel",
+          "pos": [
+            3605.1,
+            1899
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R284",
+          "type": "panel",
+          "pos": [
+            3605.1,
+            2164
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R285",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            3842,
+            2056
+          ],
+          "value": true
+        },
+        {
+          "id": "R286",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            3842,
+            2311
+          ],
+          "value": false
+        },
+        {
+          "id": "R287",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            6885.8,
+            1524
+          ]
+        },
+        {
+          "id": "R288",
+          "type": "panel",
+          "pos": [
+            9172,
+            735.2
+          ],
+          "content": "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue"
+        },
+        {
+          "id": "R289",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8228.6,
+            686.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R290",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8729,
+            1698.6
+          ],
+          "min": 0.001,
+          "max": 100,
+          "value": 58.52
+        },
+        {
+          "id": "R291",
+          "type": "panel",
+          "pos": [
+            6422.8,
+            1159
+          ],
+          "content": "IMPORTANT:\r\nThe Number of Inputs in \"List\" should have the same number of Boolean Results entering \"Dispatch Pattern\""
+        },
+        {
+          "id": "R292",
+          "type": "Component_TextSplit",
+          "name": "Text Split",
+          "pos": [
+            3451,
+            3072
+          ]
+        },
+        {
+          "id": "R293",
+          "type": "panel",
+          "pos": [
+            3298,
+            3077
+          ],
+          "content": ":"
+        },
+        {
+          "id": "R294",
+          "type": "panel",
+          "pos": [
+            3281.1,
+            2967
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R295",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            3593,
+            3093
+          ]
+        },
+        {
+          "id": "R296",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            3844,
+            3107
+          ]
+        },
+        {
+          "id": "R297",
+          "type": "panel",
+          "pos": [
+            4001.2,
+            3087.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R298",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3112.1,
+            2880.1
+          ]
+        },
+        {
+          "id": "R299",
+          "type": "panel",
+          "pos": [
+            3551.4,
+            2931.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R300",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            7539,
+            1604
+          ]
+        },
+        {
+          "id": "R301",
+          "type": "panel",
+          "pos": [
+            7248.8,
+            2041.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R302",
+          "type": "panel",
+          "pos": [
+            7503.8,
+            2037.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R303",
+          "type": "panel",
+          "pos": [
+            1884.5,
+            32.1
+          ],
+          "content": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed."
+        },
+        {
+          "id": "R304",
+          "type": "ClockObject",
+          "name": "Clock",
+          "pos": [
+            3159,
+            3053
+          ]
+        },
+        {
+          "id": "R305",
+          "type": "Timer",
+          "name": "Trigger",
+          "pos": [
+            3101,
+            3322
+          ]
+        },
+        {
+          "id": "R306",
+          "type": "PlaceholderComponent",
+          "name": "Counter",
+          "pos": [
+            3801,
+            3310
+          ]
+        },
+        {
+          "id": "R307",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            3101,
+            3273
+          ]
+        },
+        {
+          "id": "R308",
+          "type": "panel",
+          "pos": [
+            3884.8,
+            3290.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R309",
+          "type": "Component_VariableAddition",
+          "name": "Addition",
+          "pos": [
+            4145,
+            3197
+          ]
+        },
+        {
+          "id": "R310",
+          "type": "panel",
+          "pos": [
+            4233.8,
+            3178
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R311",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            4015,
+            2949
+          ]
+        },
+        {
+          "id": "R312",
+          "type": "panel",
+          "pos": [
+            3688.3,
+            2873.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R313",
+          "type": "panel",
+          "pos": [
+            3687.3,
+            2935.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R314",
+          "type": "panel",
+          "pos": [
+            3688.1,
+            2982.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R315",
+          "type": "panel",
+          "pos": [
+            4217.3,
+            2916.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R316",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3899,
+            2988
+          ]
+        },
+        {
+          "id": "R317",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3935.5,
+            3014.5
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R4.O0>R2.I1",
+        "R5.O0>R2.I2",
+        "R2.O0>R6.I0",
+        "R11.O0>R10.I0",
+        "R12.O0>R10.I1",
+        "R13.O0>R10.I2",
+        "R10.O0>R14.I0",
+        "R10.O0>R17.I0",
+        "R22.O0>R17.I1",
+        "R17.O0>R18.I0",
+        "R10.O0>R23.I0",
+        "R29.O0>R23.I1",
+        "R23.O0>R24.I0",
+        "R36.O0>R30.I0",
+        "R42.O0>R30.I1",
+        "R35.O0>R30.I2",
+        "R30.O0>R31.I0",
+        "R36.O0>R33.I0",
+        "R43.O0>R33.I1",
+        "R41.O0>R33.I2",
+        "R33.O0>R34.I0",
+        "R37.O0>R36.I0",
+        "R38.O0>R36.I1",
+        "R39.O0>R36.I2",
+        "R36.O0>R40.I0",
+        "R55.O0>R45.I0",
+        "R60.O0>R45.I1",
+        "R10.O0>R46.I0",
+        "R48.O0>R46.I1",
+        "R46.O0>R47.I0",
+        "R56.O0>R55.I0",
+        "R57.O0>R55.I1",
+        "R58.O0>R55.I2",
+        "R55.O0>R59.I0",
+        "R45.O0>R61.I0",
+        "R72.O0>R71.I0",
+        "R73.O0>R72.I0",
+        "R74.O0>R72.I1",
+        "R75.O0>R72.I2",
+        "R72.O0>R76.I0",
+        "R250.O0>R77.I0",
+        "R82.O0>R77.I1",
+        "R83.O0>R77.I2",
+        "R202.O0>R78.I0",
+        "R283.O0>R79.I0",
+        "R183.O0>R79.I1",
+        "R285.O0>R79.I2",
+        "R252.O0>R80.I0",
+        "R92.O0>R80.I1",
+        "R71.O0>R81.I0",
+        "R77.O0>R84.I0",
+        "R78.O0>R85.I0",
+        "R79.O0>R86.I0",
+        "R284.O0>R87.I0",
+        "R203.O0>R87.I1",
+        "R286.O0>R87.I2",
+        "R87.O0>R88.I0",
+        "R80.O0>R93.I0",
+        "R80.O1>R94.I0",
+        "R98.O0>R95.I0",
+        "R95.O0>R96.I0",
+        "R251.O0>R97.I0",
+        "R262.O0>R97.I1",
+        "R184.O0>R97.I2",
+        "R97.O0>R98.I0",
+        "R101.O0>R100.I1",
+        "R102.O0>R100.I2",
+        "R102.O0>R100.I3",
+        "R239.O0>R105.I0",
+        "R105.O1>R106.I0",
+        "R106.O1>R107.I0",
+        "R223.O0>R108.I0",
+        "R253.O0>R108.I1",
+        "R223.O0>R109.I0",
+        "R110.O0>R109.I1",
+        "R223.O0>R111.I0",
+        "R260.O0>R111.I1",
+        "R223.O0>R115.I0",
+        "R115.O0>R116.I0",
+        "R223.O0>R117.I0",
+        "R120.O0>R117.I1",
+        "R115.O0>R118.I0",
+        "R119.O0>R118.I1",
+        "R118.O0>R120.I0",
+        "R106.O1>R121.I0",
+        "R122.O0>R121.I1",
+        "R105.O1>R123.I0",
+        "R121.O0>R123.I1",
+        "R227.O0>R125.I0",
+        "R121.O0>R125.I1",
+        "R121.O0>R127.I0",
+        "R287.O0>R128.I0",
+        "R268.O0>R128.I1",
+        "R126.O0>R129.I0",
+        "R287.O0>R130.I0",
+        "R130.O1>R131.I0",
+        "R131.O0>R132.I0",
+        "R287.O0>R132.I1",
+        "R130.O1>R132.I2",
+        "R132.O0>R133.I0",
+        "R130.O1>R134.I0",
+        "R300.O0>R135.I0",
+        "R136.O0>R135.I1",
+        "R121.O1>R137.I0",
+        "R158.O0>R138.I0",
+        "R138.O1>R139.I0",
+        "R139.O0>R140.I0",
+        "R163.O0>R141.I0",
+        "R141.O0>R142.I0",
+        "R163.O0>R143.I0",
+        "R146.O0>R143.I1",
+        "R141.O0>R144.I0",
+        "R145.O0>R144.I1",
+        "R144.O0>R146.I0",
+        "R150.O0>R147.I0",
+        "R148.O0>R147.I1",
+        "R138.O1>R149.I0",
+        "R147.O0>R149.I1",
+        "R150.O0>R151.I0",
+        "R147.O0>R153.I0",
+        "R147.O1>R154.I0",
+        "R156.O0>R155.I1",
+        "R157.O0>R155.I2",
+        "R157.O0>R155.I3",
+        "R155.O0>R158.I0",
+        "R164.O0>R159.I0",
+        "R159.O1>R160.I0",
+        "R164.O0>R160.I1",
+        "R168.O0>R160.I2",
+        "R160.O0>R161.I0",
+        "R159.O0>R162.I0",
+        "R152.O0>R164.I0",
+        "R158.O0>R166.I0",
+        "R147.O0>R166.I1",
+        "R167.O0>R168.I0",
+        "R175.O0>R169.I0",
+        "R169.O0>R170.I0",
+        "R175.O0>R171.I0",
+        "R174.O0>R171.I1",
+        "R169.O0>R172.I0",
+        "R173.O0>R172.I1",
+        "R172.O0>R174.I0",
+        "R168.O0>R177.I0",
+        "R164.O0>R178.I0",
+        "R176.O0>R179.I0",
+        "R180.O0>R179.I1",
+        "R181.O0>R180.I0",
+        "R176.O0>R181.I0",
+        "R105.O1>R185.I0",
+        "R126.O0>R187.I0",
+        "R287.O0>R188.I0",
+        "R126.O0>R189.I0",
+        "R190.O0>R189.I1",
+        "R131.O0>R191.I0",
+        "R132.O2>R192.I0",
+        "R136.O0>R192.I1",
+        "R204.O0>R198.I0",
+        "R198.O0>R199.I0",
+        "R72.O0>R202.I0",
+        "R72.O0>R204.I0",
+        "R223.O0>R207.I0",
+        "R210.O0>R207.I1",
+        "R211.O0>R213.I0",
+        "R235.O0>R213.I1",
+        "R213.O0>R214.I0",
+        "R223.O0>R215.I0",
+        "R217.O0>R215.I1",
+        "R115.O0>R216.I0",
+        "R214.O0>R216.I1",
+        "R216.O0>R217.I0",
+        "R36.O0>R220.I0",
+        "R222.O0>R220.I1",
+        "R263.O0>R220.I2",
+        "R220.O0>R221.I0",
+        "R224.O0>R223.I0",
+        "R225.O0>R224.I1",
+        "R226.O0>R224.I2",
+        "R289.O0>R224.I3",
+        "R239.O0>R227.I0",
+        "R249.O0>R229.I0",
+        "R230.O0>R229.I1",
+        "R231.O0>R229.I2",
+        "R229.O0>R232.I0",
+        "R100.O0>R234.I0",
+        "R239.O0>R240.I0",
+        "R121.O0>R240.I1",
+        "R239.O0>R243.I0",
+        "R244.O0>R243.I1",
+        "R223.O0>R245.I0",
+        "R245.O0>R246.I0",
+        "R72.O0>R249.I0",
+        "R72.O0>R250.I0",
+        "R72.O0>R251.I0",
+        "R72.O0>R252.I0",
+        "R255.O0>R257.I0",
+        "R290.O0>R257.I1",
+        "R257.O0>R258.I0",
+        "R246.O0>R259.I0",
+        "R258.O0>R259.I1",
+        "R259.O0>R260.I0",
+        "R130.O1>R269.I0",
+        "R268.O0>R269.I1",
+        "R270.O0>R271.I0",
+        "R270.O0>R272.I0",
+        "R275.O0>R273.I0",
+        "R270.O0>R273.I1",
+        "R273.O1>R274.I0",
+        "R270.O0>R275.I0",
+        "R72.O0>R283.I0",
+        "R72.O0>R284.I0",
+        "R304.O0>R292.I0",
+        "R293.O0>R292.I1",
+        "R304.O0>R294.I0",
+        "R292.O0>R295.I0",
+        "R295.O0>R296.I0",
+        "R295.O1>R296.I1",
+        "R295.O2>R296.I2",
+        "R296.O0>R297.I0",
+        "R292.O0>R299.I0",
+        "R275.O0>R301.I0",
+        "R272.O0>R302.I0",
+        "R307.O0>R306.I0",
+        "R306.O0>R308.I0",
+        "R297.O0>R309.I0",
+        "R308.O0>R309.I1",
+        "R309.O0>R310.I0",
+        "R312.O0>R311.I0",
+        "R313.O0>R311.I1",
+        "R314.O0>R311.I2",
+        "R295.O0>R312.I0",
+        "R295.O1>R313.I0",
+        "R295.O2>R314.I0",
+        "R311.O0>R315.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R103",
+          "text": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction.",
+          "pos": [
+            10145.6,
+            45.9
+          ],
+          "nearby": [
+            "R104"
+          ]
+        },
+        {
+          "panel_id": "R201",
+          "text": "Hover over the S INPUT and check Grasshopper's default values.\r\n\r\nMany ways to edit the S values:\r\n1- Right-click on S, click on \"Set Integer\"\r\n2- Right-click on S, click on \"Set Multiple Integers\"\r\n3- Build a new \"Number Slider\" and input it into S\r\nMany more ways will be explored later in the course",
+          "pos": [
+            3646.7,
+            4150.9
+          ],
+          "nearby": [
+            "R200",
+            "R198",
+            "R80"
+          ]
+        },
+        {
+          "panel_id": "R212",
+          "text": "80",
+          "pos": [
+            8760,
+            1263.8
+          ],
+          "nearby": [
+            "R235",
+            "R213"
+          ]
+        },
+        {
+          "panel_id": "R247",
+          "text": "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images",
+          "pos": [
+            8739.1,
+            1835.9
+          ],
+          "nearby": [
+            "R248"
+          ]
+        },
+        {
+          "panel_id": "R254",
+          "text": "False\r\nTrue\r\nTrue\r\nTrue",
+          "pos": [
+            9280.4,
+            740.5
+          ],
+          "nearby": [
+            "R110",
+            "R108",
+            "R109",
+            "R207"
+          ]
+        },
+        {
+          "panel_id": "R256",
+          "text": "50",
+          "pos": [
+            8758.7,
+            1617
+          ],
+          "nearby": [
+            "R290",
+            "R257",
+            "R248",
+            "R245"
+          ]
+        },
+        {
+          "panel_id": "R261",
+          "text": "Display > Draw Fancy Wires",
+          "pos": [
+            495.9,
+            610.3
+          ],
+          "nearby": [
+            "R3",
+            "R4",
+            "R20",
+            "R5"
+          ]
+        },
+        {
+          "panel_id": "R276",
+          "text": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines.",
+          "pos": [
+            454.2,
+            32.1
+          ],
+          "nearby": [
+            "R1"
+          ]
+        },
+        {
+          "panel_id": "R277",
+          "text": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on.",
+          "pos": [
+            1127.6,
+            32.1
+          ],
+          "nearby": [
+            "R9"
+          ]
+        },
+        {
+          "panel_id": "R278",
+          "text": "4- Lists: Culling\r\n\r\n- In Grasshopper, culling means removing.\r\n\r\n- Try the component \"Cull Index\" and cull the 5th item (which is the number 6).\r\n\r\n- The resultant List has now 9 items, starting with index 0 and ending with index 8. But the number 6 is not there anymore, it has been removed from the List.\r\n\r\n",
+          "pos": [
+            2743.4,
+            32.1
+          ],
+          "nearby": [
+            "R44"
+          ]
+        },
+        {
+          "panel_id": "R279",
+          "text": "5- Lists: More components\r\n\r\n- The following components are often used in Grasshopper. Use the previous List generated by the Series and try:\r\n- \"List Length\"\r\n- \"Insert Items\"\r\n- \"Replace Items\"\r\n- \"Reverse List\"\r\n- \"Shift List\"\r\n- \"Sort List\"\r\n- \"Jitter\"\r\n- \"Split List\"\r\n- \"Partition List\"",
+          "pos": [
+            3639.1,
+            28.9
+          ],
+          "nearby": [
+            "R70"
+          ]
+        },
+        {
+          "panel_id": "R280",
+          "text": "Practical Example:\r\n\r\n1- Grid of squarish cells.\r\n\r\n2- Use the \"Boundary\" component to make surfaces out of the cells.\r\n\r\n3- Get the center point of each cell using the \"Area\" component.\r\n\r\n4- Extract the XYZ information from the center points.\r\n\r\n5- Select only the ones with the Y = 15.\r\n\r\n7- Jitter the resultant List.\r\n\r\n6- Organize (sort) these ones from smallest to largest X value.\r\n\r\n7- Back to step 2, randomly cull 25 surfaces.\r\n\r\n8- Back to step 2, use a pattern to cull surfaces.\r\n\r\n9- Back to step 2, find the length of the List of surfaces and split the List in half parametrically.",
+          "pos": [
+            4741.7,
+            28.9
+          ],
+          "nearby": [
+            "R112"
+          ]
+        },
+        {
+          "panel_id": "R288",
+          "text": "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue",
+          "pos": [
+            9172,
+            735.2
+          ],
+          "nearby": [
+            "R110"
+          ]
+        },
+        {
+          "panel_id": "R291",
+          "text": "IMPORTANT:\r\nThe Number of Inputs in \"List\" should have the same number of Boolean Results entering \"Dispatch Pattern\"",
+          "pos": [
+            6422.8,
+            1159
+          ],
+          "nearby": [
+            "R123",
+            "R124",
+            "R186",
+            "R121",
+            "R240",
+            "R241",
+            "R242"
+          ]
+        },
+        {
+          "panel_id": "R303",
+          "text": "3- Lists: Wrapping\r\n\r\n- Wrapping means that the List starts again at the end without stopping.\r\n\r\n- The below List has 10 items, first index is 0 and last index is 9.\r\n\r\n- Try to choose the 10th index with the \"List Item\" component.\r\n\r\n- The \"List Item\" component has a BOOLEAN INPUT \"W\".\r\n\r\n- In Grasshopper, BOOLEAN does not mean geometry merge as in other software, it rather means \"true\" or \"false\".\r\n\r\n- In this case, let us see what happens when we choose the item with 10th idex (which does not exist since the last item has the index 9).\r\n\r\n- With a \"True\" BOOLEAN, the List seems to loop and start again from the beginning, hence the 10th item is 1.\r\n\r\n- With a \"False\" BOOLEAN, the List gives a \"null\" result. In other words, it is saying that there is no 10th item to be displayed.",
+          "pos": [
+            1884.5,
+            32.1
+          ],
+          "nearby": [
+            "R32"
+          ]
+        }
+      ]
+    }
+  }
+}

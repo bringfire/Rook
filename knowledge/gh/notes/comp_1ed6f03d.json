@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_1ed6f03d",
+  "note_type": "component",
+  "name": "Mesh | Mesh",
+  "brief": "Mesh | Mesh | Inputs: A, B → X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Mesh | Mesh. Inputs: A (Mesh), B (Mesh). Outputs: X (Curve).",
+  "keywords": [
+    "mesh | mesh",
+    "mesh",
+    "|",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "mesh | mesh",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh | Mesh"
+  ],
+  "solution_principle": "Mesh Mesh intersection",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f3f53a23",
+    "comp_df6a8c9a",
+    "comp_4e3057cb",
+    "comp_1f874e01",
+    "comp_279c2a0b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "21b6a605-9568-4bf8-acc1-631565d609d7",
+    "category": "intersection_physical",
+    "inputs": {
+      "A": "Mesh",
+      "B": "Mesh"
+    },
+    "outputs": {
+      "X": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "19632848-4b95-4e5e-9e86-b79b47987a46",
+      "4439a51b-8d24-4924-b8e2-f77e7f8f5bec"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|mesh | mesh"
+  }
+}

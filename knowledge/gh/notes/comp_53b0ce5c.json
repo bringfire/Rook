@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_53b0ce5c",
+  "note_type": "component",
+  "name": "Cross Product",
+  "brief": "Cross Product | Inputs: A, B, U → V, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Cross Product. Inputs: A (Vector), B (Vector), U (Boolean). Outputs: V (Vector), L (Number).",
+  "keywords": [
+    "cross product",
+    "cross",
+    "product",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "cross product",
+    "cross",
+    "product"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cross Product"
+  ],
+  "solution_principle": "Compute vector cross product.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e6580ee9",
+    "comp_b9817b61",
+    "comp_bc1f8336",
+    "comp_5557fa99",
+    "comp_77cfd279",
+    "comp_fcefbd42",
+    "comp_62548e45",
+    "comp_ca9d93b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2a5cfb31-028a-4b34-b4e1-9b20ae15312e",
+    "category": "vector_ops",
+    "inputs": {
+      "A": "Vector",
+      "B": "Vector",
+      "U": "Boolean"
+    },
+    "outputs": {
+      "V": "Vector",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "43b9ea8f-f772-40f2-9880-011a9c3cbbb0"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|cross product"
+  }
+}

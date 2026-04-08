@@ -1,0 +1,306 @@
+{
+  "pattern_id": "3926d7a3",
+  "name": "unnamed3",
+  "version": "1.0",
+  "created": "2026-02-22T14:24:56.106659Z",
+  "solution": {
+    "brief": "Recipe from FILES\\9\\unnamed3.gh (16 components)",
+    "principle": "",
+    "components_needed": [
+      "MetaBall(t) Custom",
+      "Point",
+      "Construct Point",
+      "Series",
+      "slider",
+      "slider",
+      "slider",
+      "Clean Tree",
+      "Gene Pool",
+      "MetaBall(t) Custom",
+      "Multiplication",
+      "slider",
+      "Clean Tree",
+      "Boundary Surfaces",
+      "Extrude",
+      "Unit Z"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unnamed3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "469cd6cd",
+    "492dff24",
+    "68d8cb33",
+    "0fbec7ad"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "16-components",
+    "recipe",
+    "workflow",
+    "low-complexity",
+    "files-9-series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R5",
+          "nick": "",
+          "min": -20,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": -20,
+          "max": 100,
+          "value": 32
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.6
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/9/unnamed3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "MetaBallComponentThresholdEx",
+          "nick": "MetaBall(t)",
+          "name": "MetaBall(t) Custom",
+          "pos": [
+            541,
+            419
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            242.6,
+            349.3
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            400,
+            523
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            294,
+            575
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            71.9,
+            545.6
+          ],
+          "min": -20,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            69.3,
+            594.8
+          ],
+          "min": -20,
+          "max": 100,
+          "value": 32
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            71.2,
+            569.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.95
+        },
+        {
+          "id": "R8",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            855,
+            553
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            129.8,
+            366
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "MetaBallComponentThresholdEx",
+          "nick": "MetaBall(t)",
+          "name": "MetaBall(t) Custom",
+          "pos": [
+            712,
+            665
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            550,
+            656
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            330.4,
+            666.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.6
+        },
+        {
+          "id": "R13",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            852,
+            644
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            1037,
+            494
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1156,
+            505
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1072,
+            564
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R9.O0>R1.I1",
+        "R3.O0>R1.I2",
+        "R4.O0>R3.I2",
+        "R5.O0>R4.I0",
+        "R7.O0>R4.I1",
+        "R6.O0>R4.I2",
+        "R1.O0>R8.I3",
+        "R2.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R3.O0>R10.I2",
+        "R9.O0>R11.I0",
+        "R12.O0>R11.I1",
+        "R10.O0>R13.I3",
+        "R8.O0>R14.I0",
+        "R13.O0>R14.I0",
+        "R14.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R7.O0>R16.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

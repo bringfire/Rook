@@ -1,0 +1,413 @@
+{
+  "Misc_Geometry": [
+    "3DFace",
+    "Divide",
+    "Fill",
+    "Planar",
+    "PlanarIntersection",
+    "UnrollSrfUV"
+  ],
+  "Views": [
+    "3View",
+    "4View",
+    "BackgroundBitmap",
+    "BringViewportToTop",
+    "Camera",
+    "CloseViewport",
+    "CopyDetailToViewport",
+    "CopyViewportToDetail",
+    "DarkMode",
+    "DisplayColorByMaterial"
+  ],
+  "Help": [
+    "About",
+    "AboutRhino",
+    "CommandHelp",
+    "CommandHistory",
+    "CommandList",
+    "Commands",
+    "Help"
+  ],
+  "Snaps": [
+    "AddGuide",
+    "Grid",
+    "Osnap",
+    "RemoveGuide",
+    "SmartTrack",
+    "Snap"
+  ],
+  "Uncategorized": [
+    "AddMissingBlockAttributeKeys",
+    "AddNextU",
+    "AddNextV",
+    "AddPrevU",
+    "AddPrevV",
+    "AlignProfiles",
+    "AreaScheduleFromFiles",
+    "AssignBlankTexture",
+    "CheckNewObjects",
+    "ClearAllMeshes"
+  ],
+  "Mesh": [
+    "AddNgonsToMesh",
+    "ApplyMesh",
+    "AutomaticSubDFromMesh",
+    "CullControlPolygon",
+    "DeleteMeshNgons",
+    "DivideAlongCreases",
+    "ExtrudeMesh",
+    "HideRenderMesh",
+    "Mesh",
+    "MeshBooleanDifference"
+  ],
+  "Blocks": [
+    "AddObjectsToBlock",
+    "Bake",
+    "Block",
+    "BlockManager",
+    "BlockResetScale",
+    "ClearEmbeddedWorksession",
+    "CreateUniqueBlock",
+    "EmbedWorksession",
+    "Insert",
+    "ReplaceBlock"
+  ],
+  "Editing": [
+    "AddToGroup",
+    "Bevel",
+    "Bridge",
+    "Chamfer",
+    "ChangeDegree",
+    "Connect",
+    "ConnectAll",
+    "ConnectNearest",
+    "Crease",
+    "CreaseSplitting"
+  ],
+  "UI": [
+    "Alerter",
+    "Bounce",
+    "Cancel",
+    "CommandPrompt",
+    "Echo",
+    "Enter",
+    "EnterEnd",
+    "Exit",
+    "PopupMenu"
+  ],
+  "Transforms": [
+    "Align",
+    "Array",
+    "ArrayPolar",
+    "Bend",
+    "BoxEdit",
+    "BringForward",
+    "BringToFront",
+    "Cage",
+    "CageEdit",
+    "Distribute"
+  ],
+  "Analysis": [
+    "Angle",
+    "Area",
+    "AreaCentroid",
+    "AreaMoments",
+    "AreaSchedule",
+    "Audit",
+    "BoundingBox",
+    "CSec",
+    "Check",
+    "Clash"
+  ],
+  "SolidEditing": [
+    "AppendFace",
+    "BlendEdge",
+    "ChamferEdge",
+    "DeleteFaces",
+    "EdgeContinuity",
+    "EndBulge",
+    "Fair",
+    "FilletEdge",
+    "GCon",
+    "MakeNonPeriodic"
+  ],
+  "Materials": [
+    "ApplyBoxMapping",
+    "ApplyCustomMapping",
+    "ApplyCylindricalMapping",
+    "ApplyOcsMapping",
+    "ApplyPlanarMapping",
+    "ApplySphericalMapping",
+    "ApplySurfaceMapping",
+    "BakeMapping",
+    "Environments",
+    "MatchMapping"
+  ],
+  "Curves": [
+    "ApplyCrv",
+    "ArcBlend",
+    "ArrayCrv",
+    "BlendCrv",
+    "Catenary",
+    "CloseCrv",
+    "Conic",
+    "ContinueCurve",
+    "ContinueInterpCrv",
+    "CreateUVCrv"
+  ],
+  "Surfaces": [
+    "ArrayCrvOnSrf",
+    "ArraySrf",
+    "BlendSrf",
+    "ChamferSrf",
+    "DevLoft",
+    "Drape",
+    "DrapePt",
+    "EdgeSrf",
+    "ExtendCrvOnSrf",
+    "ExtractBadSrf"
+  ],
+  "Annotation": [
+    "Arrow",
+    "Arrowhead",
+    "Centermark",
+    "Detail",
+    "Dim",
+    "DimAngle",
+    "DimArea",
+    "DimCurveLength",
+    "DimDiameter",
+    "DimOrdinate"
+  ],
+  "Admin": [
+    "Audit3dmFile",
+    "CheckInLicense",
+    "CheckOutLicense",
+    "DocumentPropertiesPage",
+    "DocumentText",
+    "Purge",
+    "PurgeRefObjects"
+  ],
+  "CPlanes": [
+    "AutoAlignCPlane",
+    "CPlane",
+    "CPlaneFromLine",
+    "NamedCPlane",
+    "OrientToNamedCplane",
+    "PlansFromNamedCPlanes"
+  ],
+  "File": [
+    "Autosave",
+    "Export",
+    "Import",
+    "IncrementalSave",
+    "Layout",
+    "New",
+    "Open",
+    "Picture",
+    "Print",
+    "ReadCommandFile"
+  ],
+  "ViewCapture": [
+    "BatchRenderNamedViews",
+    "ScreenCaptureToClipboard",
+    "ScreenCaptureToFile",
+    "ViewCaptureToClipboard",
+    "ViewCaptureToFile"
+  ],
+  "Solids": [
+    "BooleanSplit",
+    "Cap",
+    "CreateRegions",
+    "CreateSolid",
+    "MergeAllCoplanarFaces",
+    "MultiPipe",
+    "NonmanifoldMerge",
+    "Pipe",
+    "Shell",
+    "SquarePipe"
+  ],
+  "Primitives": [
+    "Ellipsoid",
+    "Plane",
+    "Polygon",
+    "Pyramid",
+    "RectangularLight",
+    "Tube"
+  ],
+  "Layers": [
+    "ChangeLayer",
+    "ChangeToCurrentLayer",
+    "CopyToLayer",
+    "DisplayColorByLayer",
+    "Layer",
+    "LayerBook",
+    "LayerHideAttached",
+    "LayerStateManager",
+    "OneLayerOff",
+    "OneLayerOn"
+  ],
+  "Clipping": [
+    "ClearClippingSections",
+    "ClippingDrawings",
+    "ClippingPlane",
+    "ClippingPlaneProperties",
+    "ClippingSections",
+    "DisableClippingPlane",
+    "EditClippingDrawings",
+    "EnableClippingPlane",
+    "ExportClippingDrawings",
+    "ExportClippingSectionInfo"
+  ],
+  "History": [
+    "ClearUndo",
+    "History",
+    "HistoryPurge",
+    "HistoryUpdate",
+    "Redo",
+    "Undo"
+  ],
+  "Rendering": [
+    "CloseRenderWindow",
+    "DirectionalLight",
+    "GroundPlane",
+    "LinearLight",
+    "RenderArctic",
+    "RenderAssignMaterialToLayersOfObjects",
+    "RenderAssignMaterialToObjects",
+    "RenderBlowup",
+    "RenderInWindow",
+    "RenderMergeIdenticalMaterials"
+  ],
+  "Points": [
+    "ClosestPt",
+    "DecimalPoint",
+    "Dot",
+    "DotElevation",
+    "DraftAnglePoint",
+    "EarthAnchorPoint",
+    "EditPtOn",
+    "EvaluatePt",
+    "ExtrudeCrvToPoint",
+    "ExtrudeSrfToPoint"
+  ],
+  "Conversion": [
+    "ConvertExtrusion",
+    "ConvertTextToBlockAttribute",
+    "ConvertToBeziers",
+    "ConvertToSingleSpans",
+    "ToNURBS",
+    "ToggleGpuProcedurals",
+    "ToggleLeftSidebar",
+    "ToggleRightSidebar",
+    "ToolbarLock"
+  ],
+  "Import_Export": [
+    "CopyLayout",
+    "CopyRenderWindowToClipboard",
+    "CopyToClipboard",
+    "Cut",
+    "Delete",
+    "ExportAreasToTSV",
+    "ExportBitmaps",
+    "ExportHatchesToTSV",
+    "ExportLinkedBlocks",
+    "ExportRuiFile"
+  ],
+  "Plugins_Render": [
+    "DatasmithDirectLinkConnections",
+    "DatasmithDirectLinkSync",
+    "DatasmithExport",
+    "DatasmithMessages",
+    "DatasmithToggleAutoSync",
+    "EnscapeAboutCommand",
+    "EnscapeBlocksFromRevit",
+    "EnscapeBlocksFromSketchup",
+    "EnscapeEnableOrDisableCameraSyncCommand",
+    "EnscapeEnableOrDisableLiveUpdatesCommand"
+  ],
+  "Digitizer": [
+    "DigBeep",
+    "DigCalibrate",
+    "DigCamera",
+    "DigClick",
+    "DigDisconnect",
+    "DigLine",
+    "DigPause",
+    "DigScale",
+    "DigSection",
+    "DigSketch"
+  ],
+  "Dimensions": [
+    "DimAligned",
+    "DimCreaseAngle",
+    "DimRecenterText",
+    "DimRotated",
+    "DimVolume"
+  ],
+  "Settings": [
+    "DocumentProperties",
+    "Options",
+    "Properties",
+    "SetCurrentAnnotationStyle",
+    "SetCurrentRenderPlugIn",
+    "SetCustomLinetype",
+    "SetDisplayMode",
+    "SetDocumentUserText",
+    "SetDotNetRuntime",
+    "SetEarthAnchorPointFromName"
+  ],
+  "Scripting": [
+    "EditPythonScript",
+    "MacroEditor",
+    "Macros",
+    "Run",
+    "RunPythonScript"
+  ],
+  "UV_Editing": [
+    "EndUVEditor",
+    "RebuildUV",
+    "UVEditor"
+  ],
+  "SubD": [
+    "ExtrudeSubD",
+    "OffsetSubD",
+    "RepairSubD",
+    "SelClosedSubD",
+    "SelOpenSubD",
+    "SelSubD",
+    "SubDBox",
+    "SubDCone",
+    "SubDCrease",
+    "SubDCylinder"
+  ],
+  "Gumball": [
+    "GumballAlignment",
+    "GumballAutoReset",
+    "GumballDynamicRelocate",
+    "GumballRelocate",
+    "GumballReset",
+    "GumballScaleMode",
+    "GumballSettings"
+  ],
+  "Booleans": [
+    "Intersect",
+    "IntersectSelf",
+    "IntersectTwoSets"
+  ],
+  "Selection": [
+    "Lasso",
+    "SelAll",
+    "SelArc",
+    "SelArrow",
+    "SelBadObjects",
+    "SelBlockInstance",
+    "SelBlockInstanceNamed",
+    "SelBoundary",
+    "SelBox",
+    "SelBrush"
+  ],
+  "Groups": [
+    "SetGroupName"
+  ]
+}

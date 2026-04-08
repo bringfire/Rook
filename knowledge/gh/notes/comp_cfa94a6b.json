@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_cfa94a6b",
+  "note_type": "component",
+  "name": "Split Brep Multiple",
+  "brief": "Split Brep Multiple | Inputs: B, C → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Split Brep Multiple. Inputs: B (Brep), C (Brep). Outputs: R (Brep).",
+  "keywords": [
+    "split brep multiple",
+    "split",
+    "brep",
+    "multiple",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "split brep multiple",
+    "split",
+    "brep",
+    "multiple"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Split Brep Multiple"
+  ],
+  "solution_principle": "Split one brep with a bunch of others.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_10d58079",
+    "comp_5f77f7fc",
+    "comp_dd2a0014",
+    "comp_85550cda",
+    "comp_0ce60bf8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "03f22640-ff80-484e-bb53-a4025c5faa07",
+    "category": "intersection_shape",
+    "inputs": {
+      "B": "Brep",
+      "C": "Brep"
+    },
+    "outputs": {
+      "R": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "ef6b26f4-f820-48d6-b0c5-85898ef8888b"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|split brep multiple"
+  }
+}

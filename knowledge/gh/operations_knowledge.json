@@ -1,0 +1,442 @@
+{
+  "version": "1.1",
+  "description": "Operation-level knowledge for GH tools. Maps tool operations to gotchas, common mistakes, and context-aware hints.",
+  "operations": {
+    "wire": {
+      "aliases": [
+        "connect",
+        "link"
+      ],
+      "description": "Connect output of one component to input of another",
+      "gotchas": [
+        {
+          "id": "wire-param-case",
+          "trigger": "always",
+          "message": "Parameter names are case-sensitive. Use exact casing from component info.",
+          "severity": "warning",
+          "times_used": 25,
+          "last_verified": "2026-03-08T13:18:42.016258Z"
+        },
+        {
+          "id": "wire-type-mismatch",
+          "trigger": "always",
+          "message": "Type conversion happens automatically for compatible types (e.g., Number to Integer). Incompatible types will show orange wire.",
+          "severity": "info"
+        },
+        {
+          "id": "wire-list-access",
+          "trigger": "contains_list_component",
+          "message": "When wiring to list components (List Item, Tree Branch), wire to the List (L) input, not individual items.",
+          "severity": "warning"
+        },
+        {
+          "id": "wire-graft-flatten",
+          "trigger": "data_structure_mismatch",
+          "message": "Data tree mismatch may require Graft or Flatten component between source and target.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "wire to wrong param name",
+          "correction": "Query component info first to get exact parameter names",
+          "observed_count": 0
+        },
+        {
+          "pattern": "wire number to geometry input",
+          "correction": "Check target expects numeric input, not geometry",
+          "observed_count": 0
+        },
+        {
+          "pattern": "Wasp_Rules Generator (RuleGen) grammar mode (GR input, I4) produces 0 rules despite correctly formatted grammar text. Tested with: (1) multiline panel \"upper > lower\\nlower > upper\", (2) two separate panels merged into a 2-item list [\"upper > lower\", \"lower > upper\"]. Both deliver correct data but RuleGen output is 0 rules. Disconnecting GR input (basic all-to-all mode) immediately produces 16 rules (4 connections x 4 = 16 permutations).",
+          "correction": "When grammar mode fails on Wasp_Rules Generator, fall back to basic all-to-all mode (disconnect GR input). The 16 all-to-all rules still allow aggregation to run. Grammar filtering may require a different Wasp version or undocumented input format. Alternative: manually create Wasp_Rule components instead of using RuleGenerator grammar mode.",
+          "observed_count": 1
+        },
+        {
+          "pattern": "Wasp_Stochastic Aggregation has 10 inputs (PART=I0, PREV=I1, N=I2, RULES=I3, SEED=I4, CAT=I5, MODE=I6, GC=I7, ID=I8, RESET=I9), not 5. Miswiring Rules to I1 (PREV) or Seed to I3 (RULES) causes silent failures \u2014 the aggregation runs but produces wrong or no results.",
+          "correction": "Always verify Wasp component input indices from gh_snapshot before wiring. Key mappings: RULES\u2192I3, SEED\u2192I4, RESET\u2192I9. Do not assume input order from component name or documentation \u2014 inspect the actual component.",
+          "observed_count": 1
+        },
+        {
+          "pattern": "Wasp_Rules Generator GR input is I4 (not I1). I1 is SELF_P (boolean). Wiring grammar text to I1 causes \"Type conversion failed from Text to bool\" error.",
+          "correction": "RuleGen input mapping: PART=I0, SELF_P=I1 (bool), SELF_C=I2, TYP=I3, GR=I4 (grammar text). Always wire grammar text to I4.",
+          "observed_count": 1
+        },
+        {
+          "pattern": "Replacing Wasp RuleGenerator with explicit Wasp_Rule components bypasses the grammar mode bug (0 rules from GR input). For N connection types with cross-type filtering (e.g., upper\u2194lower only), need 2*N*(N/2) directional rules. For 4 connections (2 upper, 2 lower), that's 8 rules.",
+          "correction": "Use individual Wasp_Rule components with a shared part-name Panel wired to all P1/P2 inputs, 4 index panels (0,1,2,3) wired to appropriate C1/C2 inputs, and a Merge component to collect all Rule outputs before feeding to Stochastic Aggregation I3 (RULES).",
+          "observed_count": 1
+        }
+      ]
+    },
+    "set_value": {
+      "aliases": [
+        "set",
+        "change",
+        "update"
+      ],
+      "description": "Set a value on a slider or panel",
+      "gotchas": [
+        {
+          "id": "set-slider-bounds",
+          "trigger": "target_is_slider",
+          "message": "Value must be within slider min/max bounds. Query component to check bounds first.",
+          "severity": "warning"
+        },
+        {
+          "id": "set-expression",
+          "trigger": "target_has_expression",
+          "message": "Component has an expression. Setting value may override or conflict with expression.",
+          "severity": "warning"
+        },
+        {
+          "id": "set-integer-slider",
+          "trigger": "target_is_integer_slider",
+          "message": "Integer sliders only accept whole numbers. Decimals will be truncated.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "set value outside slider bounds",
+          "correction": "Check slider min/max before setting",
+          "observed_count": 0
+        }
+      ]
+    },
+    "delete": {
+      "aliases": [
+        "remove",
+        "destroy"
+      ],
+      "description": "Delete a component or object from the canvas",
+      "gotchas": [
+        {
+          "id": "delete-cascades",
+          "trigger": "always",
+          "message": "Deleting a component also removes all wires connected to it.",
+          "severity": "info",
+          "times_used": 6,
+          "last_verified": "2026-03-08T13:18:22.426202Z"
+        },
+        {
+          "id": "delete-group-member",
+          "trigger": "target_in_group",
+          "message": "Component is in a group. Delete removes from group but group remains.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "disconnect": {
+      "aliases": [
+        "unwire",
+        "unlink",
+        "remove wire"
+      ],
+      "description": "Remove a wire connection between components",
+      "gotchas": [
+        {
+          "id": "disconnect-specify-param",
+          "trigger": "always",
+          "message": "Must specify which parameter to disconnect. A component may have multiple inputs/outputs.",
+          "severity": "warning",
+          "times_used": 3,
+          "last_verified": "2026-03-08T03:12:33.182402Z"
+        },
+        {
+          "id": "disconnect-multiple-sources",
+          "trigger": "param_has_multiple_sources",
+          "message": "Parameter has multiple incoming wires. Disconnect removes one specific wire, not all.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "create": {
+      "aliases": [
+        "add",
+        "place",
+        "instantiate"
+      ],
+      "description": "Create a new component on the canvas",
+      "gotchas": [
+        {
+          "id": "create-guid-required",
+          "trigger": "always",
+          "message": "Use component GUID from knowledge store, not display name. Name matching is unreliable across plugins.",
+          "severity": "warning",
+          "times_used": 45,
+          "last_verified": "2026-03-08T13:16:48.442806Z"
+        },
+        {
+          "id": "create-position-overlap",
+          "trigger": "always",
+          "message": "Default position is 0,0. Place components with offset to avoid overlapping existing ones.",
+          "severity": "info"
+        },
+        {
+          "id": "create-plugin-missing",
+          "trigger": "component_from_plugin",
+          "message": "Component requires a plugin. If not installed, creation will fail silently or produce a placeholder.",
+          "severity": "warning"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "create by display name instead of GUID",
+          "correction": "Query gh_library or knowledge store for the correct GUID first",
+          "observed_count": 0
+        },
+        {
+          "pattern": "stack components at same position",
+          "correction": "Offset each component by at least 200 units in X",
+          "observed_count": 0
+        },
+        {
+          "pattern": "Wasp_Rule components cannot be created by GUID (964d036d-...) in gh_edit because Wasp uses ZuiPythonComponent as base type. The GUID from the knowledge store is the Wasp-internal ID, not the GH componentGuid.",
+          "correction": "Create Wasp_Rule by name: {\"name\": \"Wasp_Rule\"} in gh_edit create. Name-based resolution works for all Wasp components. The component has 4 inputs: P1(I0), C1(I1), P2(I2), C2(I3) and 1 output: R(O0). Rules are directional \u2014 need both A\u2192B and B\u2192A for bidirectional connectivity.",
+          "observed_count": 1
+        }
+      ]
+    },
+    "move": {
+      "aliases": [
+        "reposition",
+        "layout",
+        "arrange"
+      ],
+      "description": "Move or reposition components on the canvas",
+      "gotchas": [
+        {
+          "id": "move-absolute-coords",
+          "trigger": "always",
+          "message": "Coordinates are absolute canvas position, not relative offset. Query current position first if adjusting.",
+          "severity": "warning",
+          "times_used": 3,
+          "last_verified": "2026-03-08T03:12:35.320363Z"
+        },
+        {
+          "id": "move-group-members",
+          "trigger": "target_in_group",
+          "message": "Moving a grouped component moves it independently. Move the group to keep layout.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "move without checking current position",
+          "correction": "Use gh_query to get current bounds before repositioning",
+          "observed_count": 0
+        }
+      ]
+    },
+    "group": {
+      "aliases": [
+        "cluster",
+        "organize"
+      ],
+      "description": "Group or cluster components together",
+      "gotchas": [
+        {
+          "id": "group-guid-list",
+          "trigger": "always",
+          "message": "Group requires a list of component GUIDs. Query canvas first to get instance IDs.",
+          "severity": "warning",
+          "times_used": 6,
+          "last_verified": "2026-03-08T03:12:55.966097Z"
+        },
+        {
+          "id": "cluster-vs-group",
+          "trigger": "always",
+          "message": "Groups are visual only. Clusters encapsulate components into a single callable unit with exposed parameters.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "group components from different workflows",
+          "correction": "Only group logically related components to keep canvas readable",
+          "observed_count": 0
+        }
+      ]
+    },
+    "query": {
+      "aliases": [
+        "status",
+        "inspect",
+        "list"
+      ],
+      "description": "Query canvas state, component info, or connections",
+      "gotchas": [
+        {
+          "id": "query-large-canvas",
+          "trigger": "always",
+          "message": "Large canvases may return many components. Use filters (type, name) to narrow results.",
+          "severity": "info",
+          "times_used": 323,
+          "last_verified": "2026-04-06T19:47:23.195219Z"
+        },
+        {
+          "id": "query-stale-data",
+          "trigger": "always",
+          "message": "Canvas state reflects last solve. If a component has errors, its outputs may be stale.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "explore": {
+      "aliases": [
+        "deep_explore",
+        "analyze"
+      ],
+      "description": "Deep exploration of component behavior, constraints, or data flow",
+      "gotchas": [
+        {
+          "id": "explore-volatile-components",
+          "trigger": "always",
+          "message": "Volatile components (Random, Timer) produce different outputs each solve. Pin values before exploring.",
+          "severity": "warning",
+          "times_used": 16,
+          "last_verified": "2026-03-25T00:34:40.366333Z"
+        },
+        {
+          "id": "explore-data-trees",
+          "trigger": "always",
+          "message": "Data tree structure affects downstream behavior. Check branch counts and path structure, not just values.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "reference": {
+      "aliases": [
+        "set_reference",
+        "get_reference",
+        "ref"
+      ],
+      "description": "Set or get referenced Rhino geometry on a GH component",
+      "gotchas": [
+        {
+          "id": "ref-object-must-exist",
+          "trigger": "always",
+          "message": "Referenced object must exist in Rhino document. Deleted objects will cause null data errors.",
+          "severity": "warning",
+          "times_used": 23,
+          "last_verified": "2026-04-06T16:45:21.966174Z"
+        },
+        {
+          "id": "ref-type-match",
+          "trigger": "always",
+          "message": "Reference type must match component expectation. A Curve parameter won't accept a Brep reference.",
+          "severity": "warning"
+        },
+        {
+          "id": "ref-guid-format",
+          "trigger": "always",
+          "message": "Use Rhino object GUID (from rhino_objects), not GH component instance ID.",
+          "severity": "warning"
+        }
+      ],
+      "common_mistakes": [
+        {
+          "pattern": "use GH instance ID instead of Rhino object GUID",
+          "correction": "Query rhino_objects for the geometry GUID, then pass to gh_set_reference",
+          "observed_count": 0
+        }
+      ]
+    },
+    "document": {
+      "aliases": [
+        "open",
+        "new",
+        "file"
+      ],
+      "description": "Open or create Grasshopper definition files",
+      "gotchas": [
+        {
+          "id": "doc-unsaved-changes",
+          "trigger": "always",
+          "message": "Opening a new document discards unsaved changes on current canvas. Save first if needed.",
+          "severity": "warning",
+          "times_used": 18,
+          "last_verified": "2026-03-19T02:01:19.638722Z"
+        },
+        {
+          "id": "doc-plugin-deps",
+          "trigger": "always",
+          "message": "Definition may use plugin components not installed locally. Missing plugins cause red components.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "inspect_output": {
+      "aliases": [
+        "preview",
+        "output"
+      ],
+      "description": "Inspect the output values and data structure of a component",
+      "gotchas": [
+        {
+          "id": "inspect-null-output",
+          "trigger": "always",
+          "message": "Null outputs usually mean upstream error or missing input. Check gh_errors before debugging values.",
+          "severity": "info",
+          "times_used": 56,
+          "last_verified": "2026-04-06T19:58:55.656995Z"
+        },
+        {
+          "id": "inspect-tree-structure",
+          "trigger": "always",
+          "message": "Output may be a data tree with multiple branches. Path indices matter for downstream wiring.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "investigate": {
+      "aliases": [
+        "debug",
+        "diagnose"
+      ],
+      "description": "Investigate errors, failed solutions, or unexpected behavior",
+      "gotchas": [
+        {
+          "id": "investigate-upstream-first",
+          "trigger": "always",
+          "message": "Errors cascade downstream. Always check the earliest red/orange component first.",
+          "severity": "warning"
+        },
+        {
+          "id": "investigate-data-mismatch",
+          "trigger": "always",
+          "message": "Most runtime errors are data type or tree structure mismatches. Check input types and paths.",
+          "severity": "info"
+        }
+      ],
+      "common_mistakes": []
+    },
+    "canvas_cleanup": {
+      "aliases": [
+        "cleanup",
+        "tidy"
+      ],
+      "description": "Auto-arrange or clean up canvas layout",
+      "gotchas": [
+        {
+          "id": "cleanup-preserves-wires",
+          "trigger": "always",
+          "message": "Cleanup rearranges positions but preserves all connections. Wire order may change visually.",
+          "severity": "info",
+          "times_used": 36,
+          "last_verified": "2026-03-26T16:44:08.193737Z"
+        }
+      ],
+      "common_mistakes": []
+    }
+  },
+  "learned_patterns": [],
+  "last_updated": "2026-02-07T00:00:00Z"
+}

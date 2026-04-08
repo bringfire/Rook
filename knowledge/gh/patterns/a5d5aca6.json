@@ -1,0 +1,71 @@
+{
+  "pattern_id": "a5d5aca6",
+  "name": "wasp_09_teaching_Press_the_button_to",
+  "version": "1.0",
+  "created": "2026-03-19T17:38:08.727455Z",
+  "solution": {
+    "brief": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+    "principle": "",
+    "components_needed": [
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "make",
+      "file",
+      "sure",
+      "your",
+      "press",
+      "latest",
+      "button",
+      "version",
+      "wasp",
+      "updated"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

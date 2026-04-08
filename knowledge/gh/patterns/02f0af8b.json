@@ -1,0 +1,1525 @@
+{
+  "pattern_id": "02f0af8b",
+  "name": "parametric_surface-creation_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T20:34:18.489965Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "\n\nRelated insight: Recipe complexity scaling: Surface creation workflows can range from simple parametric sequences to complex 28+ component recipes like '11-3'.\n\nRelated insight: Specific complexity example: S11E04 demonstrates 59-component surface creation recipes, showing the upper range of parametric workflow complexity.\n\nRelated insight: Additional complexity example: Recipe '12-5' demonstrates 40-component surface creation workflows, fitting between simpler parametric sequences and the most complex 59-component recipes.\n\nRelated insight: Recipe '14-5' demonstrates 39-component parametric workflows, further confirming the complexity range between simpler sequences and the most complex recipes.\n\nRelated insight: Related insight: Recipe complexity upper bound: Recipe '14-6' demonstrates 73-component surface creation workflows, representing the highest complexity level observed in parametric surface creation recipes.\n\nRelated insight: Related insight: Recipe S19E01 demonstrates 30-component surface creation workflows, providing a complexity data point between simpler 20-component recipes (S18E04) and mid-range 39-component workflows (14-5).\n\nRelated insight: Related insight: Recipe '3-1' adds a 71-component data point to the complexity progression: 30 components (S19E01) → 39 components (14-5) → 40 components (12-5) → 59 components (S11E04) → 71 components (3-1) → 73 components (14-6), showing refined granularity in high-complexity parametric surface workflows.\n\nRelated insight: Related insight: Recipe complexity lower bound: Recipe '3-3-0' demonstrates 19-component parametric workflows, establishing a new lower complexity baseline in the progression: 19 components (3-3-0) → 30 components (S19E01) → 39 components (14-5) → 40 components (12-5) → 59 components (S11E04) → 71 components (3-1) → 73 components (14-6).\n\nRelated insight: Related insight: Recipe '3-3' provides a 62-component example in the 3-series, refining the complexity progression: 59 components (S11E04) → 62 components (3-3) → 71 components (3-1) → 73 components (14-6), showing more granular scaling in mid-to-high complexity parametric surface workflows.\n\nRelated insight: \n\nRelated insight: Recipe '06-01' demonstrates 47-component parametric workflows, filling the complexity gap between 40-component recipes (12-5) and 59-component workflows (S11E04), refining the mid-complexity range progression: 39 components (14-5) → 40 components (12-5) → 47 components (06-01) → 59 components (S11E04).\n\nRelated insight: Related insight: Recipe '06-02' demonstrates 42-component parametric workflows, refining the complexity progression between 40-component recipes (12-5) and 47-component workflows (06-01): 39 components (14-5) → 40 components (12-5) → 42 components (06-02) → 47 components (06-01) → 59 components (S11E04).\n\nRelated insight: Related insight: Recipe '10-1' demonstrates 68-component parametric workflows, refining the complexity progression between 62-component recipes (3-3) and 71-component workflows (3-1): 59 components (S11E04) → 62 components (3-3) → 68 components (10-1) → 71 components (3-1) → 73 components (14-6).\n\nRelated insight: Related insight: Recipe complexity new upper bound: Recipe '10-3' demonstrates 99-component surface creation workflows, establishing a new peak in the complexity progression: 19 components (3-3-0) → ... → 73 components (14-6) → 99 components (10-3), representing the most complex parametric surface workflow documented.\n\nRelated insight: Related insight: Recipe '10-4' demonstrates 45-component parametric workflows, further refining the mid-complexity range between 42-component recipes (06-02) and 47-component workflows (06-01): 40 components (12-5) → 42 components (06-02) → 45 components (10-4) → 47 components (06-01) → 59 components (S11E04).\n\nRelated insight: Recipe 8-3 validates the 99-component ultra-complex tier alongside 10-3, confirming this as an established complexity category with multiple examples rather than a single outlier.\n\nRelated insight: Related insight: Recipe '9-4' demonstrates 49-component parametric workflows, refining the complexity progression between 47-component recipes (06-01) and 59-component workflows (S11E04): 45 components (10-4) → 47 components (06-01) → 49 components (9-4) → 59 components (S11E04).\n\nRelated insight: Related insight: Recipe complexity new mega-complex tier: Unit-01-Class demonstrates 134-component surface creation workflows, establishing a new ultra-high complexity category that extends the progression: 19 components (3-3-0) → ... → 99 components (10-3, 8-3) → 134 components (Unit-01-Class), representing the most complex parametric surface workflow documented and creating a distinct mega-complex tier.",
+    "components_needed": [
+      "Polygon",
+      "slider",
+      "slider",
+      "Construct Point",
+      "Explode",
+      "Evaluate Length",
+      "panel",
+      "Line",
+      "End Points",
+      "Merge",
+      "Evaluate Length",
+      "slider",
+      "Line",
+      "Line",
+      "Divide Curve",
+      "Curve",
+      "Graph Mapper",
+      "Multiplication",
+      "slider",
+      "Unit Z",
+      "Move",
+      "Point",
+      "Cull Index",
+      "Shift List",
+      "Graft Tree",
+      "Graft Tree",
+      "Merge",
+      "Line",
+      "Nurbs Curve",
+      "Shift List",
+      "Graft Tree",
+      "Graft Tree",
+      "Merge",
+      "Divide Curve",
+      "Graph Mapper",
+      "Multiplication",
+      "slider",
+      "Rotate",
+      "Unit Z",
+      "panel",
+      "Amplitude",
+      "Move",
+      "Vector",
+      "List Item",
+      "List Item",
+      "Negative",
+      "Merge",
+      "Graft Tree",
+      "Nurbs Curve",
+      "Curve",
+      "Curve",
+      "Shift Paths",
+      "Weave",
+      "Loft",
+      "Join Curves",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "Brep | Brep",
+      "Surface Split",
+      "Bounding Box",
+      "Area",
+      "Sort List",
+      "List Item",
+      "Custom Preview",
+      "Series",
+      "slider",
+      "slider",
+      "Extend Curve",
+      "slider",
+      "Move",
+      "Division",
+      "List Item",
+      "List Item",
+      "Shift Paths",
+      "Shift Paths",
+      "Brep Join",
+      "Shift Paths",
+      "Rectangle",
+      "slider",
+      "Populate 2D",
+      "Random",
+      "List Length",
+      "List Length",
+      "Subtraction",
+      "List Item",
+      "slider",
+      "Random",
+      "Pi",
+      "Rotate",
+      "Random",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Scale",
+      "Move",
+      "Gradient",
+      "Random",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "surface from curves",
+      "number sequence",
+      "range of values",
+      "loft curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a933868f",
+    "849cf444",
+    "da0365b4",
+    "d3901b70",
+    "c33fbf3c",
+    "6ec4ab92",
+    "a2a197b3",
+    "9a0d9a8b",
+    "80742580",
+    "ab3edec5",
+    "31b06632",
+    "c25e9cf6",
+    "6a391ba0",
+    "746811fd",
+    "95fe7fe0",
+    "6768a56f",
+    "c802b64e"
+  ],
+  "tags": [
+    "complexity-scaling",
+    "unit-01-class",
+    "99-components",
+    "40-components",
+    "recipe",
+    "parametric",
+    "curve-division",
+    "134-components",
+    "42-components",
+    "surface-creation",
+    "point-sequence",
+    "workflow",
+    "62-components",
+    "73-components",
+    "mega-complex-validated",
+    "mid-complexity",
+    "68-components",
+    "ultra-complex-validated",
+    "30-components",
+    "49-components",
+    "47-components",
+    "71-components",
+    "3-series",
+    "45-components",
+    "19-components"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T09:26:16.898471",
+    "evolved_by": [
+      "a933868f",
+      "849cf444",
+      "da0365b4",
+      "d3901b70",
+      "c33fbf3c",
+      "6ec4ab92",
+      "a2a197b3",
+      "9a0d9a8b",
+      "80742580",
+      "ab3edec5",
+      "31b06632",
+      "c25e9cf6",
+      "6a391ba0",
+      "746811fd",
+      "95fe7fe0",
+      "6768a56f",
+      "c802b64e"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:21:28.655454Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 116 wires -> 99 components, 116 flows"
+      },
+      {
+        "date": "2026-02-22T08:55:20.745363",
+        "trigger": "New pattern: a933868f",
+        "changes": "Pattern had no context; new recipe provides concrete complexity reference point for surface creation workflows"
+      },
+      {
+        "date": "2026-02-22T08:55:43.493611",
+        "trigger": "New pattern: 849cf444",
+        "changes": "New pattern provides concrete high-complexity example (59 components) that enhances the existing complexity scaling insight"
+      },
+      {
+        "date": "2026-02-22T08:58:31.437173",
+        "trigger": "New pattern: da0365b4",
+        "changes": "New pattern provides another concrete complexity data point in the established scaling framework"
+      },
+      {
+        "date": "2026-02-22T09:01:33.601932",
+        "trigger": "New pattern: d3901b70",
+        "changes": "The 39-component recipe provides another data point in the established complexity scaling pattern, fitting between the 28-component and 40+ component examples already documented."
+      },
+      {
+        "date": "2026-02-22T09:02:00.891291",
+        "trigger": "New pattern: c33fbf3c",
+        "changes": "14-6 establishes a new upper bound for surface creation recipe complexity, significantly exceeding the previous maximum of 59 components"
+      },
+      {
+        "date": "2026-02-22T09:09:34.187219",
+        "trigger": "New pattern: 6ec4ab92",
+        "changes": "New pattern provides another complexity scaling data point that helps fill the gap between documented 20-component and 39-component recipes, strengthening the complexity spectrum understanding"
+      },
+      {
+        "date": "2026-02-22T09:11:55.786212",
+        "trigger": "New pattern: a2a197b3",
+        "changes": "The 71-component example provides valuable granularity in the upper complexity range and should be integrated into the progression"
+      },
+      {
+        "date": "2026-02-22T09:12:42.755150",
+        "trigger": "New pattern: 9a0d9a8b",
+        "changes": "The 19-component recipe extends the complexity range to include simpler parametric workflows, providing a more complete picture of the complexity spectrum"
+      },
+      {
+        "date": "2026-02-22T09:13:11.350517",
+        "trigger": "New pattern: 80742580",
+        "changes": "This pattern extensively tracks complexity scaling and needs the 62-component data point to maintain its comprehensive progression mapping"
+      },
+      {
+        "date": "2026-02-22T09:13:37.545355",
+        "trigger": "New pattern: ab3edec5",
+        "changes": "The new 47-component pattern fills a significant gap in the complexity progression and should be documented as part of the established scaling pattern"
+      },
+      {
+        "date": "2026-02-22T09:14:04.795010",
+        "trigger": "New pattern: 31b06632",
+        "changes": "The 42-component example fills a specific gap in the detailed complexity progression already tracked by this pattern, providing finer granularity in the mid-complexity range."
+      },
+      {
+        "date": "2026-02-22T09:16:31.339392",
+        "trigger": "New pattern: c25e9cf6",
+        "changes": "Adds precise granularity to the high-complexity range with a new 68-component data point that fits perfectly between existing documented levels"
+      },
+      {
+        "date": "2026-02-22T09:17:27.446318",
+        "trigger": "New pattern: 6a391ba0",
+        "changes": "This pattern tracks the full complexity spectrum and needs to incorporate the new 99-component upper bound, requiring both tag addition and context update"
+      },
+      {
+        "date": "2026-02-22T09:17:56.764233",
+        "trigger": "New pattern: 746811fd",
+        "changes": "The new 45-component recipe fills a gap in the complexity progression and provides more granular understanding of mid-complexity parametric surface workflows"
+      },
+      {
+        "date": "2026-02-22T09:20:20.440161",
+        "trigger": "New pattern: 95fe7fe0",
+        "changes": "Adding validation context for the 99-component complexity tier now having multiple examples"
+      },
+      {
+        "date": "2026-02-22T09:23:38.498733",
+        "trigger": "New pattern: 6768a56f",
+        "changes": "The new 49-component recipe fills a specific gap in the detailed complexity progression tracking, providing finer granularity between existing 47 and 59 component examples"
+      },
+      {
+        "date": "2026-02-22T09:26:16.898471",
+        "trigger": "New pattern: c802b64e",
+        "changes": "This pattern tracks complexity scaling and must incorporate the new 134-component data point as a new tier beyond ultra-complex"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.51
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 40.7
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 27.07
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R80",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 1713
+        },
+        {
+          "id": "R87",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 345
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R94",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R99",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "0.5"
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "content": "Rad(90)"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Falling Flowers.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            328,
+            158
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            -33.5,
+            211.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            -19.8,
+            132.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            149,
+            48
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            350,
+            7
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_ArcLengthPoint",
+          "nick": "Eval",
+          "name": "Evaluate Length",
+          "pos": [
+            508,
+            -168
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            368.2,
+            -156
+          ],
+          "content": "0.5"
+        },
+        {
+          "id": "R8",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            602,
+            -216
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            514,
+            -3
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            740,
+            1
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ArcLengthPoint",
+          "nick": "Eval",
+          "name": "Evaluate Length",
+          "pos": [
+            700,
+            -196
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            560.6,
+            -296.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.51
+        },
+        {
+          "id": "R13",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            788,
+            85
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            889,
+            -88
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            1133,
+            85
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            885.8,
+            85.4
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1272.9,
+            93.4
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1505,
+            178
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            1245.4,
+            266.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 40.7
+        },
+        {
+          "id": "R20",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1591,
+            186
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1788,
+            96
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            460,
+            109
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CullIndex",
+          "nick": "Cull i",
+          "name": "Cull Index",
+          "pos": [
+            549,
+            129
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1180,
+            -48
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1277,
+            -118
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1279,
+            -64
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1391,
+            -89
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            978,
+            -237
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            1930,
+            106
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1126,
+            425
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1227,
+            341
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1227,
+            415
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1338,
+            368
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            1484,
+            -252
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1598.2,
+            -207.3
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1821,
+            -123
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            1612.3,
+            -26.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 27.07
+        },
+        {
+          "id": "R38",
+          "type": "Component_VectorRotate",
+          "nick": "VRot",
+          "name": "Rotate",
+          "pos": [
+            1716,
+            -312
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1596,
+            -320
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "panel",
+          "pos": [
+            1566.1,
+            -281.3
+          ],
+          "content": "Rad(90)"
+        },
+        {
+          "id": "R41",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            1890,
+            -237
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1993,
+            -262
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Param_Vector",
+          "nick": "Vec",
+          "name": "Vector",
+          "pos": [
+            1244.1,
+            -427.6
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1339,
+            -474
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1345,
+            -383
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            1423,
+            -389
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1515,
+            -462
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            1599,
+            -460
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            2085,
+            -252
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            1877.5,
+            255.1
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2036.9,
+            129.1
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            2127,
+            138
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            2242,
+            62
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2360,
+            97
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1981,
+            265
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            2242,
+            309
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2147,
+            416
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            1925.2,
+            427
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R59",
+          "type": "Component_BRepIntersection",
+          "nick": "BBX",
+          "name": "Brep | Brep",
+          "pos": [
+            2488,
+            191
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_SurfaceCurveSplit",
+          "nick": "SrfSplit",
+          "name": "Surface Split",
+          "pos": [
+            2553,
+            123
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            2631,
+            206
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            2734,
+            188
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2810,
+            113
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2930,
+            156
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3989,
+            -166
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            165,
+            292
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "pos": [
+            -49.2,
+            262.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R68",
+          "type": "slider",
+          "pos": [
+            -55.4,
+            309
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R69",
+          "type": "Component_ExtendCurve",
+          "nick": "Ext",
+          "name": "Extend Curve",
+          "pos": [
+            2088,
+            311
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "slider",
+          "pos": [
+            1874.2,
+            331.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R71",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2365,
+            372
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            2248,
+            414
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            989,
+            -131
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            990,
+            -24
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            1071,
+            -20
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            3041,
+            150
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            3135,
+            150
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            1011,
+            354
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            2949,
+            -96
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "slider",
+          "pos": [
+            2708.7,
+            -101.4
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 1713
+        },
+        {
+          "id": "R81",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            3068,
+            -91
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            3353,
+            -162
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            3263,
+            -142
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            3184,
+            -185
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Operator_Subtraction_OBSOLETE",
+          "nick": "A-B",
+          "name": "Subtraction",
+          "pos": [
+            3262,
+            -192
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            3460,
+            -162
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "slider",
+          "pos": [
+            3096.5,
+            -432.5
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 345
+        },
+        {
+          "id": "R88",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            3493,
+            -293
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            3398,
+            -313
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            3574,
+            -172
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            3651,
+            -298
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            3590,
+            -409
+          ]
+        },
+        {
+          "id": "R93",
+          "type": "slider",
+          "pos": [
+            3334,
+            -443.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R94",
+          "type": "slider",
+          "pos": [
+            3340.4,
+            -408
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R95",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            3759,
+            -219
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            3869,
+            -203
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            3647,
+            -126
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            3763,
+            -362
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "slider",
+          "pos": [
+            2821,
+            -233
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R3.O0>R1.I1",
+        "R66.O0>R1.I2",
+        "R1.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R4.O0>R8.I0",
+        "R6.O0>R8.I1",
+        "R5.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R9.O1>R10.I1",
+        "R8.O0>R11.I0",
+        "R12.O0>R11.I1",
+        "R4.O0>R13.I0",
+        "R23.O0>R13.I1",
+        "R11.O0>R14.I0",
+        "R10.O0>R14.I1",
+        "R16.O0>R15.I0",
+        "R17.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R18.O0>R20.I0",
+        "R15.O0>R21.I0",
+        "R20.O0>R21.I1",
+        "R22.O0>R23.I0",
+        "R75.O0>R24.I0",
+        "R73.O0>R25.I0",
+        "R24.O0>R26.I0",
+        "R25.O0>R27.I0",
+        "R26.O0>R27.I1",
+        "R4.O0>R28.I0",
+        "R11.O0>R28.I1",
+        "R21.O0>R29.I0",
+        "R78.O0>R30.I0",
+        "R78.O0>R31.I0",
+        "R30.O0>R32.I0",
+        "R31.O0>R33.I0",
+        "R32.O0>R33.I1",
+        "R27.O0>R34.I0",
+        "R35.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R48.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R40.O0>R38.I2",
+        "R38.O0>R41.I0",
+        "R36.O0>R41.I1",
+        "R34.O0>R42.I0",
+        "R41.O0>R42.I1",
+        "R43.O0>R44.I0",
+        "R43.O0>R45.I0",
+        "R45.O0>R46.I0",
+        "R44.O0>R47.I0",
+        "R46.O0>R47.I1",
+        "R47.O0>R48.I0",
+        "R42.O0>R49.I0",
+        "R51.O0>R52.I0",
+        "R52.O0>R53.I1",
+        "R29.O0>R53.I2",
+        "R53.O0>R54.I0",
+        "R50.O0>R55.I0",
+        "R69.O0>R56.I0",
+        "R57.O0>R56.I1",
+        "R58.O0>R57.I0",
+        "R54.O0>R59.I0",
+        "R71.O0>R59.I1",
+        "R54.O0>R60.I0",
+        "R59.O0>R60.I1",
+        "R60.O0>R61.I0",
+        "R61.O0>R62.I0",
+        "R62.O0>R63.I0",
+        "R60.O0>R63.I1",
+        "R63.O1>R64.I0",
+        "R96.O0>R65.I0",
+        "R97.O0>R65.I1",
+        "R67.O0>R66.I0",
+        "R68.O0>R66.I2",
+        "R55.O0>R69.I0",
+        "R70.O0>R69.I2",
+        "R70.O0>R69.I3",
+        "R56.O0>R71.I0",
+        "R72.O0>R71.I1",
+        "R57.O0>R72.I0",
+        "R14.O0>R73.I0",
+        "R14.O0>R74.I0",
+        "R74.O0>R75.I0",
+        "R64.O0>R76.I0",
+        "R76.O0>R77.I0",
+        "R28.O0>R78.I0",
+        "R80.O0>R79.I1",
+        "R80.O0>R79.I2",
+        "R79.O0>R81.I0",
+        "R99.O0>R81.I1",
+        "R85.O0>R82.I0",
+        "R83.O0>R82.I1",
+        "R87.O0>R82.I2",
+        "R81.O0>R83.I0",
+        "R77.O0>R84.I0",
+        "R84.O0>R85.I0",
+        "R77.O0>R86.I0",
+        "R82.O0>R86.I1",
+        "R89.O0>R88.I0",
+        "R83.O0>R88.I1",
+        "R87.O0>R88.I2",
+        "R86.O0>R90.I0",
+        "R88.O0>R90.I1",
+        "R92.O0>R91.I0",
+        "R83.O0>R91.I1",
+        "R87.O0>R91.I2",
+        "R93.O0>R92.I0",
+        "R94.O0>R92.I1",
+        "R90.O0>R95.I0",
+        "R91.O0>R95.I2",
+        "R95.O0>R96.I0",
+        "R81.O0>R96.I1",
+        "R98.O0>R97.I2",
+        "R83.O0>R98.I1",
+        "R87.O0>R98.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

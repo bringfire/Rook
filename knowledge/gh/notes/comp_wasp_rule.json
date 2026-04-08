@@ -1,0 +1,97 @@
+{
+  "note_id": "comp_wasp_rule",
+  "note_type": "component",
+  "name": "Wasp_Rule",
+  "brief": "Wasp_Rule | Inputs: P1, C1, P2, C2 \u2192 R",
+  "version": "1.0",
+  "created": "2026-03-19T13:30:00.000000Z",
+  "context": "Wasp plugin component: defines a single directional aggregation rule. Rules are DIRECTIONAL \u00e2\u20ac\u201d HEXA|0\u2192HEXA|1 does NOT imply HEXA|1\u2192HEXA|0. Create two rules for bidirectional connections.",
+  "keywords": [
+    "wasp",
+    "rule",
+    "aggregation rule",
+    "connection rule",
+    "directional",
+    "discrete"
+  ],
+  "category": "wasp",
+  "tags": [
+    "wasp",
+    "discrete-design",
+    "rules",
+    "directionality",
+    "gotcha"
+  ],
+  "trigger_intents": [
+    "wasp rule",
+    "aggregation rule",
+    "connection rule",
+    "wasp connection rule",
+    "define rule",
+    "create wasp rule",
+    "part connection rule"
+  ],
+  "trigger_symptoms": [
+    "aggregation only grows in one direction",
+    "sparse aggregation results",
+    "parts not connecting symmetrically"
+  ],
+  "components": [
+    "Wasp_Rule"
+  ],
+  "solution_principle": "Each rule is ONE direction: P1's connection C1 can attach to P2's connection C2. For bidirectional connectivity, create two rules with swapped indices. Part names (P1/P2) must exactly match Wasp_Basic Part NAME inputs. Connection indices (C1/C2) are 0-based integers matching the sequential order from Wasp_Connection From Direction. Multiple rules are merged via Merge before feeding into aggregation.",
+  "anti_patterns": [
+    "Defining only one direction when bidirectional is needed \u00e2\u20ac\u201d causes asymmetric growth",
+    "Using 1-based connection indices instead of 0-based",
+    "Part name string mismatch with Basic Part NAME input"
+  ],
+  "preconditions": [
+    "Wasp_Basic Part components defined with named parts",
+    "Connection indices known from Wasp_Connection From Direction"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_wasp_part",
+    "comp_wasp_conndir",
+    "comp_wasp_stochastic"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "wasp_learning",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d6bf2c57-c384-42d7-aebd-e1adc7c706a9",
+    "category": "wasp",
+    "inputs": {
+      "P1": "Generic Data",
+      "C1": "Generic Data",
+      "P2": "Generic Data",
+      "C2": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [
+      "Panel('HEXA') \u2192 P1",
+      "Slider(0-N) \u2192 C1",
+      "Panel('HEXA') \u2192 P2",
+      "Slider(0-N) \u2192 C2",
+      "R \u2192 Merge.D1/D2/D3"
+    ],
+    "similar_to": [
+      "3be7d5a0-3d75-44c0-9c41-30903ba729d0"
+    ],
+    "usage_count": 0,
+    "stable_key": "wasp|3 | rules|wasp_rule"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

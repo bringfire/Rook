@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_a98172dc",
+  "note_type": "component",
+  "name": "Cosine",
+  "brief": "Cosine | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Cosine. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "cosine",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "cosine"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cosine"
+  ],
+  "solution_principle": "Compute the cosine of a value",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ee1dcf99",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_38c8d281",
+    "comp_fb444524",
+    "comp_146e6e67",
+    "comp_cea798a6",
+    "comp_99a9eab9",
+    "comp_ee0122e5",
+    "comp_f64033e5",
+    "comp_bae2f7d3",
+    "comp_acd09dc2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d2d2a900-780c-4d58-9a35-1f9d8d35df6f",
+    "category": "trigonometry",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7663efbb-d9b8-4c6a-a0da-c3750a7bbe77",
+      "0f31784f-7177-4104-8500-1f4f4a306df4"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|cosine"
+  }
+}

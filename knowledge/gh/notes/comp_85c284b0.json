@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_85c284b0",
+  "note_type": "component",
+  "name": "Delaunay Mesh",
+  "brief": "Delaunay Mesh | Inputs: P, Pl → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Delaunay Mesh. Inputs: P (Point), Pl (Plane). Outputs: M (Mesh).",
+  "keywords": [
+    "delaunay mesh",
+    "delaunay",
+    "mesh",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "delaunay mesh",
+    "delaunay",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Delaunay Mesh"
+  ],
+  "solution_principle": "Delaunay triangulation",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_da8636fd",
+    "teaching_9a2ab0b7",
+    "comp_3472c8c4",
+    "comp_f66c936d",
+    "comp_2196422c",
+    "comp_4cfdef19",
+    "comp_e47235e7",
+    "comp_23c0d526"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1eb4f6ff-3547-4184-bead-1b01e7cfd668",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point",
+      "Pl": "Plane"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "84d708eb-a8dc-4afd-94eb-ba953fddfd19"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|delaunay mesh"
+  }
+}

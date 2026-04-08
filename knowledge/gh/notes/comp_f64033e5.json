@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_f64033e5",
+  "note_type": "component",
+  "name": "Secant",
+  "brief": "Secant | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Secant. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "secant",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "secant"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Secant"
+  ],
+  "solution_principle": "Compute the secant (reciprocal of the Cosine) of an angle.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ee1dcf99",
+    "comp_a98172dc",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_38c8d281"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "60103def-1bb7-4700-b294-3a89100525c4",
+    "category": "trigonometry",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1f602c33-f38e-4f47-898b-359f0a4de3c2"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|secant"
+  }
+}

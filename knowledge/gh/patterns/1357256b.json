@@ -1,0 +1,64 @@
+{
+  "pattern_id": "1357256b",
+  "name": "wasp_07_teaching_0_07_Save_Load_Aggre",
+  "version": "1.0",
+  "created": "2026-03-19T17:31:39.237246Z",
+  "solution": {
+    "brief": "0_07_Save_Load_Aggregation",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Geometry",
+      "Point"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "0_07_save_load_aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_a41fd3f5",
+  "note_type": "component",
+  "name": "Sporph",
+  "brief": "Sporph | Inputs: G, S0, P0, S1 → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Sporph. Inputs: G (Geometry), S0 (Surface), P0 (Point), S1 (Surface), P1 (Point), R (Boolean). Outputs: G (Geometry).",
+  "keywords": [
+    "sporph",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "sporph"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sporph"
+  ],
+  "solution_principle": "Deforms an object from a source surface to a target surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_0abb40f1",
+    "comp_ef96fa08",
+    "comp_18607aa4",
+    "comp_d4249a4e",
+    "comp_4c71c793"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9cacad37-b09f-4b54-b2b1-1ccdc2e3ffea",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "S0": "Surface",
+      "P0": "Point",
+      "S1": "Surface",
+      "P1": "Point",
+      "R": "Boolean"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "transform|morph|sporph"
+  }
+}

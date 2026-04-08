@@ -1,0 +1,632 @@
+{
+  "pattern_id": "ea79d920",
+  "name": "trigonometric_parametric_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T19:37:29.890564Z",
+  "solution": {
+    "brief": "Parametric workflow with 8 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Square",
+      "slider",
+      "Rotate",
+      "Construct Point",
+      "Radians",
+      "slider",
+      "Negative",
+      "Distance",
+      "CenterPoint",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Mesh Plane",
+      "Mesh Explode",
+      "Mesh Edges",
+      "Join Curves",
+      "Offset",
+      "Negative",
+      "slider",
+      "Mesh Plane",
+      "Deconstruct Mesh",
+      "PerlinNoise",
+      "slider",
+      "Remap Numbers",
+      "Bounds",
+      "slider",
+      "Unit Z",
+      "Move",
+      "Construct Mesh",
+      "Remap Numbers",
+      "Round",
+      "Bounds",
+      "Gradient",
+      "Custom Preview",
+      "Graft Tree",
+      "Shift Paths",
+      "Weaverbird's Mesh Thicken",
+      "Negative",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:34:14.971999Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 50 wires -> 41 components, 50 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.1
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Gradient Tile.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            308,
+            162
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            80,
+            142.4
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R3",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            528,
+            162
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            204,
+            68
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "FuncToRadians",
+          "nick": "Rad",
+          "name": "Radians",
+          "pos": [
+            312,
+            251
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            85.6,
+            241.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R7",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            403,
+            254
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            744,
+            86
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Cluster",
+          "name": "CenterPoint",
+          "pos": [
+            625,
+            147
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            952,
+            106
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            856,
+            106
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            839,
+            239
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            589,
+            219
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            592,
+            243
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R15",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            1063,
+            175
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Explode",
+          "nick": "Explode",
+          "name": "Mesh Explode",
+          "pos": [
+            1154,
+            170
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            1260,
+            170
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1357,
+            160
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_OffsetCurve",
+          "name": "Offset",
+          "pos": [
+            1478,
+            215
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            1379,
+            223
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            1142.4,
+            222
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.1
+        },
+        {
+          "id": "R22",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            1593,
+            243
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1717,
+            191
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "PlaceholderComponent",
+          "name": "PerlinNoise",
+          "pos": [
+            1905,
+            219
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            1659.8,
+            262.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R26",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2124,
+            265
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2021,
+            267
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            1892,
+            307.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R29",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2225,
+            250
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2298,
+            195
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            2398,
+            181
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2122,
+            401
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Function_Round",
+          "name": "Round",
+          "pos": [
+            970,
+            208
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2037,
+            401
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2193,
+            359
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2720,
+            314
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            2502,
+            398
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "ShiftDataPathComponent",
+          "nick": "PShift",
+          "name": "Shift Paths",
+          "pos": [
+            2684,
+            216
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            2592,
+            212
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2515,
+            251
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            2286.7,
+            251.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R7.O0>R3.I1",
+        "R4.O0>R3.I2",
+        "R6.O0>R5.I0",
+        "R5.O0>R7.I0",
+        "R4.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R3.O0>R9.I0",
+        "R8.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R12.O0>R10.I2",
+        "R8.O0>R11.I0",
+        "R13.O0>R12.I0",
+        "R14.O0>R12.I1",
+        "R3.O0>R15.I0",
+        "R33.O0>R15.I1",
+        "R33.O0>R15.I2",
+        "R15.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R17.O0>R18.I0",
+        "R18.O0>R19.I0",
+        "R20.O0>R19.I1",
+        "R21.O0>R20.I0",
+        "R19.O0>R22.I0",
+        "R22.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R25.O0>R24.I2",
+        "R24.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R28.O0>R26.I2",
+        "R24.O0>R27.I0",
+        "R26.O0>R29.I0",
+        "R23.O0>R30.I0",
+        "R29.O0>R30.I1",
+        "R30.O0>R31.I0",
+        "R23.O1>R31.I1",
+        "R33.O0>R32.I0",
+        "R34.O0>R32.I1",
+        "R10.O0>R33.I0",
+        "R33.O0>R34.I0",
+        "R32.O1>R35.I2",
+        "R38.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R35.O0>R37.I0",
+        "R39.O0>R38.I0",
+        "R31.O0>R39.I0",
+        "R40.O0>R39.I1",
+        "R41.O0>R40.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

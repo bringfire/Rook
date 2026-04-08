@@ -1,0 +1,453 @@
+{
+  "pattern_id": "daf3263d",
+  "name": "16-3",
+  "version": "1.0",
+  "created": "2026-02-22T14:05:24.993479Z",
+  "solution": {
+    "brief": "Recipe from FILES\\16\\16-3.gh (29 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Geometry",
+      "Point",
+      "Curve",
+      "Geometry",
+      "Point",
+      "Curve",
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Basic Part",
+      "Wasp_Basic Part",
+      "panel",
+      "panel",
+      "Wasp_Rules Generator",
+      "Merge",
+      "Wasp_Stochastic Aggregation",
+      "slider",
+      "Button",
+      "Wasp_Get Part Geometry",
+      "Custom Preview",
+      "panel",
+      "Toggle",
+      "Toggle",
+      "Point",
+      "Curve",
+      "Wasp_Connection From Direction",
+      "panel",
+      "panel",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "16 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "af62b8d8",
+    "da5e2260",
+    "221b3bb4"
+  ],
+  "tags": [
+    "recipe",
+    "workflow",
+    "parametric",
+    "series",
+    "16-series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 190
+        }
+      ],
+      "panels": [
+        {
+          "id": "R12",
+          "nick": "",
+          "content": "box"
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "content": "hexa"
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "content": "side"
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "content": "top-hexa"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/16/16-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            70,
+            34
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            203,
+            248
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            203.3,
+            287.2
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            203.3,
+            326.6
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            224.7,
+            593.5
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            225,
+            632.8
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            225,
+            672.1
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            490,
+            268
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            507,
+            615
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            768,
+            262
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            772,
+            446
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "pos": [
+            644.4,
+            212.4
+          ],
+          "content": "box"
+        },
+        {
+          "id": "R13",
+          "type": "panel",
+          "pos": [
+            619.5,
+            401.4
+          ],
+          "content": "hexa"
+        },
+        {
+          "id": "R14",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            1165,
+            404
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            945,
+            352
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1447,
+            267
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            903.2,
+            70.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 190
+        },
+        {
+          "id": "R18",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1081,
+            498
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1618,
+            182
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1738,
+            192
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "panel",
+          "pos": [
+            1309.3,
+            407.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R22",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            928,
+            396
+          ],
+          "value": true
+        },
+        {
+          "id": "R23",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            928,
+            425
+          ],
+          "value": true
+        },
+        {
+          "id": "R24",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            217,
+            458.4
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            217,
+            497.7
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            516,
+            474
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "panel",
+          "pos": [
+            353.3,
+            355.7
+          ],
+          "content": "side"
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "pos": [
+            280.7,
+            419.2
+          ],
+          "content": "top-hexa"
+        },
+        {
+          "id": "R29",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            928,
+            456
+          ],
+          "value": true
+        }
+      ],
+      "flows": [
+        "R2.O0>R8.I0",
+        "R3.O0>R8.I1",
+        "R4.O0>R8.I2",
+        "R27.O0>R8.I3",
+        "R5.O0>R9.I0",
+        "R6.O0>R9.I1",
+        "R7.O0>R9.I2",
+        "R27.O0>R9.I3",
+        "R12.O0>R10.I0",
+        "R2.O0>R10.I1",
+        "R8.O0>R10.I2",
+        "R13.O0>R11.I0",
+        "R5.O0>R11.I1",
+        "R9.O0>R11.I2",
+        "R26.O0>R11.I2",
+        "R15.O0>R14.I0",
+        "R22.O0>R14.I1",
+        "R23.O0>R14.I2",
+        "R29.O0>R14.I3",
+        "R10.O0>R15.I0",
+        "R11.O0>R15.I1",
+        "R15.O0>R16.I0",
+        "R17.O0>R16.I2",
+        "R14.O0>R16.I3",
+        "R18.O0>R16.I9",
+        "R16.O1>R19.I0",
+        "R19.O0>R20.I0",
+        "R14.O0>R21.I0",
+        "R5.O0>R26.I0",
+        "R24.O0>R26.I1",
+        "R25.O0>R26.I2",
+        "R28.O0>R26.I3"
+      ],
+      "subgraphs": []
+    }
+  }
+}

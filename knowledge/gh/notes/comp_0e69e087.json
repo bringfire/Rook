@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_0e69e087",
+  "note_type": "component",
+  "name": "Weaverbird's Reroute Faces",
+  "brief": "Weaverbird's Reroute Faces | Inputs: M, N+ \u2192 R0, R1",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.563383Z",
+  "context": "Grasshopper component: Weaverbird's Reroute Faces. Inputs: M (Mesh), N+ (Integer). Outputs: R0 (Mesh), R1 (Mesh).",
+  "keywords": [
+    "weaverbird's reroute faces",
+    "weaverbird's",
+    "reroute",
+    "faces",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's reroute faces",
+    "weaverbird's",
+    "reroute",
+    "faces"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Reroute Faces"
+  ],
+  "solution_principle": "Returns a new mesh made of a sublist of faces.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e3259f10",
+    "comp_a2608fd8",
+    "comp_80deaa79",
+    "comp_b56590cd",
+    "comp_3756d5bc",
+    "comp_fd4acea1",
+    "comp_249dabb0",
+    "comp_093bbf10",
+    "comp_63fecbcb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1693e77a-019a-455d-9c8c-86836dac519a",
+    "category": "wb_extract",
+    "inputs": {
+      "M": "Mesh",
+      "N+": "Integer"
+    },
+    "outputs": {
+      "R0": "Mesh",
+      "R1": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1b6032bc-72d7-45bf-b1e8-3228700f1b44"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's reroute faces",
+    "family": "wb_extract"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

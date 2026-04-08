@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_191f4d10",
+  "note_type": "component",
+  "name": "Weaverbird's Mesh From Lines (Weave Back)",
+  "brief": "Weaverbird's Mesh From Lines (Weave Back) | Inputs: L, V → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Weaverbird's Mesh From Lines (Weave Back). Inputs: L (Line), V (Integer). Outputs: O (Mesh).",
+  "keywords": [
+    "weaverbird's mesh from lines (weave back)",
+    "weaverbird's",
+    "mesh",
+    "from",
+    "lines",
+    "(weave",
+    "back)",
+    "wb_create"
+  ],
+  "category": "wb_create",
+  "tags": [
+    "wb_create"
+  ],
+  "trigger_intents": [
+    "weaverbird's mesh from lines (weave back)",
+    "weaverbird's",
+    "mesh",
+    "from",
+    "lines",
+    "weave",
+    "back)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Mesh From Lines (Weave Back)"
+  ],
+  "solution_principle": "Transforms a list of lines in a mesh. (This component is experimental and allows to try in advance future functionality)\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_385fb206",
+    "comp_e830aa31",
+    "comp_8a356582",
+    "comp_76f5f626",
+    "comp_3e623b50",
+    "comp_12919c4d",
+    "comp_5706c591",
+    "comp_af5d4f93",
+    "comp_a2e04faf",
+    "comp_31d184dc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "01533bee-a0ac-42f7-8426-5662fbe2d928",
+    "category": "wb_create",
+    "inputs": {
+      "L": "Line",
+      "V": "Integer"
+    },
+    "outputs": {
+      "O": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "wb|create|weaverbird's mesh from lines (weave back)"
+  }
+}

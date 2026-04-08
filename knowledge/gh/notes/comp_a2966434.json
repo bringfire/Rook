@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_a2966434",
+  "note_type": "component",
+  "name": "Facet Dome",
+  "brief": "Facet Dome | Inputs: P, B, R → P, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Facet Dome. Inputs: P (Point), B (Box), R (Number). Outputs: P (Curve), D (Surface).",
+  "keywords": [
+    "facet dome",
+    "facet",
+    "dome",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "facet dome",
+    "facet",
+    "dome"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Facet Dome"
+  ],
+  "solution_principle": "Create a facetted dome",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d",
+    "comp_3472c8c4",
+    "comp_f66c936d",
+    "comp_2196422c",
+    "comp_9bce8961",
+    "comp_4cfdef19",
+    "comp_da8636fd",
+    "comp_e47235e7",
+    "comp_23c0d526",
+    "comp_73a7cd7d",
+    "comp_f06438f9",
+    "comp_d9de95a0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "190c0070-8cbf-4347-94c2-d84bbb488d55",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point",
+      "B": "Box",
+      "R": "Number"
+    },
+    "outputs": {
+      "P": "Curve",
+      "D": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|facet dome"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_fced4dd4",
+  "note_type": "component",
+  "name": "Unroll Brep",
+  "brief": "Unroll Brep | Inputs: Brep, Join → Unrolled",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Unroll Brep. Inputs: Brep (Brep), Join (Boolean). Outputs: Unrolled (Generic Data).",
+  "keywords": [
+    "unroll brep",
+    "unroll",
+    "brep",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "unroll brep",
+    "unroll",
+    "brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Unroll Brep"
+  ],
+  "solution_principle": "Unroll a brep or surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d7c1b11",
+    "comp_aa74495c",
+    "comp_be584748",
+    "comp_d3ee4423",
+    "comp_d551bf52"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "70de1114-9a0d-49a1-a101-f2d26374e161",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Brep": "Brep",
+      "Join": "Boolean"
+    },
+    "outputs": {
+      "Unrolled": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|unroll brep"
+  }
+}

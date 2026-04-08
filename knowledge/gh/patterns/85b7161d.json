@@ -1,0 +1,460 @@
+{
+  "pattern_id": "85b7161d",
+  "name": "10-4",
+  "version": "1.0",
+  "created": "2026-02-22T13:53:48.012787Z",
+  "solution": {
+    "brief": "Recipe from FILES\\10\\10-4.gh (26 components)",
+    "principle": "\n\nRelated insight: Contrasts with simple utility recipes (5-10 components) - this is a more comprehensive tutorial example with 26 components.",
+    "components_needed": [
+      "Bifocals",
+      "Fatten",
+      "Curve",
+      "Point",
+      "Sphere",
+      "Gene Pool",
+      "Custom Preview",
+      "SubD from Mesh",
+      "slider",
+      "slider",
+      "Curve",
+      "Cytoskeleton",
+      "Mesh Sphere Ex",
+      "Custom Preview",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "slider",
+      "ExoWireframe",
+      "Curve",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Custom Preview",
+      "Weaverbird's Catmull-Clark Subdivision"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "10 4"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ec97a8ea",
+    "d3c708e8"
+  ],
+  "tags": [
+    "complex-tool",
+    "26-components",
+    "tutorial-series",
+    "recipe",
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:25:40.388836",
+    "evolved_by": [
+      "d3c708e8"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:25:40.388836",
+        "trigger": "New pattern: d3c708e8",
+        "changes": "Adding component count and complexity tags helps distinguish from simple utility recipes like Fattener"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 5,
+          "value": 0
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.53
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.6
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.77
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.21
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "FILES/10/10-4.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            3,
+            -48
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "PlaceholderComponent",
+          "name": "Fatten",
+          "pos": [
+            530,
+            155
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            440.4,
+            57
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            141.2,
+            74.3
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            431,
+            103
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            26.2,
+            156.4
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            860,
+            96
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "SubDFromMeshComponent",
+          "nick": "SubDMesh",
+          "name": "SubD from Mesh",
+          "pos": [
+            680,
+            54
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            238.5,
+            178.3
+          ],
+          "min": 0,
+          "max": 5,
+          "value": 0
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            290.7,
+            210.9
+          ],
+          "min": 0,
+          "max": 3,
+          "value": 3
+        },
+        {
+          "id": "R11",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            440.2,
+            152.4
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "PlaceholderComponent",
+          "name": "Cytoskeleton",
+          "pos": [
+            447,
+            344
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_MeshSphere2",
+          "nick": "MSphereEx",
+          "name": "Mesh Sphere Ex",
+          "pos": [
+            229,
+            355
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            866,
+            410
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            643,
+            439
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            400.6,
+            453.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            159.8,
+            428.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.53
+        },
+        {
+          "id": "R18",
+          "type": "PlaceholderComponent",
+          "name": "ExoWireframe",
+          "pos": [
+            554,
+            616
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            431.3,
+            549.7
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            296.5,
+            565.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            265.2,
+            589
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.6
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            265.6,
+            612.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.77
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            263.6,
+            636.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.21
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            285.6,
+            660.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.5
+        },
+        {
+          "id": "R25",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            869,
+            556
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            655,
+            553
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R5.O0>R2.I1",
+        "R11.O0>R2.I3",
+        "R9.O0>R2.I4",
+        "R10.O0>R2.I5",
+        "R4.O0>R5.I0",
+        "R6.O0>R5.I1",
+        "R8.O0>R7.I0",
+        "R2.O0>R8.I0",
+        "R13.O0>R12.I0",
+        "R17.O0>R12.I1",
+        "R15.O0>R14.I0",
+        "R12.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R19.O0>R18.I0",
+        "R20.O0>R18.I1",
+        "R21.O0>R18.I2",
+        "R22.O0>R18.I3",
+        "R23.O0>R18.I4",
+        "R24.O0>R18.I5",
+        "R26.O0>R25.I0",
+        "R18.O0>R26.I0",
+        "R16.O0>R26.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

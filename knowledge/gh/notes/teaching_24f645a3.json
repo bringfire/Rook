@@ -1,0 +1,253 @@
+{
+  "note_id": "teaching_24f645a3",
+  "note_type": "teaching",
+  "name": "U04 - Brep Operations 2",
+  "brief": "Teaching: Brep Operations 2",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)",
+  "keywords": [
+    "brep",
+    "operations",
+    "list item",
+    "merge",
+    "dispatch",
+    "brep join",
+    "cull index",
+    "booleantoggle",
+    "cap holes",
+    "surface",
+    "unit 04 class",
+    "choose",
+    "the",
+    "results",
+    "shape",
+    "inside",
+    "remaining",
+    "geometry",
+    "not",
+    "outside",
+    "intersecting"
+  ],
+  "category": "Unit 04",
+  "tags": [
+    "geometry-operations",
+    "complex-wiring",
+    "hands-on",
+    "intersecting brep",
+    "requires-brep-fundamentals",
+    "annotated",
+    "remaining geometry not outside brep",
+    "surface-brep-relationship",
+    "boundary-representation",
+    "brep-operations",
+    "unit-04",
+    "remaining geometry not inside brep",
+    "open-closed-brep",
+    "tutorial",
+    "intermediate",
+    "inside brep",
+    "outside brep",
+    "teaching",
+    "multi-group"
+  ],
+  "trigger_intents": [
+    "brep operations 2",
+    "how to use brep operations 2",
+    "how to use list item",
+    "how to use merge",
+    "how to use dispatch",
+    "how to use brep",
+    "how to use brep join",
+    "how to use cull index",
+    "how to use booleantoggle",
+    "how to use cap holes",
+    "how to use surface",
+    "brep / line",
+    "brep / brep",
+    "trim solid",
+    "solid union",
+    "solid difference",
+    "solid intersection",
+    "box slits"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "List Item",
+    "Merge",
+    "Dispatch",
+    "Brep",
+    "Brep Join",
+    "Cull Index",
+    "BooleanToggle",
+    "Cap Holes",
+    "Surface"
+  ],
+  "solution_principle": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)",
+  "anti_patterns": [],
+  "preconditions": [
+    "Panels may not always keep data as Geometry"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_f520f3eb",
+    "teaching_eeef070a",
+    "teaching_26b87a73",
+    "teaching_4f2b9009",
+    "teaching_90de351e",
+    "teaching_ecde5523",
+    "comp_1294644e",
+    "comp_3d7c1b11",
+    "comp_40dc966b",
+    "tutorial_ca58da47"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-04-Class",
+    "unit_number": 4,
+    "section_number": 5,
+    "section_index": 3,
+    "x_range": [
+      3258.8,
+      4512.0
+    ],
+    "full_teaching_text": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)",
+    "sub_annotations": [
+      {
+        "id": "C179",
+        "text": "Panels may not always keep data as Geometry",
+        "topic": "Panels may not always keep data as Geometry",
+        "pos": [
+          4080,
+          1349.8
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C11",
+      "C13",
+      "C21",
+      "C24",
+      "C25",
+      "C149",
+      "C150",
+      "C153",
+      "C157",
+      "C158",
+      "C161",
+      "C162",
+      "C173",
+      "C174",
+      "C176",
+      "C178",
+      "C300",
+      "C362",
+      "C363",
+      "C364",
+      "C102"
+    ],
+    "intra_section_flows": [
+      "C102.O0>C11.I0",
+      "C363.O0>C13.I0",
+      "C364.O0>C13.I1",
+      "C11.O2>C13.I2",
+      "C11.O3>C13.I3",
+      "C11.O4>C13.I4",
+      "C13.O0>C14.I0",
+      "C102.O0>C103.I0",
+      "C21.O0>C127.I0",
+      "C21.O1>C129.I0",
+      "C13.O0>C162.I0",
+      "C102.O0>C173.I0",
+      "C175.O0>C173.I1",
+      "C174.O0>C173.I2",
+      "C173.O0>C176.I0",
+      "C173.O0>C177.I0",
+      "C177.O0>C178.I0",
+      "C162.O0>C235.I0",
+      "C162.O0>C300.I0",
+      "C300.O0>C301.I0",
+      "C176.O0>C347.I0",
+      "C176.O1>C348.I0",
+      "C162.O1>C360.I0",
+      "C362.O1>C361.I0",
+      "C300.O0>C362.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G14",
+        "name": "Choose the 0 results (Shape INSIDE Brep)",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G18",
+        "name": "Inside Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G17",
+        "name": "Remaining Geometry NOT inside Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G29",
+        "name": "Remaining Geometry NOT outside Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G27",
+        "name": "Outside Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G26",
+        "name": "Choose the 2 results (Shape OUTSIDE Brep)",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G34",
+        "name": "Remaining Geometry NOT intersecting Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G32",
+        "name": "Intersecting Brep",
+        "colour": "#00C8FF"
+      },
+      {
+        "group_id": "G31",
+        "name": "Choose the 1 results (Shape OUTSIDE Brep)",
+        "colour": "#00C8FF"
+      }
+    ],
+    "components_demonstrated": {
+      "List Item": 1,
+      "Merge": 1,
+      "Dispatch": 3,
+      "Brep": 6,
+      "Brep Join": 4,
+      "Cull Index": 1,
+      "BooleanToggle": 1,
+      "Cap Holes": 1,
+      "Surface": 3
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 21,
+      "sub_labels": 0,
+      "connected_panels": 12,
+      "flows": 25,
+      "groups": 9
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_7d8acb67",
+  "note_type": "component",
+  "name": "Solid Intersection",
+  "brief": "Solid Intersection | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Solid Intersection. Inputs: A (Brep), B (Brep). Outputs: R (Brep).",
+  "keywords": [
+    "solid intersection",
+    "solid",
+    "intersection",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "solid intersection",
+    "solid",
+    "intersection"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Solid Intersection"
+  ],
+  "solution_principle": "Perform a solid intersection on two Brep sets.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5f77f7fc",
+    "comp_dd2a0014",
+    "comp_85550cda",
+    "comp_af436c13",
+    "comp_85767767"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5723c845-cafc-442d-a667-8c76532845e6",
+    "category": "intersection_shape",
+    "inputs": {
+      "A": "Brep",
+      "B": "Brep"
+    },
+    "outputs": {
+      "R": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "95aef4f6-66fc-477e-b8f8-32395a837831",
+      "10434a15-da85-4281-bb64-a2b3a995b9c6",
+      "fab11c30-2d9c-4d15-ab3c-2289f1ae5c21"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|solid intersection"
+  }
+}

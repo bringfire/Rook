@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_e7c02afd",
+  "note_type": "component",
+  "name": "Drafting Attributes",
+  "brief": "Drafting Attributes | Inputs: Dr, L, S → Dr, L, S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Drafting Attributes. Inputs: Dr (Drafting Attributes), L (Linetype), S (Number). Outputs: Dr (Drafting Attributes), L (Linetype), S (Number).",
+  "keywords": [
+    "drafting attributes",
+    "drafting",
+    "attributes",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "drafting attributes",
+    "drafting",
+    "attributes"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Drafting Attributes"
+  ],
+  "solution_principle": "Object drafting attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00e8e127",
+    "comp_6882f6f6",
+    "comp_db0a14d5",
+    "comp_f355701d",
+    "comp_525a73a1",
+    "comp_f0c75db8",
+    "comp_8333efcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3ec83758-5dcf-4f26-9400-f8232f471b88",
+    "category": "rhino_objects",
+    "inputs": {
+      "Dr": "Drafting Attributes",
+      "L": "Linetype",
+      "S": "Number"
+    },
+    "outputs": {
+      "Dr": "Drafting Attributes",
+      "L": "Linetype",
+      "S": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "41995f16-087e-425a-97c4-ec4fa0f78e1c",
+      "52a53903-46bf-42c2-818f-c23344fc53c5"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|drafting attributes"
+  }
+}

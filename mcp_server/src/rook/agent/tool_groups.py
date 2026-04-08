@@ -1,0 +1,459 @@
+"""
+Tool Groups & Tiers
+====================
+
+Defines Tier 0 (always active), Tier 1 (named groups), and Markov
+transitions for Rook's ~211 MCP tools.
+
+Adapted from Engram's tool_registry.py for the Rhino/GH domain.
+"""
+
+from typing import Dict, List, Set
+
+# =============================================================================
+# Tier 0: Always Active (~12 tools, ~1800 tokens)
+#
+# These tools are always visible to the agent. They provide:
+# - Intent execution (the primary entry points)
+# - Knowledge queries
+# - Object inspection
+# - Meta-tools for progressive disclosure
+# =============================================================================
+
+TIER_0: Set[str] = {
+    # Primary entry points
+    "rhino_execute_intent",
+    "gh_execute_intent",
+    # Knowledge
+    "knowledge_query",
+    "gh_knowledge_query",
+    # Inspection
+    "rhino_objects",
+    "rhino_ping",
+    "gh_snapshot",
+    "gh_errors",
+    # Scene graph — spatial awareness
+    "scene_graph",
+    "scene_context",
+    "scene_stats",
+    # Meta-tools (handled internally by agent)
+    "request_tools",
+    "search_tools",
+}
+
+# Agent Tier 0: excludes gh_execute_intent (556 lines, DSPy-entangled,
+# not dispatchable). Agents compose GH definitions using individual
+# gh_canvas tools instead. gh_snapshot gives agents full canvas awareness.
+AGENT_TIER_0: Set[str] = (TIER_0 - {"gh_execute_intent"}) | {
+    "gh_snapshot",
+    "session_history",       # per-command success/failure for post-execution verification
+    "rhino_command_prompt",  # Rhino prompt state — detect non-idle after execution
+    "ui_block",              # Adaptive UI pseudo-tool (intercepted by ChatRunner)
+}
+
+# Readonly Tier 0: tools safe for observation-only agents (explorer, etc.).
+# Excludes both execute_intent tools (write operations) from AGENT_TIER_0.
+READONLY_TIER_0: Set[str] = {
+    "rhino_ping",
+    "rhino_objects",
+    "rhino_geometry",
+    "gh_snapshot",
+    "gh_errors",
+    "knowledge_query",
+    "gh_knowledge_query",
+    "request_tools",
+    "search_tools",
+    # Scene graph — spatial awareness for all agents
+    "scene_graph",
+    "scene_context",
+    "scene_stats",
+}
+
+# Groups that contain only read/inspection tools — safe for readonly agents.
+# NOTE: gh_exploration, gh_knowledge, gh_validation are MCP-only and
+# unreachable by agents via the HTTP bridge. Included for forward compatibility.
+# sessions: all four tools (session_current/history/list/export) are in
+# BRIDGE_ROUTES, so agents can reach them normally via the C++ HTTP server.
+READONLY_ALLOWED_GROUPS: Set[str] = {
+    "rhino_measurement",
+    "rhino_selection",
+    "layers_readonly",
+    "viewport_readonly",
+    "gh_exploration",
+    "gh_knowledge",
+    "gh_validation",
+    "gh_canvas_readonly",
+    "sessions",
+    "scene_graph",
+}
+
+
+# =============================================================================
+# Tier 1: Named Groups
+#
+# Loaded via request_tools("group_name") or auto-loaded by triggers.
+# Each group is a focused set of related tools.
+# =============================================================================
+
+TOOL_GROUPS: Dict[str, List[str]] = {
+    # --- Rhino Geometry Creation & Manipulation ---
+    "rhino_geometry": [
+        "rhino_create", "rhino_geometry", "rhino_boolean", "rhino_extrude",
+        "rhino_loft", "rhino_sweep",
+        # rhino_prepare_geometry excluded — requires CommandObserver (MCP-only)
+    ],
+    "rhino_transform": [
+        "rhino_transform", "rhino_copy", "rhino_delete",
+    ],
+    "rhino_curves": [
+        "rhino_curve_ops", "rhino_curve_point_at", "rhino_curve_tangent",
+        "rhino_curve_frame", "rhino_offset_curve", "rhino_offset_curve_on_surface",
+        "rhino_project_curve", "rhino_pull_curve",
+    ],
+    "rhino_surfaces": [
+        "rhino_brep_edges", "rhino_brep_faces", "rhino_brep_vertices",
+        "rhino_intersect_curves", "rhino_intersect_curve_brep",
+        "rhino_intersect_curve_surface", "rhino_intersect_breps",
+        "rhino_intersect_plane",
+        "rhino_split_brep", "rhino_split_face", "rhino_trim_brep",
+        "rhino_offset_brep",
+        "rhino_closest_point", "rhino_is_closed", "rhino_is_valid",
+        "rhino_surface_normal", "rhino_draft_angle",
+    ],
+    "rhino_mesh": [
+        "rhino_mesh_from_brep", "rhino_mesh_boolean",
+        "rhino_mesh_box", "rhino_mesh_cone", "rhino_mesh_cylinder", "rhino_mesh_sphere",
+        "rhino_mesh_reduce", "rhino_mesh_repair", "rhino_mesh_smooth",
+        "rhino_mesh_unweld", "rhino_mesh_weld", "rhino_quad_remesh",
+    ],
+    "rhino_subd": [
+        "rhino_subd_box", "rhino_subd_cylinder", "rhino_subd_sphere",
+        "rhino_subd_from_mesh", "rhino_subd_from_surface",
+        "rhino_subd_crease", "rhino_subd_subdivide",
+        "rhino_subd_to_brep", "rhino_subd_to_mesh",
+    ],
+    "rhino_blocks": [
+        "rhino_blocks", "rhino_block_create", "rhino_block_delete",
+        "rhino_block_insert", "rhino_block_info", "rhino_block_instances",
+        "rhino_block_add_objects", "rhino_block_remove_objects",
+        "rhino_block_rename", "rhino_block_description",
+        "rhino_block_duplicate", "rhino_block_explode",
+        "rhino_block_replace_geometry", "rhino_block_replace_object_geometry",
+        "rhino_block_transform_object", "rhino_block_replace_instance",
+        "rhino_block_reset_scale", "rhino_block_nested",
+        "rhino_block_link", "rhino_block_unlink", "rhino_block_refresh",
+        "rhino_block_rebase",
+        "rhino_block_rebase_recursive",
+        "rhino_block_purge",
+    ],
+
+    # --- Rhino Selection ---
+    "rhino_selection": [
+        "rhino_select", "rhino_select_all", "rhino_select_by_name",
+        "rhino_select_by_type", "rhino_select_none", "rhino_select_invert",
+        "rhino_selection", "rhino_deselect",
+    ],
+
+    # --- Rhino Measurement ---
+    "rhino_measurement": [
+        "rhino_measure_distance", "rhino_measure_length",
+        "rhino_measure_area", "rhino_measure_volume",
+        "rhino_measure_bbox", "rhino_measure_centroid",
+        "rhino_curvature_curve", "rhino_curvature_surface",
+    ],
+
+    # --- Rhino Layers ---
+    "layers": [
+        "rhino_layers", "rhino_layer_create", "rhino_layer_create_batch", "rhino_layer_delete",
+        "rhino_layer_current", "rhino_layer_visibility", "rhino_layer_lock",
+    ],
+    # Read-only subset: excludes create, delete, set-current (all modify state)
+    "layers_readonly": [
+        "rhino_layers", "rhino_layer_visibility", "rhino_layer_lock",
+    ],
+
+    # --- Rhino Viewport & Document ---
+    "viewport": [
+        "rhino_viewport", "rhino_views", "rhino_views_restore", "rhino_views_save",
+        "rhino_display_modes", "rhino_display_mode_set",
+        "rhino_document", "rhino_document_ops",
+    ],
+    # Read-only subset: excludes document_ops (undo, save, new, set_units) and views_save
+    "viewport_readonly": [
+        "rhino_viewport", "rhino_views", "rhino_views_restore",
+        "rhino_display_modes",
+        "rhino_document",
+    ],
+
+    # --- Rhino Commands (direct) ---
+    "rhino_commands": [
+        "rhino_command", "rhino_execute",
+        "rhino_command_interactive_start", "rhino_command_interactive_send",
+        "rhino_command_interactive_prompt", "rhino_command_interactive_cancel",
+    ],
+
+    # --- Materials & UV Mapping ---
+    "materials": [
+        "rhino_material_ops",
+        "rhino_apply_uv_box_mapping", "rhino_apply_uv_planar_mapping",
+        "rhino_apply_uv_cylinder_mapping", "rhino_apply_uv_sphere_mapping",
+    ],
+
+    # --- Game Export Pipeline ---
+    "game_export": [
+        "rhino_tag_object_semantic", "rhino_tag_objects_from_layers",
+        "rhino_prepare_for_game_export", "rhino_validate_export",
+        "rhino_export_with_manifest",
+    ],
+
+    # --- Gumball ---
+    "gumball": [
+        "rhino_gumball_activate", "rhino_gumball_deactivate",
+        "rhino_gumball_status", "rhino_gumball_history",
+    ],
+
+    # --- Road intersections ---
+    "road_intersections": [
+        "road_intersection_candidates",
+        "road_intersection_resolve",
+    ],
+
+    # --- Road design (RoadCreator urban, accessories, terrain) ---
+    "road_design": [
+        "rc_sidewalk_profile",
+        "rc_roundabout_params",
+        "rc_crossing_params",
+        "rc_guardrail_profile",
+        "rc_pole_spacing",
+        "rc_concrete_barrier_profile",
+        "rc_deltablok_profile",
+        "rc_verge_profile",
+        "rc_slope_profile",
+        "rc_widening",
+        "rc_terrain_profile",
+        "rc_contour_levels",
+        "rc_validate_profile",
+        "rc_validate_style_set",
+        # Parametric geometry (document-mutating)
+        "rc_sidewalk",
+        "rc_guardrail",
+        "rc_crossing",
+        "rc_slopes",
+        "rc_longitudinal_profile",
+        "rc_road_footprint",
+        # Network topology
+        "rc_resolve_edges",
+        "rc_apply_intersection_ownership",
+        "rc_apply_sidewalk_ownership",
+        "rc_sidewalk_corners",
+        # Profile builder
+        "rc_build_profile",
+        "rc_validate_road_profile",
+        "rc_store_road_profile",
+        "rc_project_offset_profile",
+        "rc_get_road_profile",
+        "rc_list_road_profiles",
+    ],
+
+    # --- Annotation & Text ---
+    "annotation": [
+        "rhino_dimension", "rhino_text",
+    ],
+
+    # --- Import/Export ---
+    "import_export": [
+        "rhino_export", "rhino_import", "rhino_instances",
+    ],
+
+    # --- Groups ---
+    "rhino_groups": [
+        "rhino_group",
+    ],
+
+    # --- GH Canvas Operations ---
+    "gh_canvas": [
+        "gh_snapshot", "gh_edit", "gh_undo",
+        "gh_errors", "gh_set_script", "gh_create_python_script", "gh_create_csharp_script", "gh_move",
+        "gh_selection", "gh_clear",
+        "gh_canvas_cleanup", "gh_align", "gh_distribute",
+        "gh_straighten_wires",
+        "gh_inspect_output", "gh_preview", "gh_bake_output",
+        "gh_canvas_focus", "gh_canvas_zoom", "gh_canvas_image",
+        "chirp_create",
+    ],
+
+    # --- GH Canvas Read-Only (subset for explorer/readonly agents) ---
+    "gh_canvas_readonly": [
+        "gh_errors", "gh_selection",
+        "gh_inspect_output", "gh_constraints",
+        "gh_snapshot",
+        "gh_canvas_image",
+    ],
+
+    # --- GH Exploration ---
+    "gh_exploration": [
+        "gh_explore_component", "gh_explore_workflow", "gh_explore_deep",
+        "gh_start_exploration", "gh_end_exploration",
+        "gh_investigate",
+        "gh_preview", "gh_status",
+    ],
+
+    # --- GH Patterns & Recipes ---
+    "gh_patterns": [
+        "gh_query_patterns", "gh_pattern_links", "gh_pattern_stats",
+        "gh_save_pattern", "gh_save_recipe", "gh_extract_recipe", "gh_replay_recipe",
+        "gh_add_pattern", "gh_record_pattern_use",
+        "gh_reflect", "gh_cluster", "gh_consolidate",
+    ],
+
+    # --- GH Knowledge & Learning ---
+    "gh_knowledge": [
+        "gh_knowledge_query", "gh_knowledge_reload",
+        "gh_record_learning", "gh_record_investigation", "gh_learn_directory",
+        "gh_query_observations",
+        "gh_categories", "gh_library", "gh_structure_query",
+    ],
+
+    # --- GH Document ---
+    "gh_document": [
+        "gh_document_new", "gh_document_open",
+    ],
+
+    # --- GH Session ---
+    "gh_session": [
+        "gh_session_current", "gh_session_end",
+        "gh_session_history", "gh_session_note",
+    ],
+
+    # --- GH References ---
+    "gh_references": [
+        "gh_set_reference", "gh_get_reference", "gh_clear_reference",
+    ],
+
+    # --- GH Validation ---
+    "gh_validation": [
+        "gh_validate_latency", "gh_validate_regression",
+        "gh_validate_scenarios",
+    ],
+
+    # --- Rhino Command Learning ---
+    "command_learning": [
+        "rhino_command_knowledge", "rhino_command_knowledge_reload",
+        "rhino_command_observations",
+        "rhino_command_consolidate", "rhino_command_experiment",
+        "rhino_learn_interactive", "rhino_learn_next",
+        "rhino_learn_variations_interactive", "rhino_learning_progress",
+        "rhino_command_select", "rhino_command_queue",
+    ],
+
+    # --- Knowledge & Metrics ---
+    "knowledge_meta": [
+        "knowledge_query", "knowledge_record",
+        "metrics_dashboard", "metrics_summary",
+        "parse_command", "rhino_analyze_prompt",
+    ],
+
+    # --- Sessions ---
+    "sessions": [
+        "session_current", "session_export",
+        "session_history", "session_list",
+    ],
+
+    # --- Scene Graph / Spatial Intelligence ---
+    # Agents access these via the Rhino HTTP bridge (/scene/graph/*)
+    "scene_graph": [
+        "scene_graph", "scene_context", "scene_query",
+        "scene_stats", "scene_classify", "scene_overlay",
+    ],
+}
+
+
+# =============================================================================
+# MCP-Only Groups
+#
+# These groups contain tools that only work through the MCP server (not
+# through the HTTP bridge). Agents dispatch through the bridge, so these
+# should be blocked unless tools are registered as local.
+# =============================================================================
+
+MCP_ONLY_GROUPS: Set[str] = {
+    "knowledge_meta",
+    "command_learning",
+    "gh_knowledge",
+    "gh_patterns",
+    "gh_session",
+    "gh_exploration",
+    "gh_validation",
+    # NOTE: "sessions" is intentionally excluded here — all four tools
+    # (session_current/history/list/export) are in BRIDGE_ROUTES and work
+    # through the C++ HTTP server, so agents can request them normally.
+}
+
+
+# =============================================================================
+# Auto-load Group Triggers
+#
+# When a tool from the key is used, the corresponding group is auto-loaded.
+# This provides just-in-time tool availability.
+# =============================================================================
+
+TOOL_GROUP_TRIGGERS: Dict[str, str] = {
+    # Creating geometry -> need transform tools
+    "rhino_execute_intent": "rhino_geometry",
+    "rhino_create": "rhino_transform",
+    "rhino_extrude": "rhino_transform",
+    "rhino_loft": "rhino_transform",
+    "rhino_sweep": "rhino_transform",
+    "rhino_boolean": "rhino_transform",
+    # GH intent -> need canvas tools
+    "gh_execute_intent": "gh_canvas",
+    "gh_snapshot": "gh_canvas",
+    # Materials -> UV mapping
+    "rhino_material_ops": "materials",
+    # Game export
+    "rhino_tag_object_semantic": "game_export",
+    "rhino_prepare_for_game_export": "game_export",
+}
+
+
+# =============================================================================
+# Markov Tool Transitions (for Seam 1 knowledge prediction)
+# =============================================================================
+
+TOOL_TRANSITIONS: Dict[str, List[str]] = {
+    # Intent execution -> more creation or inspection
+    "rhino_execute_intent": [
+        "rhino_execute_intent", "rhino_transform", "rhino_objects",
+        "gh_execute_intent", "rhino_copy",
+    ],
+    "gh_execute_intent": [
+        "gh_execute_intent", "gh_snapshot", "gh_errors",
+    ],
+    # GH canvas operations
+    "gh_snapshot": ["gh_edit", "gh_undo"],
+    "gh_edit": ["gh_snapshot", "gh_undo"],
+    "gh_undo": ["gh_snapshot", "gh_undo"],
+    # Rhino geometry
+    "rhino_create": ["rhino_transform", "rhino_boolean", "rhino_copy"],
+    "rhino_transform": ["rhino_transform", "rhino_objects", "rhino_copy"],
+    "rhino_boolean": ["rhino_objects", "rhino_transform", "rhino_geometry"],
+    "rhino_copy": ["rhino_transform", "rhino_objects"],
+    "rhino_extrude": ["rhino_transform", "rhino_boolean", "rhino_objects"],
+    "rhino_loft": ["rhino_objects", "rhino_transform"],
+    "rhino_sweep": ["rhino_objects", "rhino_transform"],
+    # Materials
+    "rhino_material_ops": [
+        "rhino_apply_uv_box_mapping", "rhino_apply_uv_planar_mapping",
+    ],
+    "rhino_apply_uv_box_mapping": [
+        "rhino_apply_uv_box_mapping", "rhino_material_ops", "rhino_objects",
+    ],
+    # Selection / inspection
+    "rhino_objects": ["rhino_geometry", "rhino_transform", "rhino_select"],
+    "rhino_geometry": ["rhino_transform", "rhino_boolean", "rhino_objects"],
+    # Layers
+    "rhino_layer_create": ["rhino_layer_current", "rhino_layers", "rhino_layer_create_batch"],
+    # Blocks
+    "rhino_block_create": ["rhino_block_insert", "rhino_block_info"],
+    "rhino_block_insert": ["rhino_transform", "rhino_objects"],
+}

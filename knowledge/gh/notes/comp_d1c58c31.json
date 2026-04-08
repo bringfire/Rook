@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_d1c58c31",
+  "note_type": "component",
+  "name": "Occlusion",
+  "brief": "Occlusion | Inputs: S, O, R → H, O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Occlusion. Inputs: S (Point), O (Mesh), R (Vector). Outputs: H (Integer), O (Boolean).",
+  "keywords": [
+    "occlusion",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "occlusion"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Occlusion"
+  ],
+  "solution_principle": "Solve occlusion for a collection of view rays and obstructions.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd",
+    "comp_d742578c",
+    "comp_16f5762a",
+    "comp_e1903606",
+    "comp_18d5859f",
+    "comp_8cc7ac3b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1583bd7e-4ab7-4439-b922-d6f8cd63c399",
+    "category": "mesh_utilities",
+    "inputs": {
+      "S": "Point",
+      "O": "Mesh",
+      "R": "Vector"
+    },
+    "outputs": {
+      "H": "Integer",
+      "O": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|util|occlusion"
+  }
+}

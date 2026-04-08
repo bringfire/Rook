@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_a010f059",
+  "note_type": "component",
+  "name": "Divide Curve",
+  "brief": "Divide Curve | Inputs: C, N, K â†’ P, T, t",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Divide Curve. Inputs: C (Curve), N (Integer), K (Boolean). Outputs: P (Point), T (Vector), t (Number).",
+  "keywords": [
+    "divide curve",
+    "divide",
+    "curve"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "grasshopper-component",
+    "curve-division",
+    "foundational",
+    "prerequisite",
+    "point-generation",
+    "curve-analysis"
+  ],
+  "trigger_intents": [
+    "divide curve",
+    "divide",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Divide Curve"
+  ],
+  "solution_principle": "Divide a curve into equal length segments",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_06731c52",
+    "comp_456642c8",
+    "comp_ba6a3f1a",
+    "comp_f1021587",
+    "recipe_4da99b59",
+    "recipe_70c7a21a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2162e72e-72fc-4bf8-9459-d4d82fa8aa14",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "N": "Integer",
+      "K": "Boolean"
+    },
+    "outputs": {
+      "P": "Point",
+      "T": "Vector",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 100,
+    "stable_key": "curve|division|divide curve"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_9be6479a",
+  "note_type": "component",
+  "name": "Bounds",
+  "brief": "Bounds | Inputs: N â†’ I",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Bounds. Inputs: N (Number). Outputs: I (Domain).",
+  "keywords": [
+    "bounds",
+    "bounds"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "bounds",
+    "analysis",
+    "geometry-analysis",
+    "bounding-box",
+    "extents",
+    "measurement",
+    "component",
+    "post-creation-analysis",
+    "spatial-analysis",
+    "foundational"
+  ],
+  "trigger_intents": [
+    "bounds"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Bounds"
+  ],
+  "solution_principle": "Create a numeric domain which encompasses a list of numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_51b11a9e",
+    "comp_8ce04d33",
+    "recipe_1da6cd21",
+    "recipe_155ea82b",
+    "teaching_6712adae"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f44b92b0-3b5b-493a-86f4-fd7408c3daf3",
+    "category": "domain_ops",
+    "inputs": {
+      "N": "Number"
+    },
+    "outputs": {
+      "I": "Domain"
+    },
+    "typical_wiring": [],
+    "usage_count": 281,
+    "stable_key": "maths|domain|bounds"
+  }
+}

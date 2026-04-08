@@ -1,0 +1,74 @@
+{
+  "pattern_id": "f32bd01d",
+  "name": "wasp_19_teaching_FIELD_FROM_EXPRESSIO",
+  "version": "1.0",
+  "created": "2026-03-19T18:11:50.188256Z",
+  "solution": {
+    "brief": "FIELD FROM EXPRESSION\r\nA gradient field can be generated from mathematical expressions.\r\nIn this example, the mathematical function of a Gyroid is applied on\r\nthe coordinates of the grid points, generating a field distribution following\r\nthe Gyroid surface itself.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Field Points",
+      "Domain Box",
+      "Deconstruct",
+      "Point",
+      "NumberSlider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "mathematical",
+      "from",
+      "expressions.",
+      "generated",
+      "this",
+      "gradient",
+      "expression"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "field-driven",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

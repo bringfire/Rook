@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_e8f5fb4e",
+  "note_type": "component",
+  "name": "SplitAtCorners",
+  "brief": "SplitAtCorners | Inputs: P, A → C, S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: SplitAtCorners. Inputs: P (Curve), A (Number). Outputs: C (Point), S (Curve).",
+  "keywords": [
+    "splitatcorners",
+    "kangaroo2_utility"
+  ],
+  "category": "kangaroo2_utility",
+  "tags": [
+    "kangaroo2_utility"
+  ],
+  "trigger_intents": [
+    "splitatcorners",
+    "split",
+    "corners"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SplitAtCorners"
+  ],
+  "solution_principle": "Break a polyline into multiple parts based on angle",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ea65cfe",
+    "comp_6e9a9654",
+    "comp_d5b60c80",
+    "comp_e0f50326"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "74953dd1-9af7-4736-983c-f258302de692",
+    "category": "kangaroo2_utility",
+    "inputs": {
+      "P": "Curve",
+      "A": "Number"
+    },
+    "outputs": {
+      "C": "Point",
+      "S": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|utility|splitatcorners"
+  }
+}

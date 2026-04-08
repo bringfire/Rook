@@ -1,0 +1,1356 @@
+{
+  "pattern_id": "d64451d5",
+  "name": "S07E03",
+  "version": "1.0",
+  "created": "2026-02-22T14:33:41.909013Z",
+  "solution": {
+    "brief": "Recipe from FILES\\7\\S07E03.gh (112 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Scribble",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Param Viewer",
+      "Ruled Surface",
+      "Param Viewer",
+      "Deconstruct Brep",
+      "Param Viewer",
+      "Ruled Surface",
+      "Merge",
+      "Param Viewer",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Scribble",
+      "Trim Tree",
+      "Point List",
+      "Sketch",
+      "Param Viewer",
+      "Param Viewer",
+      "Shift Paths",
+      "Param Viewer",
+      "panel",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Scribble",
+      "Sketch",
+      "Param Viewer",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Scribble",
+      "Sketch",
+      "Param Viewer",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Scribble",
+      "Sketch",
+      "Param Viewer",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Scribble",
+      "Sketch",
+      "Param Viewer",
+      "Shift Paths",
+      "panel",
+      "Param Viewer",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Explode Tree",
+      "Point",
+      "Closest Point",
+      "Point",
+      "Remap Numbers",
+      "Bounds",
+      "Circle",
+      "Point",
+      "Closest Point",
+      "Point",
+      "Remap Numbers",
+      "Bounds",
+      "Circle",
+      "Square",
+      "Point List",
+      "Number Slider",
+      "Point",
+      "Gene Pool",
+      "Gene Pool",
+      "Param Viewer",
+      "Path Mapper",
+      "Point List",
+      "Sketch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s07e03"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "c02352fa",
+    "8fe4f337"
+  ],
+  "tags": [
+    "parametric",
+    "data-tree",
+    "recipe",
+    "tutorial-series",
+    "112-components",
+    "s07e03",
+    "workflow",
+    "mid-complexity",
+    "grasshopper-recipe"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R35",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R47",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R59",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R71",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R86",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R105",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        }
+      ],
+      "panels": [
+        {
+          "id": "R32",
+          "nick": "",
+          "content": "-1"
+        },
+        {
+          "id": "R82",
+          "nick": "",
+          "content": "1"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/7/S07E03.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            63,
+            -28
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            403,
+            322
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            590,
+            445
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            276.3,
+            445.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R5",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            194.9,
+            -91.7
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            265.1,
+            292.9
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            84.5,
+            320.4
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            83.8,
+            385
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -861.3,
+            997.9
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -859.2,
+            1046.5
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -864.7,
+            1187.2
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            -862.5,
+            1235.9
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -749.1,
+            882.4
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_RuledSurface",
+          "name": "Ruled Surface",
+          "pos": [
+            -718,
+            1016
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -597.4,
+            932.8
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            -480,
+            1056
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -323.5,
+            992.4
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_RuledSurface",
+          "name": "Ruled Surface",
+          "pos": [
+            -715,
+            1197
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            -618,
+            1089
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            -409.2,
+            1151.3
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            639.9,
+            21.3
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            635.2,
+            342
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            912,
+            412
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            716.7,
+            436.7
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "TrimTreeComponent",
+          "name": "Trim Tree",
+          "pos": [
+            734,
+            578
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            924,
+            595
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            637.3,
+            43.5
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            944.3,
+            421.5
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            952.3,
+            508.7
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "ShiftDataPathComponent",
+          "name": "Shift Paths",
+          "pos": [
+            732,
+            674
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            947.1,
+            620.1
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "panel",
+          "pos": [
+            603.7,
+            666.3
+          ],
+          "content": "-1"
+        },
+        {
+          "id": "R33",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            385,
+            1071
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            572,
+            1194
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            259.3,
+            1195.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R36",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            248.1,
+            1042.9
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            67.5,
+            1070.4
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            66.8,
+            1135.1
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            622.9,
+            771.3
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            611.8,
+            1120.8
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            894,
+            1161
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            699.7,
+            1186.7
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            620.3,
+            793.5
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            952.1,
+            1094
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            415,
+            1640
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            602,
+            1763
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            291.1,
+            1766.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R48",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            279.9,
+            1613.5
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            99.3,
+            1641
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            98.6,
+            1705.6
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            654.7,
+            1341.9
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            643.6,
+            1691.4
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            924,
+            1730
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            731.5,
+            1757.3
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            652.1,
+            1364.1
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1013.8,
+            1639.5
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            410,
+            2313
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            597,
+            2436
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            286.1,
+            2440.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R60",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            274.9,
+            2287.3
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            94.3,
+            2314.8
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            93.7,
+            2379.4
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            649.7,
+            2015.7
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            638.6,
+            2365.2
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            919,
+            2403
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            726.5,
+            2431.1
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            647.2,
+            2037.9
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            998.6,
+            2097.6
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            430,
+            2822
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            617,
+            2945
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            307.5,
+            2949.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R72",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            296.2,
+            2796.5
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            115.7,
+            2824
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            115,
+            2888.7
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            671.1,
+            2524.9
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            660,
+            2874.4
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            947,
+            2930
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            741.4,
+            2971.5
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            668.5,
+            2547.1
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            993.6,
+            2847.6
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "ShiftDataPathComponent",
+          "name": "Shift Paths",
+          "pos": [
+            755,
+            3090
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "panel",
+          "pos": [
+            646.8,
+            3093.6
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R83",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            998.9,
+            2981.7
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            459,
+            3711
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            646,
+            3834
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            336.8,
+            3839.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R87",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            325.6,
+            3686.1
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            145,
+            3713.6
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            144.4,
+            3778.2
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "ExplodeTreeComponent",
+          "name": "Explode Tree",
+          "pos": [
+            1050,
+            3539
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1283.7,
+            404.1
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "Component_ClosestPoint",
+          "name": "Closest Point",
+          "pos": [
+            1394,
+            313
+          ]
+        },
+        {
+          "id": "R93",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1286.9,
+            324.4
+          ]
+        },
+        {
+          "id": "R94",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            1642,
+            386
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            1501,
+            407
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            1852,
+            433
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1331.8,
+            1054.8
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Component_ClosestPoint",
+          "name": "Closest Point",
+          "pos": [
+            1442,
+            963
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1335,
+            975.1
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            1690,
+            1036
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            1549,
+            1057
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            1900,
+            1083
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            408,
+            4342
+          ]
+        },
+        {
+          "id": "R104",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            595,
+            4465
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            286.9,
+            4470.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.43
+        },
+        {
+          "id": "R106",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            275.6,
+            4317.8
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            95.1,
+            4345.3
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "GalapagosGeneListObject",
+          "name": "Gene Pool",
+          "pos": [
+            94.4,
+            4409.9
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            650.5,
+            4046.1
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            639.4,
+            4395.7
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            925,
+            4450
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            647.9,
+            4068.4
+          ]
+        }
+      ],
+      "flows": [
+        "R6.O0>R2.I0",
+        "R7.O0>R2.I2",
+        "R8.O0>R2.I3",
+        "R2.O1>R3.I0",
+        "R4.O0>R3.I1",
+        "R9.O0>R14.I0",
+        "R10.O0>R14.I1",
+        "R19.O0>R16.I0",
+        "R11.O0>R18.I0",
+        "R12.O0>R18.I1",
+        "R14.O0>R19.I0",
+        "R18.O0>R19.I1",
+        "R22.O0>R23.I0",
+        "R4.O0>R23.I1",
+        "R2.O1>R25.I0",
+        "R25.O0>R26.I0",
+        "R4.O0>R26.I1",
+        "R2.O1>R30.I0",
+        "R32.O0>R30.I1",
+        "R36.O0>R33.I0",
+        "R37.O0>R33.I2",
+        "R38.O0>R33.I3",
+        "R33.O1>R34.I0",
+        "R35.O0>R34.I1",
+        "R40.O0>R41.I0",
+        "R35.O0>R41.I1",
+        "R48.O0>R45.I0",
+        "R49.O0>R45.I2",
+        "R50.O0>R45.I3",
+        "R45.O1>R46.I0",
+        "R47.O0>R46.I1",
+        "R52.O0>R53.I0",
+        "R47.O0>R53.I1",
+        "R60.O0>R57.I0",
+        "R61.O0>R57.I2",
+        "R62.O0>R57.I3",
+        "R57.O1>R58.I0",
+        "R59.O0>R58.I1",
+        "R64.O0>R65.I0",
+        "R59.O0>R65.I1",
+        "R72.O0>R69.I0",
+        "R73.O0>R69.I2",
+        "R74.O0>R69.I3",
+        "R69.O1>R70.I0",
+        "R71.O0>R70.I1",
+        "R76.O0>R77.I0",
+        "R71.O0>R77.I1",
+        "R69.O1>R81.I0",
+        "R82.O0>R81.I1",
+        "R87.O0>R84.I0",
+        "R88.O0>R84.I2",
+        "R89.O0>R84.I3",
+        "R84.O1>R85.I0",
+        "R86.O0>R85.I1",
+        "R84.O1>R90.I0",
+        "R93.O0>R92.I0",
+        "R91.O0>R92.I1",
+        "R92.O2>R94.I0",
+        "R95.O0>R94.I1",
+        "R92.O2>R95.I0",
+        "R22.O0>R96.I0",
+        "R94.O0>R96.I1",
+        "R99.O0>R98.I0",
+        "R97.O0>R98.I1",
+        "R98.O2>R100.I0",
+        "R101.O0>R100.I1",
+        "R98.O2>R101.I0",
+        "R40.O0>R102.I0",
+        "R100.O0>R102.I1",
+        "R106.O0>R103.I0",
+        "R107.O0>R103.I2",
+        "R108.O0>R103.I3",
+        "R103.O1>R104.I0",
+        "R105.O0>R104.I1",
+        "R110.O0>R111.I0",
+        "R105.O0>R111.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

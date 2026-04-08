@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_6dead45e",
+  "note_type": "component",
+  "name": "Model Viewport",
+  "brief": "Model Viewport | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Model Viewport.",
+  "keywords": [
+    "model viewport",
+    "model",
+    "viewport",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "model viewport",
+    "model",
+    "viewport"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Viewport"
+  ],
+  "solution_principle": "Contains a collection of Rhino viewports",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e21ff2c8",
+    "comp_cdd4f70a",
+    "comp_cd53e543",
+    "comp_b8042dc1",
+    "comp_59eaa50b",
+    "comp_68560ebb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2aab104a-5b20-4d8f-a918-fda5f016c828",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "4e007c9e-6521-4819-b16f-bdd3e768e003"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|rhino|model viewport"
+  }
+}

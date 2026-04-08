@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_47d03593",
+  "note_type": "component",
+  "name": "Display Mode",
+  "brief": "Display Mode | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Display Mode.",
+  "keywords": [
+    "display mode",
+    "display",
+    "mode",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "display mode",
+    "display",
+    "mode"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Display Mode"
+  ],
+  "solution_principle": "Contains a collection of display modes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8c1d7fca",
+    "comp_b8042dc1",
+    "comp_e21ff2c8",
+    "comp_cdd4f70a",
+    "comp_3520863d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "64539bd9-e33e-4cff-91dc-4987e8040d48",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "8aa197e1-20fc-4662-8c05-1474668d3636"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|rhino|display mode"
+  }
+}

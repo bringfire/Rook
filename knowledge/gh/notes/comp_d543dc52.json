@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_d543dc52",
+  "note_type": "component",
+  "name": "Surface From Points",
+  "brief": "Surface From Points | Inputs: P, U, I → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Surface From Points. Inputs: P (Point), U (Integer), I (Boolean). Outputs: S (Surface).",
+  "keywords": [
+    "surface from points",
+    "surface",
+    "from",
+    "points",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "surface from points",
+    "surface",
+    "from",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface From Points"
+  ],
+  "solution_principle": "Create a nurbs surface from a grid of points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_5f73dc24",
+    "comp_5df6692e",
+    "comp_3d0d84f6",
+    "comp_99fa7cbe",
+    "comp_a9c4c4ba",
+    "comp_38ddb708",
+    "comp_62fb6741"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4b04a1e1-cddf-405d-a7db-335aaa940541",
+    "category": "surface_ops",
+    "inputs": {
+      "P": "Point",
+      "U": "Integer",
+      "I": "Boolean"
+    },
+    "outputs": {
+      "S": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|surface from points"
+  }
+}

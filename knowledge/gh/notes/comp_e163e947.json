@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_e163e947",
+  "note_type": "component",
+  "name": "Stream Filter",
+  "brief": "Stream Filter | Inputs: G, 0, 1 → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Stream Filter. Inputs: G (Integer), 0 (Generic Data), 1 (Generic Data). Outputs: S (Generic Data).",
+  "keywords": [
+    "stream filter",
+    "stream",
+    "filter",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "stream filter",
+    "stream",
+    "filter"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Stream Filter"
+  ],
+  "solution_principle": "Filters a collection of input streams",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9390569c",
+    "comp_6e8f5e48",
+    "comp_8e643df3",
+    "comp_79aac6f8",
+    "comp_479a3b38",
+    "comp_930cd728",
+    "comp_d92445a4",
+    "comp_fa83b59e",
+    "comp_0337df47",
+    "comp_2ea906f3",
+    "comp_5f78a545",
+    "comp_bd5bca54"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "eeafc956-268e-461d-8e73-ee05c6f72c01",
+    "category": "tree_operations",
+    "inputs": {
+      "G": "Integer",
+      "0": "Generic Data",
+      "1": "Generic Data"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "71fcc052-6add-4d70-8d97-cfb37ea9d169"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|stream filter"
+  }
+}

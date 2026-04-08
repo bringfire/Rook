@@ -1,0 +1,115 @@
+{
+  "note_id": "teaching_3c21c714",
+  "note_type": "teaching",
+  "name": "U02 - VERY IMPORTANT!",
+  "brief": "Teaching: VERY IMPORTANT!",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "VERY IMPORTANT!\r\n\r\nThere is not copying in Grasshopper. Transformations are actually copying of geometries.",
+  "keywords": [
+    "very",
+    "important",
+    "circle",
+    "move",
+    "series",
+    "numberslider",
+    "unit z",
+    "unit 02 class"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "unit-02",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "high-priority",
+    "surface-operations"
+  ],
+  "trigger_intents": [
+    "very important!",
+    "how to use very important!",
+    "how to use circle",
+    "how to use move",
+    "how to use series",
+    "how to use unit z"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Circle",
+    "Move",
+    "Series",
+    "NumberSlider",
+    "Unit Z"
+  ],
+  "solution_principle": "VERY IMPORTANT!\r\n\r\nThere is not copying in Grasshopper. Transformations are actually copying of geometries.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_26b87a73",
+    "teaching_2fe96b89",
+    "teaching_567ea1e1",
+    "teaching_b85f762f",
+    "teaching_eeef070a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.258773Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": null,
+    "section_index": 7,
+    "x_range": [
+      8588.7,
+      9516.8
+    ],
+    "full_teaching_text": "VERY IMPORTANT!\r\n\r\nThere is not copying in Grasshopper. Transformations are actually copying of geometries.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C332",
+      "C333",
+      "C334",
+      "C335",
+      "C336",
+      "C337",
+      "C338",
+      "C340"
+    ],
+    "intra_section_flows": [
+      "C338.O0>C332.I1",
+      "C332.O0>C333.I0",
+      "C337.O0>C333.I1",
+      "C340.O0>C334.I0",
+      "C336.O0>C334.I1",
+      "C335.O0>C334.I2",
+      "C334.O0>C337.I0",
+      "C334.O0>C339.I0"
+    ],
+    "groups": [],
+    "components_demonstrated": {
+      "Circle": 1,
+      "Move": 1,
+      "Series": 1,
+      "NumberSlider": 4,
+      "Unit Z": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 8,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 8,
+      "groups": 0
+    }
+  }
+}

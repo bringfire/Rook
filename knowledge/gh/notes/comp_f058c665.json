@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_f058c665",
+  "note_type": "component",
+  "name": "Enneper Surface",
+  "brief": "Enneper Surface | Inputs: U, V, a, S → Srf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Enneper Surface. Inputs: U (Integer), V (Integer), a (Integer), S (Number), D1 (Domain), D2 (Domain). Outputs: Srf (Generic Data).",
+  "keywords": [
+    "enneper surface",
+    "enneper",
+    "surface",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "enneper surface",
+    "enneper",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Enneper Surface"
+  ],
+  "solution_principle": "Create a parametric Enneper surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_296f5f71",
+    "comp_3b748e5f",
+    "comp_5ad9bf8e",
+    "comp_40dc966b",
+    "comp_b72c3416",
+    "comp_13d603c5",
+    "comp_c33aa162"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "390c8a3b-9f14-4c66-bacd-13410333c118",
+    "category": "lunchbox_form",
+    "inputs": {
+      "U": "Integer",
+      "V": "Integer",
+      "a": "Integer",
+      "S": "Number",
+      "D1": "Domain",
+      "D2": "Domain"
+    },
+    "outputs": {
+      "Srf": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a16a3c53-7ae9-4bb0-a0c2-fcc67e0c432c"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|enneper surface"
+  }
+}

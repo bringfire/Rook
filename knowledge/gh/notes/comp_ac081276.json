@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_ac081276",
+  "note_type": "component",
+  "name": "Curve Frames",
+  "brief": "Curve Frames | Inputs: C, N → F, t",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Curve Frames. Inputs: C (Curve), N (Integer). Outputs: F (Plane), t (Number).",
+  "keywords": [
+    "curve frames",
+    "curve",
+    "frames",
+    "curve_division"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "curve_division"
+  ],
+  "trigger_intents": [
+    "curve frames",
+    "curve",
+    "frames"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Frames"
+  ],
+  "solution_principle": "Generate a number of equally spaced curve frames.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e75be450",
+    "comp_2c4dae60",
+    "comp_5e4d7011",
+    "comp_ca7b6f99",
+    "comp_1bcc2572",
+    "comp_c2c88f4e",
+    "comp_2de0f8a7",
+    "comp_37b6066a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0e94542a-2e46-4793-9f98-2200b06b28f4",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "N": "Integer"
+    },
+    "outputs": {
+      "F": "Plane",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8d058945-ce47-4e7c-82af-3269295d7890",
+      "983c7600-980c-44da-bc53-c804067f667f",
+      "2162e72e-72fc-4bf8-9459-d4d82fa8aa14"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|curve frames"
+  }
+}

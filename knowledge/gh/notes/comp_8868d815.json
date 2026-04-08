@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_8868d815",
+  "note_type": "component",
+  "name": "Nurbs Curve",
+  "brief": "Nurbs Curve | Inputs: V, D, P → C, L, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Nurbs Curve. Inputs: V (Point), D (Integer), P (Boolean). Outputs: C (Curve), L (Number), D (Domain).",
+  "keywords": [
+    "nurbs curve",
+    "nurbs",
+    "curve",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "nurbs curve",
+    "nurbs",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Nurbs Curve"
+  ],
+  "solution_principle": "Construct a nurbs curve from control points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a78fa17f",
+    "comp_e287c18b",
+    "comp_938cfcaf",
+    "comp_67ac1d47",
+    "comp_f1747a84",
+    "comp_c7dce5c9",
+    "comp_c61c4285",
+    "comp_3973b4a6",
+    "comp_8fdc37bc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "dde71aef-d6ed-40a6-af98-6b0673983c82",
+    "category": "curves",
+    "inputs": {
+      "V": "Point",
+      "D": "Integer",
+      "P": "Boolean"
+    },
+    "outputs": {
+      "C": "Curve",
+      "L": "Number",
+      "D": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2b2a4145-3dff-41d4-a8de-1ea9d29eef33"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|nurbs curve"
+  }
+}

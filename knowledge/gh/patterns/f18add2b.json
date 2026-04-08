@@ -1,0 +1,5152 @@
+{
+  "pattern_id": "f18add2b",
+  "name": "Unit-07-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:28:55.767337Z",
+  "solution": {
+    "brief": "Recipe from Unit-07-Class.gh (358 components)",
+    "principle": "\n\nRelated insight: Contains episodes like S07E04 (89 components). Unit 7 focuses on mid-to-high complexity workflows, with class file being 4x larger than individual episodes.",
+    "components_needed": [
+      "Scribble",
+      "Sketch",
+      "Scribble",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "slider",
+      "Scribble",
+      "Quad Panels",
+      "Grid Structure",
+      "Diamond Panels",
+      "Hexagon Cells",
+      "Hexagonal Structure",
+      "Flatness Check",
+      "Rebuild Surface",
+      "Attractor",
+      "Platonic Dodecahedron",
+      "Triangle Panels C",
+      "Diagrid Structure",
+      "Braced Grid 2-D Structure",
+      "Triangular Panels A",
+      "Braced Grid 1-D Structure",
+      "Patch Surface",
+      "Platonic Octahedron",
+      "Panel Frame",
+      "Subdivide Quad",
+      "Subdivide Triangle",
+      "panel",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Surface Domain Number",
+      "Surface Domain Length",
+      "slider",
+      "Planar Grid",
+      "slider",
+      "slider",
+      "slider",
+      "Point Attraction",
+      "slider",
+      "Point",
+      "Gaussian Curvature",
+      "slider",
+      "Surface",
+      "Generate Borders",
+      "Generate Faces",
+      "slider",
+      "slider",
+      "Morph 2D",
+      "Circle",
+      "Rectangle",
+      "Morph 2D Mean",
+      "Circle",
+      "slider",
+      "Surface",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Surface Distance",
+      "slider",
+      "Random Attraction",
+      "slider",
+      "panel",
+      "Scribble",
+      "Surface",
+      "slider",
+      "Random Quad Panels",
+      "Skewed Quads",
+      "slider",
+      "2D Truss",
+      "Curve",
+      "Curve",
+      "slider",
+      "slider",
+      "panel",
+      "Sort List",
+      "Custom Preview",
+      "Gradient",
+      "Deconstruct Domain",
+      "Bounds",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "panel",
+      "Scribble",
+      "Surface",
+      "Mesh Brep",
+      "Mesh Surface",
+      "Simple Mesh",
+      "slider",
+      "Triangulate",
+      "Boundary Surfaces",
+      "Weaverbird's Laplacian Smoothing",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "Mesh Edges",
+      "Weaverbird's Mesh Thicken",
+      "Weaverbird's Offset Mesh",
+      "Weaverbird's Stellate/Cumulation",
+      "Weaverbird's Sierpinski Carpet",
+      "Weaverbird's Loop Subdivision",
+      "Brep Join",
+      "Boundary Surfaces",
+      "Brep Join",
+      "Curve",
+      "Curve",
+      "Curve",
+      "panel",
+      "Scribble",
+      "panel",
+      "Square",
+      "panel",
+      "Surface",
+      "Mesh Surface",
+      "slider",
+      "Triangulate",
+      "Deconstruct Mesh",
+      "panel",
+      "panel",
+      "Area",
+      "List Item",
+      "Sketch",
+      "slider",
+      "panel",
+      "panel",
+      "panel",
+      "Orient",
+      "Shortest List",
+      "Area",
+      "MD Slider",
+      "Sort List",
+      "Orient",
+      "Brep Edges",
+      "List Item",
+      "End Points",
+      "Move",
+      "Vector 2Pt",
+      "Vector 2Pt",
+      "Amplitude",
+      "Sort List",
+      "Unit X",
+      "Orient Direction",
+      "Orient Direction",
+      "Unit Z",
+      "MD Slider",
+      "Length",
+      "Vector Display",
+      "Evaluate Curve",
+      "Triangle Panels B",
+      "panel",
+      "Scribble",
+      "panel",
+      "Bounds",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "2D Truss",
+      "Rebuild Curve",
+      "Rebuild Curve",
+      "panel",
+      "panel",
+      "Curve",
+      "Explode",
+      "List Item",
+      "Loft",
+      "Flip Curve",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Scribble",
+      "panel",
+      "Area",
+      "Deconstruct Brep",
+      "Curve",
+      "List Item",
+      "slider",
+      "List Item",
+      "slider",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Curve",
+      "Curve",
+      "panel",
+      "Sketch",
+      "Vector Display",
+      "Point",
+      "panel",
+      "Split List",
+      "slider",
+      "Geometry",
+      "Geometry",
+      "Smaller Than",
+      "panel",
+      "Dispatch",
+      "panel",
+      "Geometry",
+      "Geometry",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Point",
+      "MD Slider",
+      "Orient",
+      "panel",
+      "Panel Frame",
+      "Point Attraction",
+      "Point",
+      "slider",
+      "Morph 2D",
+      "Circle",
+      "4Point Surface",
+      "Explode",
+      "List Item",
+      "Vector Display",
+      "Sketch",
+      "Data",
+      "Merge",
+      "panel",
+      "Generate Faces",
+      "Point",
+      "slider",
+      "Point",
+      "Surface",
+      "panel",
+      "panel",
+      "Data",
+      "slider",
+      "Toggle",
+      "Space Truss Structure 1",
+      "Space Truss Structure 2",
+      "slider",
+      "Surface",
+      "slider",
+      "Generate Faces",
+      "Generate Faces",
+      "slider",
+      "Surface",
+      "Surface",
+      "Pipe",
+      "Pipe",
+      "Pipe",
+      "Point",
+      "Panel Frame",
+      "Deconstruct Brep",
+      "List Item",
+      "Line",
+      "Surface",
+      "Surface",
+      "Surface",
+      "panel",
+      "Curve",
+      "Curve",
+      "Loft",
+      "Flip Curve",
+      "panel",
+      "panel",
+      "slider",
+      "slider",
+      "Deconstruct Brep",
+      "List Item",
+      "Point List",
+      "4Point Surface",
+      "Surface Domain Length",
+      "slider",
+      "slider",
+      "Generate Faces",
+      "Sketch",
+      "Sketch",
+      "Partition List",
+      "Boundary Surfaces",
+      "Brep Join",
+      "slider",
+      "Sketch",
+      "Vector Display",
+      "List Item",
+      "slider",
+      "List Item",
+      "slider",
+      "Addition",
+      "Division",
+      "panel",
+      "Middle Value",
+      "Line",
+      "Deconstruct Brep",
+      "Point List",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "List Item",
+      "slider",
+      "Surface",
+      "Surface",
+      "panel",
+      "Flatten Tree",
+      "List Item",
+      "slider",
+      "Boundary Surfaces",
+      "Toggle",
+      "List Item",
+      "slider",
+      "List Item",
+      "slider",
+      "Evaluate Surface",
+      "Offset Mesh",
+      "Face Boundaries",
+      "Face Boundaries",
+      "Face Boundaries",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Multiplication",
+      "Evaluate Surface",
+      "MD Slider",
+      "Face Boundaries",
+      "panel",
+      "panel",
+      "panel",
+      "Boundary Surfaces",
+      "Cull Duplicates",
+      "panel",
+      "Surface",
+      "Vector Display",
+      "XY Plane"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 07 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "370b1d02",
+    "048b08a3",
+    "8a71e405",
+    "fdbc67df",
+    "b9cf0ee7"
+  ],
+  "tags": [
+    "unit-07-class",
+    "pipe-output",
+    "recipe",
+    "unit-series",
+    "high-complexity",
+    "358-components",
+    "surface-creation",
+    "workflow",
+    "parametric",
+    "series-7"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:34:31.195337",
+    "evolved_by": [
+      "b9cf0ee7"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:34:31.195337",
+        "trigger": "New pattern: b9cf0ee7",
+        "changes": "Adding series-7 tag and context about episode relationship establishes the unit-episode hierarchy"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 15
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "min": -10,
+          "max": 11,
+          "value": 2.67
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R65",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 8
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 7
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 33.68
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 33.425
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "min": 5,
+          "max": 20,
+          "value": 11.821
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": -10,
+          "max": 11,
+          "value": 7.73
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 16
+        },
+        {
+          "id": "R79",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.752
+        },
+        {
+          "id": "R83",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R84",
+          "nick": "",
+          "min": 0,
+          "max": 2,
+          "value": 1
+        },
+        {
+          "id": "R94",
+          "nick": "",
+          "min": 0.001,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R95",
+          "nick": "",
+          "min": 0.001,
+          "max": 1,
+          "value": 0.001
+        },
+        {
+          "id": "R102",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R126",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 5
+        },
+        {
+          "id": "R134",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R203",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 52
+        },
+        {
+          "id": "R205",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 36
+        },
+        {
+          "id": "R220",
+          "nick": "",
+          "min": 0,
+          "max": 200,
+          "value": 108
+        },
+        {
+          "id": "R240",
+          "nick": "",
+          "min": -10,
+          "max": 11,
+          "value": -1.22
+        },
+        {
+          "id": "R253",
+          "nick": "",
+          "min": 0.01,
+          "max": 1,
+          "value": 0.47
+        },
+        {
+          "id": "R259",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R263",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R265",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.73
+        },
+        {
+          "id": "R268",
+          "nick": "",
+          "min": -10,
+          "max": 10,
+          "value": -3
+        },
+        {
+          "id": "R289",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 7
+        },
+        {
+          "id": "R290",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 9
+        },
+        {
+          "id": "R296",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20.427
+        },
+        {
+          "id": "R297",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 27.586
+        },
+        {
+          "id": "R304",
+          "nick": "",
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R308",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 19
+        },
+        {
+          "id": "R310",
+          "nick": "",
+          "min": 0,
+          "max": 500,
+          "value": 0
+        },
+        {
+          "id": "R326",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R332",
+          "nick": "",
+          "min": 0,
+          "max": 4,
+          "value": 4
+        },
+        {
+          "id": "R336",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R338",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 0
+        }
+      ],
+      "panels": [
+        {
+          "id": "R12",
+          "nick": "",
+          "content": "1- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\n- \"Isotrim\" and \"Divide Surface\" components are useful tools in Grasshopper. However when the design intention becomes more complex, involving diamond or hexagonal divisions, building a definition manually in Grasshopper may become time consuming.\r\n\r\nLunchBox is a very useful plugin that provides ready made components for multi-purpose surface division. It also provides other functions such as Surface Flatness test and more.\r\n\r\nUsing LunchBox:\r\n\r\n- Build a Surface in Rhino with 4 corners, using the \"SrfPt\".\r\n- Turn on the Control Points and make the surface unplanar.\r\n- Reference the Surface in Grasshopper.\r\n\r\n- Use the following LunchBox compnents from the Panels Tab:\r\n1- Quad Panels\r\n2- Random Quad Panels\r\n3- Skewed Quads\r\n4- Hexagon Cells\r\n5- Diamond Panels\r\n6- Triangular Panels A\r\n7- Triangular Panels B\r\n8- Triangular Panels C\r\n\r\n- Use the following LunchBox compnents from the Structure Tab:\r\n1- Grid Structure\r\n2- Hexagonal Structure\r\n3- Diagrid Structure\r\n4- Braced Grid 1-D Structure\r\n5- Braced Grid 2-D Structure"
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "content": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- First step is to create a rectangular grid using one of the tools in \"Grid\" tab.  Some of these components take a list of points, which you can generate using GH standard components, or divide a curve using one of the tools under \"Curve\" tab of PanelingTools.\r\n\r\n- Once a grid is created, you can shuffle it using one of the attraction methods under \"Grid Attractors\" tab.  One output is the shuffled grid, another output is the normalized weights based on the attraction method that can be used for variable offset or variable paneling for example.\r\n\r\n- \"Grid Utility\" tab helps you do things like extracting points from the grid, replace points, extract center grid, expand grids, create surface from grid, etc.\r\n\r\n- \"Panel Utility\" tab has components to pull panel edges to a surface using pull, iso curves or shortest path.\r\n\r\n- \"Panel2D\" tab has many ways to panel the rectangular grid and populate 2D components.\r\n\r\n- \"Panel3D\" contain components to populate 3D patterns between 2 bounding grids.\r\n\r\nSource:\r\nhttp://www.grasshopper3d.com/group/panelingtools\r\n\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf"
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "content": "4- Weaverbird: Plugin for Mesh manipulation.\r\n\r\nGrasshopper includes basic mesh components, such as:\r\n- \"Simple Mesh\".\r\n- \"Mesh Brep\".\r\n- \"Mesh Surface\".\r\n\r\nWeaverbird allows for more options. Check out the following components:\r\n- \"Weaverbird's Loop Division\".\r\n- \"Weaverbird's Catmull-Clark Subdivision\".\r\n- \"Weaverbird's Sierpinsky Carpet\".\r\n- \"Weaverbird's Stellate/Cumulation\".\r\n- \"Weaverbird's Laplacian Smoothing\".\r\n- \"Weaverbird's Offset Mesh\".\r\n- \"Weaverbird's Mesh Thicken\".\r\n\r\n- Generate Edges of Meshes using the \"Mesh Edges\".\r\nUse new \"Curve\" components and feed in the OUTPUTS of the Mesh Edges.\r\n\r\n- Get the Face Boundaries of mesh and use them to generate new NURBS surfaces.\r\n\r\n- IMPORTANT:\r\nIf the faces are not planar, the \"Boundary Surface\" component won't work.\r\nYou may need to Triangulate all faces first.\r\n\r\n- What if we don't need planar surfaces?\r\n- In this case, extract all faces' borders (as curves), then loft opposite sides to make non-planar surfaces."
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "content": "5- Orienting & Flattening (for Digital Fabrication): \r\n\r\n- Build a new Surface in Rhino and give it a sharp curvature by manipulating the control points.\r\n\r\n- Use the \"Mesh Surface\" component.\r\n\r\n- Triangulate all meshes.\r\n\r\n- Convert all meshes into Surfaces.\r\n\r\n- Make a \"Square Grid\" in order to use the grid cells as targets for the oriented and flatenned surfaces.\r\n\r\n- We will check several ways of orienting and flatenning surfaces in 3D, from being placed on a geometry to being placed flat on XY plane."
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "content": "Assignment 7b:\r\n\r\n- Try the following components:\r\n- \"Morph 2D Mean\".\r\n- \"Gaussian Curvature\".\r\n- \"Random Attraction\".\r\n\r\nThere are many more interesting components provided by Paneling Tools plugin!\r\nTake time and try to check as many as possible.\r\n\r\nHave a quick look at the PDF Primer for more info:\r\nPanelingTools for Grasshopper Primer (PDF):\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf"
+        },
+        {
+          "id": "R85",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R96",
+          "nick": "",
+          "content": "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful."
+        },
+        {
+          "id": "R119",
+          "nick": "",
+          "content": "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r\n- Hover over the T INPUT and check what it needs.\r\n\r\n- IMPORTANT!\r\nYou may realize that the resultant Truss has uneven divisions, to solve that, rebuild the curves using the \"Rebuild Curve\" component."
+        },
+        {
+          "id": "R121",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R123",
+          "nick": "",
+          "content": "80"
+        },
+        {
+          "id": "R129",
+          "nick": "",
+          "content": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then convert them to NURBS by using \"Boundary Surfaces\"! We are now able to choose the Faces!"
+        },
+        {
+          "id": "R130",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R135",
+          "nick": "",
+          "content": "7"
+        },
+        {
+          "id": "R136",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R137",
+          "nick": "",
+          "content": "We also sort the planes so that they are in the same order as their respective surfaces"
+        },
+        {
+          "id": "R161",
+          "nick": "",
+          "content": "2- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\nUsing the same referenced surface, let us check its flateness and visualize it with colors:\r\n\r\n- Use the \"Flatness Check\" component from LunchBox Util Tab. \r\n- From the D OUTPUT, get the minimum and maximum of all values (using the \"Bounds\" component).\r\n- Use the \"Panel Frame\" component from LunchBox Generate Tab in order to generate Panel Frames in relation to the Flateness Deviation Factor of each Panel.\r\nThis means that if a panel has a small D factor, it woud have a smaller opening that a panel with a bigger D factor.\r\n\r\n- IMPORTANT!\r\nIf the difference between the minimum and maximum number of the D values is small, then you may need to REMAP all numbers with a new domain, to have a bigger bigger difference between the minimum and maximum (bounds of the values) so that the Panel Frame could be more perceivable.\r\n\r\n\r\n- Visualizing Flatness Deviation:\r\n\r\n- Get the \"Gradient\" component.\r\n- L0 & L1: Need the minimum & maximum values of Deviation... For that, we need to deconstruct the domain in order to extract seperate values for minimum and maximum.\r\n- Use the \"Deconstrctu Domain\" and extract the minimum and maximum values.\r\n- Plug the minimum value into L0 and maximum value into L1.\r\n- \"t\" INPUT represents the parameter along the gradient range.\r\nWe need to sort all values from minimum to maximum in order to assign the respective color range for each, according to its value order inside the list of values.\r\n- Use the \"Sort List\":\r\n- Feed all Deviation values into the K INPUT of \"Sort List\".\r\n- Feed all the panels to be sorted into the A INPUT of \"Sort List\".\r\n- The OUTPUT K & A of \"Sort List\" includes all panels sorted according to their Deviation values, from monimum to maximum.\r\n- To visualize the colors, use a \"Custom Preview\" component:\r\n- Feed the Gradient OUTPUT into S of \"Custom Preview\".\r\n- Feed the sorted panels A into G of \"Custom Preview.\r\n- Now, we have an assigned color to each panel, following the gradient scheme, from least Deviation value to the greatest Deviation value."
+        },
+        {
+          "id": "R163",
+          "nick": "",
+          "content": "0.1 to 0.8"
+        },
+        {
+          "id": "R165",
+          "nick": "",
+          "content": "0.1 to 0.8"
+        },
+        {
+          "id": "R172",
+          "nick": "",
+          "content": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- Use the \"Planar Grid\" to generate a planar grid of points.\r\n\r\n- Notice the \"Gd\" OUTPUT of this component, it means a \"Grid\".\r\n\r\n- Let us use the \"Point Attraction\" component:\r\n- Needs a Point: Build a new Point in Rhino, reference it in Grasshopper and feed it to the Point Attraction's A INPUT.\r\n- Use a Number Slider to play with the magnitude M INPUT.\r\n- Use the \"Generate Borders\" component to generate lines between points.\r\n- Use the \"Generate Faces\" component to generate surfaces between points.\r\n\r\n- Use the \"Morph 2D\" component to morph curves inro grid cells:\r\n- Build a circle and feed it to the PC INPUT of the \"Morph 2D\"."
+        },
+        {
+          "id": "R173",
+          "nick": "",
+          "content": "- Surface Division:\r\n\r\nBuild a new surface in Rhino, reference it in Grasshopper and try divide it by:\r\n\r\n- Either by domain number: Use the \"Surface Domain Number\" component.\r\n- Or by domain length: Use the \"Surface Domain Length\" component.\r\n- Or by distance: Use the \"Surface Distance\" component."
+        },
+        {
+          "id": "R179",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R180",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R181",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R182",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R183",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R184",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R190",
+          "nick": "",
+          "content": "1- Orienting:\r\n- Use \"Orient\" component.\r\n- Feed the new Surfaces into the G INPUT.\r\n- Evaluate all surfaces and use the Frames OUTPUT from the Evaluate Surface as INPUT A in the \"Orient\" component.\r\n- Get the center of all grid cells from the Square Grid andfeed them in the INPUT B of \"Orient\" as the target planes.\r\n- Result: All surfaces are oriented onto the XY Plane and placed inside the Square Grid.\r\nHowever, the oriented surfaces are not ordered according to their sizes, and it looks like all cells have been filled, while there are less surfaces on the original geometry than the number of cells.\r\nSo, let's try to solve these issues..."
+        },
+        {
+          "id": "R191",
+          "nick": "",
+          "content": "2- Sorting:\r\n- Sort all surfaces according to their areas."
+        },
+        {
+          "id": "R192",
+          "nick": "",
+          "content": "3- Short Listing:\r\n- Use the \"Short List\" component to get rid of additional cells from the Square Grid by using the shortest list length."
+        },
+        {
+          "id": "R193",
+          "nick": "",
+          "content": "4- Orient Direction:\r\n- Try the \"Orient Direction\" component and see the difference.\r\n- It looks like all surfaces are rotated randomly. Although this did not happen with the previously used components, let us try to solve this issue."
+        },
+        {
+          "id": "R194",
+          "nick": "",
+          "content": "5- Orienting each surface alone by its geoemtric properties: Longest side to be along X axis:\r\n- Get the Edges of the Geometry from previous component \"Orient Direction\" using the \"Brep Edges\" component.\r\n- Get the Length of all curves using the \"Curve Length\" component.\r\n- Sort all Curve Lengths using the \"Sort List\" component.\r\n- Reverse the A OUTPUT (so that the List starts with the greatest values of Curve Lenghts).\r\n- Extract the Start & End Points of each longest edge using the \"End Points\" component.\r\n- Construct 2Point Vectors based on the direction of Curves: From Start Point to End Point Direction.\r\n- Extract the Middle Point of each Greatest Curve so that it can be used as the Reference Point when Orienting again.\r\n- Prepare Target Direction Vectors (in X Direction) at the Centroids of the Square Grid Cells.\r\n- IMPORTANT: Match the new Vectors Lengths at the Centroids of the Square Grid with the Vectors made by the Curves: Use an \"Amplitude\" component."
+        },
+        {
+          "id": "R195",
+          "nick": "",
+          "content": "Assignment 7c:\r\n\r\n- Build a new Surface in Rhino and repeat the same procedure."
+        },
+        {
+          "id": "R196",
+          "nick": "",
+          "content": "0.5"
+        },
+        {
+          "id": "R198",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R206",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R207",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R214",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R218",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R224",
+          "nick": "",
+          "content": "0.7"
+        },
+        {
+          "id": "R226",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R236",
+          "nick": "",
+          "content": "Alternative method:\r\nOrienting surfaces, evaluating the oriented surfaces and using their respective frames"
+        },
+        {
+          "id": "R250",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R256",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R257",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R282",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R287",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R288",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R313",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R314",
+          "nick": "Middle Value",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R318",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R319",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R320",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R321",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R322",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R323",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R324",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R329",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R350",
+          "nick": "",
+          "content": "4"
+        },
+        {
+          "id": "R351",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R352",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R355",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "brep",
+    "source_definition": "Unit-07-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            36.6
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            102.9
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "pos": [
+            468.8,
+            18.9
+          ],
+          "content": "1- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\n- \"Isotrim\" and \"Divide Surface\" components are useful tools in Grasshopper. However when the design intention becomes more complex, involving diamond or hexagonal divisions, building a definition manually in Grasshopper may become time consuming.\r\n\r\nLunchBox is a very useful plugin that provides ready made components for multi-purpose surface division. It also provides other functions such as Surface Flatness test and more.\r\n\r\nUsing LunchBox:\r\n\r\n- Build a Surface in Rhino with 4 corners, using the \"SrfPt\".\r\n- Turn on the Control Points and make the surface unplanar.\r\n- Reference the Surface in Grasshopper.\r\n\r\n- Use the following LunchBox compnents from the Panels Tab:\r\n1- Quad Panels\r\n2- Random Quad Panels\r\n3- Skewed Quads\r\n4- Hexagon Cells\r\n5- Diamond Panels\r\n6- Triangular Panels A\r\n7- Triangular Panels B\r\n8- Triangular Panels C\r\n\r\n- Use the following LunchBox compnents from the Structure Tab:\r\n1- Grid Structure\r\n2- Hexagonal Structure\r\n3- Diagrid Structure\r\n4- Braced Grid 1-D Structure\r\n5- Braced Grid 2-D Structure"
+        },
+        {
+          "id": "R13",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            473.5,
+            -37.2
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            230.5,
+            943.3
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 15
+        },
+        {
+          "id": "R15",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            -37.7
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "QuadA",
+          "nick": "Quads",
+          "name": "Quad Panels",
+          "pos": [
+            749,
+            675
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Grid",
+          "nick": "Grid",
+          "name": "Grid Structure",
+          "pos": [
+            1119,
+            964
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Diamond",
+          "nick": "Diamond",
+          "name": "Diamond Panels",
+          "pos": [
+            730,
+            1102
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "HexCells",
+          "nick": "Hex",
+          "name": "Hexagon Cells",
+          "pos": [
+            743,
+            1258
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Hexagon",
+          "nick": "Hex",
+          "name": "Hexagonal Structure",
+          "pos": [
+            1118,
+            1093
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "FlatCheck",
+          "nick": "Flat",
+          "name": "Flatness Check",
+          "pos": [
+            1472,
+            922
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "RebuildSrf",
+          "nick": "RebuildSrf",
+          "name": "Rebuild Surface",
+          "pos": [
+            723,
+            3738
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "AttractorNorm",
+          "nick": "Attract",
+          "name": "Attractor",
+          "pos": [
+            1152,
+            3718
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "PlatoDodec",
+          "nick": "PlatoDodec",
+          "name": "Platonic Dodecahedron",
+          "pos": [
+            542,
+            3730
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "TriC",
+          "nick": "TriC",
+          "name": "Triangle Panels C",
+          "pos": [
+            749,
+            1593
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Diagrid",
+          "nick": "Diagrid",
+          "name": "Diagrid Structure",
+          "pos": [
+            1119,
+            1239
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "BraceGrid2D",
+          "nick": "GridBraced2D",
+          "name": "Braced Grid 2-D Structure",
+          "pos": [
+            1120,
+            1545
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "TriA",
+          "nick": "TriA",
+          "name": "Triangular Panels A",
+          "pos": [
+            749,
+            1391
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "BraceGrid1D",
+          "nick": "GridBraced1D",
+          "name": "Braced Grid 1-D Structure",
+          "pos": [
+            1123,
+            1397
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Patch",
+          "nick": "Patch",
+          "name": "Patch Surface",
+          "pos": [
+            728,
+            3959
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "PlatoOcta",
+          "nick": "PlatoOcta",
+          "name": "Platonic Octahedron",
+          "pos": [
+            542,
+            3956
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Frame",
+          "nick": "Frame",
+          "name": "Panel Frame",
+          "pos": [
+            2280,
+            1065
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "QuadSub",
+          "nick": "QuadSub",
+          "name": "Subdivide Quad",
+          "pos": [
+            911,
+            3758
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "TriSub",
+          "nick": "TriSub",
+          "name": "Subdivide Triangle",
+          "pos": [
+            926,
+            3989
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "panel",
+          "pos": [
+            3165.4,
+            18.9
+          ],
+          "content": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- First step is to create a rectangular grid using one of the tools in \"Grid\" tab.  Some of these components take a list of points, which you can generate using GH standard components, or divide a curve using one of the tools under \"Curve\" tab of PanelingTools.\r\n\r\n- Once a grid is created, you can shuffle it using one of the attraction methods under \"Grid Attractors\" tab.  One output is the shuffled grid, another output is the normalized weights based on the attraction method that can be used for variable offset or variable paneling for example.\r\n\r\n- \"Grid Utility\" tab helps you do things like extracting points from the grid, replace points, extract center grid, expand grids, create surface from grid, etc.\r\n\r\n- \"Panel Utility\" tab has components to pull panel edges to a surface using pull, iso curves or shortest path.\r\n\r\n- \"Panel2D\" tab has many ways to panel the rectangular grid and populate 2D components.\r\n\r\n- \"Panel3D\" contain components to populate 3D patterns between 2 bounding grids.\r\n\r\nSource:\r\nhttp://www.grasshopper3d.com/group/panelingtools\r\n\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf"
+        },
+        {
+          "id": "R36",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3170,
+            -37.2
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "panel",
+          "pos": [
+            4758.8,
+            18.9
+          ],
+          "content": "4- Weaverbird: Plugin for Mesh manipulation.\r\n\r\nGrasshopper includes basic mesh components, such as:\r\n- \"Simple Mesh\".\r\n- \"Mesh Brep\".\r\n- \"Mesh Surface\".\r\n\r\nWeaverbird allows for more options. Check out the following components:\r\n- \"Weaverbird's Loop Division\".\r\n- \"Weaverbird's Catmull-Clark Subdivision\".\r\n- \"Weaverbird's Sierpinsky Carpet\".\r\n- \"Weaverbird's Stellate/Cumulation\".\r\n- \"Weaverbird's Laplacian Smoothing\".\r\n- \"Weaverbird's Offset Mesh\".\r\n- \"Weaverbird's Mesh Thicken\".\r\n\r\n- Generate Edges of Meshes using the \"Mesh Edges\".\r\nUse new \"Curve\" components and feed in the OUTPUTS of the Mesh Edges.\r\n\r\n- Get the Face Boundaries of mesh and use them to generate new NURBS surfaces.\r\n\r\n- IMPORTANT:\r\nIf the faces are not planar, the \"Boundary Surface\" component won't work.\r\nYou may need to Triangulate all faces first.\r\n\r\n- What if we don't need planar surfaces?\r\n- In this case, extract all faces' borders (as curves), then loft opposite sides to make non-planar surfaces."
+        },
+        {
+          "id": "R38",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            4763.5,
+            -37.2
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "panel",
+          "pos": [
+            7013.9,
+            18.9
+          ],
+          "content": "5- Orienting & Flattening (for Digital Fabrication): \r\n\r\n- Build a new Surface in Rhino and give it a sharp curvature by manipulating the control points.\r\n\r\n- Use the \"Mesh Surface\" component.\r\n\r\n- Triangulate all meshes.\r\n\r\n- Convert all meshes into Surfaces.\r\n\r\n- Make a \"Square Grid\" in order to use the grid cells as targets for the oriented and flatenned surfaces.\r\n\r\n- We will check several ways of orienting and flatenning surfaces in 3D, from being placed on a geometry to being placed flat on XY plane."
+        },
+        {
+          "id": "R40",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            7018.6,
+            -37.2
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "PtCompGridCreateSurfaceDomainNum",
+          "nick": "ptSrfDomNum",
+          "name": "Surface Domain Number",
+          "pos": [
+            3454,
+            1848
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "PtCompGridCreateSurfaceDomainLength",
+          "nick": "ptSrfDomLen",
+          "name": "Surface Domain Length",
+          "pos": [
+            3454,
+            2104
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "pos": [
+            3209.5,
+            1087.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R44",
+          "type": "PtCompCreatePlanarGrid",
+          "nick": "ptPlanar",
+          "name": "Planar Grid",
+          "pos": [
+            3442,
+            1057
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            3209.5,
+            1107.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            3208.4,
+            1047.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            3208.5,
+            1068.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R48",
+          "type": "PtCompPointAtt",
+          "nick": "ptPointAtts",
+          "name": "Point Attraction",
+          "pos": [
+            3886,
+            1031
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "slider",
+          "pos": [
+            4245.2,
+            1965.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R50",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            3780.5,
+            1030.6
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "PtCompGaussAtt",
+          "nick": "ptGauss",
+          "name": "Gaussian Curvature",
+          "pos": [
+            4503,
+            1941
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "slider",
+          "pos": [
+            3619.1,
+            1053.8
+          ],
+          "min": -10,
+          "max": 11,
+          "value": 2.67
+        },
+        {
+          "id": "R53",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            4406.8,
+            1941.3
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "PtPanelBorder",
+          "nick": "ptBorders",
+          "name": "Generate Borders",
+          "pos": [
+            4316,
+            1036
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "PtPanelFaces",
+          "nick": "ptFaces",
+          "name": "Generate Faces",
+          "pos": [
+            4321,
+            1150
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "slider",
+          "pos": [
+            4060.2,
+            1025.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            4060.9,
+            1141.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R58",
+          "type": "PtMorph2D",
+          "nick": "ptMorph2D",
+          "name": "Morph 2D",
+          "pos": [
+            4316,
+            1268
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            4215,
+            1261
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            3933,
+            2011
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "PtMorph2DMean",
+          "nick": "ptMorph2DMean",
+          "name": "Morph 2D Mean",
+          "pos": [
+            4072,
+            1953
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            3933,
+            1942
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            3805.4,
+            2064.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R64",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            3324.4,
+            1813.4
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "slider",
+          "pos": [
+            3217.1,
+            1838.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 8
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            3218.2,
+            1872.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 7
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "pos": [
+            3224.4,
+            2082.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 33.68
+        },
+        {
+          "id": "R68",
+          "type": "slider",
+          "pos": [
+            3225.7,
+            2106.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 33.425
+        },
+        {
+          "id": "R69",
+          "type": "PtCompDivideSrfDis",
+          "nick": "ptSrfDis",
+          "name": "Surface Distance",
+          "pos": [
+            3454,
+            2549
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "slider",
+          "pos": [
+            3240,
+            2529.5
+          ],
+          "min": 5,
+          "max": 20,
+          "value": 11.821
+        },
+        {
+          "id": "R71",
+          "type": "PtCompRandomAtt",
+          "nick": "ptRandAtts",
+          "name": "Random Attraction",
+          "pos": [
+            4494,
+            2082
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            4245.2,
+            2092.6
+          ],
+          "min": -10,
+          "max": 11,
+          "value": 7.73
+        },
+        {
+          "id": "R73",
+          "type": "panel",
+          "pos": [
+            3869.4,
+            1561.3
+          ],
+          "content": "Assignment 7b:\r\n\r\n- Try the following components:\r\n- \"Morph 2D Mean\".\r\n- \"Gaussian Curvature\".\r\n- \"Random Attraction\".\r\n\r\nThere are many more interesting components provided by Paneling Tools plugin!\r\nTake time and try to check as many as possible.\r\n\r\nHave a quick look at the PDF Primer for more info:\r\nPanelingTools for Grasshopper Primer (PDF):\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf"
+        },
+        {
+          "id": "R74",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3874.1,
+            1505.5
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            484.8,
+            655.5
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "slider",
+          "pos": [
+            231.1,
+            974.7
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 16
+        },
+        {
+          "id": "R77",
+          "type": "QuadRand",
+          "nick": "QuadRand",
+          "name": "Random Quad Panels",
+          "pos": [
+            749,
+            818
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "SkewQuad",
+          "nick": "SQuads",
+          "name": "Skewed Quads",
+          "pos": [
+            742,
+            966
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "slider",
+          "pos": [
+            851.4,
+            1103.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.752
+        },
+        {
+          "id": "R80",
+          "type": "Truss",
+          "nick": "Truss",
+          "name": "2D Truss",
+          "pos": [
+            782,
+            3059
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            517.7,
+            2883.4
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            517.9,
+            2985.6
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "slider",
+          "pos": [
+            485.7,
+            3133.6
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 8
+        },
+        {
+          "id": "R84",
+          "type": "slider",
+          "pos": [
+            466.9,
+            3153.4
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 1
+        },
+        {
+          "id": "R85",
+          "type": "panel",
+          "pos": [
+            1666.4,
+            623.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R86",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            1602,
+            1398
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2259,
+            1343
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1920,
+            1364
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "Component_DeconstructDomain",
+          "nick": "DeDomain",
+          "name": "Deconstruct Domain",
+          "pos": [
+            1762,
+            1353
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1684,
+            1353
+          ]
+        },
+        {
+          "id": "R91",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1992,
+            976
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1591,
+            976
+          ]
+        },
+        {
+          "id": "R93",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1858,
+            1077
+          ]
+        },
+        {
+          "id": "R94",
+          "type": "slider",
+          "pos": [
+            1614.2,
+            1078.7
+          ],
+          "min": 0.001,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R95",
+          "type": "slider",
+          "pos": [
+            1611.2,
+            1058.7
+          ],
+          "min": 0.001,
+          "max": 1,
+          "value": 0.001
+        },
+        {
+          "id": "R96",
+          "type": "panel",
+          "pos": [
+            468.4,
+            3368.2
+          ],
+          "content": "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful."
+        },
+        {
+          "id": "R97",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            473,
+            3312.4
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            4735.9,
+            843.1
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            4946,
+            916
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            4946,
+            1008
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            4946,
+            844
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "slider",
+          "pos": [
+            4707.7,
+            988
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R103",
+          "type": "Component_MeshTriangulate",
+          "nick": "Tri",
+          "name": "Triangulate",
+          "pos": [
+            5243,
+            1716
+          ]
+        },
+        {
+          "id": "R104",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            5482,
+            1741
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "LaplacianComponent",
+          "nick": "wbLaplace",
+          "name": "Weaverbird's Laplacian Smoothing",
+          "pos": [
+            5245,
+            1141
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            5243,
+            793
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            5929,
+            669
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            5245,
+            1358
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "OffsetComponent",
+          "nick": "wbOffset",
+          "name": "Weaverbird's Offset Mesh",
+          "pos": [
+            5245,
+            1247
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "StellateComponent",
+          "nick": "wbStellate",
+          "name": "Weaverbird's Stellate/Cumulation",
+          "pos": [
+            5245,
+            1028
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "CarpetComponent",
+          "nick": "wbCarpet",
+          "name": "Weaverbird's Sierpinski Carpet",
+          "pos": [
+            5243,
+            919
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "LoopComponent",
+          "nick": "wbLoop",
+          "name": "Weaverbird's Loop Subdivision",
+          "pos": [
+            5243,
+            670
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            5617,
+            1740
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            6057,
+            791
+          ]
+        },
+        {
+          "id": "R115",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            6136,
+            790
+          ]
+        },
+        {
+          "id": "R116",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6028.4,
+            649.4
+          ]
+        },
+        {
+          "id": "R117",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6028.4,
+            668.5
+          ]
+        },
+        {
+          "id": "R118",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6028.4,
+            688.6
+          ]
+        },
+        {
+          "id": "R119",
+          "type": "panel",
+          "pos": [
+            465.6,
+            2232
+          ],
+          "content": "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r\n- Hover over the T INPUT and check what it needs.\r\n\r\n- IMPORTANT!\r\nYou may realize that the resultant Truss has uneven divisions, to solve that, rebuild the curves using the \"Rebuild Curve\" component."
+        },
+        {
+          "id": "R120",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            473,
+            2179.7
+          ]
+        },
+        {
+          "id": "R121",
+          "type": "panel",
+          "pos": [
+            7658.7,
+            1501.1
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R122",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            7840,
+            1451
+          ]
+        },
+        {
+          "id": "R123",
+          "type": "panel",
+          "pos": [
+            7658.4,
+            1434.7
+          ],
+          "content": "80"
+        },
+        {
+          "id": "R124",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            7161.6,
+            880.5
+          ]
+        },
+        {
+          "id": "R125",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            7256,
+            920
+          ]
+        },
+        {
+          "id": "R126",
+          "type": "slider",
+          "pos": [
+            7022.1,
+            906.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 5
+        },
+        {
+          "id": "R127",
+          "type": "Component_MeshTriangulate",
+          "nick": "Tri",
+          "name": "Triangulate",
+          "pos": [
+            7342,
+            920
+          ]
+        },
+        {
+          "id": "R128",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            7475,
+            777
+          ]
+        },
+        {
+          "id": "R129",
+          "type": "panel",
+          "pos": [
+            7022.1,
+            720.4
+          ],
+          "content": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then convert them to NURBS by using \"Boundary Surfaces\"! We are now able to choose the Faces!"
+        },
+        {
+          "id": "R130",
+          "type": "panel",
+          "pos": [
+            7571.1,
+            573.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R131",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            8751,
+            950
+          ]
+        },
+        {
+          "id": "R132",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            7982,
+            922
+          ]
+        },
+        {
+          "id": "R133",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            7480.9,
+            756
+          ]
+        },
+        {
+          "id": "R134",
+          "type": "slider",
+          "pos": [
+            7762.8,
+            915.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R135",
+          "type": "panel",
+          "pos": [
+            7658.4,
+            1455.4
+          ],
+          "content": "7"
+        },
+        {
+          "id": "R136",
+          "type": "panel",
+          "pos": [
+            8737.2,
+            692.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R137",
+          "type": "panel",
+          "pos": [
+            8703.8,
+            1066.5
+          ],
+          "content": "We also sort the planes so that they are in the same order as their respective surfaces"
+        },
+        {
+          "id": "R138",
+          "type": "Component_Orient",
+          "name": "Orient",
+          "pos": [
+            9060,
+            1126
+          ]
+        },
+        {
+          "id": "R139",
+          "type": "Component_MatchListShortest",
+          "nick": "Short",
+          "name": "Shortest List",
+          "pos": [
+            9320,
+            1366
+          ]
+        },
+        {
+          "id": "R140",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            7968,
+            1379
+          ]
+        },
+        {
+          "id": "R141",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            8192,
+            1038.1
+          ]
+        },
+        {
+          "id": "R142",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            8907,
+            1021
+          ]
+        },
+        {
+          "id": "R143",
+          "type": "Component_Orient",
+          "name": "Orient",
+          "pos": [
+            8496,
+            1185
+          ]
+        },
+        {
+          "id": "R144",
+          "type": "Component_BRepEdges",
+          "nick": "Edges",
+          "name": "Brep Edges",
+          "pos": [
+            10398,
+            1538
+          ]
+        },
+        {
+          "id": "R145",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            10783,
+            1538
+          ]
+        },
+        {
+          "id": "R146",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            10895,
+            1538
+          ]
+        },
+        {
+          "id": "R147",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            10682,
+            1902
+          ]
+        },
+        {
+          "id": "R148",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            11028,
+            1548
+          ]
+        },
+        {
+          "id": "R149",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            10861,
+            1805
+          ]
+        },
+        {
+          "id": "R150",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            11163,
+            1748
+          ]
+        },
+        {
+          "id": "R151",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            10598,
+            1508
+          ]
+        },
+        {
+          "id": "R152",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            10599,
+            1913
+          ]
+        },
+        {
+          "id": "R153",
+          "type": "Component_OrientDir",
+          "nick": "Orient",
+          "name": "Orient Direction",
+          "pos": [
+            11420,
+            1411
+          ]
+        },
+        {
+          "id": "R154",
+          "type": "Component_OrientDir",
+          "nick": "Orient",
+          "name": "Orient Direction",
+          "pos": [
+            10171,
+            1307
+          ]
+        },
+        {
+          "id": "R155",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            9974,
+            1368
+          ]
+        },
+        {
+          "id": "R156",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            9783.9,
+            1233.9
+          ]
+        },
+        {
+          "id": "R157",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            10499,
+            1483
+          ]
+        },
+        {
+          "id": "R158",
+          "type": "Component_VectorDisplay",
+          "nick": "VDis",
+          "name": "Vector Display",
+          "pos": [
+            11314,
+            1821
+          ]
+        },
+        {
+          "id": "R159",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            10896,
+            1637
+          ]
+        },
+        {
+          "id": "R160",
+          "type": "TriB",
+          "nick": "TriB",
+          "name": "Triangle Panels B",
+          "pos": [
+            749,
+            1489
+          ]
+        },
+        {
+          "id": "R161",
+          "type": "panel",
+          "pos": [
+            1394.1,
+            18.9
+          ],
+          "content": "2- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\nUsing the same referenced surface, let us check its flateness and visualize it with colors:\r\n\r\n- Use the \"Flatness Check\" component from LunchBox Util Tab. \r\n- From the D OUTPUT, get the minimum and maximum of all values (using the \"Bounds\" component).\r\n- Use the \"Panel Frame\" component from LunchBox Generate Tab in order to generate Panel Frames in relation to the Flateness Deviation Factor of each Panel.\r\nThis means that if a panel has a small D factor, it woud have a smaller opening that a panel with a bigger D factor.\r\n\r\n- IMPORTANT!\r\nIf the difference between the minimum and maximum number of the D values is small, then you may need to REMAP all numbers with a new domain, to have a bigger bigger difference between the minimum and maximum (bounds of the values) so that the Panel Frame could be more perceivable.\r\n\r\n\r\n- Visualizing Flatness Deviation:\r\n\r\n- Get the \"Gradient\" component.\r\n- L0 & L1: Need the minimum & maximum values of Deviation... For that, we need to deconstruct the domain in order to extract seperate values for minimum and maximum.\r\n- Use the \"Deconstrctu Domain\" and extract the minimum and maximum values.\r\n- Plug the minimum value into L0 and maximum value into L1.\r\n- \"t\" INPUT represents the parameter along the gradient range.\r\nWe need to sort all values from minimum to maximum in order to assign the respective color range for each, according to its value order inside the list of values.\r\n- Use the \"Sort List\":\r\n- Feed all Deviation values into the K INPUT of \"Sort List\".\r\n- Feed all the panels to be sorted into the A INPUT of \"Sort List\".\r\n- The OUTPUT K & A of \"Sort List\" includes all panels sorted according to their Deviation values, from monimum to maximum.\r\n- To visualize the colors, use a \"Custom Preview\" component:\r\n- Feed the Gradient OUTPUT into S of \"Custom Preview\".\r\n- Feed the sorted panels A into G of \"Custom Preview.\r\n- Now, we have an assigned color to each panel, following the gradient scheme, from least Deviation value to the greatest Deviation value."
+        },
+        {
+          "id": "R162",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1398.8,
+            -37.2
+          ]
+        },
+        {
+          "id": "R163",
+          "type": "panel",
+          "pos": [
+            1661.4,
+            884
+          ],
+          "content": "0.1 to 0.8"
+        },
+        {
+          "id": "R164",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2106,
+            960
+          ]
+        },
+        {
+          "id": "R165",
+          "type": "panel",
+          "pos": [
+            2174.4,
+            884
+          ],
+          "content": "0.1 to 0.8"
+        },
+        {
+          "id": "R166",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1604,
+            1048.2
+          ]
+        },
+        {
+          "id": "R167",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1606.5,
+            1077.9
+          ]
+        },
+        {
+          "id": "R168",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1794,
+            879.2
+          ]
+        },
+        {
+          "id": "R169",
+          "type": "Truss",
+          "nick": "Truss",
+          "name": "2D Truss",
+          "pos": [
+            1217,
+            3127
+          ]
+        },
+        {
+          "id": "R170",
+          "type": "Component_RebuildCurve",
+          "nick": "ReB",
+          "name": "Rebuild Curve",
+          "pos": [
+            1049,
+            2912
+          ]
+        },
+        {
+          "id": "R171",
+          "type": "Component_RebuildCurve",
+          "nick": "ReB",
+          "name": "Rebuild Curve",
+          "pos": [
+            1049,
+            3010
+          ]
+        },
+        {
+          "id": "R172",
+          "type": "panel",
+          "pos": [
+            3165.4,
+            595
+          ],
+          "content": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- Use the \"Planar Grid\" to generate a planar grid of points.\r\n\r\n- Notice the \"Gd\" OUTPUT of this component, it means a \"Grid\".\r\n\r\n- Let us use the \"Point Attraction\" component:\r\n- Needs a Point: Build a new Point in Rhino, reference it in Grasshopper and feed it to the Point Attraction's A INPUT.\r\n- Use a Number Slider to play with the magnitude M INPUT.\r\n- Use the \"Generate Borders\" component to generate lines between points.\r\n- Use the \"Generate Faces\" component to generate surfaces between points.\r\n\r\n- Use the \"Morph 2D\" component to morph curves inro grid cells:\r\n- Build a circle and feed it to the PC INPUT of the \"Morph 2D\"."
+        },
+        {
+          "id": "R173",
+          "type": "panel",
+          "pos": [
+            3165.4,
+            1561
+          ],
+          "content": "- Surface Division:\r\n\r\nBuild a new surface in Rhino, reference it in Grasshopper and try divide it by:\r\n\r\n- Either by domain number: Use the \"Surface Domain Number\" component.\r\n- Or by domain length: Use the \"Surface Domain Length\" component.\r\n- Or by distance: Use the \"Surface Distance\" component."
+        },
+        {
+          "id": "R174",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6129.6,
+            975.5
+          ]
+        },
+        {
+          "id": "R175",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            6280,
+            932
+          ]
+        },
+        {
+          "id": "R176",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            6412,
+            943
+          ]
+        },
+        {
+          "id": "R177",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            6612,
+            916
+          ]
+        },
+        {
+          "id": "R178",
+          "type": "Component_FlipCurve",
+          "nick": "Flip",
+          "name": "Flip Curve",
+          "pos": [
+            6516,
+            991
+          ]
+        },
+        {
+          "id": "R179",
+          "type": "panel",
+          "pos": [
+            8634.9,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R180",
+          "type": "panel",
+          "pos": [
+            9159.4,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R181",
+          "type": "panel",
+          "pos": [
+            9680,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R182",
+          "type": "panel",
+          "pos": [
+            10266.1,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R183",
+          "type": "panel",
+          "pos": [
+            11669.1,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R184",
+          "type": "panel",
+          "pos": [
+            8113.4,
+            601.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R185",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8176.5,
+            654
+          ]
+        },
+        {
+          "id": "R186",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8698.3,
+            654
+          ]
+        },
+        {
+          "id": "R187",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            9222.9,
+            654
+          ]
+        },
+        {
+          "id": "R188",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            9745.6,
+            654
+          ]
+        },
+        {
+          "id": "R189",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            10329.6,
+            654
+          ]
+        },
+        {
+          "id": "R190",
+          "type": "panel",
+          "pos": [
+            8162.6,
+            338.4
+          ],
+          "content": "1- Orienting:\r\n- Use \"Orient\" component.\r\n- Feed the new Surfaces into the G INPUT.\r\n- Evaluate all surfaces and use the Frames OUTPUT from the Evaluate Surface as INPUT A in the \"Orient\" component.\r\n- Get the center of all grid cells from the Square Grid andfeed them in the INPUT B of \"Orient\" as the target planes.\r\n- Result: All surfaces are oriented onto the XY Plane and placed inside the Square Grid.\r\nHowever, the oriented surfaces are not ordered according to their sizes, and it looks like all cells have been filled, while there are less surfaces on the original geometry than the number of cells.\r\nSo, let's try to solve these issues..."
+        },
+        {
+          "id": "R191",
+          "type": "panel",
+          "pos": [
+            8686,
+            338.4
+          ],
+          "content": "2- Sorting:\r\n- Sort all surfaces according to their areas."
+        },
+        {
+          "id": "R192",
+          "type": "panel",
+          "pos": [
+            9209.8,
+            338.4
+          ],
+          "content": "3- Short Listing:\r\n- Use the \"Short List\" component to get rid of additional cells from the Square Grid by using the shortest list length."
+        },
+        {
+          "id": "R193",
+          "type": "panel",
+          "pos": [
+            9729.4,
+            338.4
+          ],
+          "content": "4- Orient Direction:\r\n- Try the \"Orient Direction\" component and see the difference.\r\n- It looks like all surfaces are rotated randomly. Although this did not happen with the previously used components, let us try to solve this issue."
+        },
+        {
+          "id": "R194",
+          "type": "panel",
+          "pos": [
+            10315,
+            338.4
+          ],
+          "content": "5- Orienting each surface alone by its geoemtric properties: Longest side to be along X axis:\r\n- Get the Edges of the Geometry from previous component \"Orient Direction\" using the \"Brep Edges\" component.\r\n- Get the Length of all curves using the \"Curve Length\" component.\r\n- Sort all Curve Lengths using the \"Sort List\" component.\r\n- Reverse the A OUTPUT (so that the List starts with the greatest values of Curve Lenghts).\r\n- Extract the Start & End Points of each longest edge using the \"End Points\" component.\r\n- Construct 2Point Vectors based on the direction of Curves: From Start Point to End Point Direction.\r\n- Extract the Middle Point of each Greatest Curve so that it can be used as the Reference Point when Orienting again.\r\n- Prepare Target Direction Vectors (in X Direction) at the Centroids of the Square Grid Cells.\r\n- IMPORTANT: Match the new Vectors Lengths at the Centroids of the Square Grid with the Vectors made by the Curves: Use an \"Amplitude\" component."
+        },
+        {
+          "id": "R195",
+          "type": "panel",
+          "pos": [
+            11720,
+            338.4
+          ],
+          "content": "Assignment 7c:\r\n\r\n- Build a new Surface in Rhino and repeat the same procedure."
+        },
+        {
+          "id": "R196",
+          "type": "panel",
+          "pos": [
+            10785.9,
+            1643
+          ],
+          "content": "0.5"
+        },
+        {
+          "id": "R197",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            11724.8,
+            283.4
+          ]
+        },
+        {
+          "id": "R198",
+          "type": "panel",
+          "pos": [
+            1077.5,
+            379
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R199",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            1109,
+            853
+          ]
+        },
+        {
+          "id": "R200",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            1109,
+            795
+          ]
+        },
+        {
+          "id": "R201",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            1185,
+            795
+          ]
+        },
+        {
+          "id": "R202",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1596,
+            1583
+          ]
+        },
+        {
+          "id": "R203",
+          "type": "slider",
+          "pos": [
+            1334.5,
+            1578.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 52
+        },
+        {
+          "id": "R204",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1595,
+            1680
+          ]
+        },
+        {
+          "id": "R205",
+          "type": "slider",
+          "pos": [
+            1348.3,
+            1675.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 36
+        },
+        {
+          "id": "R206",
+          "type": "panel",
+          "pos": [
+            1800.4,
+            1179.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R207",
+          "type": "panel",
+          "pos": [
+            1798.8,
+            1227.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R208",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1610,
+            1398
+          ]
+        },
+        {
+          "id": "R209",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2224.6,
+            1313.6
+          ]
+        },
+        {
+          "id": "R210",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1606,
+            1374
+          ]
+        },
+        {
+          "id": "R211",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1924,
+            1407
+          ]
+        },
+        {
+          "id": "R212",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6515,
+            907.6
+          ]
+        },
+        {
+          "id": "R213",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6514.5,
+            958.8
+          ]
+        },
+        {
+          "id": "R214",
+          "type": "panel",
+          "pos": [
+            10441.9,
+            1121
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R215",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            10624.7,
+            1499.4
+          ]
+        },
+        {
+          "id": "R216",
+          "type": "Component_VectorDisplay",
+          "nick": "VDis",
+          "name": "Vector Display",
+          "pos": [
+            11044,
+            1937
+          ]
+        },
+        {
+          "id": "R217",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1185,
+            815
+          ]
+        },
+        {
+          "id": "R218",
+          "type": "panel",
+          "pos": [
+            2127.2,
+            1503.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R219",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            1930,
+            1735
+          ]
+        },
+        {
+          "id": "R220",
+          "type": "slider",
+          "pos": [
+            1684.2,
+            1735.4
+          ],
+          "min": 0,
+          "max": 200,
+          "value": 108
+        },
+        {
+          "id": "R221",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            2007.9,
+            1726
+          ]
+        },
+        {
+          "id": "R222",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            2007.9,
+            1745.5
+          ]
+        },
+        {
+          "id": "R223",
+          "type": "Component_SmallerThan",
+          "nick": "Smaller",
+          "name": "Smaller Than",
+          "pos": [
+            1791,
+            1892
+          ]
+        },
+        {
+          "id": "R224",
+          "type": "panel",
+          "pos": [
+            1686.1,
+            1896.2
+          ],
+          "content": "0.7"
+        },
+        {
+          "id": "R225",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            1930,
+            1861
+          ]
+        },
+        {
+          "id": "R226",
+          "type": "panel",
+          "pos": [
+            1731.3,
+            1991.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R227",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            2011.4,
+            1844.9
+          ]
+        },
+        {
+          "id": "R228",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            2014.7,
+            1877
+          ]
+        },
+        {
+          "id": "R229",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2130,
+            1676
+          ]
+        },
+        {
+          "id": "R230",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1727.5,
+            2094.5
+          ]
+        },
+        {
+          "id": "R231",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1692,
+            1893
+          ]
+        },
+        {
+          "id": "R232",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1730,
+            1692
+          ]
+        },
+        {
+          "id": "R233",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            7967.9,
+            1492.9
+          ]
+        },
+        {
+          "id": "R234",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            8716.8,
+            1188.4
+          ]
+        },
+        {
+          "id": "R235",
+          "type": "Component_Orient",
+          "name": "Orient",
+          "pos": [
+            9062,
+            1250
+          ]
+        },
+        {
+          "id": "R236",
+          "type": "panel",
+          "pos": [
+            8881.1,
+            1302.1
+          ],
+          "content": "Alternative method:\r\nOrienting surfaces, evaluating the oriented surfaces and using their respective frames"
+        },
+        {
+          "id": "R237",
+          "type": "Frame",
+          "nick": "Frame",
+          "name": "Panel Frame",
+          "pos": [
+            1504,
+            747
+          ]
+        },
+        {
+          "id": "R238",
+          "type": "PtCompPointAtt",
+          "nick": "ptPointAtts",
+          "name": "Point Attraction",
+          "pos": [
+            3892,
+            1172
+          ]
+        },
+        {
+          "id": "R239",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            3780.5,
+            1175.4
+          ]
+        },
+        {
+          "id": "R240",
+          "type": "slider",
+          "pos": [
+            3619.1,
+            1198.6
+          ],
+          "min": -10,
+          "max": 11,
+          "value": -1.22
+        },
+        {
+          "id": "R241",
+          "type": "PtMorph2D",
+          "nick": "ptMorph2D",
+          "name": "Morph 2D",
+          "pos": [
+            4747,
+            2127
+          ]
+        },
+        {
+          "id": "R242",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            4634,
+            2116
+          ]
+        },
+        {
+          "id": "R243",
+          "type": "Component_4PointSurface",
+          "nick": "Srf4Pt",
+          "name": "4Point Surface",
+          "pos": [
+            6492,
+            1417
+          ]
+        },
+        {
+          "id": "R244",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            6261,
+            1375
+          ]
+        },
+        {
+          "id": "R245",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            6399,
+            1417
+          ]
+        },
+        {
+          "id": "R246",
+          "type": "Component_VectorDisplay",
+          "nick": "VDis",
+          "name": "Vector Display",
+          "pos": [
+            11132,
+            1473
+          ]
+        },
+        {
+          "id": "R247",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11035.7,
+            1546.1
+          ]
+        },
+        {
+          "id": "R248",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            9478.5,
+            1469
+          ]
+        },
+        {
+          "id": "R249",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            11586,
+            1317
+          ]
+        },
+        {
+          "id": "R250",
+          "type": "panel",
+          "pos": [
+            1586.8,
+            1218.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R251",
+          "type": "PtPanelFaces",
+          "nick": "ptFaces",
+          "name": "Generate Faces",
+          "pos": [
+            3622,
+            1868
+          ]
+        },
+        {
+          "id": "R252",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            10596.8,
+            1786.2
+          ]
+        },
+        {
+          "id": "R253",
+          "type": "slider",
+          "pos": [
+            1224.3,
+            672.3
+          ],
+          "min": 0.01,
+          "max": 1,
+          "value": 0.47
+        },
+        {
+          "id": "R254",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            9478.8,
+            1399.2
+          ]
+        },
+        {
+          "id": "R255",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            9478.6,
+            1337.1
+          ]
+        },
+        {
+          "id": "R256",
+          "type": "panel",
+          "pos": [
+            10651.4,
+            1121
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R257",
+          "type": "panel",
+          "pos": [
+            10858.3,
+            1121
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R258",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            10774,
+            1422.3
+          ]
+        },
+        {
+          "id": "R259",
+          "type": "slider",
+          "pos": [
+            472,
+            1278.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R260",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            953,
+            1126
+          ],
+          "value": true
+        },
+        {
+          "id": "R261",
+          "type": "SpaceTruss",
+          "nick": "SpaceTruss 1",
+          "name": "Space Truss Structure 1",
+          "pos": [
+            1111,
+            1726
+          ]
+        },
+        {
+          "id": "R262",
+          "type": "SpaceTruss2srf",
+          "nick": "SpaceTruss 2",
+          "name": "Space Truss Structure 2",
+          "pos": [
+            1123,
+            1864
+          ]
+        },
+        {
+          "id": "R263",
+          "type": "slider",
+          "pos": [
+            847.5,
+            1750
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R264",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            996,
+            1828.3
+          ]
+        },
+        {
+          "id": "R265",
+          "type": "slider",
+          "pos": [
+            1524.5,
+            1938.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.73
+        },
+        {
+          "id": "R266",
+          "type": "PtPanelFaces",
+          "nick": "ptFaces",
+          "name": "Generate Faces",
+          "pos": [
+            3559,
+            2124
+          ]
+        },
+        {
+          "id": "R267",
+          "type": "PtPanelFaces",
+          "nick": "ptFaces",
+          "name": "Generate Faces",
+          "pos": [
+            3559,
+            2569
+          ]
+        },
+        {
+          "id": "R268",
+          "type": "slider",
+          "pos": [
+            5011.2,
+            1037.8
+          ],
+          "min": -10,
+          "max": 10,
+          "value": -3
+        },
+        {
+          "id": "R269",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            9478.3,
+            1365.9
+          ]
+        },
+        {
+          "id": "R270",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            9899.1,
+            1109.9
+          ]
+        },
+        {
+          "id": "R271",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1280,
+            1815
+          ]
+        },
+        {
+          "id": "R272",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1280,
+            1880
+          ]
+        },
+        {
+          "id": "R273",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1280,
+            1945
+          ]
+        },
+        {
+          "id": "R274",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1283.4,
+            2001.5
+          ]
+        },
+        {
+          "id": "R275",
+          "type": "Frame",
+          "nick": "Frame",
+          "name": "Panel Frame",
+          "pos": [
+            1497,
+            670
+          ]
+        },
+        {
+          "id": "R276",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            2136,
+            1943
+          ]
+        },
+        {
+          "id": "R277",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2224,
+            1986
+          ]
+        },
+        {
+          "id": "R278",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            2357,
+            1971
+          ]
+        },
+        {
+          "id": "R279",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1599.3,
+            657
+          ]
+        },
+        {
+          "id": "R280",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1597.9,
+            682.4
+          ]
+        },
+        {
+          "id": "R281",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1593.8,
+            913.2
+          ]
+        },
+        {
+          "id": "R282",
+          "type": "panel",
+          "pos": [
+            6457.1,
+            490
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R283",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6511.9,
+            932.3
+          ]
+        },
+        {
+          "id": "R284",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            6438.7,
+            1042
+          ]
+        },
+        {
+          "id": "R285",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            6619,
+            979
+          ]
+        },
+        {
+          "id": "R286",
+          "type": "Component_FlipCurve",
+          "nick": "Flip",
+          "name": "Flip Curve",
+          "pos": [
+            6515,
+            1049
+          ]
+        },
+        {
+          "id": "R287",
+          "type": "panel",
+          "pos": [
+            6275.3,
+            1485.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R288",
+          "type": "panel",
+          "pos": [
+            10476.7,
+            1573.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R289",
+          "type": "slider",
+          "pos": [
+            826.9,
+            1865.1
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 7
+        },
+        {
+          "id": "R290",
+          "type": "slider",
+          "pos": [
+            824.9,
+            1888.2
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 9
+        },
+        {
+          "id": "R291",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            2777,
+            2180
+          ]
+        },
+        {
+          "id": "R292",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2866,
+            2305
+          ]
+        },
+        {
+          "id": "R293",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            2876,
+            2213
+          ]
+        },
+        {
+          "id": "R294",
+          "type": "Component_4PointSurface",
+          "nick": "Srf4Pt",
+          "name": "4Point Surface",
+          "pos": [
+            3021,
+            2307
+          ]
+        },
+        {
+          "id": "R295",
+          "type": "PtCompGridCreateSurfaceDomainLength",
+          "nick": "ptSrfDomLen",
+          "name": "Surface Domain Length",
+          "pos": [
+            3454,
+            2343
+          ]
+        },
+        {
+          "id": "R296",
+          "type": "slider",
+          "pos": [
+            3224.7,
+            2321.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20.427
+        },
+        {
+          "id": "R297",
+          "type": "slider",
+          "pos": [
+            3225.7,
+            2345.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 27.586
+        },
+        {
+          "id": "R298",
+          "type": "PtPanelFaces",
+          "nick": "ptFaces",
+          "name": "Generate Faces",
+          "pos": [
+            3559,
+            2363
+          ]
+        },
+        {
+          "id": "R299",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R300",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2753.3,
+            2392.8
+          ]
+        },
+        {
+          "id": "R301",
+          "type": "Component_PartitionList",
+          "nick": "Partition",
+          "name": "Partition List",
+          "pos": [
+            5502,
+            1013
+          ]
+        },
+        {
+          "id": "R302",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            5645,
+            1014
+          ]
+        },
+        {
+          "id": "R303",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            5732,
+            1067
+          ]
+        },
+        {
+          "id": "R304",
+          "type": "slider",
+          "pos": [
+            448.7,
+            848.5
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R305",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            2745,
+            2445
+          ]
+        },
+        {
+          "id": "R306",
+          "type": "Component_VectorDisplay",
+          "nick": "VDis",
+          "name": "Vector Display",
+          "pos": [
+            10097,
+            1209
+          ]
+        },
+        {
+          "id": "R307",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            5573,
+            1163
+          ]
+        },
+        {
+          "id": "R308",
+          "type": "slider",
+          "pos": [
+            5358.1,
+            1153.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 19
+        },
+        {
+          "id": "R309",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            6203,
+            1075
+          ]
+        },
+        {
+          "id": "R310",
+          "type": "slider",
+          "pos": [
+            5988,
+            1065.5
+          ],
+          "min": 0,
+          "max": 500,
+          "value": 0
+        },
+        {
+          "id": "R311",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            1844,
+            1501
+          ]
+        },
+        {
+          "id": "R312",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            1928,
+            1511
+          ]
+        },
+        {
+          "id": "R313",
+          "type": "panel",
+          "pos": [
+            1818.9,
+            1527.2
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R314",
+          "type": "panel",
+          "nick": "Middle Value",
+          "pos": [
+            2001.9,
+            1434.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R315",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            2357,
+            2023
+          ]
+        },
+        {
+          "id": "R316",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            3079,
+            2473
+          ]
+        },
+        {
+          "id": "R317",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            3163,
+            2506
+          ]
+        },
+        {
+          "id": "R318",
+          "type": "panel",
+          "pos": [
+            5386.3,
+            1209.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R319",
+          "type": "panel",
+          "pos": [
+            5428.3,
+            162.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R320",
+          "type": "panel",
+          "pos": [
+            5663.3,
+            162.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R321",
+          "type": "panel",
+          "pos": [
+            6403,
+            1089
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R322",
+          "type": "panel",
+          "pos": [
+            10682.7,
+            1528.9
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R323",
+          "type": "panel",
+          "pos": [
+            11160.6,
+            1531.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R324",
+          "type": "panel",
+          "pos": [
+            10822.9,
+            1926.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R325",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            5968,
+            1184
+          ]
+        },
+        {
+          "id": "R326",
+          "type": "slider",
+          "pos": [
+            5759.3,
+            1174
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R327",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            2392.1,
+            1052.3
+          ]
+        },
+        {
+          "id": "R328",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            2392.7,
+            1077.6
+          ]
+        },
+        {
+          "id": "R329",
+          "type": "panel",
+          "pos": [
+            5768.6,
+            1224.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R330",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            5718,
+            1165
+          ]
+        },
+        {
+          "id": "R331",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            6280,
+            1265
+          ]
+        },
+        {
+          "id": "R332",
+          "type": "slider",
+          "pos": [
+            6062.2,
+            1257.2
+          ],
+          "min": 0,
+          "max": 4,
+          "value": 4
+        },
+        {
+          "id": "R333",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            7704,
+            807
+          ]
+        },
+        {
+          "id": "R334",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            5065,
+            1519
+          ],
+          "value": true
+        },
+        {
+          "id": "R335",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            9083,
+            830
+          ]
+        },
+        {
+          "id": "R336",
+          "type": "slider",
+          "pos": [
+            8874.6,
+            821.5
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R337",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            9083,
+            901
+          ]
+        },
+        {
+          "id": "R338",
+          "type": "slider",
+          "pos": [
+            8874.6,
+            892.7
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R339",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            9968,
+            1257
+          ]
+        },
+        {
+          "id": "R340",
+          "type": "OffsetMesh",
+          "nick": "OffMsh",
+          "name": "Offset Mesh",
+          "pos": [
+            5245,
+            1500
+          ]
+        },
+        {
+          "id": "R341",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            5392,
+            1086
+          ]
+        },
+        {
+          "id": "R342",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            5398,
+            1741
+          ]
+        },
+        {
+          "id": "R343",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            7622,
+            807
+          ]
+        },
+        {
+          "id": "R344",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            8374,
+            1062
+          ]
+        },
+        {
+          "id": "R345",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            8908,
+            1212
+          ]
+        },
+        {
+          "id": "R346",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            7755,
+            1500
+          ]
+        },
+        {
+          "id": "R347",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            10167,
+            1450
+          ]
+        },
+        {
+          "id": "R348",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            9995.1,
+            1426.1
+          ]
+        },
+        {
+          "id": "R349",
+          "type": "Component_MeshFaceBoundaries",
+          "nick": "FaceB",
+          "name": "Face Boundaries",
+          "pos": [
+            5931,
+            791
+          ]
+        },
+        {
+          "id": "R350",
+          "type": "panel",
+          "pos": [
+            5407.1,
+            1019.5
+          ],
+          "content": "4"
+        },
+        {
+          "id": "R351",
+          "type": "panel",
+          "pos": [
+            5684.2,
+            1700.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R352",
+          "type": "panel",
+          "pos": [
+            5527.8,
+            1844
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R353",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            6288,
+            1076
+          ]
+        },
+        {
+          "id": "R354",
+          "type": "Component_CullDuplicate",
+          "nick": "CullPt",
+          "name": "Cull Duplicates",
+          "pos": [
+            6266,
+            1733
+          ]
+        },
+        {
+          "id": "R355",
+          "type": "panel",
+          "pos": [
+            6590.5,
+            1485.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R356",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            7839.2,
+            806.9
+          ]
+        },
+        {
+          "id": "R357",
+          "type": "Component_VectorDisplay",
+          "nick": "VDis",
+          "name": "Vector Display",
+          "pos": [
+            9982,
+            1409
+          ]
+        },
+        {
+          "id": "R358",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            8372,
+            1275
+          ]
+        }
+      ],
+      "flows": [
+        "R75.O0>R16.I0",
+        "R14.O0>R16.I1",
+        "R76.O0>R16.I2",
+        "R75.O0>R17.I0",
+        "R14.O0>R17.I1",
+        "R76.O0>R17.I2",
+        "R75.O0>R18.I0",
+        "R14.O0>R18.I1",
+        "R76.O0>R18.I2",
+        "R75.O0>R19.I0",
+        "R14.O0>R19.I1",
+        "R76.O0>R19.I2",
+        "R259.O0>R19.I3",
+        "R75.O0>R20.I0",
+        "R14.O0>R20.I1",
+        "R76.O0>R20.I2",
+        "R79.O0>R20.I3",
+        "R260.O0>R20.I4",
+        "R16.O0>R21.I0",
+        "R75.O0>R25.I0",
+        "R14.O0>R25.I1",
+        "R76.O0>R25.I2",
+        "R75.O0>R26.I0",
+        "R14.O0>R26.I1",
+        "R76.O0>R26.I2",
+        "R75.O0>R27.I0",
+        "R14.O0>R27.I1",
+        "R76.O0>R27.I2",
+        "R75.O0>R28.I0",
+        "R14.O0>R28.I1",
+        "R76.O0>R28.I2",
+        "R75.O0>R29.I0",
+        "R14.O0>R29.I1",
+        "R76.O0>R29.I2",
+        "R16.O0>R32.I0",
+        "R91.O0>R32.I1",
+        "R64.O0>R41.I0",
+        "R65.O0>R41.I1",
+        "R66.O0>R41.I2",
+        "R64.O0>R42.I0",
+        "R67.O0>R42.I1",
+        "R68.O0>R42.I2",
+        "R46.O0>R44.I3",
+        "R47.O0>R44.I4",
+        "R43.O0>R44.I5",
+        "R45.O0>R44.I6",
+        "R44.O0>R48.I0",
+        "R50.O0>R48.I1",
+        "R52.O0>R48.I2",
+        "R238.O0>R51.I0",
+        "R53.O0>R51.I1",
+        "R49.O0>R51.I2",
+        "R48.O0>R54.I0",
+        "R56.O0>R54.I1",
+        "R48.O0>R55.I0",
+        "R57.O0>R55.I1",
+        "R48.O0>R58.I0",
+        "R59.O0>R58.I1",
+        "R48.O0>R61.I0",
+        "R48.O1>R61.I1",
+        "R62.O0>R61.I2",
+        "R60.O0>R61.I3",
+        "R63.O0>R61.I4",
+        "R63.O0>R61.I5",
+        "R294.O0>R69.I0",
+        "R70.O0>R69.I1",
+        "R70.O0>R69.I2",
+        "R44.O0>R71.I0",
+        "R72.O0>R71.I1",
+        "R75.O0>R77.I0",
+        "R14.O0>R77.I1",
+        "R76.O0>R77.I2",
+        "R304.O0>R77.I3",
+        "R75.O0>R78.I0",
+        "R14.O0>R78.I1",
+        "R76.O0>R78.I2",
+        "R81.O0>R80.I0",
+        "R82.O0>R80.I1",
+        "R83.O0>R80.I2",
+        "R84.O0>R80.I3",
+        "R21.O2>R85.I0",
+        "R21.O2>R86.I0",
+        "R16.O0>R86.I1",
+        "R86.O1>R87.I0",
+        "R88.O0>R87.I1",
+        "R206.O0>R88.I0",
+        "R207.O0>R88.I1",
+        "R86.O0>R88.I2",
+        "R90.O0>R89.I0",
+        "R86.O0>R90.I0",
+        "R21.O2>R91.I0",
+        "R92.O0>R91.I1",
+        "R93.O0>R91.I2",
+        "R21.O2>R92.I0",
+        "R95.O0>R93.I0",
+        "R94.O0>R93.I1",
+        "R98.O0>R99.I0",
+        "R98.O0>R100.I0",
+        "R102.O0>R100.I1",
+        "R102.O0>R100.I2",
+        "R98.O0>R101.I0",
+        "R100.O0>R103.I0",
+        "R342.O0>R104.I0",
+        "R100.O0>R105.I0",
+        "R100.O0>R106.I0",
+        "R106.O0>R107.I0",
+        "R100.O0>R108.I0",
+        "R100.O0>R109.I0",
+        "R100.O0>R110.I0",
+        "R268.O0>R110.I1",
+        "R100.O0>R111.I0",
+        "R99.O0>R112.I0",
+        "R104.O0>R113.I0",
+        "R349.O0>R114.I0",
+        "R114.O0>R115.I0",
+        "R123.O0>R122.I1",
+        "R135.O0>R122.I2",
+        "R346.O0>R122.I3",
+        "R124.O0>R125.I0",
+        "R126.O0>R125.I1",
+        "R126.O0>R125.I2",
+        "R125.O0>R127.I0",
+        "R127.O0>R128.I0",
+        "R128.O1>R130.I0",
+        "R356.O0>R131.I0",
+        "R356.O0>R132.I0",
+        "R134.O0>R132.I1",
+        "R131.O0>R136.I0",
+        "R142.O1>R138.I0",
+        "R142.O2>R138.I1",
+        "R140.O1>R138.I2",
+        "R138.O0>R139.I0",
+        "R356.O0>R139.I1",
+        "R140.O1>R139.I2",
+        "R122.O0>R139.I3",
+        "R122.O0>R140.I0",
+        "R131.O0>R142.I0",
+        "R356.O0>R142.I1",
+        "R344.O4>R142.I2",
+        "R356.O0>R143.I0",
+        "R344.O4>R143.I1",
+        "R140.O1>R143.I2",
+        "R154.O0>R144.I0",
+        "R151.O1>R145.I0",
+        "R322.O0>R145.I1",
+        "R145.O0>R146.I0",
+        "R252.O0>R147.I0",
+        "R152.O0>R147.I1",
+        "R146.O0>R148.I0",
+        "R146.O1>R148.I1",
+        "R252.O0>R149.I0",
+        "R147.O0>R149.I1",
+        "R149.O0>R150.I0",
+        "R148.O1>R150.I1",
+        "R157.O0>R151.I0",
+        "R144.O0>R151.I1",
+        "R154.O0>R153.I0",
+        "R159.O0>R153.I1",
+        "R148.O0>R153.I2",
+        "R252.O0>R153.I3",
+        "R150.O0>R153.I4",
+        "R270.O0>R154.I0",
+        "R339.O0>R154.I1",
+        "R339.O1>R154.I2",
+        "R254.O0>R154.I3",
+        "R155.O0>R154.I4",
+        "R144.O0>R157.I0",
+        "R147.O0>R158.I0",
+        "R150.O0>R158.I1",
+        "R145.O0>R159.I0",
+        "R196.O0>R159.I1",
+        "R75.O0>R160.I0",
+        "R14.O0>R160.I1",
+        "R76.O0>R160.I2",
+        "R92.O0>R163.I0",
+        "R91.O0>R164.I0",
+        "R164.O0>R165.I0",
+        "R170.O0>R169.I0",
+        "R171.O0>R169.I1",
+        "R83.O0>R169.I2",
+        "R84.O0>R169.I3",
+        "R81.O0>R170.I0",
+        "R82.O0>R171.I0",
+        "R174.O0>R175.I0",
+        "R175.O0>R176.I0",
+        "R212.O0>R177.I0",
+        "R178.O0>R177.I0",
+        "R176.O2>R178.I0",
+        "R16.O0>R198.I0",
+        "R16.O0>R199.I0",
+        "R16.O0>R200.I0",
+        "R16.O0>R202.I0",
+        "R203.O0>R202.I1",
+        "R86.O1>R204.I0",
+        "R205.O0>R204.I1",
+        "R89.O0>R206.I0",
+        "R89.O1>R207.I0",
+        "R157.O0>R214.I0",
+        "R147.O0>R216.I0",
+        "R149.O0>R216.I1",
+        "R86.O0>R218.I0",
+        "R86.O1>R219.I0",
+        "R220.O0>R219.I1",
+        "R86.O0>R223.I0",
+        "R265.O0>R223.I1",
+        "R86.O1>R225.I0",
+        "R223.O0>R225.I1",
+        "R223.O0>R226.I0",
+        "R142.O1>R235.I0",
+        "R345.O4>R235.I1",
+        "R140.O1>R235.I2",
+        "R16.O0>R237.I0",
+        "R21.O2>R237.I1",
+        "R44.O0>R238.I0",
+        "R239.O0>R238.I1",
+        "R240.O0>R238.I2",
+        "R71.O0>R241.I0",
+        "R242.O0>R241.I1",
+        "R245.O0>R243.I0",
+        "R245.O1>R243.I1",
+        "R245.O2>R243.I2",
+        "R245.O3>R243.I3",
+        "R174.O0>R244.I0",
+        "R354.O0>R245.I0",
+        "R146.O0>R246.I0",
+        "R148.O0>R246.I1",
+        "R153.O0>R249.I0",
+        "R248.O0>R249.I1",
+        "R90.O0>R250.I0",
+        "R41.O0>R251.I0",
+        "R151.O0>R256.I0",
+        "R258.O0>R257.I0",
+        "R75.O0>R261.I0",
+        "R14.O0>R261.I1",
+        "R76.O0>R261.I2",
+        "R263.O0>R261.I3",
+        "R264.O0>R262.I0",
+        "R75.O0>R262.I1",
+        "R289.O0>R262.I2",
+        "R290.O0>R262.I3",
+        "R42.O0>R266.I0",
+        "R69.O0>R267.I0",
+        "R262.O0>R271.I0",
+        "R262.O1>R272.I0",
+        "R262.O2>R273.I0",
+        "R16.O0>R275.I0",
+        "R253.O0>R275.I1",
+        "R228.O0>R276.I0",
+        "R276.O2>R277.I0",
+        "R277.O0>R278.I0",
+        "R277.O2>R278.I1",
+        "R175.O0>R282.I0",
+        "R283.O0>R285.I0",
+        "R286.O0>R285.I0",
+        "R284.O0>R286.I0",
+        "R244.O1>R287.I0",
+        "R151.O1>R288.I0",
+        "R64.O0>R291.I0",
+        "R291.O2>R292.I0",
+        "R291.O2>R293.I0",
+        "R292.O3>R294.I0",
+        "R292.O2>R294.I1",
+        "R292.O1>R294.I2",
+        "R292.O0>R294.I3",
+        "R294.O0>R295.I0",
+        "R296.O0>R295.I1",
+        "R297.O0>R295.I2",
+        "R295.O0>R298.I0",
+        "R341.O0>R301.I0",
+        "R350.O0>R301.I1",
+        "R301.O0>R302.I0",
+        "R302.O0>R303.I0",
+        "R339.O0>R306.I0",
+        "R339.O1>R306.I1",
+        "R341.O0>R307.I0",
+        "R308.O0>R307.I1",
+        "R174.O0>R309.I0",
+        "R310.O0>R309.I1",
+        "R206.O0>R311.I0",
+        "R207.O0>R311.I1",
+        "R311.O0>R312.I0",
+        "R313.O0>R312.I1",
+        "R312.O0>R314.I0",
+        "R277.O1>R315.I0",
+        "R277.O3>R315.I1",
+        "R294.O0>R316.I0",
+        "R316.O2>R317.I0",
+        "R301.O0>R318.I0",
+        "R302.O0>R319.I0",
+        "R303.O0>R320.I0",
+        "R175.O0>R321.I0",
+        "R148.O1>R323.I0",
+        "R149.O1>R324.I0",
+        "R330.O0>R325.I0",
+        "R326.O0>R325.I1",
+        "R330.O0>R329.I0",
+        "R303.O0>R330.I0",
+        "R244.O1>R331.I0",
+        "R332.O0>R331.I1",
+        "R343.O0>R333.I0",
+        "R356.O0>R335.I0",
+        "R336.O0>R335.I1",
+        "R142.O1>R337.I0",
+        "R338.O0>R337.I1",
+        "R270.O0>R339.I0",
+        "R156.O0>R339.I1",
+        "R100.O0>R340.I0",
+        "R334.O0>R340.I3",
+        "R110.O0>R341.I0",
+        "R103.O0>R342.I0",
+        "R127.O0>R343.I0",
+        "R356.O0>R344.I0",
+        "R141.O0>R344.I1",
+        "R142.O1>R345.I0",
+        "R234.O0>R345.I1",
+        "R135.O0>R346.I0",
+        "R121.O0>R346.I1",
+        "R154.O0>R347.I0",
+        "R348.O0>R347.I1",
+        "R106.O0>R349.I0",
+        "R113.O0>R351.I0",
+        "R104.O0>R352.I0",
+        "R309.O0>R353.I0",
+        "R244.O1>R354.I0",
+        "R354.O0>R355.I0",
+        "R254.O0>R357.I0",
+        "R155.O0>R357.I1",
+        "R140.O1>R358.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R12",
+          "text": "1- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\n- \"Isotrim\" and \"Divide Surface\" components are useful tools in Grasshopper. However when the design intention becomes more complex, involving diamond or hexagonal divisions, building a definition manually in Grasshopper may become time consuming.\r\n\r\nLunchBox is a very useful plugin that provides ready made components for multi-purpose surface division. It also provides other functions such as Surface Flatness test and more.\r\n\r\nUsing LunchBox:\r\n\r\n- Build a Surface in Rhino with 4 corners, using the \"SrfPt\".\r\n- Turn on the Control Points and make the surface unplanar.\r\n- Reference the Surface in Grasshopper.\r\n\r\n- Use the following LunchBox compnents from the Panels Tab:\r\n1- Quad Panels\r\n2- Random Quad Panels\r\n3- Skewed Quads\r\n4- Hexagon Cells\r\n5- Diamond Panels\r\n6- Triangular Panels A\r\n7- Triangular Panels B\r\n8- Triangular Panels C\r\n\r\n- Use the following LunchBox compnents from the Structure Tab:\r\n1- Grid Structure\r\n2- Hexagonal Structure\r\n3- Diagrid Structure\r\n4- Braced Grid 1-D Structure\r\n5- Braced Grid 2-D Structure",
+          "pos": [
+            468.8,
+            18.9
+          ],
+          "nearby": [
+            "R13"
+          ]
+        },
+        {
+          "panel_id": "R35",
+          "text": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- First step is to create a rectangular grid using one of the tools in \"Grid\" tab.  Some of these components take a list of points, which you can generate using GH standard components, or divide a curve using one of the tools under \"Curve\" tab of PanelingTools.\r\n\r\n- Once a grid is created, you can shuffle it using one of the attraction methods under \"Grid Attractors\" tab.  One output is the shuffled grid, another output is the normalized weights based on the attraction method that can be used for variable offset or variable paneling for example.\r\n\r\n- \"Grid Utility\" tab helps you do things like extracting points from the grid, replace points, extract center grid, expand grids, create surface from grid, etc.\r\n\r\n- \"Panel Utility\" tab has components to pull panel edges to a surface using pull, iso curves or shortest path.\r\n\r\n- \"Panel2D\" tab has many ways to panel the rectangular grid and populate 2D components.\r\n\r\n- \"Panel3D\" contain components to populate 3D patterns between 2 bounding grids.\r\n\r\nSource:\r\nhttp://www.grasshopper3d.com/group/panelingtools\r\n\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf",
+          "pos": [
+            3165.4,
+            18.9
+          ],
+          "nearby": [
+            "R36"
+          ]
+        },
+        {
+          "panel_id": "R37",
+          "text": "4- Weaverbird: Plugin for Mesh manipulation.\r\n\r\nGrasshopper includes basic mesh components, such as:\r\n- \"Simple Mesh\".\r\n- \"Mesh Brep\".\r\n- \"Mesh Surface\".\r\n\r\nWeaverbird allows for more options. Check out the following components:\r\n- \"Weaverbird's Loop Division\".\r\n- \"Weaverbird's Catmull-Clark Subdivision\".\r\n- \"Weaverbird's Sierpinsky Carpet\".\r\n- \"Weaverbird's Stellate/Cumulation\".\r\n- \"Weaverbird's Laplacian Smoothing\".\r\n- \"Weaverbird's Offset Mesh\".\r\n- \"Weaverbird's Mesh Thicken\".\r\n\r\n- Generate Edges of Meshes using the \"Mesh Edges\".\r\nUse new \"Curve\" components and feed in the OUTPUTS of the Mesh Edges.\r\n\r\n- Get the Face Boundaries of mesh and use them to generate new NURBS surfaces.\r\n\r\n- IMPORTANT:\r\nIf the faces are not planar, the \"Boundary Surface\" component won't work.\r\nYou may need to Triangulate all faces first.\r\n\r\n- What if we don't need planar surfaces?\r\n- In this case, extract all faces' borders (as curves), then loft opposite sides to make non-planar surfaces.",
+          "pos": [
+            4758.8,
+            18.9
+          ],
+          "nearby": [
+            "R38"
+          ]
+        },
+        {
+          "panel_id": "R39",
+          "text": "5- Orienting & Flattening (for Digital Fabrication): \r\n\r\n- Build a new Surface in Rhino and give it a sharp curvature by manipulating the control points.\r\n\r\n- Use the \"Mesh Surface\" component.\r\n\r\n- Triangulate all meshes.\r\n\r\n- Convert all meshes into Surfaces.\r\n\r\n- Make a \"Square Grid\" in order to use the grid cells as targets for the oriented and flatenned surfaces.\r\n\r\n- We will check several ways of orienting and flatenning surfaces in 3D, from being placed on a geometry to being placed flat on XY plane.",
+          "pos": [
+            7013.9,
+            18.9
+          ],
+          "nearby": [
+            "R40"
+          ]
+        },
+        {
+          "panel_id": "R73",
+          "text": "Assignment 7b:\r\n\r\n- Try the following components:\r\n- \"Morph 2D Mean\".\r\n- \"Gaussian Curvature\".\r\n- \"Random Attraction\".\r\n\r\nThere are many more interesting components provided by Paneling Tools plugin!\r\nTake time and try to check as many as possible.\r\n\r\nHave a quick look at the PDF Primer for more info:\r\nPanelingTools for Grasshopper Primer (PDF):\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf",
+          "pos": [
+            3869.4,
+            1561.3
+          ],
+          "nearby": [
+            "R74"
+          ]
+        },
+        {
+          "panel_id": "R96",
+          "text": "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful.",
+          "pos": [
+            468.4,
+            3368.2
+          ],
+          "nearby": [
+            "R97"
+          ]
+        },
+        {
+          "panel_id": "R119",
+          "text": "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r\n- Hover over the T INPUT and check what it needs.\r\n\r\n- IMPORTANT!\r\nYou may realize that the resultant Truss has uneven divisions, to solve that, rebuild the curves using the \"Rebuild Curve\" component.",
+          "pos": [
+            465.6,
+            2232
+          ],
+          "nearby": [
+            "R120"
+          ]
+        },
+        {
+          "panel_id": "R129",
+          "text": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then convert them to NURBS by using \"Boundary Surfaces\"! We are now able to choose the Faces!",
+          "pos": [
+            7022.1,
+            720.4
+          ],
+          "nearby": [
+            "R126",
+            "R124",
+            "R125"
+          ]
+        },
+        {
+          "panel_id": "R137",
+          "text": "We also sort the planes so that they are in the same order as their respective surfaces",
+          "pos": [
+            8703.8,
+            1066.5
+          ],
+          "nearby": [
+            "R234",
+            "R131",
+            "R142",
+            "R143",
+            "R338"
+          ]
+        },
+        {
+          "panel_id": "R161",
+          "text": "2- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\nUsing the same referenced surface, let us check its flateness and visualize it with colors:\r\n\r\n- Use the \"Flatness Check\" component from LunchBox Util Tab. \r\n- From the D OUTPUT, get the minimum and maximum of all values (using the \"Bounds\" component).\r\n- Use the \"Panel Frame\" component from LunchBox Generate Tab in order to generate Panel Frames in relation to the Flateness Deviation Factor of each Panel.\r\nThis means that if a panel has a small D factor, it woud have a smaller opening that a panel with a bigger D factor.\r\n\r\n- IMPORTANT!\r\nIf the difference between the minimum and maximum number of the D values is small, then you may need to REMAP all numbers with a new domain, to have a bigger bigger difference between the minimum and maximum (bounds of the values) so that the Panel Frame could be more perceivable.\r\n\r\n\r\n- Visualizing Flatness Deviation:\r\n\r\n- Get the \"Gradient\" component.\r\n- L0 & L1: Need the minimum & maximum values of Deviation... For that, we need to deconstruct the domain in order to extract seperate values for minimum and maximum.\r\n- Use the \"Deconstrctu Domain\" and extract the minimum and maximum values.\r\n- Plug the minimum value into L0 and maximum value into L1.\r\n- \"t\" INPUT represents the parameter along the gradient range.\r\nWe need to sort all values from minimum to maximum in order to assign the respective color range for each, according to its value order inside the list of values.\r\n- Use the \"Sort List\":\r\n- Feed all Deviation values into the K INPUT of \"Sort List\".\r\n- Feed all the panels to be sorted into the A INPUT of \"Sort List\".\r\n- The OUTPUT K & A of \"Sort List\" includes all panels sorted according to their Deviation values, from monimum to maximum.\r\n- To visualize the colors, use a \"Custom Preview\" component:\r\n- Feed the Gradient OUTPUT into S of \"Custom Preview\".\r\n- Feed the sorted panels A into G of \"Custom Preview.\r\n- Now, we have an assigned color to each panel, following the gradient scheme, from least Deviation value to the greatest Deviation value.",
+          "pos": [
+            1394.1,
+            18.9
+          ],
+          "nearby": [
+            "R162"
+          ]
+        },
+        {
+          "panel_id": "R172",
+          "text": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- Use the \"Planar Grid\" to generate a planar grid of points.\r\n\r\n- Notice the \"Gd\" OUTPUT of this component, it means a \"Grid\".\r\n\r\n- Let us use the \"Point Attraction\" component:\r\n- Needs a Point: Build a new Point in Rhino, reference it in Grasshopper and feed it to the Point Attraction's A INPUT.\r\n- Use a Number Slider to play with the magnitude M INPUT.\r\n- Use the \"Generate Borders\" component to generate lines between points.\r\n- Use the \"Generate Faces\" component to generate surfaces between points.\r\n\r\n- Use the \"Morph 2D\" component to morph curves inro grid cells:\r\n- Build a circle and feed it to the PC INPUT of the \"Morph 2D\".",
+          "pos": [
+            3165.4,
+            595
+          ],
+          "nearby": [
+            "R46",
+            "R47",
+            "R43",
+            "R45",
+            "R44",
+            "R36",
+            "R52",
+            "R50"
+          ]
+        },
+        {
+          "panel_id": "R173",
+          "text": "- Surface Division:\r\n\r\nBuild a new surface in Rhino, reference it in Grasshopper and try divide it by:\r\n\r\n- Either by domain number: Use the \"Surface Domain Number\" component.\r\n- Or by domain length: Use the \"Surface Domain Length\" component.\r\n- Or by distance: Use the \"Surface Distance\" component.",
+          "pos": [
+            3165.4,
+            1561
+          ],
+          "nearby": [
+            "R65",
+            "R64",
+            "R66",
+            "R41",
+            "R45",
+            "R43",
+            "R47",
+            "R46"
+          ]
+        },
+        {
+          "panel_id": "R190",
+          "text": "1- Orienting:\r\n- Use \"Orient\" component.\r\n- Feed the new Surfaces into the G INPUT.\r\n- Evaluate all surfaces and use the Frames OUTPUT from the Evaluate Surface as INPUT A in the \"Orient\" component.\r\n- Get the center of all grid cells from the Square Grid andfeed them in the INPUT B of \"Orient\" as the target planes.\r\n- Result: All surfaces are oriented onto the XY Plane and placed inside the Square Grid.\r\nHowever, the oriented surfaces are not ordered according to their sizes, and it looks like all cells have been filled, while there are less surfaces on the original geometry than the number of cells.\r\nSo, let's try to solve these issues...",
+          "pos": [
+            8162.6,
+            338.4
+          ],
+          "nearby": [
+            "R185",
+            "R356",
+            "R132",
+            "R186"
+          ]
+        },
+        {
+          "panel_id": "R191",
+          "text": "2- Sorting:\r\n- Sort all surfaces according to their areas.",
+          "pos": [
+            8686,
+            338.4
+          ],
+          "nearby": [
+            "R186",
+            "R336",
+            "R338",
+            "R185",
+            "R131",
+            "R187"
+          ]
+        },
+        {
+          "panel_id": "R192",
+          "text": "3- Short Listing:\r\n- Use the \"Short List\" component to get rid of additional cells from the Square Grid by using the shortest list length.",
+          "pos": [
+            9209.8,
+            338.4
+          ],
+          "nearby": [
+            "R187",
+            "R335",
+            "R337",
+            "R336",
+            "R186",
+            "R188"
+          ]
+        },
+        {
+          "panel_id": "R193",
+          "text": "4- Orient Direction:\r\n- Try the \"Orient Direction\" component and see the difference.\r\n- It looks like all surfaces are rotated randomly. Although this did not happen with the previously used components, let us try to solve this issue.",
+          "pos": [
+            9729.4,
+            338.4
+          ],
+          "nearby": [
+            "R188",
+            "R187"
+          ]
+        },
+        {
+          "panel_id": "R194",
+          "text": "5- Orienting each surface alone by its geoemtric properties: Longest side to be along X axis:\r\n- Get the Edges of the Geometry from previous component \"Orient Direction\" using the \"Brep Edges\" component.\r\n- Get the Length of all curves using the \"Curve Length\" component.\r\n- Sort all Curve Lengths using the \"Sort List\" component.\r\n- Reverse the A OUTPUT (so that the List starts with the greatest values of Curve Lenghts).\r\n- Extract the Start & End Points of each longest edge using the \"End Points\" component.\r\n- Construct 2Point Vectors based on the direction of Curves: From Start Point to End Point Direction.\r\n- Extract the Middle Point of each Greatest Curve so that it can be used as the Reference Point when Orienting again.\r\n- Prepare Target Direction Vectors (in X Direction) at the Centroids of the Square Grid Cells.\r\n- IMPORTANT: Match the new Vectors Lengths at the Centroids of the Square Grid with the Vectors made by the Curves: Use an \"Amplitude\" component.",
+          "pos": [
+            10315,
+            338.4
+          ],
+          "nearby": [
+            "R189"
+          ]
+        },
+        {
+          "panel_id": "R195",
+          "text": "Assignment 7c:\r\n\r\n- Build a new Surface in Rhino and repeat the same procedure.",
+          "pos": [
+            11720,
+            338.4
+          ],
+          "nearby": [
+            "R197"
+          ]
+        },
+        {
+          "panel_id": "R224",
+          "text": "0.7",
+          "pos": [
+            1686.1,
+            1896.2
+          ],
+          "nearby": [
+            "R231"
+          ]
+        },
+        {
+          "panel_id": "R236",
+          "text": "Alternative method:\r\nOrienting surfaces, evaluating the oriented surfaces and using their respective frames",
+          "pos": [
+            8881.1,
+            1302.1
+          ],
+          "nearby": [
+            "R345"
+          ]
+        }
+      ]
+    }
+  }
+}

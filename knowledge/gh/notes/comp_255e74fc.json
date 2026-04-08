@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_255e74fc",
+  "note_type": "component",
+  "name": "Rectangle 3Pt",
+  "brief": "Rectangle 3Pt | Inputs: A, B, C → R, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Rectangle 3Pt. Inputs: A (Point), B (Point), C (Point). Outputs: R (Rectangle), L (Number).",
+  "keywords": [
+    "rectangle 3pt",
+    "rectangle",
+    "3pt",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "rectangle 3pt",
+    "rectangle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangle 3Pt"
+  ],
+  "solution_principle": "Create a rectangle from three points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_27b035b4",
+    "comp_abdf444b",
+    "comp_ca3169bb",
+    "comp_e452abc5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9bc98a1d-2ecc-407e-948a-09a09ed3e69d",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "R": "Rectangle",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "679a9c6a-ab97-4c20-b02c-680f9a9a1a44"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|rectangle 3pt"
+  }
+}

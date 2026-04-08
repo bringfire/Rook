@@ -1,0 +1,190 @@
+{
+  "note_id": "teaching_336d7638",
+  "note_type": "teaching",
+  "name": "U02 - Surface from Operations: Extrude, Loft, Revolve, etc",
+  "brief": "Teaching: Surface from Operations: Extrude, Loft, Revolve, etc...",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "5- Surface from Operations: Extrude, Loft, Revolve, etc...\r\n\r\n- Surfaces can be made by applying operations.\r\n\r\n- Find the below components by either typing inside the Grasshopper workspace or going to the \"Surface\" tab, then click on \"Freeform\".\r\n- \"Extrude\"\r\n- \"Loft\"\r\n- \"Revolve\"\r\n- \"Pipe\"\r\n- \"Sweep\"\r\n\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Discover the other ways of making surfaces using this method through the \"Surface\" tab, then click on \"Freeform\".",
+  "keywords": [
+    "surface",
+    "from",
+    "operations",
+    "extrude",
+    "loft",
+    "revolve",
+    "etc",
+    "scale nu",
+    "scale",
+    "geometry",
+    "xy plane",
+    "volume",
+    "numberslider",
+    "unit 02 class",
+    "resultant"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "surface-operations",
+    "loft",
+    "hands-on",
+    "resultant",
+    "extrude",
+    "annotated",
+    "unit-02",
+    "copying-behavior",
+    "revolve",
+    "surface-creation",
+    "geometry to scale",
+    "high-priority",
+    "tutorial",
+    "beginner",
+    "teaching",
+    "multi-group"
+  ],
+  "trigger_intents": [
+    "surface from operations: extrude, loft, revolve, etc",
+    "how to use surface from operations: extrude, loft, revolve, etc",
+    "how to use scale nu",
+    "how to use scale",
+    "how to use geometry",
+    "how to use xy plane",
+    "how to use volume",
+    "surfaces can be made by applying operations",
+    "surface",
+    "freeform",
+    "extrude",
+    "revolve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Scale NU",
+    "Scale",
+    "Geometry",
+    "XY Plane",
+    "Volume",
+    "NumberSlider"
+  ],
+  "solution_principle": "5- Surface from Operations: Extrude, Loft, Revolve, etc...\r\n\r\n- Surfaces can be made by applying operations.\r\n\r\n- Find the below components by either typing inside the Grasshopper workspace or going to the \"Surface\" tab, then click on \"Freeform\".\r\n- \"Extrude\"\r\n- \"Loft\"\r\n- \"Revolve\"\r\n- \"Pipe\"\r\n- \"Sweep\"\r\n\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Discover the other ways of making surfaces using this method through the \"Surface\" tab, then click on \"Freeform\".",
+  "anti_patterns": [],
+  "preconditions": [
+    "Right-Click on F\r\nSelect \"Set Number\"\r\nChange the number as you wish"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_68356bcb",
+    "teaching_035b3907",
+    "teaching_062630c1",
+    "teaching_26b87a73",
+    "teaching_eeef070a",
+    "teaching_2fe96b89",
+    "teaching_f59f973f",
+    "comp_1294644e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.258773Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": 5,
+    "section_index": 4,
+    "x_range": [
+      4527,
+      5549.0
+    ],
+    "full_teaching_text": "5- Surface from Operations: Extrude, Loft, Revolve, etc...\r\n\r\n- Surfaces can be made by applying operations.\r\n\r\n- Find the below components by either typing inside the Grasshopper workspace or going to the \"Surface\" tab, then click on \"Freeform\".\r\n- \"Extrude\"\r\n- \"Loft\"\r\n- \"Revolve\"\r\n- \"Pipe\"\r\n- \"Sweep\"\r\n\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Discover the other ways of making surfaces using this method through the \"Surface\" tab, then click on \"Freeform\".",
+    "sub_annotations": [
+      {
+        "id": "C169",
+        "text": "Right-Click on F\r\nSelect \"Set Number\"\r\nChange the number as you wish",
+        "topic": "Right-Click on F",
+        "pos": [
+          4746.3,
+          991.9
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C26",
+      "C27",
+      "C76",
+      "C77",
+      "C79",
+      "C100",
+      "C151",
+      "C153",
+      "C154",
+      "C155",
+      "C276"
+    ],
+    "intra_section_flows": [
+      "C76.O0>C26.I0",
+      "C151.O1>C26.I1",
+      "C153.O0>C26.I2",
+      "C154.O0>C26.I3",
+      "C155.O0>C26.I4",
+      "C76.O0>C27.I0",
+      "C151.O1>C27.I1",
+      "C276.O0>C27.I2",
+      "C151.O1>C77.I0",
+      "C76.O0>C151.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G72",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G73",
+        "name": "Geometry to Scale",
+        "colour": "#47B3FF37"
+      },
+      {
+        "group_id": "G33",
+        "name": "",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G71",
+        "name": "Resultant",
+        "colour": "#33AAFF"
+      },
+      {
+        "group_id": "G31",
+        "name": "",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G98",
+        "name": "",
+        "colour": "#00FFFB"
+      }
+    ],
+    "components_demonstrated": {
+      "Scale NU": 1,
+      "Scale": 1,
+      "Geometry": 3,
+      "XY Plane": 1,
+      "Volume": 1,
+      "NumberSlider": 4
+    },
+    "stats": {
+      "teaching_panels": 2,
+      "sub_annotations": 1,
+      "working_components": 11,
+      "sub_labels": 0,
+      "connected_panels": 0,
+      "flows": 10,
+      "groups": 6
+    }
+  }
+}

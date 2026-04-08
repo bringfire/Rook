@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_a5dcb66a",
+  "note_type": "component",
+  "name": "Vector XYZ",
+  "brief": "Vector XYZ | Inputs: X, Y, Z → V, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Vector XYZ. Inputs: X (Number), Y (Number), Z (Number). Outputs: V (Vector), L (Number).",
+  "keywords": [
+    "vector xyz",
+    "vector",
+    "xyz",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "vector xyz",
+    "vector"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector XYZ"
+  ],
+  "solution_principle": "Create a vector from {xyz} components.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_77cfd279",
+    "comp_e3269f6b",
+    "teaching_a03f14e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "56b92eab-d121-43f7-94d3-6cd8f0ddead8",
+    "category": "vector_ops",
+    "inputs": {
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "outputs": {
+      "V": "Vector",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a50fcd4a-cf42-4c3f-8616-022761e6cc93"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|vector xyz"
+  }
+}

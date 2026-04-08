@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_9dd86c9d",
+  "note_type": "component",
+  "name": "Script Input/Output Parameter",
+  "brief": "Script Input/Output Parameter | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Script Input/Output Parameter.",
+  "keywords": [
+    "script input/output parameter",
+    "script",
+    "input/output",
+    "parameter",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "script input/output parameter",
+    "script",
+    "input/",
+    "output",
+    "parameter"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Script Input/Output Parameter"
+  ],
+  "solution_principle": "Script input or output parameter",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3c3e5309",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_de846cdf",
+    "comp_e953e26a",
+    "comp_a1655c21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "791ad613-4da4-4f2f-97b7-d3855c1bba98",
+    "category": "scripting",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|script|script input/output parameter"
+  }
+}

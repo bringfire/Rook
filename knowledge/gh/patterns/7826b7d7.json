@@ -1,0 +1,76 @@
+{
+  "pattern_id": "7826b7d7",
+  "name": "wasp_10_teaching_The_Aggregation_Grap",
+  "version": "1.0",
+  "created": "2026-03-19T17:40:13.983741Z",
+  "solution": {
+    "brief": "The Aggregation Graph component allows to visualize the graph of the generated aggregation:\r\n- the FG input allows to choose between full graph (including adjacent connections not directly defined)\r\nor only the graph describing the rules sequence.\r\n- the TOL input allows to override the default tolerance below which two elements are considered\r\nconnected\r\n- when FG is set to True, setting FR to True filters \"accidental\" connections found against the given\r\naggregation rules.\r\n- The CR input allows to specify a custom set of rules for filtering. If not specified, the component uses\r\nthe Aggregation rules.\r\n- the F input allows to choose between flattened or tree-structured output",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Stochastic Aggregation",
+      "NumberSlider",
+      "Toggle",
+      "Button",
+      "Custom Preview",
+      "Wasp_Get Part Geometry",
+      "Toggle",
+      "PARTS_NUM"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "aggregation:",
+      "aggregation",
+      "generated",
+      "visualize",
+      "allows",
+      "input",
+      "component",
+      "graph"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

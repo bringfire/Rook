@@ -1,0 +1,1190 @@
+{
+  "pattern_id": "1498dbbd",
+  "name": "12-2",
+  "version": "1.0",
+  "created": "2026-02-22T13:56:59.575666Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\12-2.gh (82 components)",
+    "principle": "\n\nRelated insight: Part of numbered recipe trilogy (12-1, 12-2, 12-3) with varying complexity: 57→82→58 components, suggesting different focuses rather than linear progression.\n\nRelated insight: Series extends to quartet (12-1→12-2→12-3→12-4) with complexity pattern 57→82→58→38 components.\n\nRelated insight: Series now confirmed to extend beyond quartet to at least 12-8 (41 components), indicating a more extensive recipe collection. Pattern: 57→82→58→38→...→70→41 components across 12-1 through 12-8.\n\nRelated insight: Cross-series observation: S18 series emergence (S18E06 with 17 components) demonstrates alternative episode-style naming vs the numbered 12-series approach, suggesting multiple recipe categorization strategies.",
+    "components_needed": [
+      "Bifocals",
+      "Mesh Plane",
+      "Mesh Edges",
+      "Length(Line)",
+      "Deconstruct Mesh",
+      "Load",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Point List",
+      "panel",
+      "List Item",
+      "Anchor",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "Snub+0",
+      "Weighted Catmull Clark Subdivision",
+      "slider",
+      "Mesh Plane",
+      "Mesh Edges",
+      "Length(Line)",
+      "Deconstruct Mesh",
+      "Load",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Anchor",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "slider",
+      "Join Curves",
+      "Discontinuity",
+      "List Item",
+      "Anchor",
+      "slider",
+      "Weaverbird's Mesh Window",
+      "Weaverbird's Picture Frame",
+      "Frame+2",
+      "slider",
+      "Mesh Plane",
+      "Deconstruct Mesh",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Anchor",
+      "Show",
+      "Clean Tree",
+      "slider",
+      "EdgeLengths",
+      "Corners",
+      "VertexLoads",
+      "Unit Z",
+      "slider",
+      "List Item",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "List Item",
+      "Mesh Plane",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Anchor",
+      "Show",
+      "Clean Tree",
+      "slider",
+      "EdgeLengths",
+      "Corners",
+      "VertexLoads",
+      "Unit Z",
+      "slider",
+      "List Item",
+      "Grab",
+      "Weave",
+      "slider",
+      "slider",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Weaverbird's Mesh Thicken",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "12 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "7de55487",
+    "197f9935",
+    "206f987f",
+    "da5e2260",
+    "913ece0b",
+    "fdc3f209",
+    "64ff9dee"
+  ],
+  "tags": [
+    "cross-series",
+    "extended-series",
+    "recipe",
+    "parametric",
+    "workflow",
+    "series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:08:18.916664",
+    "evolved_by": [
+      "da5e2260",
+      "913ece0b",
+      "fdc3f209",
+      "64ff9dee"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T08:57:42.609395",
+        "trigger": "New pattern: da5e2260",
+        "changes": "Adding series tag and context to show this is middle part of a trilogy with non-linear complexity pattern"
+      },
+      {
+        "date": "2026-02-22T08:58:04.576639",
+        "trigger": "New pattern: 913ece0b",
+        "changes": "Updated from trilogy to quartet understanding, revised complexity pattern"
+      },
+      {
+        "date": "2026-02-22T08:59:23.861706",
+        "trigger": "New pattern: fdc3f209",
+        "changes": "12-8 extends the known series beyond the previously identified quartet, requiring update to series understanding"
+      },
+      {
+        "date": "2026-02-22T09:08:18.916664",
+        "trigger": "New pattern: 64ff9dee",
+        "changes": "S18 series provides comparative context for understanding different recipe series approaches"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": -2,
+          "max": 10,
+          "value": -1.22
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.01
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 134
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.01
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.58
+        },
+        {
+          "id": "R77",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R80",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R82",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "0\r\n10\r\n110\r\n120"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/12/12-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            60,
+            14
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            203,
+            145
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            327,
+            130
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            590,
+            129
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            328,
+            233
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "UnaryComponent2",
+          "name": "Load",
+          "pos": [
+            588,
+            221
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1003,
+            164
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            519,
+            425
+          ],
+          "value": false
+        },
+        {
+          "id": "R9",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            520,
+            374
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            454,
+            230
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            286.5,
+            293.8
+          ],
+          "content": "0\r\n10\r\n110\r\n120"
+        },
+        {
+          "id": "R12",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            445,
+            292
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            589,
+            314
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            588,
+            55
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1092,
+            180
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1180,
+            200
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Snub+0",
+          "name": "Snub+0",
+          "pos": [
+            1264,
+            277
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Catmull Clark",
+          "name": "Weighted Catmull Clark Subdivision",
+          "pos": [
+            1403,
+            372
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            1141.2,
+            389.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R20",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            376,
+            735
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            545,
+            720
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            902,
+            703
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            541,
+            827
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "UnaryComponent2",
+          "name": "Load",
+          "pos": [
+            900,
+            780
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1102,
+            766
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            821,
+            938
+          ],
+          "value": false
+        },
+        {
+          "id": "R27",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            822,
+            903
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            901,
+            857
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            900,
+            645
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1201,
+            782
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1319,
+            802
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            82.2,
+            735.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R33",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            675,
+            719
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            771,
+            758
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            683,
+            877
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            753,
+            969
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            457.7,
+            921.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R38",
+          "type": "WindowComponent",
+          "nick": "wbWindow",
+          "name": "Weaverbird's Mesh Window",
+          "pos": [
+            1475,
+            767
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "FrameComponent",
+          "nick": "wbFrame",
+          "name": "Weaverbird's Picture Frame",
+          "pos": [
+            1476,
+            843
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Frame+2",
+          "name": "Frame+2",
+          "pos": [
+            1584,
+            850
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            1336.8,
+            890.5
+          ],
+          "min": -2,
+          "max": 10,
+          "value": -1.22
+        },
+        {
+          "id": "R42",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            386,
+            1370
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            505,
+            1555
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1112,
+            1401
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            817,
+            1588
+          ],
+          "value": false
+        },
+        {
+          "id": "R46",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            818,
+            1546
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            887,
+            1494
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            886,
+            1280
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1211,
+            1417
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            94.7,
+            1371.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R51",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            883,
+            1346
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Cluster",
+          "name": "Corners",
+          "pos": [
+            645,
+            1478
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            889,
+            1420
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            742,
+            1432
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            540.2,
+            1423.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.01
+        },
+        {
+          "id": "R56",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            679,
+            1563
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            382,
+            1606.8
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 134
+        },
+        {
+          "id": "R58",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1376,
+            1457
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1298,
+            1437
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_MeshPlane",
+          "nick": "MPlane",
+          "name": "Mesh Plane",
+          "pos": [
+            347,
+            2169
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            902,
+            2239
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            610,
+            2403
+          ],
+          "value": false
+        },
+        {
+          "id": "R63",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            611,
+            2364
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            680,
+            2315
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            679,
+            2111
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1002,
+            2255
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "pos": [
+            75.9,
+            2166.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15
+        },
+        {
+          "id": "R68",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            676,
+            2174
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Cluster",
+          "name": "Corners",
+          "pos": [
+            500,
+            2295
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            682,
+            2245
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            533,
+            2255
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            190.8,
+            2301
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.01
+        },
+        {
+          "id": "R73",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1095,
+            2275
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "GrabComponent_NoKey",
+          "name": "Grab",
+          "pos": [
+            679,
+            2049
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Weave",
+          "name": "Weave",
+          "pos": [
+            1207,
+            2335
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "slider",
+          "pos": [
+            890.9,
+            2349.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.58
+        },
+        {
+          "id": "R77",
+          "type": "slider",
+          "pos": [
+            893.4,
+            2372.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R78",
+          "type": "slider",
+          "pos": [
+            906,
+            2396
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R79",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1485,
+            2403
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "slider",
+          "pos": [
+            1168.2,
+            2461.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R81",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1380,
+            2375
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "slider",
+          "pos": [
+            1156.7,
+            2431.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R3.O0>R4.I0",
+        "R3.O1>R4.I0",
+        "R2.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R4.O0>R7.I0",
+        "R6.O0>R7.I0",
+        "R13.O0>R7.I0",
+        "R14.O0>R7.I0",
+        "R9.O0>R7.I1",
+        "R8.O0>R7.I6",
+        "R5.O0>R10.I0",
+        "R5.O0>R12.I0",
+        "R11.O0>R12.I1",
+        "R12.O0>R13.I0",
+        "R2.O0>R14.I0",
+        "R7.O2>R15.I3",
+        "R15.O0>R16.I0",
+        "R17.O1>R18.I0",
+        "R19.O0>R18.I1",
+        "R32.O0>R20.I1",
+        "R32.O0>R20.I2",
+        "R20.O0>R21.I0",
+        "R21.O0>R22.I0",
+        "R21.O1>R22.I0",
+        "R20.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R22.O0>R25.I0",
+        "R24.O0>R25.I0",
+        "R28.O0>R25.I0",
+        "R29.O0>R25.I0",
+        "R36.O0>R25.I0",
+        "R27.O0>R25.I1",
+        "R26.O0>R25.I6",
+        "R34.O0>R28.I0",
+        "R20.O0>R29.I0",
+        "R25.O2>R30.I3",
+        "R21.O0>R33.I0",
+        "R33.O0>R34.I0",
+        "R23.O0>R35.I0",
+        "R37.O0>R35.I1",
+        "R35.O0>R36.I0",
+        "R31.O0>R38.I0",
+        "R31.O0>R39.I0",
+        "R38.O0>R40.I0",
+        "R41.O0>R40.I4",
+        "R50.O0>R42.I1",
+        "R50.O0>R42.I2",
+        "R42.O0>R43.I0",
+        "R51.O0>R44.I0",
+        "R47.O0>R44.I0",
+        "R48.O0>R44.I0",
+        "R53.O0>R44.I0",
+        "R46.O0>R44.I1",
+        "R45.O0>R44.I6",
+        "R52.O0>R47.I0",
+        "R56.O0>R47.I0",
+        "R42.O0>R48.I0",
+        "R44.O2>R49.I3",
+        "R42.O0>R51.I0",
+        "R42.O0>R52.I0",
+        "R42.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R55.O0>R54.I0",
+        "R43.O0>R56.I0",
+        "R57.O0>R56.I1",
+        "R59.O0>R58.I0",
+        "R49.O0>R59.I0",
+        "R67.O0>R60.I1",
+        "R67.O0>R60.I2",
+        "R68.O0>R61.I0",
+        "R65.O0>R61.I0",
+        "R74.O0>R61.I0",
+        "R64.O0>R61.I0",
+        "R63.O0>R61.I1",
+        "R62.O0>R61.I6",
+        "R69.O0>R64.I0",
+        "R60.O0>R65.I0",
+        "R61.O2>R66.I3",
+        "R60.O0>R68.I0",
+        "R60.O0>R69.I0",
+        "R60.O0>R70.I0",
+        "R71.O0>R70.I1",
+        "R72.O0>R71.I0",
+        "R66.O0>R73.I0",
+        "R73.O0>R75.I0",
+        "R76.O0>R75.I2",
+        "R77.O0>R75.I3",
+        "R78.O0>R75.I4",
+        "R81.O0>R79.I0",
+        "R80.O0>R79.I1",
+        "R75.O1>R81.I0",
+        "R82.O0>R81.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

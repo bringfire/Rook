@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_f427ada5",
+  "note_type": "component",
+  "name": "Evaluate Annotation Text",
+  "brief": "Evaluate Annotation Text | Inputs: A → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Evaluate Annotation Text. Inputs: A (Geometry). Outputs: T (Text).",
+  "keywords": [
+    "evaluate annotation text",
+    "evaluate",
+    "annotation",
+    "text",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "evaluate annotation text",
+    "evaluate",
+    "annotation",
+    "text"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Evaluate Annotation Text"
+  ],
+  "solution_principle": "Get the annotation text with the text field expressions evaluated",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6e038908",
+    "comp_50399de9",
+    "comp_c02c11a2",
+    "comp_3d741f10",
+    "comp_375a03ab",
+    "comp_ec86ef0e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8e9ce0ba-8819-48fe-bc74-9b139914f219",
+    "category": "rhino_annotations",
+    "inputs": {
+      "A": "Geometry"
+    },
+    "outputs": {
+      "T": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|evaluate annotation text"
+  }
+}

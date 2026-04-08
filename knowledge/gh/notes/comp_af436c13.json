@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_af436c13",
+  "note_type": "component",
+  "name": "Trim Solid",
+  "brief": "Trim Solid | Inputs: S, T → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Trim Solid. Inputs: S (Brep), T (Brep). Outputs: R (Brep).",
+  "keywords": [
+    "trim solid",
+    "trim",
+    "solid",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "trim solid",
+    "trim",
+    "solid"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Trim Solid"
+  ],
+  "solution_principle": "Cut holes into a shape with a set of solid cutters.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5f77f7fc",
+    "comp_dd2a0014",
+    "comp_7d8acb67",
+    "comp_85550cda",
+    "comp_0ce60bf8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f0b70e8e-7337-4ce4-a7bb-317fc971f918",
+    "category": "intersection_shape",
+    "inputs": {
+      "S": "Brep",
+      "T": "Brep"
+    },
+    "outputs": {
+      "R": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "ef6b26f4-f820-48d6-b0c5-85898ef8888b"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|trim solid"
+  }
+}

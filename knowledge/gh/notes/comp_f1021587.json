@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_f1021587",
+  "note_type": "component",
+  "name": "Division",
+  "brief": "Division | Inputs: A, B â†’ R",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Division. Inputs: A (Generic Data), B (Generic Data). Outputs: R (Generic Data).",
+  "keywords": [
+    "division",
+    "division"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "component",
+    "curve-division",
+    "foundational",
+    "point-generation",
+    "prerequisite-component",
+    "curve-analysis",
+    "parametric"
+  ],
+  "trigger_intents": [
+    "division"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Division"
+  ],
+  "solution_principle": "Mathematical division",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a010f059",
+    "comp_e0ff9810",
+    "recipe_155ea82b",
+    "recipe_130f6b1d",
+    "recipe_0acaaa5d",
+    "recipe_2c225096",
+    "recipe_2f310f59"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9c85271f-89fa-4e9f-9f4a-d75802120ccc",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "usage_count": 187,
+    "stable_key": "maths|operators|division"
+  }
+}

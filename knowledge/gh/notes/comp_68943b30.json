@@ -1,0 +1,81 @@
+{
+  "note_id": "comp_68943b30",
+  "note_type": "component",
+  "name": "Script Source (Deconstruct)",
+  "brief": "Script Source (Deconstruct) | Inputs: S → ID, LS, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Script Source (Deconstruct). Inputs: S (Script). Outputs: ID (Text), LS (Text), T (Text), X (Text), S (Text), U (Text), E (Text), IN (ScriptParam), OUT (ScriptParam), M_IN (Boolean), M_OUT (Boolean), M_ID (Boolean), IC (Boolean).",
+  "keywords": [
+    "script source (deconstruct)",
+    "script",
+    "source",
+    "(deconstruct)",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "script source (deconstruct)",
+    "script",
+    "source",
+    "deconstruct)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Script Source (Deconstruct)"
+  ],
+  "solution_principle": "Deconstruct script source",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1866ccd7",
+    "comp_49e4b5da",
+    "comp_3c3e5309",
+    "comp_0cfc313f",
+    "comp_3ba0db2b",
+    "comp_de846cdf",
+    "comp_9dd86c9d",
+    "comp_e953e26a",
+    "comp_a1655c21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6a69a1bf-e2f6-4022-a407-08e93ac601ea",
+    "category": "scripting",
+    "inputs": {
+      "S": "Script"
+    },
+    "outputs": {
+      "ID": "Text",
+      "LS": "Text",
+      "T": "Text",
+      "X": "Text",
+      "S": "Text",
+      "U": "Text",
+      "E": "Text",
+      "IN": "ScriptParam",
+      "OUT": "ScriptParam",
+      "M_IN": "Boolean",
+      "M_OUT": "Boolean",
+      "M_ID": "Boolean",
+      "IC": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|script|script source (deconstruct)"
+  }
+}

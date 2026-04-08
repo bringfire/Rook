@@ -1,0 +1,835 @@
+{
+  "pattern_id": "206f987f",
+  "name": "12-1",
+  "version": "1.0",
+  "created": "2026-02-22T13:56:31.546314Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\12-1.gh (57 components)",
+    "principle": "\n\nRelated insight: Part of numbered recipe series (12-1, 12-2) with escalating complexity: 57 vs 82 components.\n\nRelated insight: Complete trilogy now available (12-1→12-2→12-3) with complexity pattern 57→82→58 components, indicating specialized focuses rather than simple escalation.\n\nRelated insight: Complete quartet now available (12-1→12-2→12-3→12-4) with complexity pattern 57→82→58→38 components, confirming specialized focuses across the series.\n\nRelated insight: Cross-series comparison: 16-series exists in parallel (16-2 has 29 components), suggesting multiple independent recipe progressions with different complexity profiles.",
+    "components_needed": [
+      "Point",
+      "Point",
+      "Line",
+      "Length(Line)",
+      "panel",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "Bifocals",
+      "panel",
+      "Point",
+      "PolyLine",
+      "Explode",
+      "Length(Line)",
+      "panel",
+      "BouncySolver",
+      "Toggle",
+      "Button",
+      "panel",
+      "Anchor",
+      "List Item",
+      "Move",
+      "Unit Z",
+      "Line",
+      "Point",
+      "Point",
+      "Divide Curve",
+      "PolyLine",
+      "Explode",
+      "BouncySolver",
+      "Load",
+      "Toggle",
+      "Button",
+      "slider",
+      "Length(Line)",
+      "Unit Y",
+      "Anchor",
+      "Clean Tree",
+      "Line Dimension",
+      "slider",
+      "panel",
+      "List Item",
+      "panel",
+      "Curve",
+      "Populate 2D",
+      "slider",
+      "Delaunay Edges",
+      "Explode",
+      "List Item",
+      "panel",
+      "Anchor",
+      "Length(Line)",
+      "panel",
+      "BouncySolver",
+      "Button",
+      "slider",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "12 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "af62b8d8",
+    "beceed1a",
+    "4d9d50f9",
+    "1498dbbd",
+    "da5e2260",
+    "913ece0b",
+    "221b3bb4"
+  ],
+  "tags": [
+    "parametric",
+    "multi-series",
+    "curve-division",
+    "recipe",
+    "workflow",
+    "series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:05:23.357816",
+    "evolved_by": [
+      "1498dbbd",
+      "da5e2260",
+      "913ece0b",
+      "221b3bb4"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T08:57:18.639463",
+        "trigger": "New pattern: 1498dbbd",
+        "changes": "Establishes series relationship and complexity progression context"
+      },
+      {
+        "date": "2026-02-22T08:57:42.609395",
+        "trigger": "New pattern: da5e2260",
+        "changes": "Updating context to reflect complete trilogy and the interesting non-linear complexity progression"
+      },
+      {
+        "date": "2026-02-22T08:58:04.576639",
+        "trigger": "New pattern: 913ece0b",
+        "changes": "Updated from trilogy to quartet, replaced outdated context about completeness"
+      },
+      {
+        "date": "2026-02-22T09:05:23.357816",
+        "trigger": "New pattern: 221b3bb4",
+        "changes": "New pattern reveals existence of parallel recipe series (16-series vs 12-series), expanding understanding of recipe organization beyond single series"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.17
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "panels": [
+        {
+          "id": "R5",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "20"
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "content": "0\r\n10\r\n4"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R53",
+          "nick": "",
+          "content": "4"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/12/12-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            178.4,
+            194.2
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            178.6,
+            220.4
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            256,
+            205
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            381,
+            225
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "panel",
+          "pos": [
+            238,
+            232.6
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R6",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            539,
+            276
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            310,
+            296
+          ],
+          "value": false
+        },
+        {
+          "id": "R8",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            311,
+            265
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            174,
+            -19
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            507.4,
+            334.1
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R11",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            171.6,
+            431.6
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            268,
+            440
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            351,
+            450
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            591,
+            460
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "pos": [
+            459.6,
+            450.1
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R16",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            745,
+            544
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            520,
+            602
+          ],
+          "value": false
+        },
+        {
+          "id": "R18",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            521,
+            501
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            575,
+            574.1
+          ],
+          "content": "20"
+        },
+        {
+          "id": "R20",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            482,
+            549
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            256,
+            514
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            346,
+            539
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            257,
+            563
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            247,
+            791
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            151.8,
+            782.2
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            152.2,
+            811.8
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            347,
+            801
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            442,
+            791
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            527,
+            791
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            922,
+            834
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "UnaryComponent2",
+          "name": "Load",
+          "pos": [
+            728,
+            845
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            659,
+            913
+          ],
+          "value": false
+        },
+        {
+          "id": "R33",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            660,
+            884
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            312.8,
+            876.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R35",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            730,
+            774
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            536,
+            884
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            729,
+            703
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1017,
+            854
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_LineDimension",
+          "nick": "LineDim",
+          "name": "Line Dimension",
+          "pos": [
+            1103,
+            874
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "pos": [
+            880.2,
+            929.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.17
+        },
+        {
+          "id": "R41",
+          "type": "panel",
+          "pos": [
+            985.6,
+            729.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R42",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            513,
+            964
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "panel",
+          "pos": [
+            266.1,
+            933.2
+          ],
+          "content": "0\r\n10\r\n4"
+        },
+        {
+          "id": "R44",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            259.8,
+            1082.8
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            336,
+            1113
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            122.9,
+            1093.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R47",
+          "type": "Component_Connectivity",
+          "nick": "Con",
+          "name": "Delaunay Edges",
+          "pos": [
+            442,
+            1116
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            541,
+            1121
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            561,
+            1224
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            413.5,
+            1209.4
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R51",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            709,
+            1196
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            710,
+            1131
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "panel",
+          "pos": [
+            562.7,
+            1158.3
+          ],
+          "content": "4"
+        },
+        {
+          "id": "R54",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            880,
+            1163
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            640,
+            1229
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "slider",
+          "pos": [
+            125.2,
+            1114.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R57",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            639,
+            1252
+          ],
+          "value": false
+        }
+      ],
+      "flows": [
+        "R1.O0>R3.I0",
+        "R2.O0>R3.I1",
+        "R3.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R4.O0>R6.I0",
+        "R8.O0>R6.I1",
+        "R10.O0>R6.I5",
+        "R7.O0>R6.I6",
+        "R11.O0>R12.I0",
+        "R12.O0>R13.I0",
+        "R13.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R14.O0>R16.I0",
+        "R20.O0>R16.I0",
+        "R18.O0>R16.I1",
+        "R19.O0>R16.I5",
+        "R17.O0>R16.I6",
+        "R21.O1>R20.I0",
+        "R22.O0>R20.I1",
+        "R11.O0>R21.I0",
+        "R21.O1>R22.I0",
+        "R23.O0>R22.I1",
+        "R25.O0>R24.I0",
+        "R26.O0>R24.I1",
+        "R24.O0>R27.I0",
+        "R27.O0>R28.I0",
+        "R28.O0>R29.I0",
+        "R31.O0>R30.I0",
+        "R35.O0>R30.I0",
+        "R37.O0>R30.I0",
+        "R33.O0>R30.I1",
+        "R32.O0>R30.I6",
+        "R29.O1>R31.I0",
+        "R36.O0>R31.I1",
+        "R29.O0>R35.I0",
+        "R34.O0>R36.I0",
+        "R42.O0>R37.I0",
+        "R30.O2>R38.I3",
+        "R38.O0>R39.I0",
+        "R40.O0>R39.I2",
+        "R30.O0>R41.I0",
+        "R27.O0>R42.I0",
+        "R43.O0>R42.I1",
+        "R44.O0>R45.I0",
+        "R46.O0>R45.I1",
+        "R56.O0>R45.I2",
+        "R45.O0>R47.I0",
+        "R47.O1>R48.I0",
+        "R45.O0>R49.I0",
+        "R50.O0>R49.I1",
+        "R49.O0>R51.I0",
+        "R48.O0>R52.I0",
+        "R53.O0>R52.I1",
+        "R52.O0>R54.I0",
+        "R51.O0>R54.I0",
+        "R55.O0>R54.I1",
+        "R57.O0>R54.I6"
+      ],
+      "subgraphs": []
+    }
+  }
+}

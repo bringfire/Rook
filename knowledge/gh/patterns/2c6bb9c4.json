@@ -1,0 +1,71 @@
+{
+  "pattern_id": "2c6bb9c4",
+  "name": "teaching_Creating the higher level part",
+  "version": "1.0",
+  "created": "2026-03-19T19:25:25.686242Z",
+  "solution": {
+    "brief": "Creating the higher level part.\r\nThe geometry of the part itself does not need\r\nto match the geometry of the lower hierarchy\r\nparts.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Get Part Geometry",
+      "Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "part.",
+      "need",
+      "does",
+      "match",
+      "itself",
+      "creating",
+      "level",
+      "higher",
+      "part",
+      "geometry"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

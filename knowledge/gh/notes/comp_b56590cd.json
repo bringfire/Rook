@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_b56590cd",
+  "note_type": "component",
+  "name": "Weaverbird's Unify face windings",
+  "brief": "Weaverbird's Unify face windings | Inputs: M → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Weaverbird's Unify face windings. Inputs: M (Geometry). Outputs: O (Geometry).",
+  "keywords": [
+    "weaverbird's unify face windings",
+    "weaverbird's",
+    "unify",
+    "face",
+    "windings",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's unify face windings",
+    "weaverbird's",
+    "unify",
+    "face",
+    "windings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Unify face windings"
+  ],
+  "solution_principle": "Makes sure that the face winding is in one direction, when possible.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e3259f10",
+    "comp_a2608fd8",
+    "comp_0e69e087",
+    "comp_80deaa79",
+    "comp_fd4acea1",
+    "comp_3756d5bc",
+    "comp_249dabb0",
+    "comp_093bbf10",
+    "comp_63fecbcb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "33d13c41-30e0-55d9-4144-c40791381949",
+    "category": "wb_extract",
+    "inputs": {
+      "M": "Geometry"
+    },
+    "outputs": {
+      "O": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0fe8dc7a-869b-4cfd-8112-86036dac9712"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's unify face windings"
+  }
+}

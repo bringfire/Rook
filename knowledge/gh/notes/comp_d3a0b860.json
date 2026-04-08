@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_d3a0b860",
+  "note_type": "component",
+  "name": "Extrude",
+  "brief": "Extrude | Inputs: B, D â†’ E",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Extrude. Inputs: B (Geometry), D (Vector). Outputs: E (Geometry).",
+  "keywords": [
+    "extrude",
+    "extrude"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "3d-geometry",
+    "surface-creation",
+    "curve-based",
+    "component",
+    "fundamental-operation",
+    "geometry-generation",
+    "linear-extension"
+  ],
+  "trigger_intents": [
+    "extrude"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Extrude"
+  ],
+  "solution_principle": "Extrude points, curves and surfaces along a vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b121cc41",
+    "comp_c5156918",
+    "recipe_155ea82b",
+    "recipe_130f6b1d",
+    "recipe_fd023ae3",
+    "comp_79835e1b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "962034e9-cc27-4394-afc4-5c16e3447cf9",
+    "category": "surface_ops",
+    "inputs": {
+      "B": "Geometry",
+      "D": "Vector"
+    },
+    "outputs": {
+      "E": "Geometry"
+    },
+    "typical_wiring": [],
+    "usage_count": 210,
+    "stable_key": "surface|freeform|extrude"
+  }
+}

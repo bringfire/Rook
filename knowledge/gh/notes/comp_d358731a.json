@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_d358731a",
+  "note_type": "component",
+  "name": "Point Groups",
+  "brief": "Point Groups | Inputs: P, D → G, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Point Groups. Inputs: P (Point), D (Number). Outputs: G (Point), I (Integer).",
+  "keywords": [
+    "point groups",
+    "point",
+    "groups",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "point groups",
+    "point",
+    "groups"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Groups"
+  ],
+  "solution_principle": "Create groups from nearby points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_b1520461",
+    "comp_b14af4b6",
+    "comp_87ff6e5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "81f6afc9-22d9-49f0-8579-1fd7e0df6fa6",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "D": "Number"
+    },
+    "outputs": {
+      "G": "Point",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6eaffbb2-3392-441a-8556-2dc126aa8910"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|point groups"
+  }
+}

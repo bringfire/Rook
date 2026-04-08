@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_f06438f9",
+  "note_type": "component",
+  "name": "Voronoi Groups",
+  "brief": "Voronoi Groups | Inputs: B, G1, G2 → D1, D2",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Voronoi Groups. Inputs: B (Rectangle), G1 (Point), G2 (Point). Outputs: D1 (Curve), D2 (Curve).",
+  "keywords": [
+    "voronoi groups",
+    "voronoi",
+    "groups",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "voronoi groups",
+    "voronoi",
+    "groups"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Voronoi Groups"
+  ],
+  "solution_principle": "Compute a custom set of nested voronoi diagrams.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_57e41d52",
+    "comp_9bce8961",
+    "comp_d9de95a0",
+    "comp_eb2d7d4d",
+    "comp_a2966434"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9d4854fe-70db-4863-967b-4120d0b6d2e4",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "B": "Rectangle",
+      "G1": "Point",
+      "G2": "Point"
+    },
+    "outputs": {
+      "D1": "Curve",
+      "D2": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a4011be0-1c91-45bd-8280-17dd3a9f46f1"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|voronoi groups"
+  }
+}

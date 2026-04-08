@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_b0b4c36b",
+  "note_type": "component",
+  "name": "Transpose Matrix",
+  "brief": "Transpose Matrix | Inputs: M → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Transpose Matrix. Inputs: M (Matrix). Outputs: M (Matrix).",
+  "keywords": [
+    "transpose matrix",
+    "transpose",
+    "matrix",
+    "matrix_ops"
+  ],
+  "category": "matrix_ops",
+  "tags": [
+    "matrix_ops"
+  ],
+  "trigger_intents": [
+    "transpose matrix",
+    "transpose",
+    "matrix"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Transpose Matrix"
+  ],
+  "solution_principle": "Transpose a matrix (swap rows and columns)",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_072eb525",
+    "comp_2febcf4a",
+    "comp_4521b827",
+    "comp_c244c2bd",
+    "teaching_e8ddc722"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0e90b1f3-b870-4e09-8711-4bf819675d90",
+    "category": "matrix_ops",
+    "inputs": {
+      "M": "Matrix"
+    },
+    "outputs": {
+      "M": "Matrix"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4cebcaf7-9a6a-435b-8f8f-95a62bacb0f2",
+      "8600a3fc-30f0-4df6-b126-aaa79ece5bfe"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|matrix|transpose matrix"
+  }
+}

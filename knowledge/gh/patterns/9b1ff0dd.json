@@ -1,0 +1,75 @@
+{
+  "pattern_id": "9b1ff0dd",
+  "name": "wasp_05_collider_teaching_3._Aggregate_and_Vis",
+  "version": "1.0",
+  "created": "2026-03-19T17:27:02.230559Z",
+  "solution": {
+    "brief": "3. Aggregate and Visualize\r\nThe transformed parts to be used as starting\r\npoint are provided in the PREV input.\r\nThese parts are not counted in the number of\r\nparts to be created.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "Wasp_Stochastic Aggregation",
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "aggregate",
+      "parts",
+      "transformed",
+      "provided",
+      "prev",
+      "used",
+      "starting",
+      "visualize",
+      "point",
+      "input."
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "collision",
+    "containment",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

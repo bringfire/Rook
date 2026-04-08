@@ -1,0 +1,1024 @@
+{
+  "pattern_id": "fdf0db8a",
+  "name": "wasp_23",
+  "version": "1.0",
+  "created": "2026-03-19T18:21:23.473108Z",
+  "solution": {
+    "brief": "Wasp example 23: new topic series",
+    "principle": "\n\nRelated insight: \n\nRelated insight: Tutorial 24 (wasp_24) directly continues the new topic series from tutorial 23, further developing attribute-driven, graph-mapper, and field-driven discrete aggregation with multi-part and constraint-based workflows. Tutorial 23 is a direct prerequisite for tutorial 24, and the two share closely related content around part-based, rule-based, and attribute-based aggregation strategies.\n\nRelated insight: \n\nRelated insight: Tutorial 25 (wasp_25) further continues the new topic series beyond tutorial 24, confirming the series extends to at least tutorial 25 and introduces iso-curve and gradient-visualization as new focal techniques.\n\nRelated insight: Tutorial 26 (wasp_26) further continues the new topic series beyond tutorial 25, confirming the series extends through at least tutorial 26. The series now incorporates contour-field techniques alongside the established iso-curve, gradient-visualization, attribute-driven, and field-driven aggregation workflows.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Field Points",
+      "Wasp_Field-driven Aggregation",
+      "Wasp_Basic Part",
+      "Geometry",
+      "Point",
+      "Curve",
+      "panel",
+      "slider",
+      "Point List",
+      "slider",
+      "panel",
+      "Wasp_Rule From Text",
+      "Button",
+      "Curve",
+      "Bounding Box",
+      "Scale NU",
+      "Volume",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Pull Point",
+      "Remap Numbers",
+      "Bounds",
+      "panel",
+      "Custom Preview",
+      "Gradient",
+      "Graph Mapper",
+      "Wasp_Field",
+      "panel",
+      "Wasp_Get Part Geometry",
+      "Custom Preview",
+      "Wasp_Deconstruct Field",
+      "Plane",
+      "Geometry",
+      "XY Plane",
+      "Rotate Plane",
+      "slider",
+      "Rotate 3D",
+      "Unit X",
+      "slider",
+      "Wasp_Orient Field",
+      "Construct Point",
+      "slider",
+      "slider",
+      "slider",
+      "XZ Plane",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Swatch",
+      "Button",
+      "Scribble",
+      "Wasp_Update File",
+      "Rotate Plane",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a field-driven aggregation with Wasp",
+      "use Wasp to aggregate parts based on a field",
+      "field-guided discrete aggregation",
+      "grow parts along a field in Grasshopper",
+      "Wasp aggregation with custom field orientation",
+      "parametric part aggregation using vector fields",
+      "build a Wasp assembly driven by a scalar field",
+      "orient Wasp parts using a gradient field"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "8f250f41",
+    "9d5169fc",
+    "4e918d2c",
+    "fa2528c3",
+    "7bb677d9",
+    "084bb2d5",
+    "e1e6f130",
+    "9fdfcd0f"
+  ],
+  "tags": [
+    "parametric",
+    "rule-based",
+    "advanced",
+    "discrete-design",
+    "generative",
+    "tutorial",
+    "constraint-based",
+    "field-driven",
+    "wasp",
+    "part-based",
+    "grasshopper",
+    "iso-curve",
+    "discrete-assembly",
+    "new-series",
+    "graph-mapper",
+    "aggregation",
+    "workflow",
+    "attribute-based",
+    "plugin-workflow",
+    "attribute-driven",
+    "contour-field",
+    "multi-part",
+    "discrete-aggregation",
+    "gradient-visualization",
+    "spatial-computing",
+    "custom-preview"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:27:36.257366",
+    "evolved_by": [
+      "084bb2d5",
+      "e1e6f130",
+      "9fdfcd0f"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T14:23:45.321210",
+        "trigger": "New pattern: 084bb2d5",
+        "changes": "wasp_23 is the direct predecessor of wasp_24 in the new series. Its empty context needed a continuation note, and its tags can be enriched with attribute-driven, graph-mapper, attribute-based, and custom-preview from wasp_24."
+      },
+      {
+        "date": "2026-03-19T14:25:20.417254",
+        "trigger": "New pattern: e1e6f130",
+        "changes": "wasp_23 is part of the same series; its context should reflect the series now extends to tutorial 25, and it gains tags for newly introduced techniques in the continuing series."
+      },
+      {
+        "date": "2026-03-19T14:27:36.257366",
+        "trigger": "New pattern: 9fdfcd0f",
+        "changes": "Series continuity update: wasp_26 extends the chain through wasp_23; adds contour-field and discrete-assembly tags."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.7
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 88
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 137
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 45
+        }
+      ],
+      "panels": [
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "P"
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "content": "P|0_P|6\r\nP|6_P|0\r\nP|1_P|7\r\nP|7_P|1\r\nP|2_P|4\r\nP|4_P|2\r\nP|3_P|5\r\nP|5_P|3"
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "content": "1 To 0"
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "content": "myField"
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            338,
+            248
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldPts",
+          "name": "Wasp_Field Points",
+          "pos": [
+            1154,
+            689
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldAggregation",
+          "name": "Wasp_Field-driven Aggregation",
+          "pos": [
+            2989,
+            286
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            582,
+            200
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            168.3,
+            180.6
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            195.4,
+            286
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            192.7,
+            355.3
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            437.5,
+            117.2
+          ],
+          "content": "P"
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            2736.7,
+            227.5
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R10",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            364,
+            416
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            149.5,
+            416.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R12",
+          "type": "panel",
+          "pos": [
+            2541.3,
+            213.1
+          ],
+          "content": "P|0_P|6\r\nP|6_P|0\r\nP|1_P|7\r\nP|7_P|1\r\nP|2_P|4\r\nP|4_P|2\r\nP|3_P|5\r\nP|5_P|3"
+        },
+        {
+          "id": "R13",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleTxt",
+          "name": "Wasp_Rule From Text",
+          "pos": [
+            2693,
+            293
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            2803,
+            365
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            159.3,
+            534.5
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            268,
+            664
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            494,
+            694
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_VolumeProperties_OBSOLETE",
+          "name": "Volume",
+          "pos": [
+            375,
+            698
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            249.5,
+            729.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            251.4,
+            755.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            251,
+            779.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.7
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "pos": [
+            912.5,
+            684
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R23",
+          "type": "Component_PullPoint",
+          "nick": "Pull",
+          "name": "Pull Point",
+          "pos": [
+            1475,
+            890
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1722,
+            920
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1595,
+            949
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "panel",
+          "pos": [
+            1562.9,
+            979.5
+          ],
+          "content": "1 To 0"
+        },
+        {
+          "id": "R27",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3350,
+            874
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            3156,
+            892
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1789.2,
+            833.5
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "ZuiPythonComponent",
+          "nick": "Field",
+          "name": "Wasp_Field",
+          "pos": [
+            2073,
+            674
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "panel",
+          "pos": [
+            1886.7,
+            613.4
+          ],
+          "content": "myField"
+        },
+        {
+          "id": "R32",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            3278,
+            336
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3425,
+            346
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "ZuiPythonComponent",
+          "nick": "DeField",
+          "name": "Wasp_Deconstruct Field",
+          "pos": [
+            2934,
+            914
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            3081.8,
+            925.9
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            3077.9,
+            985.8
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            746,
+            734
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_RotatePlane",
+          "nick": "PRot",
+          "name": "Rotate Plane",
+          "pos": [
+            858,
+            744
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            625.6,
+            761.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R40",
+          "type": "Component_Rotate3D",
+          "nick": "Rot3D",
+          "name": "Rotate 3D",
+          "pos": [
+            976,
+            807
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            856,
+            837
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            733.1,
+            791.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R43",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldOrient",
+          "name": "Wasp_Orient Field",
+          "pos": [
+            2762,
+            684
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            2437,
+            732
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "pos": [
+            2190.5,
+            702.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "pos": [
+            2192.7,
+            728.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 88
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            2192.4,
+            754.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 137
+        },
+        {
+          "id": "R48",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            2526,
+            732
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            571,
+            537.1
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2215.8,
+            598.2
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R53",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3240.4,
+            399.2
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -93,
+            80
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_RotatePlane",
+          "nick": "PRot",
+          "name": "Rotate Plane",
+          "pos": [
+            2639,
+            742
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            2393,
+            780.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 45
+        }
+      ],
+      "flows": [
+        "R5.O0>R1.I0",
+        "R6.O0>R1.I1",
+        "R7.O0>R1.I2",
+        "R17.O0>R2.I0",
+        "R22.O0>R2.I1",
+        "R40.O0>R2.I2",
+        "R4.O0>R3.I0",
+        "R9.O0>R3.I2",
+        "R13.O0>R3.I3",
+        "R43.O0>R3.I4",
+        "R14.O0>R3.I9",
+        "R8.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R1.O0>R4.I2",
+        "R6.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R12.O0>R13.I0",
+        "R15.O0>R16.I0",
+        "R16.O0>R17.I0",
+        "R18.O1>R17.I1",
+        "R19.O0>R17.I2",
+        "R20.O0>R17.I3",
+        "R21.O0>R17.I4",
+        "R16.O0>R18.I0",
+        "R2.O1>R23.I0",
+        "R15.O0>R23.I1",
+        "R23.O1>R24.I0",
+        "R25.O0>R24.I1",
+        "R26.O0>R24.I2",
+        "R23.O1>R25.I0",
+        "R34.O1>R27.I0",
+        "R28.O0>R27.I1",
+        "R34.O5>R28.I2",
+        "R31.O0>R30.I0",
+        "R2.O0>R30.I1",
+        "R29.O0>R30.I2",
+        "R3.O1>R32.I0",
+        "R32.O0>R33.I0",
+        "R54.O0>R33.I1",
+        "R43.O0>R34.I0",
+        "R37.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R38.O0>R40.I0",
+        "R42.O0>R40.I1",
+        "R41.O0>R40.I3",
+        "R30.O0>R43.I0",
+        "R58.O0>R43.I1",
+        "R45.O0>R44.I0",
+        "R46.O0>R44.I1",
+        "R47.O0>R44.I2",
+        "R44.O0>R48.I0",
+        "R55.O0>R57.I0",
+        "R48.O0>R58.I0",
+        "R59.O0>R58.I1"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R52",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R5",
+            "R57",
+            "R1",
+            "R6",
+            "R4",
+            "R55",
+            "R7",
+            "R11"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "2_08_Orientable_Fields",
+          "text": "2_08_Orientable_Fields",
+          "nearby_components": [
+            "Wasp_Update File",
+            "Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "Assignign a custom plane to the Field Points component allows to",
+          "text": "Assignign a custom plane to the Field Points component allows to\r\ncontrol the orientation of the generated point grid. This plane will also\r\ndetermine the base orientation of parts placed in the field.",
+          "nearby_components": [
+            "Scale NU",
+            "NumberSlider",
+            "Point List",
+            "Volume",
+            "XY Plane",
+            "NumberSlider",
+            "Bounding Box",
+            "Wasp_Basic Part"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            571,
+            537.1
+          ]
+        },
+        {
+          "step": "4",
+          "title": "The Orient Field component allows to replace the Base Plane",
+          "text": "The Orient Field component allows to replace the Base Plane\r\nof the given field, resulting in a transformation of the Field in \r\nthe new given location and orientation.",
+          "nearby_components": [
+            "NumberSlider",
+            "NumberSlider",
+            "NumberSlider",
+            "Wasp_Field"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2215.8,
+            598.2
+          ]
+        }
+      ]
+    }
+  }
+}

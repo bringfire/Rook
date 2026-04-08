@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_f9f28dc8",
+  "note_type": "component",
+  "name": "Camera Obscura",
+  "brief": "Camera Obscura | Inputs: G, P, F → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Camera Obscura. Inputs: G (Geometry), P (Point), F (Number). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "camera obscura",
+    "camera",
+    "obscura",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "camera obscura",
+    "camera",
+    "obscura"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Camera Obscura"
+  ],
+  "solution_principle": "Camera Obscura (point mirror) transformation.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b175c81a",
+    "comp_244d1b5f",
+    "comp_a9db3b5d",
+    "comp_2964153b",
+    "comp_d36704e4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "407e35c6-7c40-4652-bd80-fde1eb7ec034",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "P": "Point",
+      "F": "Number"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|affine|camera obscura"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "note_id": "tutorial_73280c22",
+  "note_type": "teaching",
+  "name": "Intermediate 4-14: Sub List Applied \u00e2\u20ac\u201d Panel Selection with Image Sampler Pipeline",
+  "brief": "Extends Sub List: multiple panel range selections \u00e2\u2020\u2019 processing pipeline with image sampling and surface operations for facade patterning.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.219590Z",
+  "context": "Builds on 4-13's Sub List concept with a more complex processing pipeline. Top section: Multiple purple groups with Sub List domain ranges (similar to 4-13) selecting different panel subsets. Each Sub List outputs to Quad Panels operations. Some groups include image/preview output components. Bottom section: Extended horizontal pipeline with many processing components. Includes image sampling, surface operations, and custom preview outputs. Demonstrates how Sub List range selection integrates into larger definition workflows.",
+  "keywords": [
+    "sub list pipeline",
+    "panel range processing",
+    "facade patterning",
+    "image sampler",
+    "selective processing"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "progression",
+    "sub-list",
+    "image-sampler",
+    "facade-pattern",
+    "selective-processing",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "sub list with processing pipeline",
+    "panel range processing",
+    "image sampler panels",
+    "selective facade treatment",
+    "sub list in complex definition",
+    "range based panel processing"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Quad Panels",
+    "Sub List",
+    "Construct Domain",
+    "Custom Preview",
+    "Number Slider",
+    "Panel",
+    "Image Sampler"
+  ],
+  "solution_principle": "Sub List enables region-specific processing within a larger definition. Different panel ranges can feed different processing pipelines. This pattern \u00e2\u20ac\u201d select range \u00e2\u2020\u2019 process \u00e2\u2020\u2019 preview \u00e2\u20ac\u201d enables selective facade treatments.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_50eb6be6",
+    "tutorial_24373789",
+    "tutorial_20a9ede0",
+    "tutorial_434ce6b4",
+    "tutorial_0e7af367",
+    "tutorial_81c4b339",
+    "tutorial_a3d0f1ab",
+    "tutorial_2d1ce64c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.219590Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-14.jpg",
+    "lesson_number": 4,
+    "step_number": 14,
+    "cluster_type": "progression",
+    "components_demonstrated": {
+      "Surface": 1,
+      "Quad Panels": 1,
+      "Sub List": 1,
+      "Construct Domain": 1,
+      "Custom Preview": 1,
+      "Number Slider": 1,
+      "Panel": 1,
+      "Image Sampler": 1
+    }
+  }
+}

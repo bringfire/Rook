@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_e9ed5b19",
+  "note_type": "component",
+  "name": "Hexagonal Structure",
+  "brief": "Hexagonal Structure | Inputs: Srf, U, V, A → Lines, Nodes",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.563383Z",
+  "context": "Grasshopper component: Hexagonal Structure. Inputs: Srf (Surface), U (Integer), V (Integer), A (Number), T (Boolean). Outputs: Lines (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "hexagonal structure",
+    "hexagonal",
+    "structure",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "hexagonal structure",
+    "hexagonal",
+    "structure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Hexagonal Structure"
+  ],
+  "solution_principle": "Creates a hexagonal structure on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c315151d",
+    "comp_e707a5c7",
+    "comp_710ca4b0",
+    "comp_6ba8b0a6",
+    "comp_7c67292c",
+    "comp_8209536f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "19d2bedb-3306-4466-a0e1-7f8beb3c807b",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer",
+      "A": "Number",
+      "T": "Boolean"
+    },
+    "outputs": {
+      "Lines": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "370e8c20-a977-45d1-987d-d26c4a4df0ca",
+      "5eb96a5f-25c4-4e53-8d8f-d31479da272e"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|hexagonal structure"
+  }
+}

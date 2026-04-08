@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_60b57767",
+  "note_type": "component",
+  "name": "Contour",
+  "brief": "Contour | Inputs: S, P, N, D → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Contour. Inputs: S (Geometry), P (Point), N (Vector), D (Number). Outputs: C (Curve).",
+  "keywords": [
+    "contour",
+    "intersection_math"
+  ],
+  "category": "intersection_math",
+  "tags": [
+    "intersection_math"
+  ],
+  "trigger_intents": [
+    "contour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Contour"
+  ],
+  "solution_principle": "Create a set of Brep or Mesh contours",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a8a23ec6",
+    "comp_368899bd",
+    "comp_337d7af3",
+    "comp_146ffa0d",
+    "comp_93b9512b",
+    "comp_8c319666",
+    "comp_9444ea85"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3b112fb6-3eba-42d2-ba75-0f903c18faab",
+    "category": "intersection_math",
+    "inputs": {
+      "S": "Geometry",
+      "P": "Point",
+      "N": "Vector",
+      "D": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "246cda78-5e88-4087-ba09-ae082bbc4af8",
+      "a45e648e-a4f5-4408-a222-9b67f64a8622"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|contour"
+  }
+}

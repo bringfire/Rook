@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_f2208990",
+  "note_type": "component",
+  "name": "Average",
+  "brief": "Average | Inputs: I → AM",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Average. Inputs: I (Generic Data). Outputs: AM (Generic Data).",
+  "keywords": [
+    "average",
+    "math_utilities"
+  ],
+  "category": "math_utilities",
+  "tags": [
+    "math_utilities"
+  ],
+  "trigger_intents": [
+    "average"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Average"
+  ],
+  "solution_principle": "Solve the arithmetic average for a set of items",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_4d2f94f0",
+    "comp_82720415",
+    "comp_d1d2324d",
+    "comp_139f0061",
+    "comp_2be9cd7c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7986486c-621a-48fb-8f27-a28a22c91cc9",
+    "category": "math_utilities",
+    "inputs": {
+      "I": "Generic Data"
+    },
+    "outputs": {
+      "AM": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "338666eb-14c5-4d9b-82e2-2b5be60655df"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|util|average"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_e8fd68a2",
+  "note_type": "component",
+  "name": "Taper",
+  "brief": "Taper | Inputs: G, X, R0, R1 → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Taper. Inputs: G (Geometry), X (Line), R0 (Number), R1 (Number), F (Boolean), I (Boolean), R (Boolean). Outputs: G (Geometry).",
+  "keywords": [
+    "taper",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "taper"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Taper"
+  ],
+  "solution_principle": "Deforms objects toward or away from an axis",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_4c71c793",
+    "teaching_0abb40f1",
+    "comp_ef96fa08",
+    "comp_18607aa4",
+    "comp_d4249a4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "ad0ee51e-c86f-4668-8de5-b55b850f6001",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "X": "Line",
+      "R0": "Number",
+      "R1": "Number",
+      "F": "Boolean",
+      "I": "Boolean",
+      "R": "Boolean"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9509cb30-d24f-4f55-a5ac-bf0b12a06cfa"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|taper"
+  }
+}

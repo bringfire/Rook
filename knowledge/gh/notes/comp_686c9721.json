@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_686c9721",
+  "note_type": "component",
+  "name": "Face Boundaries",
+  "brief": "Face Boundaries | Inputs: M → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Face Boundaries. Inputs: M (Mesh). Outputs: B (Curve).",
+  "keywords": [
+    "face boundaries",
+    "face",
+    "boundaries",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "face boundaries",
+    "face",
+    "boundaries"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Face Boundaries"
+  ],
+  "solution_principle": "Convert all mesh faces to polylines",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7ec0071a",
+    "comp_7bcf3a3a",
+    "comp_c97d1752",
+    "comp_fff2002f",
+    "comp_38f1c08d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0b4ac802-fc4a-4201-9c66-0078b837c1eb",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "B": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2b9bf01d-5fe5-464c-b0b3-b469eb5f2efb"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|face boundaries"
+  }
+}

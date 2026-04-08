@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_34d8f8d6",
+  "note_type": "component",
+  "name": "Edges from Directions",
+  "brief": "Edges from Directions | Inputs: B, D, R, A → E, I, M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Edges from Directions. Inputs: B (Brep), D (Vector), R (Boolean), A (Number). Outputs: E (Curve), I (Integer), M (Text).",
+  "keywords": [
+    "edges from directions",
+    "edges",
+    "from",
+    "directions",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "edges from directions",
+    "edges",
+    "from",
+    "directions"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Edges from Directions"
+  ],
+  "solution_principle": "Select brep edges based on edge direction",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_41d64cc8",
+    "comp_3b0a0e72",
+    "comp_254c74f6",
+    "comp_e929f98f",
+    "teaching_21c34834"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "64ff9813-8fe8-4708-ac9f-61b825213e83",
+    "category": "surface_utilities",
+    "inputs": {
+      "B": "Brep",
+      "D": "Vector",
+      "R": "Boolean",
+      "A": "Number"
+    },
+    "outputs": {
+      "E": "Curve",
+      "I": "Integer",
+      "M": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "73269f6a-9645-4638-8d5e-88064dd289bd"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|util|edges from directions"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_a2a741c6",
+  "note_type": "component",
+  "name": "Create Material",
+  "brief": "Create Material | Inputs: Kd, Ks, Ke, T → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Create Material. Inputs: Kd (Colour), Ks (Colour), Ke (Colour), T (Number), S (Integer). Outputs: M (Shader).",
+  "keywords": [
+    "create material",
+    "create",
+    "material",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "create material",
+    "create",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create Material"
+  ],
+  "solution_principle": "Create an OpenGL material.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7369af1e",
+    "comp_0fb35f5d",
+    "comp_830290b0",
+    "comp_fba41916",
+    "comp_f2304758"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "76975309-75a6-446a-afed-f8653720a9f2",
+    "category": "display",
+    "inputs": {
+      "Kd": "Colour",
+      "Ks": "Colour",
+      "Ke": "Colour",
+      "T": "Number",
+      "S": "Integer"
+    },
+    "outputs": {
+      "M": "Shader"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|preview|create material"
+  }
+}

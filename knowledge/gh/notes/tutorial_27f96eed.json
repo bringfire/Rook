@@ -1,0 +1,86 @@
+{
+  "note_id": "tutorial_27f96eed",
+  "note_type": "teaching",
+  "name": "Beginner 2-10: Gene Pool and Data Matching \u00e2\u20ac\u201d Shortest List with Circle",
+  "brief": "Gene Pool (5 values) + Point (10 branches) \u00e2\u2020\u2019 Shortest List matching \u00e2\u2020\u2019 Circle with individual radii per point",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.954306Z",
+  "context": "Single definition. Point param with 10 branches (Param Viewer: 10 branches, N=1 each). Gene Pool (pink border): 5 individually adjustable values (0.46, 0.87, 0.50, 0.50, 0.50). Shortest List: matches Point (10 branches) with Gene Pool (5 values) \u00e2\u20ac\u201d truncates to 5 (Trim End mode). \u00e2\u2020\u2019 Circle (Plane=matched points, Radius=matched Gene Pool values). Output Param Viewer: 10 branches, N=1 each \u00e2\u2020\u2019 flattened to match. Second Param Viewer: 1 branch, N=5 \u00e2\u20ac\u201d the Gene Pool values. Result: circles at 5 of the 10 points, each with individually controlled radius from Gene Pool.",
+  "keywords": [
+    "gene pool",
+    "shortest list",
+    "individual control",
+    "trim end",
+    "circle radius",
+    "per-element control"
+  ],
+  "category": "Beginner - Curves Tangents and Data Trees",
+  "tags": [
+    "beginner",
+    "gene-pool",
+    "data-matching",
+    "shortest-list",
+    "individual-control",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "gene pool individual values",
+    "shortest list trim",
+    "gene pool circle radius",
+    "individual control repeated elements",
+    "per element parameter control",
+    "gene pool data matching"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Gene Pool",
+    "Shortest List",
+    "Circle",
+    "Param Viewer"
+  ],
+  "solution_principle": "Gene Pool provides a UI for multiple individually adjustable numeric values. Shortest List matching paired with Gene Pool means each value maps to one branch/item. Trim End mode determines which items are dropped when lists don't match. This pattern \u00e2\u20ac\u201d Gene Pool + Shortest List \u00e2\u20ac\u201d gives individual control over repeated elements.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_0b3d1db3",
+    "teaching_e23cfc74",
+    "tutorial_02b2a14b",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "tutorial_6c3edd2d",
+    "tutorial_a0c71175",
+    "tutorial_a223010e",
+    "teaching_e8ddc722",
+    "teaching_062630c1",
+    "tutorial_6faa7cbb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.954306Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "2-10.jpg",
+    "lesson_number": 2,
+    "step_number": 10,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Point": 1,
+      "Gene Pool": 1,
+      "Shortest List": 1,
+      "Circle": 1,
+      "Param Viewer": 1
+    }
+  }
+}

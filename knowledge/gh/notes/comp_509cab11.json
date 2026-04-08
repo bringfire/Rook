@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_509cab11",
+  "note_type": "component",
+  "name": "Hash Objects",
+  "brief": "Hash Objects | Inputs: obj → Hash",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Hash Objects. Inputs: obj (Generic Data). Outputs: Hash (Generic Data).",
+  "keywords": [
+    "hash objects",
+    "hash",
+    "objects",
+    "lunchbox_serialization"
+  ],
+  "category": "lunchbox_serialization",
+  "tags": [
+    "lunchbox_serialization"
+  ],
+  "trigger_intents": [
+    "hash objects",
+    "hash",
+    "objects"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Hash Objects"
+  ],
+  "solution_principle": "Use a Secure Hash Algorithm (SHA) to hash geometry or strings.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1294644e",
+    "teaching_f520f3eb",
+    "comp_b6103bc9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4327c857-28b9-4c60-9f1e-20e2b9b21607",
+    "category": "lunchbox_serialization",
+    "inputs": {
+      "obj": "Generic Data"
+    },
+    "outputs": {
+      "Hash": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|serialization|hash objects"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_e4d5c4f3",
+  "note_type": "component",
+  "name": "Key/Value Search",
+  "brief": "Key/Value Search | Inputs: K, V, S → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Key/Value Search. Inputs: K (Generic Data), V (Generic Data), S (Generic Data). Outputs: R (Generic Data).",
+  "keywords": [
+    "key/value search",
+    "key/value",
+    "search",
+    "set_operations"
+  ],
+  "category": "set_operations",
+  "tags": [
+    "set_operations"
+  ],
+  "trigger_intents": [
+    "key/value search",
+    "key/",
+    "value",
+    "search"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Key/Value Search"
+  ],
+  "solution_principle": "Extract an item from a collection using a key-value match",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_63672325",
+    "comp_afef693b",
+    "comp_4c0bfd03",
+    "comp_a983a843",
+    "comp_02db7147",
+    "comp_93c6ad35",
+    "comp_3da2c6c5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1edcc3cf-cf84-41d4-8204-561162cfe510",
+    "category": "set_operations",
+    "inputs": {
+      "K": "Generic Data",
+      "V": "Generic Data",
+      "S": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3ff27857-b988-417a-b495-b24c733dbd00"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sets|key/value search"
+  }
+}

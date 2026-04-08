@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_bd5bca54",
+  "note_type": "component",
+  "name": "Construct Path",
+  "brief": "Construct Path | Inputs: I → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Construct Path. Inputs: I (Integer). Outputs: B (Path).",
+  "keywords": [
+    "construct path",
+    "construct",
+    "path",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "construct path",
+    "construct",
+    "path"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Path"
+  ],
+  "solution_principle": "Construct a data tree branch path.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_479a3b38",
+    "comp_fa83b59e",
+    "comp_e163e947",
+    "comp_9390569c",
+    "comp_6e8f5e48"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "946cb61e-18d2-45e3-8840-67b0efa26528",
+    "category": "tree_operations",
+    "inputs": {
+      "I": "Integer"
+    },
+    "outputs": {
+      "B": "Path"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|tree|construct path"
+  }
+}

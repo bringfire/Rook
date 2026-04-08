@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_535c0613",
+  "note_type": "component",
+  "name": "Insert Items",
+  "brief": "Insert Items | Inputs: L, I, i, W → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Insert Items. Inputs: L (Generic Data), I (Generic Data), i (Integer), W (Boolean). Outputs: L (Generic Data).",
+  "keywords": [
+    "insert items",
+    "insert",
+    "items",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "insert items",
+    "insert",
+    "items"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Insert Items"
+  ],
+  "solution_principle": "Insert a collection of items into a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_90238233",
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_b573a316",
+    "comp_8b8f3b4f",
+    "comp_5eb04c57",
+    "comp_23d957e3",
+    "comp_b83b3d7e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e2039b07-d3f3-40f8-af88-d74fed238727",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "I": "Generic Data",
+      "i": "Integer",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7a218bfb-b93d-4c1f-83d3-5a0b909dd60b"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|insert items"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_bb9f771e",
+  "note_type": "component",
+  "name": "XZ Plane",
+  "brief": "XZ Plane | Inputs: O → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: XZ Plane. Inputs: O (Point). Outputs: P (Plane).",
+  "keywords": [
+    "xz plane",
+    "xz",
+    "plane",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "xz plane",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "XZ Plane"
+  ],
+  "solution_principle": "World XZ plane.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3",
+    "comp_4ddf2895",
+    "comp_d835e771",
+    "comp_e92aab6b",
+    "comp_19b670e5",
+    "comp_43c84d83",
+    "comp_f0012bbd",
+    "comp_fe8edca1",
+    "comp_01d408b6",
+    "comp_0ebd8f54"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8cc3a196-f6a0-49ea-9ed9-0cb343a3ae64",
+    "category": "plane_ops",
+    "inputs": {
+      "O": "Point"
+    },
+    "outputs": {
+      "P": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "17b7152b-d30d-4d50-b9ef-c9fe25576fc2",
+      "fad344bc-09b1-4855-a2e6-437ef5715fe3"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|xz plane"
+  }
+}

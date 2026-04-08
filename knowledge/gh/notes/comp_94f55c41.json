@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_94f55c41",
+  "note_type": "component",
+  "name": "Mirror Surface",
+  "brief": "Mirror Surface | Inputs: G, S, F → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Mirror Surface. Inputs: G (Geometry), S (Surface), F (Boolean). Outputs: G (Geometry).",
+  "keywords": [
+    "mirror surface",
+    "mirror",
+    "surface",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "mirror surface",
+    "mirror",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mirror Surface"
+  ],
+  "solution_principle": "Mirror geometry in a freeform surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ef96fa08",
+    "comp_bce12009",
+    "comp_d3804286",
+    "teaching_0abb40f1",
+    "comp_18607aa4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6ce1aa3c-626b-4db7-8b5b-bf74c78f8c5e",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "S": "Surface",
+      "F": "Boolean"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9c9f8219-ae88-4d29-ba1b-3433ed713639"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|mirror surface"
+  }
+}

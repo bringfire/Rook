@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_4d128ea8",
+  "note_type": "component",
+  "name": "Power of E",
+  "brief": "Power of E | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Power of E. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "power of e",
+    "power",
+    "of",
+    "e",
+    "polynomials"
+  ],
+  "category": "polynomials",
+  "tags": [
+    "polynomials"
+  ],
+  "trigger_intents": [
+    "power of e",
+    "power"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Power of E"
+  ],
+  "solution_principle": "Raise E to the power of N.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9b30ca84",
+    "comp_02881050",
+    "comp_115735c2",
+    "comp_44e67b14",
+    "comp_2ff6d186",
+    "comp_1ed8e25f",
+    "comp_874e81a8",
+    "comp_2759d81c",
+    "comp_2e488c3b",
+    "comp_5b17ff59"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "c717f26f-e4a0-475c-8e1c-b8f77af1bc99",
+    "category": "polynomials",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2ebb82ef-1f90-4ac9-9a71-1fe0f4ef7044",
+      "23afc7aa-2d2f-4ae7-b876-bf366246b826"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|polynomials|power of e"
+  }
+}

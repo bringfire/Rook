@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_ca7b6f99",
+  "note_type": "component",
+  "name": "Horizontal Frames",
+  "brief": "Horizontal Frames | Inputs: C, N → F, t",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Horizontal Frames. Inputs: C (Curve), N (Integer). Outputs: F (Plane), t (Number).",
+  "keywords": [
+    "horizontal frames",
+    "horizontal",
+    "frames",
+    "curve_division"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "curve_division"
+  ],
+  "trigger_intents": [
+    "horizontal frames",
+    "horizontal",
+    "frames"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Horizontal Frames"
+  ],
+  "solution_principle": "Generate a number of equally spaced, horizontally aligned curve frames.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ac081276",
+    "comp_1bcc2572",
+    "comp_e75be450",
+    "comp_2c4dae60",
+    "comp_c2c88f4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8d058945-ce47-4e7c-82af-3269295d7890",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "N": "Integer"
+    },
+    "outputs": {
+      "F": "Plane",
+      "t": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0e94542a-2e46-4793-9f98-2200b06b28f4",
+      "983c7600-980c-44da-bc53-c804067f667f"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|horizontal frames"
+  }
+}

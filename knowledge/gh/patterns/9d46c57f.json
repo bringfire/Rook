@@ -1,0 +1,78 @@
+{
+  "pattern_id": "9d46c57f",
+  "name": "wasp_33_teaching_WASP_2_DISCO",
+  "version": "1.0",
+  "created": "2026-03-19T18:50:19.436448Z",
+  "solution": {
+    "brief": "WASP 2 DISCO\r\nSaves a \"_setup\" and a \"_player\" json files, each storing\r\nall the given information. The files can be loaded from the\r\nDisCo settings tab.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_DisCo Environment",
+      "Box",
+      "Wasp_DisCo Aggregation Setup",
+      "Geometry",
+      "Button",
+      "Geometry",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "given",
+      "each",
+      "disco",
+      "\"_player\"",
+      "json",
+      "saves",
+      "wasp",
+      "storing",
+      "\"_setup\"",
+      "files,"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

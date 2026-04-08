@@ -1,0 +1,84 @@
+{
+  "note_id": "tutorial_a0c71175",
+  "note_type": "teaching",
+  "name": "Beginner 2-6: Data Matching \u00e2\u20ac\u201d Longest List, Shortest List, Cross Reference",
+  "brief": "Four panels comparing data matching modes: Longest List (repeats last), Shortest List (truncates), Cross Reference (all combinations), Longest List with graft",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.953305Z",
+  "context": "Title: 'Data Matching'. Four purple-backgrounded panels showing the same operation with different matching rules. Top-left: Longest List \u00e2\u20ac\u201d when lists have different lengths, the shorter list's last item is repeated. Top-middle: Shortest List \u00e2\u20ac\u201d truncates to the shorter list's length. Top-right: Cross Reference \u00e2\u20ac\u201d creates all possible combinations (Cartesian product). Panel shows many more results. Bottom-left: Longest List with data grafting applied \u00e2\u20ac\u201d changes the tree structure. Each panel shows Param Viewer with data tree structure and a Panel with the resulting values. Rhino viewport screenshots (pink borders) show the geometric results of each matching mode.",
+  "keywords": [
+    "data matching",
+    "longest list",
+    "shortest list",
+    "cross reference",
+    "cartesian product",
+    "list matching",
+    "graft"
+  ],
+  "category": "Beginner - Curves Tangents and Data Trees",
+  "tags": [
+    "beginner",
+    "comparison",
+    "data-matching",
+    "list-operations",
+    "cross-reference",
+    "data-tree",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "data matching grasshopper",
+    "longest list vs shortest list",
+    "cross reference all combinations",
+    "list matching modes",
+    "how data matching works",
+    "cartesian product grasshopper"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Number Slider",
+    "Panel",
+    "Param Viewer"
+  ],
+  "solution_principle": "Data matching controls how Grasshopper pairs items from lists of different lengths. Longest List (default): repeats the last item of shorter lists. Shortest List: stops at the shorter list's end \u00e2\u20ac\u201d no repetition. Cross Reference: every item paired with every other item \u00e2\u20ac\u201d Cartesian product. Right-click a component input to change matching mode. Understanding this is critical for controlling output quantity.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_27f96eed",
+    "tutorial_6c3edd2d",
+    "tutorial_88182103",
+    "tutorial_02b2a14b",
+    "tutorial_0b3d1db3",
+    "tutorial_a223010e",
+    "tutorial_31ac118b",
+    "tutorial_71512137",
+    "tutorial_0e40ec54",
+    "tutorial_36e3a473",
+    "tutorial_ac4837b6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.953305Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "2-6.jpg",
+    "lesson_number": 2,
+    "step_number": 6,
+    "cluster_type": "comparison",
+    "components_demonstrated": {
+      "Number Slider": 1,
+      "Panel": 1,
+      "Param Viewer": 1
+    }
+  }
+}

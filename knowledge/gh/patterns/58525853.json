@@ -1,0 +1,481 @@
+{
+  "pattern_id": "58525853",
+  "name": "4- qos",
+  "version": "1.0",
+  "created": "2026-02-22T14:03:53.035616Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\grass-islamic\\4- qos.gh (28 components)",
+    "principle": "\n\nRelated insight: Part of a series including '5- qos 6 o 5', indicating systematic exploration of Islamic geometric variations with consistent 28-component structure.\n\nRelated insight: Part of broader Islamic geometry collection including different techniques like karbandi (48 components) and qos variations (28 components), showing complexity spectrum.",
+    "components_needed": [
+      "Bifocals",
+      "Construct Point",
+      "Construct Point",
+      "Span",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Division",
+      "Division",
+      "Multiplication",
+      "Line",
+      "Perp Frame",
+      "Point On Curve",
+      "Number Slider",
+      "Deconstruct Plane",
+      "Line SDL",
+      "Line SDL",
+      "Unit Z",
+      "Project Point",
+      "Line SDL",
+      "Distance",
+      "Arc 3Pt",
+      "Revolution",
+      "Pi",
+      "Construct Domain",
+      "Pi",
+      "Number Slider",
+      "Number Slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "4  qos"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "7a1b7082",
+    "2f310f59",
+    "53245b80",
+    "398e734c",
+    "1d840754"
+  ],
+  "tags": [
+    "qos-technique",
+    "parametric",
+    "workflow-series",
+    "islamic-geometry",
+    "grasshopper",
+    "recipe",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:05:02.241283",
+    "evolved_by": [
+      "398e734c",
+      "1d840754"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:04:41.362934",
+        "trigger": "New pattern: 398e734c",
+        "changes": "New pattern reveals this is part of a systematic workflow series, not an isolated recipe"
+      },
+      {
+        "date": "2026-02-22T09:05:02.241283",
+        "trigger": "New pattern: 1d840754",
+        "changes": "New karbandi pattern reveals this is part of a larger Islamic geometry technique collection, not just qos series"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Span",
+          "min": 0,
+          "max": 100,
+          "value": 11.9
+        },
+        {
+          "id": "R5",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R6",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R7",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R14",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R27",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 2.25,
+          "value": 0
+        },
+        {
+          "id": "R28",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 2.25,
+          "value": 0.73
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/14/grass-islamic/4- qos.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            88,
+            -34
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            863,
+            148
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            855,
+            223
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Span",
+          "pos": [
+            43.6,
+            111
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 11.9
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            44,
+            155.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            43.8,
+            200.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            43.6,
+            245.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R8",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            374,
+            170
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            498,
+            224
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_VariableMultiplication",
+          "name": "Multiplication",
+          "pos": [
+            618,
+            261
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1061,
+            178
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_CurvePerpFrame",
+          "name": "Perp Frame",
+          "pos": [
+            1279,
+            178
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            2365.5,
+            245.7
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            947,
+            235.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R15",
+          "type": "Component_DeconstructPlane",
+          "name": "Deconstruct Plane",
+          "pos": [
+            1441,
+            198
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_LineSDL",
+          "name": "Line SDL",
+          "pos": [
+            1685,
+            122
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_LineSDL",
+          "name": "Line SDL",
+          "pos": [
+            1693,
+            329
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            1502,
+            329
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_ProjectPoint",
+          "name": "Project Point",
+          "pos": [
+            1887,
+            288
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_LineSDL",
+          "name": "Line SDL",
+          "pos": [
+            2265,
+            255
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            2096,
+            112
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Arc3Pt",
+          "name": "Arc 3Pt",
+          "pos": [
+            2604,
+            122
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_RevSurface",
+          "name": "Revolution",
+          "pos": [
+            2936,
+            185
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            2576,
+            389
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            2781,
+            419
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            2576,
+            427
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2273,
+            375.1
+          ],
+          "min": 0,
+          "max": 2.25,
+          "value": 0
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2273.1,
+            413.8
+          ],
+          "min": 0,
+          "max": 2.25,
+          "value": 0.73
+        }
+      ],
+      "flows": [
+        "R4.O0>R2.I0",
+        "R10.O0>R3.I2",
+        "R4.O0>R8.I0",
+        "R5.O0>R8.I1",
+        "R8.O0>R9.I0",
+        "R6.O0>R9.I1",
+        "R9.O0>R10.I0",
+        "R7.O0>R10.I1",
+        "R2.O0>R11.I0",
+        "R3.O0>R11.I1",
+        "R11.O0>R12.I0",
+        "R14.O0>R12.I1",
+        "R12.O0>R15.I0",
+        "R15.O0>R16.I0",
+        "R15.O2>R16.I1",
+        "R3.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R4.O0>R17.I2",
+        "R15.O0>R19.I0",
+        "R15.O2>R19.I1",
+        "R17.O0>R19.I2",
+        "R19.O0>R20.I0",
+        "R15.O2>R20.I1",
+        "R21.O0>R20.I2",
+        "R2.O0>R21.I0",
+        "R19.O0>R21.I1",
+        "R2.O0>R22.I0",
+        "R13.O0>R22.I1",
+        "R3.O0>R22.I2",
+        "R22.O0>R23.I0",
+        "R17.O0>R23.I1",
+        "R25.O0>R23.I2",
+        "R27.O0>R24.I0",
+        "R24.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R28.O0>R26.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_206ea509",
+  "note_type": "component",
+  "name": "Point List",
+  "brief": "Point List | Inputs: P, T, L, S → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Point List. Inputs: P (Point), T (Boolean), L (Boolean), S (Number).",
+  "keywords": [
+    "point list",
+    "point",
+    "list",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "point list",
+    "point",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point List"
+  ],
+  "solution_principle": "Displays the indices in lists of points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_830290b0",
+    "teaching_90de351e",
+    "teaching_21c34834",
+    "teaching_43ee0a0e",
+    "comp_0fb35f5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1f18e802-4ab9-444f-bf3c-3e7e421a2acf",
+    "category": "display",
+    "inputs": {
+      "P": "Point",
+      "T": "Boolean",
+      "L": "Boolean",
+      "S": "Number"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "0ad9f1ab-2204-45bb-b282-474469e2fa7b",
+      "059b72b0-9bb3-4542-a805-2dcd27493164",
+      "3b220754-4114-4170-b6c3-b286b86ed524"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|vector|point list"
+  },
+  "deprecated": true,
+  "deprecated_by": "cc14daa5-911a-4fcc-8b3b-1149bf7f2eeb"
+}

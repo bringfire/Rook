@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_1fa599d3",
+  "note_type": "component",
+  "name": "Deconstruct Plane",
+  "brief": "Deconstruct Plane | Inputs: P → O, X, Y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Deconstruct Plane. Inputs: P (Plane). Outputs: O (Point), X (Vector), Y (Vector), Z (Vector).",
+  "keywords": [
+    "deconstruct plane",
+    "deconstruct",
+    "plane",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "deconstruct plane",
+    "deconstruct",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Plane"
+  ],
+  "solution_principle": "Deconstruct a plane into its component parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_4ddf2895",
+    "comp_e92aab6b",
+    "comp_19b670e5",
+    "comp_43c84d83",
+    "comp_f0012bbd",
+    "comp_fe8edca1",
+    "comp_01d408b6",
+    "comp_0ebd8f54"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3cd2949b-4ea8-4ffb-a70c-5c380f9f46ea",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Plane"
+    },
+    "outputs": {
+      "O": "Point",
+      "X": "Vector",
+      "Y": "Vector",
+      "Z": "Vector"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|plane|deconstruct plane"
+  }
+}

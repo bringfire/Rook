@@ -1,0 +1,120 @@
+{
+  "note_id": "teaching_f4cf1383",
+  "note_type": "teaching",
+  "name": "U05 - Grafting a List",
+  "brief": "Teaching: Grafting a List",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used.",
+  "keywords": [
+    "grafting",
+    "list",
+    "graft tree",
+    "param viewer",
+    "unit 05 class",
+    "output",
+    "parameter",
+    "viewer",
+    "not",
+    "geometry",
+    "but",
+    "parameters",
+    "only"
+  ],
+  "category": "Unit 05",
+  "tags": [
+    "unit-05",
+    "intermediate",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "grafting",
+    "data-management",
+    "list-manipulation",
+    "builds-on-U04",
+    "complex-wiring",
+    "data-trees"
+  ],
+  "trigger_intents": [
+    "grafting a list",
+    "how to use grafting a list",
+    "how to use graft tree",
+    "how to use param viewer",
+    "grafting",
+    "flatenning",
+    "unflatten tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Graft Tree",
+    "Param Viewer"
+  ],
+  "solution_principle": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_088f486f",
+    "teaching_26a7814e",
+    "teaching_dc564d70",
+    "teaching_e8ddc722",
+    "teaching_801cb203"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-05-Class",
+    "unit_number": 5,
+    "section_number": 3,
+    "section_index": 2,
+    "x_range": [
+      2947.9,
+      3663.6
+    ],
+    "full_teaching_text": "3- Grafting a List:\r\n\r\n- \"Grafting\" a List makes each of the items a Branch!\r\n\r\n- So in a way, it does the opposite of what \"Flatenning\" does.\r\n\r\n- Type \"Graft\" and graft the flatenned tree.\r\n\r\n- Notice that as there used to be 10 items inside the flatenned List, after grafting the List, there are now 10 Branches inside this new Tree!\r\n\r\n- There is also the \"Unflatten Tree\" which unflattens a Tree using a path guide. This component is not often used.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C77",
+      "C81",
+      "C114"
+    ],
+    "intra_section_flows": [
+      "C77.O0>C76.I0",
+      "C114.O0>C265.I0",
+      "C77.O0>C266.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G30",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G9",
+        "name": "Output of Parameter Viewer is NOT geometry, but parameters only",
+        "colour": "#FF000085"
+      }
+    ],
+    "components_demonstrated": {
+      "Graft Tree": 1,
+      "Param Viewer": 2
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 3,
+      "sub_labels": 1,
+      "connected_panels": 4,
+      "flows": 3,
+      "groups": 2
+    }
+  }
+}

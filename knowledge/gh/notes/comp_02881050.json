@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_02881050",
+  "note_type": "component",
+  "name": "Logarithm",
+  "brief": "Logarithm | Inputs: x \u2192 y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Logarithm. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "logarithm",
+    "polynomials"
+  ],
+  "category": "polynomials",
+  "tags": [
+    "polynomials"
+  ],
+  "trigger_intents": [
+    "logarithm"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Logarithm"
+  ],
+  "solution_principle": "Compute the Base-10 logarithm of a value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9b30ca84",
+    "comp_2ff6d186",
+    "comp_4d128ea8",
+    "comp_1ed8e25f",
+    "comp_115735c2",
+    "comp_874e81a8",
+    "comp_2759d81c",
+    "comp_44e67b14",
+    "comp_2e488c3b",
+    "comp_5b17ff59"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "27d6f724-a701-4585-992f-3897488abf08",
+    "category": "polynomials",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "23afc7aa-2d2f-4ae7-b876-bf366246b826",
+      "2ebb82ef-1f90-4ac9-9a71-1fe0f4ef7044",
+      "7ab8d289-26a2-4dd4-b4ad-df5b477999d8"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|polynomials|logarithm",
+    "family": "polynomials"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

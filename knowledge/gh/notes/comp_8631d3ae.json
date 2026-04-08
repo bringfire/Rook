@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_8631d3ae",
+  "note_type": "component",
+  "name": "Catenary",
+  "brief": "Catenary | Inputs: A, B, L, G → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Catenary. Inputs: A (Point), B (Point), L (Number), G (Vector). Outputs: C (Curve).",
+  "keywords": [
+    "catenary",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "catenary"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Catenary"
+  ],
+  "solution_principle": "Create a catenary chain between two points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e6b90611",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "275671d4-3e87-40bd-8aff-8e6a5fdbb892",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "L": "Number",
+      "G": "Vector"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "30ce59ce-22a1-49ee-9e21-e6d16b3684a8"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|catenary"
+  }
+}

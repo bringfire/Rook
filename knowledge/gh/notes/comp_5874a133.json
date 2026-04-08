@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_5874a133",
+  "note_type": "component",
+  "name": "AnchorXYZ",
+  "brief": "AnchorXYZ | Inputs: P, X, Y, Z → A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: AnchorXYZ. Inputs: P (Point), X (Boolean), Y (Boolean), Z (Boolean), Strength (Number). Outputs: A (Generic Data).",
+  "keywords": [
+    "anchorxyz",
+    "kangaroo2_goals-pt"
+  ],
+  "category": "kangaroo2_goals-pt",
+  "tags": [
+    "kangaroo2_goals-pt"
+  ],
+  "trigger_intents": [
+    "anchorxyz",
+    "anchor"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "AnchorXYZ"
+  ],
+  "solution_principle": "Fix a point only along chosen world axes. If you need to reset the initial position, disconnect then reconnect the Point input.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a460c519",
+    "comp_cef0c009",
+    "comp_98d40a95",
+    "comp_c16cc698",
+    "comp_8fb563da",
+    "comp_4962e3fe",
+    "comp_7c19522b",
+    "comp_6d7d7f4d",
+    "comp_f1055a35"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2128cde3-9694-40b0-874c-670c89341acd",
+    "category": "kangaroo2_goals-pt",
+    "inputs": {
+      "P": "Point",
+      "X": "Boolean",
+      "Y": "Boolean",
+      "Z": "Boolean",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3c30b1a1-4473-4ad4-a700-ea9770726c03"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-pt|anchorxyz"
+  }
+}

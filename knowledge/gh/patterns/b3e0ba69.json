@@ -1,0 +1,65 @@
+{
+  "pattern_id": "b3e0ba69",
+  "name": "wasp_32_teaching_04_1_Global_Constrai",
+  "version": "1.0",
+  "created": "2026-03-19T18:48:41.484260Z",
+  "solution": {
+    "brief": "04_1_Global_Constraints_Mesh",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Geometry",
+      "Point"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "04_1_global_constraints_mesh"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

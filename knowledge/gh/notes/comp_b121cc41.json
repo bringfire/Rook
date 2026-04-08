@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_b121cc41",
+  "note_type": "component",
+  "name": "Boundary Surfaces",
+  "brief": "Boundary Surfaces | Inputs: E â†’ S",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Boundary Surfaces. Inputs: E (Curve). Outputs: S (Surface).",
+  "keywords": [
+    "boundary surfaces",
+    "boundary",
+    "surfaces"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface-creation",
+    "curve-based",
+    "boundary",
+    "component",
+    "geometry-generation",
+    "surface-from-curves"
+  ],
+  "trigger_intents": [
+    "boundary surfaces",
+    "boundary",
+    "surfaces"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Boundary Surfaces"
+  ],
+  "solution_principle": "Create planar surfaces from a collection of boundary edge curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_79835e1b",
+    "comp_d3a0b860",
+    "teaching_4f2b9009",
+    "recipe_155ea82b",
+    "recipe_36b862a1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d51e9b65-aa4e-4fd6-976c-cef35d421d05",
+    "category": "surface_ops",
+    "inputs": {
+      "E": "Curve"
+    },
+    "outputs": {
+      "S": "Surface"
+    },
+    "typical_wiring": [],
+    "usage_count": 201,
+    "stable_key": "surface|freeform|boundary surfaces"
+  }
+}

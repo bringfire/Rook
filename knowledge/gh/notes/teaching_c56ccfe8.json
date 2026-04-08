@@ -1,0 +1,185 @@
+{
+  "note_id": "teaching_c56ccfe8",
+  "note_type": "teaching",
+  "name": "U06 - Paneling",
+  "brief": "Teaching: Paneling",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.261805Z",
+  "context": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain\u00c2\u00b2\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain\u00c2\u00b2 information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface.",
+  "keywords": [
+    "paneling",
+    "closest point",
+    "vector 2pt",
+    "division",
+    "numberslider",
+    "maximum",
+    "amplitude",
+    "move",
+    "subtraction",
+    "point",
+    "unit 06 class",
+    "strength",
+    "effect",
+    "radius"
+  ],
+  "category": "Unit 06",
+  "tags": [
+    "unit-06",
+    "intermediate-advanced",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "multi-group",
+    "annotated",
+    "strength of effect",
+    "radius of effect",
+    "paneling",
+    "attractor-logic-application",
+    "prerequisite-for-U07",
+    "prerequisite-for-U08",
+    "parametric-paneling"
+  ],
+  "trigger_intents": [
+    "paneling",
+    "how to use paneling",
+    "how to use closest point",
+    "how to use vector 2pt",
+    "how to use division",
+    "how to use maximum",
+    "how to use amplitude",
+    "how to use move",
+    "how to use subtraction",
+    "how to use point",
+    "divide domain\u00c2\u00b2",
+    "isotrim",
+    "deconstruct brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Closest Point",
+    "Vector 2Pt",
+    "Division",
+    "NumberSlider",
+    "Maximum",
+    "Amplitude",
+    "Move",
+    "Subtraction",
+    "Point"
+  ],
+  "solution_principle": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain\u00c2\u00b2\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain\u00c2\u00b2 information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface.",
+  "anti_patterns": [],
+  "preconditions": [
+    "The following bit of code below is inspired by the source mentioned here.\r\n\r\nThe main feature of this definition is that we can control:\r\n1- Radius of effect\r\n2- Strength of effect\r\n\r\nOnline source:\r\n"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_21c34834",
+    "teaching_6712adae",
+    "teaching_a9721d5a",
+    "teaching_8f0b8816",
+    "teaching_3fd97f53"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.261805Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-06-Class",
+    "unit_number": 6,
+    "section_number": 6,
+    "section_index": 6,
+    "x_range": [
+      10030.8,
+      12039.9
+    ],
+    "full_teaching_text": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain\u00c2\u00b2\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain\u00c2\u00b2 information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface.",
+    "sub_annotations": [
+      {
+        "id": "C49",
+        "text": "The following bit of code below is inspired by the source mentioned here.\r\n\r\nThe main feature of this definition is that we can control:\r\n1- Radius of effect\r\n2- Strength of effect\r\n\r\nOnline source:\r\nhttps://generativelandscapes.wordpress.com/2014/08/21/multiple-point-vector-field-example-6-2",
+        "topic": "The following bit of code below is inspired by the source mentioned here.",
+        "pos": [
+          10026.4,
+          342.9
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C40",
+      "C41",
+      "C42",
+      "C43",
+      "C44",
+      "C45",
+      "C47",
+      "C48",
+      "C63",
+      "C64",
+      "C339",
+      "C55"
+    ],
+    "intra_section_flows": [
+      "C55.O0>C40.I0",
+      "C40.O0>C41.I0",
+      "C55.O0>C41.I1",
+      "C40.O2>C42.I0",
+      "C43.O0>C42.I1",
+      "C339.O0>C45.I0",
+      "C46.O0>C45.I1",
+      "C41.O0>C47.I0",
+      "C45.O0>C47.I1",
+      "C55.O0>C48.I0",
+      "C47.O0>C48.I1",
+      "C44.O0>C339.I0",
+      "C42.O0>C339.I1"
+    ],
+    "groups": [
+      {
+        "group_id": "G43",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G48",
+        "name": "Strength of Effect",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G50",
+        "name": "Radius of Effect",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G6",
+        "name": "",
+        "colour": "#006BD66A"
+      }
+    ],
+    "components_demonstrated": {
+      "Closest Point": 1,
+      "Vector 2Pt": 1,
+      "Division": 1,
+      "NumberSlider": 4,
+      "Maximum": 1,
+      "Amplitude": 1,
+      "Move": 1,
+      "Subtraction": 1,
+      "Point": 1
+    },
+    "stats": {
+      "teaching_panels": 2,
+      "sub_annotations": 1,
+      "working_components": 12,
+      "sub_labels": 1,
+      "connected_panels": 1,
+      "flows": 13,
+      "groups": 4
+    }
+  }
+}

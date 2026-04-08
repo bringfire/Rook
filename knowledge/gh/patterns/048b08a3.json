@@ -1,0 +1,5739 @@
+{
+  "pattern_id": "048b08a3",
+  "name": "Unit-04-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:27:27.375705Z",
+  "solution": {
+    "brief": "Recipe from Unit-04-Class.gh (414 components)",
+    "principle": "\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-04-Class and Unit-05-Class form a tight complexity cluster in the ultra-complex tier.\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-06-Class (364) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-06-Class bridges the complexity gap between Unit-03-Class and the Unit-04/05-Class cluster, providing more granular progression understanding.\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-07-Class (358) → Unit-06-Class (364) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-07-Class creates a tight complexity cluster with Unit-06-Class (358-364 range), providing even finer granularity in the ultra-complex tier progression.",
+    "components_needed": [
+      "Scribble",
+      "Deconstruct Brep",
+      "Center Box",
+      "Surface",
+      "Curve",
+      "Point",
+      "panel",
+      "panel",
+      "panel",
+      "Number Slider",
+      "List Item",
+      "Scribble",
+      "Merge",
+      "panel",
+      "Shape In Brep",
+      "Sphere",
+      "Number Slider",
+      "Sphere",
+      "Number Slider",
+      "Merge",
+      "Dispatch",
+      "Equality",
+      "panel",
+      "Brep",
+      "Brep",
+      "Brep",
+      "Scribble",
+      "Brep | Brep",
+      "Solid Union",
+      "Trim Solid",
+      "Solid Difference",
+      "Solid Intersection",
+      "Box Slits",
+      "Scribble",
+      "Delaunay Mesh",
+      "Voronoi",
+      "Delaunay Edges",
+      "Point",
+      "Curve",
+      "Number Slider",
+      "Brep",
+      "panel",
+      "panel",
+      "Sphere",
+      "Number Slider",
+      "Sphere",
+      "Number Slider",
+      "Move",
+      "panel",
+      "panel",
+      "panel",
+      "Cap Holes",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Center Box",
+      "Center Box",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Move",
+      "Unit X",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Merge",
+      "Number Slider",
+      "Scribble",
+      "Boundary Surfaces",
+      "List Item",
+      "panel",
+      "Number Slider",
+      "List Item",
+      "panel",
+      "List Item",
+      "panel",
+      "Number Slider",
+      "Number Slider",
+      "Merge",
+      "panel",
+      "List Item",
+      "Merge",
+      "List Item",
+      "panel",
+      "List Item",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Mesh Edges",
+      "panel",
+      "Box Corners",
+      "Point",
+      "Surface",
+      "panel",
+      "Mesh Brep",
+      "Weaverbird's Laplacian Smoothing",
+      "Weaverbird's Loop Subdivision",
+      "Area",
+      "Point List",
+      "Populate 2D",
+      "Number Slider",
+      "Number Slider",
+      "Voronoi",
+      "Populate 3D",
+      "Center Box",
+      "Number Slider",
+      "Number Slider",
+      "Move",
+      "Number Slider",
+      "Unit X",
+      "Number Slider",
+      "Number Slider",
+      "Voronoi 3D",
+      "List Item",
+      "Number Slider",
+      "panel",
+      "Brep",
+      "panel",
+      "Curve",
+      "panel",
+      "Curve",
+      "Move",
+      "Number Slider",
+      "Brep",
+      "Populate Geometry",
+      "Voronoi 3D",
+      "Unit Y",
+      "Solid Intersection",
+      "Flatten Tree",
+      "List Item",
+      "Move",
+      "Unit X",
+      "Brep",
+      "List Item",
+      "Number Slider",
+      "Number Slider",
+      "Point",
+      "List Item",
+      "panel",
+      "Brep",
+      "Brep",
+      "panel",
+      "Equality",
+      "Dispatch",
+      "slider",
+      "Number Slider",
+      "panel",
+      "Brep",
+      "Brep",
+      "panel",
+      "Equality",
+      "Dispatch",
+      "Brep Join",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Point",
+      "Point",
+      "Division",
+      "panel",
+      "Cull Index",
+      "Boolean Toggle",
+      "panel",
+      "Brep Join",
+      "panel",
+      "Brep Join",
+      "panel",
+      "Hexagonal",
+      "Number Slider",
+      "Number Slider",
+      "Move",
+      "Number Slider",
+      "Unit Z",
+      "Scale",
+      "Area",
+      "Number Slider",
+      "Rotate",
+      "Number Slider",
+      "Loft",
+      "Merge",
+      "panel",
+      "panel",
+      "Graft Tree",
+      "panel",
+      "panel",
+      "Graft Tree",
+      "panel",
+      "Sketch",
+      "Flatten Tree",
+      "panel",
+      "Flatten Tree",
+      "panel",
+      "panel",
+      "Data",
+      "Sketch",
+      "Sketch",
+      "Series",
+      "panel",
+      "panel",
+      "panel",
+      "Hexagonal",
+      "Number Slider",
+      "Number Slider",
+      "Move",
+      "Unit Z",
+      "Scale",
+      "Area",
+      "Rotate",
+      "Loft",
+      "panel",
+      "Series",
+      "panel",
+      "panel",
+      "panel",
+      "Series",
+      "panel",
+      "panel",
+      "panel",
+      "Flip Matrix",
+      "Scribble",
+      "panel",
+      "panel",
+      "panel",
+      "Brep",
+      "Loft",
+      "Merge",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Face Boundaries",
+      "Mesh Box",
+      "panel",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Mesh Union",
+      "Mesh Difference",
+      "Mesh Intersection",
+      "Mesh Box",
+      "Mesh Sphere",
+      "Deconstruct Mesh",
+      "Deconstruct Face",
+      "Face Normals",
+      "Triangulate",
+      "Quadrangulate",
+      "Mesh Brep",
+      "Simple Mesh",
+      "Mesh Edges",
+      "Number Slider",
+      "Number Slider",
+      "Delete Faces",
+      "Number Slider",
+      "panel",
+      "Weld Mesh",
+      "Mesh Edges",
+      "Mesh Edges",
+      "Mesh Edges",
+      "Radians",
+      "Number Slider",
+      "Number Slider",
+      "Vector Display",
+      "Center Box",
+      "Brep",
+      "Move",
+      "Unit X",
+      "Mesh",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Boundary Surfaces",
+      "List Item",
+      "Smooth Mesh",
+      "Mesh Sphere",
+      "Number Slider",
+      "Mesh Box",
+      "Number Slider",
+      "Mesh Box",
+      "Number Slider",
+      "Brep Edges",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Cap Holes",
+      "panel",
+      "Brep | Line",
+      "MD Slider",
+      "MD Slider",
+      "Line",
+      "Scale",
+      "Evaluate Curve",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "panel",
+      "Scribble",
+      "panel",
+      "Center Box",
+      "Sphere",
+      "Cylinder",
+      "Cone",
+      "Mesh Box",
+      "Mesh Sphere",
+      "Mesh Sphere Ex",
+      "panel",
+      "Scribble",
+      "Brep",
+      "Surface",
+      "Brep",
+      "Surface",
+      "Center Box",
+      "Sphere",
+      "Cylinder",
+      "Cone",
+      "Brep",
+      "Surface",
+      "Mesh",
+      "Mesh Box",
+      "Mesh Sphere",
+      "Mesh Sphere Ex",
+      "Brep",
+      "Surface",
+      "Mesh",
+      "Mesh Brep",
+      "Mesh Surface",
+      "Surface",
+      "Brep",
+      "Surface",
+      "Cap Holes",
+      "Brep",
+      "Surface",
+      "panel",
+      "panel",
+      "Scribble",
+      "Number Slider",
+      "Close Mesh",
+      "panel",
+      "Mesh Brep",
+      "Mesh Brep",
+      "Mesh Brep",
+      "Mesh Surface",
+      "Mesh Surface",
+      "Mesh Surface",
+      "Mesh Surface",
+      "panel",
+      "panel",
+      "Brep Join",
+      "Surface",
+      "Surface",
+      "Point On Curve",
+      "Face Boundaries",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Point",
+      "Vector Display",
+      "panel",
+      "panel",
+      "4Point Surface",
+      "panel",
+      "List Item",
+      "List Item",
+      "List Item",
+      "List Item",
+      "Cull Duplicates",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Delaunay Mesh",
+      "Voronoi",
+      "Delaunay Edges",
+      "Point",
+      "Curve",
+      "Number Slider",
+      "Mesh Edges",
+      "Curve",
+      "Curve",
+      "Facet Dome",
+      "Sphere",
+      "Populate 3D",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Convex Hull",
+      "3D Delaunay",
+      "3D Voronoi",
+      "Voronoi 3D",
+      "3D DelaunayCell",
+      "List Item",
+      "Substrate",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Curve",
+      "Curve",
+      "panel",
+      "List Item",
+      "Flatten Tree",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 04 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "155ea82b",
+    "b71e60f2",
+    "8a71e405",
+    "c02352fa",
+    "370b1d02",
+    "f18add2b"
+  ],
+  "tags": [
+    "414-components",
+    "unit-series",
+    "trigonometric",
+    "ultra-complex-cluster",
+    "surface-creation",
+    "boolean",
+    "high-complexity",
+    "recipe",
+    "parametric",
+    "ultra-complex-tier",
+    "unit-04-class",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:29:24.435384",
+    "evolved_by": [
+      "c02352fa",
+      "370b1d02",
+      "f18add2b"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:28:18.067327",
+        "trigger": "New pattern: c02352fa",
+        "changes": "Unit-05-Class reveals Unit-04-Class is part of an ultra-complex cluster, not a standalone complexity level"
+      },
+      {
+        "date": "2026-02-22T09:28:52.458647",
+        "trigger": "New pattern: 370b1d02",
+        "changes": "Unit-06-Class provides important context for understanding Unit-04-Class's position in the overall spectrum"
+      },
+      {
+        "date": "2026-02-22T09:29:24.435384",
+        "trigger": "New pattern: f18add2b",
+        "changes": "Unit-series spectrum context needs updating to include Unit-07-Class and reflect the new tight clustering pattern"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R10",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R17",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R19",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 13
+        },
+        {
+          "id": "R40",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 300,
+          "value": 300
+        },
+        {
+          "id": "R45",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R47",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R59",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R60",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R61",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R64",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R65",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R66",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R67",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R69",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0.888
+        },
+        {
+          "id": "R74",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 101,
+          "value": 14
+        },
+        {
+          "id": "R79",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 101,
+          "value": 22
+        },
+        {
+          "id": "R80",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 101,
+          "value": 46
+        },
+        {
+          "id": "R110",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 80,
+          "value": 48
+        },
+        {
+          "id": "R111",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 0
+        },
+        {
+          "id": "R115",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R116",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 35
+        },
+        {
+          "id": "R118",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 20
+        },
+        {
+          "id": "R120",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 300,
+          "value": 219.41
+        },
+        {
+          "id": "R121",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 80,
+          "value": 24
+        },
+        {
+          "id": "R124",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 12
+        },
+        {
+          "id": "R132",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 80,
+          "value": 35
+        },
+        {
+          "id": "R144",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 2
+        },
+        {
+          "id": "R145",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 31
+        },
+        {
+          "id": "R154",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R155",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 7,
+          "value": 0
+        },
+        {
+          "id": "R181",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R182",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R184",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 33.11
+        },
+        {
+          "id": "R188",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.56
+        },
+        {
+          "id": "R190",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 360,
+          "value": 102
+        },
+        {
+          "id": "R214",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R215",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R239",
+          "nick": "Number Slider",
+          "min": -50,
+          "max": 50,
+          "value": -30.99
+        },
+        {
+          "id": "R240",
+          "nick": "Number Slider",
+          "min": -0.15,
+          "max": 0,
+          "value": -0.112
+        },
+        {
+          "id": "R241",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 6.88
+        },
+        {
+          "id": "R263",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 13
+        },
+        {
+          "id": "R264",
+          "nick": "Number Slider",
+          "min": -2,
+          "max": 2,
+          "value": 0.412
+        },
+        {
+          "id": "R266",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R273",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 360,
+          "value": 268
+        },
+        {
+          "id": "R274",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R289",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R291",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R293",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R349",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 12
+        },
+        {
+          "id": "R388",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 300,
+          "value": 295.84
+        },
+        {
+          "id": "R395",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 100,
+          "value": 49
+        },
+        {
+          "id": "R396",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 100,
+          "value": 32
+        },
+        {
+          "id": "R397",
+          "nick": "Number Slider",
+          "min": 1,
+          "max": 100,
+          "value": 1
+        },
+        {
+          "id": "R405",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 9
+        },
+        {
+          "id": "R406",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 500,
+          "value": 243
+        },
+        {
+          "id": "R407",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 7,
+          "value": 2.264
+        },
+        {
+          "id": "R408",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 13
+        }
+      ],
+      "panels": [
+        {
+          "id": "R7",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R51",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R53",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "content": "20"
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "content": "50"
+        },
+        {
+          "id": "R82",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R86",
+          "nick": "",
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R88",
+          "nick": "",
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R89",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R90",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R91",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R92",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R99",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R103",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R125",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R127",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R129",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R148",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R151",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R156",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R159",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R163",
+          "nick": "",
+          "content": "3- Brep Analysis:\r\n\r\nLike the \"Evaluate Surface\" component, Breps also have similar components that let us extract information and manipulate them.\r\n\r\n- Make a simple \"Center Box\" component.\r\n\r\n- Use the \"Deconstruct Brep\" component to deconstruct the Box into its basic geometries:\r\n1- Faces (surfaces)\r\n2- Edges\r\n3- Vertecies\r\n\r\n- Use the \"Brep Edges\" component to only extract edges.\r\nNote that this component provides few more options relating to the nature of the edges.\r\nHover the cursor over the OUTPUTS and check them out.\r\n\r\n- Use the \"Brep Wireframe\" component to only extract edges. This is similar to the \"Deconstruct Brep\"'s Edges OUTPUT.\r\n\r\n- Check out the \"Shape In Brep\" and see how it can be useful to you."
+        },
+        {
+          "id": "R164",
+          "nick": "",
+          "content": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)"
+        },
+        {
+          "id": "R165",
+          "nick": "",
+          "content": "4- Brep Operations 1:\r\n\r\nGrasshopper provides many useful components to manipulate Breps. We will see below few useful ones.\r\n\r\n- Based on the previous Definition on the left, use the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep Join\"\r\n- \"Cap Holes\""
+        },
+        {
+          "id": "R166",
+          "nick": "",
+          "content": "9- Triangulation:\r\n\r\nSome of the interesting components in Grasshopper that provide complex geometry are triangulation operators, such as Delaunay and Voronoi.\r\n\r\nLet's checkout few Delaunay and Voronoi components below and see the required inouts and resultants."
+        },
+        {
+          "id": "R172",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R175",
+          "nick": "",
+          "content": "-1"
+        },
+        {
+          "id": "R177",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R179",
+          "nick": "",
+          "content": "Panels may not always keep data as Geometry"
+        },
+        {
+          "id": "R193",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R194",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R196",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R197",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R199",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R202",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R204",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R205",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R210",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R211",
+          "nick": "",
+          "content": "7"
+        },
+        {
+          "id": "R212",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R222",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R224",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R225",
+          "nick": "",
+          "content": "7"
+        },
+        {
+          "id": "R226",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R228",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R229",
+          "nick": "",
+          "content": "7"
+        },
+        {
+          "id": "R230",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R233",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R234",
+          "nick": "",
+          "content": "Unit 2 Vase includes same Grafting Strategy!\r\n\r\nGrafting will be explained in depth in Unit 5"
+        },
+        {
+          "id": "R235",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R244",
+          "nick": "",
+          "content": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\""
+        },
+        {
+          "id": "R246",
+          "nick": "",
+          "content": "7- Mesh Analysis:\r\n\r\nSimilarly to the Brep Analysis components, Meshes also have Analysis components that help analyze and extract important information from Meshes in order to manipulate them parametrically.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Edges\"\r\n- \"Deconstruct Mesh\"\r\n- \"Deconstruct Face\"\r\n- \"Face Normals\"\r\n- \"Mesh Explode\""
+        },
+        {
+          "id": "R248",
+          "nick": "",
+          "content": "8- Mesh Operations:\r\n\r\nAgain, similarly to Brep operations, Grasshopper provides useful components to manipulate Meshes.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Union\"\r\n- \"Mesh Difference\"\r\n- \"Mesh Intersection\"\r\n\r\n- \"Mesh Smooth\"\r\n- \"Triangulate\"\r\n- \"Quadrangulate\""
+        },
+        {
+          "id": "R267",
+          "nick": "",
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R281",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R282",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R283",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R284",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R300",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R309",
+          "nick": "",
+          "content": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of computational modeling, meshes are one of the most pervasive forms of representing 3D geometry. Mesh geometry can be a light-weight and flexible alternative to working with NURBS, and are used in everything from rendering and visualizations to digital fabrication and 3D printing.\"\r\n\r\n\"A Mesh is a collection of quadrilaterals and triangles that represent a surface or solid geometry.\"\r\nA mesh is composed of \"vertices, edges, and faces, as well as additional mesh properties such as colors and normals.\"\r\n\r\n\"Meshes can be favorable in situations where:\r\n\r\nThere must be a dynamically updated rendering of a form that is changing in shape but not in face connectivity\r\nA discretized approximation of a curved geometry would suffice\r\nA low-resolution geometry must be systematically smoothed (or articlated) using computational methods to arrive at a higher-resolution model.\r\nThe low resolution model must be able to be to simultaneously support local, high resolution detail\r\nMeshes can be unfavorable in situations where:\r\n\r\nCurvature and smoothness must be represented with a high level of precision\r\nTrue derivatives must be evaluated\r\nThe geometry must be converted into a manufacturable solid\r\nThe final form must be able to be easily edited manually\"\r\n\r\nSources:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/0_Getting%20Started%20with%20Meshes.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/1_What%20is%20a%20Mesh.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/2_Understanding%20Topology.html"
+        },
+        {
+          "id": "R311",
+          "nick": "",
+          "content": "NURBS & Mesh:\r\n\r\nGrasshopper provides various tools to work with both NURBS & Meshes.\r\n\r\nUnless otherwise specified, solids & Breps in Grasshopper are NURBS geometry. When a Mesh is being used, it usually states that it is a \"Mesh\" and its icon shows small squarish meshes.\r\n\r\nBelow on the left are Geometry generation and analysis components for NURBS (can also be found under the tab \"Surface\")\r\n\r\nOn the right, Mesh components (can also be found under the tab \"Mesh\")"
+        },
+        {
+          "id": "R319",
+          "nick": "",
+          "content": "2- Brep: What is it?\r\n\r\n\"The word Brep stands for Boundary Representation. That in itself doesn't tell you much, but allow me to break down the general idea behind Breps. In Rhino UI itself, we don't use the word Brep, that one is only for programmers. Instead \"Polysurface\" is used, but it is not an ideal replacement because a Brep may well have only a single surface.\"\r\n- David Rutten\r\n\r\nSource:\r\n\r\nhttp://www.grasshopper3d.com/forum/topics/how-to-make-a-brep\r\n\r\n- In Grasshopper, a Brep is a NURBS goemetry, and not a Mesh.\r\n\r\nWhat is modeled in Rhino is a Surface or a Polysurface or a Mesh.\r\n\r\nWhen a Polysurface is being referenced in Grasshopper, it would be called as a Brep and not a polysurface.\r\n\r\n- The \"Mesh Brep\" component converts a Brep into a Mesh.\r\n\r\n\"NOTE: it is generally much easier to convert from a NURBS geometry to a mesh object rather than the other way around. While the UV coordinates of a NURBS surface are straightforward to convert to quad faces of a mesh, the opposite is not necessarily true, since a mesh might contain a combination of triangles and quads in a way that is not simple to extract a UV coordinate system out of.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/3_Creating%20Meshes.html"
+        },
+        {
+          "id": "R346",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R347",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R351",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R359",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R360",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R371",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R372",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R374",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R411",
+          "nick": "",
+          "content": "Parametric Collar by Daniel Kiskery\r\nhttps://www.behance.net/gallery/57066297/Printed-Parametric-Collar"
+        },
+        {
+          "id": "R414",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "brep",
+    "source_definition": "Unit-04-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2266.3,
+            -36.8
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            2540,
+            1007
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            2295,
+            1008
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            2881.7,
+            908.9
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            2878.7,
+            1013.4
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            2881,
+            1127.1
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "panel",
+          "pos": [
+            2969.8,
+            699.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            2969.5,
+            926.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            2969.7,
+            1205.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1999.9,
+            1009.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R11",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            3446,
+            898
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3258.8,
+            -36.8
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3621,
+            980
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            3740,
+            1139.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R15",
+          "type": "Component_IsShapeInBrep",
+          "name": "Shape In Brep",
+          "pos": [
+            2895,
+            2180
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            2279,
+            2256
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1967.4,
+            2266.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R18",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            2279,
+            2169
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1967.4,
+            2175.4
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 13
+        },
+        {
+          "id": "R20",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2557,
+            2284
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            3509,
+            2312
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_EqualTo",
+          "name": "Equality",
+          "pos": [
+            3199,
+            2394
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "panel",
+          "pos": [
+            2893.3,
+            2396.1
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R24",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3692.3,
+            2281.2
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3692.6,
+            2357.8
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            2558.9,
+            2091.1
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            4517,
+            -36.8
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_BRepIntersection",
+          "name": "Brep | Brep",
+          "pos": [
+            5548,
+            1138
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_BooleanUnion",
+          "name": "Solid Union",
+          "pos": [
+            5350,
+            1428
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_BooleanTrim",
+          "name": "Trim Solid",
+          "pos": [
+            5548,
+            1296
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_BooleanDifference",
+          "name": "Solid Difference",
+          "pos": [
+            5355,
+            1554
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_BooleanIntersection",
+          "name": "Solid Intersection",
+          "pos": [
+            5349,
+            1700
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_BoxSlits",
+          "name": "Box Slits",
+          "pos": [
+            5552,
+            1843
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            14627.5,
+            -36.8
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Delaunay",
+          "name": "Delaunay Mesh",
+          "pos": [
+            12798,
+            730
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            12814,
+            1177
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Connectivity",
+          "name": "Delaunay Edges",
+          "pos": [
+            12798,
+            896
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            12570.7,
+            702.8
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            12645.9,
+            1236.9
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12495.9,
+            1158.7
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 300
+        },
+        {
+          "id": "R41",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            2546.5,
+            876.3
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "panel",
+          "pos": [
+            2597.1,
+            799.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R43",
+          "type": "panel",
+          "pos": [
+            2372.1,
+            799.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R44",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            4956,
+            1206
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4469.7,
+            1210.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R46",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            4768,
+            1355
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4469.7,
+            1360.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R48",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            4954,
+            1368
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "panel",
+          "pos": [
+            5827.4,
+            1096.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            5827.4,
+            1317.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R51",
+          "type": "panel",
+          "pos": [
+            5827.4,
+            1432.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R52",
+          "type": "Component_CapPlanarHoles",
+          "name": "Cap Holes",
+          "pos": [
+            5751,
+            1262
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "panel",
+          "pos": [
+            5827.6,
+            1231.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R54",
+          "type": "panel",
+          "pos": [
+            5827.4,
+            1546.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R55",
+          "type": "panel",
+          "pos": [
+            5827.4,
+            1653.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R56",
+          "type": "panel",
+          "pos": [
+            5828.8,
+            1784.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R57",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            4909,
+            1807
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            4911,
+            1915
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1895.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R60",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1949.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1922.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R62",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            5152,
+            1902
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_UnitVectorX",
+          "name": "Unit X",
+          "pos": [
+            4895,
+            2058
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4622.4,
+            2058.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R65",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1786.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1840
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            4632.4,
+            1812.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R68",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            5366,
+            1826
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            5300.7,
+            1922.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.888
+        },
+        {
+          "id": "R70",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            35.1,
+            -37.8
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_BoundarySurfaces",
+          "name": "Boundary Surfaces",
+          "pos": [
+            11391,
+            372
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11819,
+            393
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "panel",
+          "pos": [
+            11696.5,
+            382.1
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R74",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11357,
+            772.1
+          ],
+          "min": 1,
+          "max": 101,
+          "value": 14
+        },
+        {
+          "id": "R75",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11819,
+            467
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "panel",
+          "pos": [
+            11696.5,
+            455.4
+          ],
+          "content": "20"
+        },
+        {
+          "id": "R77",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11819,
+            539
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "panel",
+          "pos": [
+            11696.5,
+            528.3
+          ],
+          "content": "50"
+        },
+        {
+          "id": "R79",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11357.7,
+            793.8
+          ],
+          "min": 1,
+          "max": 101,
+          "value": 22
+        },
+        {
+          "id": "R80",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11357.7,
+            813.3
+          ],
+          "min": 1,
+          "max": 101,
+          "value": 46
+        },
+        {
+          "id": "R81",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            11614,
+            812
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "panel",
+          "pos": [
+            11783.4,
+            764.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R83",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11965,
+            794
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            11965,
+            477
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11970,
+            920
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "panel",
+          "pos": [
+            11789.2,
+            908.2
+          ],
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R87",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            11971,
+            1047
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "panel",
+          "pos": [
+            11791.6,
+            1036
+          ],
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R89",
+          "type": "panel",
+          "pos": [
+            12050.7,
+            430.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R90",
+          "type": "panel",
+          "pos": [
+            3122.4,
+            2133.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R91",
+          "type": "panel",
+          "pos": [
+            12056.3,
+            752.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R92",
+          "type": "panel",
+          "pos": [
+            12056.3,
+            879.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R93",
+          "type": "panel",
+          "pos": [
+            12056.3,
+            1006.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R94",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11763.1,
+            899.7
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11774.1,
+            772.2
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11765,
+            838.4
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11710.5,
+            835.3
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            12969,
+            729
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "panel",
+          "pos": [
+            11346.3,
+            450.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R100",
+          "type": "Component_BoxCorners",
+          "name": "Box Corners",
+          "pos": [
+            2534,
+            1486
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            2880.7,
+            1418.2
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            3232.2,
+            908.3
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "panel",
+          "pos": [
+            3231.6,
+            1018.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R104",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            6151,
+            1402
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "LaplacianComponent",
+          "name": "Weaverbird's Laplacian Smoothing",
+          "pos": [
+            6680,
+            1560
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "LoopComponent",
+          "name": "Weaverbird's Loop Subdivision",
+          "pos": [
+            6379,
+            1471
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            11808,
+            187
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            11962,
+            215
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "Component_PopulateRectangle",
+          "name": "Populate 2D",
+          "pos": [
+            12803,
+            1326
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12495.8,
+            1304.6
+          ],
+          "min": 0,
+          "max": 80,
+          "value": 48
+        },
+        {
+          "id": "R111",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12495.3,
+            1327
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 0
+        },
+        {
+          "id": "R112",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            13213,
+            1328
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "Component_PopulateBox",
+          "name": "Populate 3D",
+          "pos": [
+            12600,
+            2943
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            12425,
+            2803
+          ]
+        },
+        {
+          "id": "R115",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12124,
+            2802.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R116",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12299.5,
+            2926.8
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 35
+        },
+        {
+          "id": "R117",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2264,
+            2384
+          ]
+        },
+        {
+          "id": "R118",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12296.1,
+            2946.9
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 20
+        },
+        {
+          "id": "R119",
+          "type": "Component_UnitVectorX",
+          "name": "Unit X",
+          "pos": [
+            2055,
+            2395
+          ]
+        },
+        {
+          "id": "R120",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12904.2,
+            1359.8
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 219.41
+        },
+        {
+          "id": "R121",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1725.2,
+            2390.1
+          ],
+          "min": 0,
+          "max": 80,
+          "value": 24
+        },
+        {
+          "id": "R122",
+          "type": "Component_VolumeVoronoi",
+          "name": "Voronoi 3D",
+          "pos": [
+            12797,
+            2963
+          ]
+        },
+        {
+          "id": "R123",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13205,
+            2966
+          ]
+        },
+        {
+          "id": "R124",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12933.8,
+            2961.4
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 12
+        },
+        {
+          "id": "R125",
+          "type": "panel",
+          "pos": [
+            3351,
+            2396
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R126",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            12576.4,
+            2805.4
+          ]
+        },
+        {
+          "id": "R127",
+          "type": "panel",
+          "pos": [
+            3667.9,
+            2160.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R128",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13166.8,
+            700.2
+          ]
+        },
+        {
+          "id": "R129",
+          "type": "panel",
+          "pos": [
+            3667.7,
+            2403.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R130",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13166.8,
+            728.5
+          ]
+        },
+        {
+          "id": "R131",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2264,
+            2472
+          ]
+        },
+        {
+          "id": "R132",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1725.2,
+            2482.1
+          ],
+          "min": 0,
+          "max": 80,
+          "value": 35
+        },
+        {
+          "id": "R133",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            12407.7,
+            3179.6
+          ]
+        },
+        {
+          "id": "R134",
+          "type": "Component_PopulateGeometry",
+          "name": "Populate Geometry",
+          "pos": [
+            12581,
+            3335
+          ]
+        },
+        {
+          "id": "R135",
+          "type": "Component_VolumeVoronoi",
+          "name": "Voronoi 3D",
+          "pos": [
+            12800,
+            3244
+          ]
+        },
+        {
+          "id": "R136",
+          "type": "Component_UnitVectorY",
+          "name": "Unit Y",
+          "pos": [
+            2060,
+            2487
+          ]
+        },
+        {
+          "id": "R137",
+          "type": "Component_BooleanIntersection",
+          "name": "Solid Intersection",
+          "pos": [
+            12995,
+            3153
+          ]
+        },
+        {
+          "id": "R138",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            5703,
+            1913
+          ]
+        },
+        {
+          "id": "R139",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            5856,
+            1934
+          ]
+        },
+        {
+          "id": "R140",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            6107,
+            1993
+          ]
+        },
+        {
+          "id": "R141",
+          "type": "Component_UnitVectorX",
+          "name": "Unit X",
+          "pos": [
+            5831,
+            2077
+          ]
+        },
+        {
+          "id": "R142",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            6068.6,
+            1932.8
+          ]
+        },
+        {
+          "id": "R143",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13226,
+            3242
+          ]
+        },
+        {
+          "id": "R144",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12943.5,
+            3287.8
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 2
+        },
+        {
+          "id": "R145",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12299.1,
+            3318.6
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 31
+        },
+        {
+          "id": "R146",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            2880.7,
+            1439.3
+          ]
+        },
+        {
+          "id": "R147",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            2754,
+            1266
+          ]
+        },
+        {
+          "id": "R148",
+          "type": "panel",
+          "pos": [
+            3347,
+            3103.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R149",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3692.6,
+            3023.8
+          ]
+        },
+        {
+          "id": "R150",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3692.3,
+            2947.3
+          ]
+        },
+        {
+          "id": "R151",
+          "type": "panel",
+          "pos": [
+            2897.4,
+            3051
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R152",
+          "type": "Component_EqualTo",
+          "name": "Equality",
+          "pos": [
+            3199,
+            3041
+          ]
+        },
+        {
+          "id": "R153",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            3506,
+            2978
+          ]
+        },
+        {
+          "id": "R154",
+          "type": "slider",
+          "pos": [
+            10791.6,
+            376.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R155",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2479.6,
+            1256.5
+          ],
+          "min": 0,
+          "max": 7,
+          "value": 0
+        },
+        {
+          "id": "R156",
+          "type": "panel",
+          "pos": [
+            3343.5,
+            2755.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R157",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3689.1,
+            2675.5
+          ]
+        },
+        {
+          "id": "R158",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            3688.7,
+            2598.9
+          ]
+        },
+        {
+          "id": "R159",
+          "type": "panel",
+          "pos": [
+            2893.9,
+            2699.3
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R160",
+          "type": "Component_EqualTo",
+          "name": "Equality",
+          "pos": [
+            3195,
+            2692
+          ]
+        },
+        {
+          "id": "R161",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            3502,
+            2629
+          ]
+        },
+        {
+          "id": "R162",
+          "type": "Component_BrepJoin",
+          "name": "Brep Join",
+          "pos": [
+            3799,
+            982
+          ]
+        },
+        {
+          "id": "R163",
+          "type": "panel",
+          "pos": [
+            2243.5,
+            39.3
+          ],
+          "content": "3- Brep Analysis:\r\n\r\nLike the \"Evaluate Surface\" component, Breps also have similar components that let us extract information and manipulate them.\r\n\r\n- Make a simple \"Center Box\" component.\r\n\r\n- Use the \"Deconstruct Brep\" component to deconstruct the Box into its basic geometries:\r\n1- Faces (surfaces)\r\n2- Edges\r\n3- Vertecies\r\n\r\n- Use the \"Brep Edges\" component to only extract edges.\r\nNote that this component provides few more options relating to the nature of the edges.\r\nHover the cursor over the OUTPUTS and check them out.\r\n\r\n- Use the \"Brep Wireframe\" component to only extract edges. This is similar to the \"Deconstruct Brep\"'s Edges OUTPUT.\r\n\r\n- Check out the \"Shape In Brep\" and see how it can be useful to you."
+        },
+        {
+          "id": "R164",
+          "type": "panel",
+          "pos": [
+            4502.1,
+            39.3
+          ],
+          "content": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)"
+        },
+        {
+          "id": "R165",
+          "type": "panel",
+          "pos": [
+            3248.2,
+            39.3
+          ],
+          "content": "4- Brep Operations 1:\r\n\r\nGrasshopper provides many useful components to manipulate Breps. We will see below few useful ones.\r\n\r\n- Based on the previous Definition on the left, use the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep Join\"\r\n- \"Cap Holes\""
+        },
+        {
+          "id": "R166",
+          "type": "panel",
+          "pos": [
+            12547.7,
+            39.3
+          ],
+          "content": "9- Triangulation:\r\n\r\nSome of the interesting components in Grasshopper that provide complex geometry are triangulation operators, such as Delaunay and Voronoi.\r\n\r\nLet's checkout few Delaunay and Voronoi components below and see the required inouts and resultants."
+        },
+        {
+          "id": "R167",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            46.6
+          ]
+        },
+        {
+          "id": "R168",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            112.9
+          ]
+        },
+        {
+          "id": "R169",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            2881.1,
+            1197.9
+          ]
+        },
+        {
+          "id": "R170",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            2880.9,
+            1218
+          ]
+        },
+        {
+          "id": "R171",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            5572,
+            2077
+          ]
+        },
+        {
+          "id": "R172",
+          "type": "panel",
+          "pos": [
+            5475.4,
+            2074.8
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R173",
+          "type": "Component_CullIndex",
+          "name": "Cull Index",
+          "pos": [
+            3624,
+            1399
+          ]
+        },
+        {
+          "id": "R174",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            3404,
+            1412
+          ],
+          "value": true
+        },
+        {
+          "id": "R175",
+          "type": "panel",
+          "pos": [
+            3498,
+            1380.4
+          ],
+          "content": "-1"
+        },
+        {
+          "id": "R176",
+          "type": "Component_BrepJoin",
+          "name": "Brep Join",
+          "pos": [
+            3788,
+            1515
+          ]
+        },
+        {
+          "id": "R177",
+          "type": "panel",
+          "pos": [
+            3740.4,
+            1332.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R178",
+          "type": "Component_BrepJoin",
+          "name": "Brep Join",
+          "pos": [
+            3976,
+            1399
+          ]
+        },
+        {
+          "id": "R179",
+          "type": "panel",
+          "pos": [
+            4080,
+            1349.8
+          ],
+          "content": "Panels may not always keep data as Geometry"
+        },
+        {
+          "id": "R180",
+          "type": "Component_HexagonalGrid",
+          "name": "Hexagonal",
+          "pos": [
+            14971,
+            472
+          ]
+        },
+        {
+          "id": "R181",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            14671.2,
+            453.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R182",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            14671.6,
+            488.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R183",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            15530,
+            330
+          ]
+        },
+        {
+          "id": "R184",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15064.1,
+            386.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 33.11
+        },
+        {
+          "id": "R185",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            15345,
+            396
+          ]
+        },
+        {
+          "id": "R186",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            15949,
+            338
+          ]
+        },
+        {
+          "id": "R187",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            15704,
+            454
+          ]
+        },
+        {
+          "id": "R188",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15656.5,
+            348.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.56
+        },
+        {
+          "id": "R189",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            16172,
+            438
+          ]
+        },
+        {
+          "id": "R190",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15874,
+            429.1
+          ],
+          "min": 1,
+          "max": 360,
+          "value": 102
+        },
+        {
+          "id": "R191",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            17191,
+            517
+          ]
+        },
+        {
+          "id": "R192",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            16860,
+            507
+          ]
+        },
+        {
+          "id": "R193",
+          "type": "panel",
+          "pos": [
+            14916.8,
+            126.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R194",
+          "type": "panel",
+          "pos": [
+            17142.6,
+            577.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R195",
+          "type": "GraftTreeComponent",
+          "name": "Graft Tree",
+          "pos": [
+            16681,
+            441
+          ]
+        },
+        {
+          "id": "R196",
+          "type": "panel",
+          "pos": [
+            16124.7,
+            100.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R197",
+          "type": "panel",
+          "pos": [
+            16839.7,
+            86.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R198",
+          "type": "GraftTreeComponent",
+          "name": "Graft Tree",
+          "pos": [
+            16681,
+            709
+          ]
+        },
+        {
+          "id": "R199",
+          "type": "panel",
+          "pos": [
+            16838.7,
+            569.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R200",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            16976.6,
+            113.3
+          ]
+        },
+        {
+          "id": "R201",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            16495,
+            446
+          ]
+        },
+        {
+          "id": "R202",
+          "type": "panel",
+          "pos": [
+            16456.7,
+            89.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R203",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            16495,
+            713
+          ]
+        },
+        {
+          "id": "R204",
+          "type": "panel",
+          "pos": [
+            16456.7,
+            806.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R205",
+          "type": "panel",
+          "pos": [
+            16138.8,
+            806.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R206",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            16190.9,
+            692
+          ]
+        },
+        {
+          "id": "R207",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            16294.4,
+            127.8
+          ]
+        },
+        {
+          "id": "R208",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            16654.9,
+            133
+          ]
+        },
+        {
+          "id": "R209",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            14981,
+            1910
+          ]
+        },
+        {
+          "id": "R210",
+          "type": "panel",
+          "pos": [
+            14838.1,
+            1869.7
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R211",
+          "type": "panel",
+          "pos": [
+            14832.2,
+            1931.4
+          ],
+          "content": "7"
+        },
+        {
+          "id": "R212",
+          "type": "panel",
+          "pos": [
+            15098.2,
+            1754.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R213",
+          "type": "Component_HexagonalGrid",
+          "name": "Hexagonal",
+          "pos": [
+            14971,
+            1520
+          ]
+        },
+        {
+          "id": "R214",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            14671.2,
+            1502.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 9
+        },
+        {
+          "id": "R215",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            14671.6,
+            1537.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R216",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            15528,
+            1510
+          ]
+        },
+        {
+          "id": "R217",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            15304,
+            1568
+          ]
+        },
+        {
+          "id": "R218",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            16096,
+            1518
+          ]
+        },
+        {
+          "id": "R219",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            15732,
+            1588
+          ]
+        },
+        {
+          "id": "R220",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            16617,
+            1618
+          ]
+        },
+        {
+          "id": "R221",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            16937,
+            1608
+          ]
+        },
+        {
+          "id": "R222",
+          "type": "panel",
+          "pos": [
+            14916.8,
+            1175.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R223",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            15599,
+            1876
+          ]
+        },
+        {
+          "id": "R224",
+          "type": "panel",
+          "pos": [
+            15451.6,
+            1832.9
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R225",
+          "type": "panel",
+          "pos": [
+            15450.4,
+            1898.1
+          ],
+          "content": "7"
+        },
+        {
+          "id": "R226",
+          "type": "panel",
+          "pos": [
+            15719.6,
+            1729.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R227",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            16199,
+            1888
+          ]
+        },
+        {
+          "id": "R228",
+          "type": "panel",
+          "pos": [
+            16042.6,
+            1851.5
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R229",
+          "type": "panel",
+          "pos": [
+            16042.7,
+            1912.1
+          ],
+          "content": "7"
+        },
+        {
+          "id": "R230",
+          "type": "panel",
+          "pos": [
+            16294.2,
+            1764
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R231",
+          "type": "FlipDataMatrixComponent",
+          "name": "Flip Matrix",
+          "pos": [
+            16791,
+            1603
+          ]
+        },
+        {
+          "id": "R232",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12543.6,
+            -36.8
+          ]
+        },
+        {
+          "id": "R233",
+          "type": "panel",
+          "pos": [
+            14301.7,
+            40.4
+          ],
+          "content": ""
+        },
+        {
+          "id": "R234",
+          "type": "panel",
+          "pos": [
+            17162.3,
+            89.3
+          ],
+          "content": "Unit 2 Vase includes same Grafting Strategy!\r\n\r\nGrafting will be explained in depth in Unit 5"
+        },
+        {
+          "id": "R235",
+          "type": "panel",
+          "pos": [
+            3750.7,
+            1040.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R236",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            5968.6,
+            1967.8
+          ]
+        },
+        {
+          "id": "R237",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            16515,
+            594
+          ]
+        },
+        {
+          "id": "R238",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            16321,
+            584
+          ]
+        },
+        {
+          "id": "R239",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15912.7,
+            1883.8
+          ],
+          "min": -50,
+          "max": 50,
+          "value": -30.99
+        },
+        {
+          "id": "R240",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15322,
+            1866.8
+          ],
+          "min": -0.15,
+          "max": 0,
+          "value": -0.112
+        },
+        {
+          "id": "R241",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            14705.2,
+            1905
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 6.88
+        },
+        {
+          "id": "R242",
+          "type": "Component_MeshFaceBoundaries",
+          "name": "Face Boundaries",
+          "pos": [
+            11215,
+            373
+          ]
+        },
+        {
+          "id": "R243",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            11075,
+            372
+          ]
+        },
+        {
+          "id": "R244",
+          "type": "panel",
+          "pos": [
+            6962.4,
+            19.3
+          ],
+          "content": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\""
+        },
+        {
+          "id": "R245",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            6967.1,
+            -36.8
+          ]
+        },
+        {
+          "id": "R246",
+          "type": "panel",
+          "pos": [
+            7779.7,
+            19.3
+          ],
+          "content": "7- Mesh Analysis:\r\n\r\nSimilarly to the Brep Analysis components, Meshes also have Analysis components that help analyze and extract important information from Meshes in order to manipulate them parametrically.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Edges\"\r\n- \"Deconstruct Mesh\"\r\n- \"Deconstruct Face\"\r\n- \"Face Normals\"\r\n- \"Mesh Explode\""
+        },
+        {
+          "id": "R247",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            7784.4,
+            -36.8
+          ]
+        },
+        {
+          "id": "R248",
+          "type": "panel",
+          "pos": [
+            8884.9,
+            19.3
+          ],
+          "content": "8- Mesh Operations:\r\n\r\nAgain, similarly to Brep operations, Grasshopper provides useful components to manipulate Meshes.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Union\"\r\n- \"Mesh Difference\"\r\n- \"Mesh Intersection\"\r\n\r\n- \"Mesh Smooth\"\r\n- \"Triangulate\"\r\n- \"Quadrangulate\""
+        },
+        {
+          "id": "R249",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            8889.6,
+            -36.8
+          ]
+        },
+        {
+          "id": "R250",
+          "type": "Component_MeshBooleanUnion",
+          "name": "Mesh Union",
+          "pos": [
+            10062,
+            777
+          ]
+        },
+        {
+          "id": "R251",
+          "type": "Component_MeshBooleanDifference",
+          "name": "Mesh Difference",
+          "pos": [
+            10062,
+            938
+          ]
+        },
+        {
+          "id": "R252",
+          "type": "Component_MeshBooleanIntersection",
+          "name": "Mesh Intersection",
+          "pos": [
+            10062,
+            1113
+          ]
+        },
+        {
+          "id": "R253",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            7360,
+            914
+          ]
+        },
+        {
+          "id": "R254",
+          "type": "Component_MeshSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            7370,
+            1233
+          ]
+        },
+        {
+          "id": "R255",
+          "type": "Component_DeconstructMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            7916,
+            1498
+          ]
+        },
+        {
+          "id": "R256",
+          "type": "Component_DeconstructFace",
+          "name": "Deconstruct Face",
+          "pos": [
+            8394,
+            1738
+          ]
+        },
+        {
+          "id": "R257",
+          "type": "Component_MeshFaceNormals",
+          "name": "Face Normals",
+          "pos": [
+            7916,
+            2199
+          ]
+        },
+        {
+          "id": "R258",
+          "type": "Component_MeshTriangulate",
+          "name": "Triangulate",
+          "pos": [
+            10139,
+            1655
+          ]
+        },
+        {
+          "id": "R259",
+          "type": "Component_MeshQuadrangulate",
+          "name": "Quadrangulate",
+          "pos": [
+            10327,
+            1816
+          ]
+        },
+        {
+          "id": "R260",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            7370,
+            1554
+          ]
+        },
+        {
+          "id": "R261",
+          "type": "Component_MeshBrepSimple",
+          "name": "Simple Mesh",
+          "pos": [
+            7370,
+            1699
+          ]
+        },
+        {
+          "id": "R262",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            7916,
+            1053
+          ]
+        },
+        {
+          "id": "R263",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9627.5,
+            1465.4
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 13
+        },
+        {
+          "id": "R264",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9631.5,
+            1425.6
+          ],
+          "min": -2,
+          "max": 2,
+          "value": 0.412
+        },
+        {
+          "id": "R265",
+          "type": "Component_MeshDeleteFaces",
+          "name": "Delete Faces",
+          "pos": [
+            9452,
+            1246
+          ]
+        },
+        {
+          "id": "R266",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6989.9,
+            916.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R267",
+          "type": "panel",
+          "pos": [
+            9252.1,
+            1272.5
+          ],
+          "content": "1\r\n20\r\n50"
+        },
+        {
+          "id": "R268",
+          "type": "Component_MeshWeld",
+          "name": "Weld Mesh",
+          "pos": [
+            9619,
+            1267
+          ]
+        },
+        {
+          "id": "R269",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            10512,
+            1458
+          ]
+        },
+        {
+          "id": "R270",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            10508,
+            1626
+          ]
+        },
+        {
+          "id": "R271",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            10510,
+            1784
+          ]
+        },
+        {
+          "id": "R272",
+          "type": "FuncToRadians",
+          "name": "Radians",
+          "pos": [
+            10146,
+            1816
+          ]
+        },
+        {
+          "id": "R273",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9819.9,
+            1808.5
+          ],
+          "min": 0,
+          "max": 360,
+          "value": 268
+        },
+        {
+          "id": "R274",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            7013.3,
+            1211.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R275",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            8423,
+            2203
+          ]
+        },
+        {
+          "id": "R276",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            7120,
+            1489
+          ]
+        },
+        {
+          "id": "R277",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            7383.3,
+            1437.9
+          ]
+        },
+        {
+          "id": "R278",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            9457,
+            1001
+          ]
+        },
+        {
+          "id": "R279",
+          "type": "Component_UnitVectorX",
+          "name": "Unit X",
+          "pos": [
+            9236,
+            1030
+          ]
+        },
+        {
+          "id": "R280",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            9592,
+            988.3
+          ]
+        },
+        {
+          "id": "R281",
+          "type": "panel",
+          "pos": [
+            7506.4,
+            1402.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R282",
+          "type": "panel",
+          "pos": [
+            7506.4,
+            1519.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R283",
+          "type": "panel",
+          "pos": [
+            7506.4,
+            1664.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R284",
+          "type": "panel",
+          "pos": [
+            7381.1,
+            1008.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R285",
+          "type": "Component_BoundarySurfaces",
+          "name": "Boundary Surfaces",
+          "pos": [
+            8071,
+            757
+          ]
+        },
+        {
+          "id": "R286",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            8226,
+            819
+          ]
+        },
+        {
+          "id": "R287",
+          "type": "Component_SmoothMesh",
+          "name": "Smooth Mesh",
+          "pos": [
+            9976,
+            1458
+          ]
+        },
+        {
+          "id": "R288",
+          "type": "Component_MeshSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            9261,
+            904
+          ]
+        },
+        {
+          "id": "R289",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8905.6,
+            877.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R290",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            9258,
+            766
+          ]
+        },
+        {
+          "id": "R291",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8899.3,
+            769.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R292",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            9258,
+            1188
+          ]
+        },
+        {
+          "id": "R293",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8897.6,
+            1193.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R294",
+          "type": "Component_BRepEdges",
+          "name": "Brep Edges",
+          "pos": [
+            2509,
+            1665
+          ]
+        },
+        {
+          "id": "R295",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            2881.4,
+            1639.5
+          ]
+        },
+        {
+          "id": "R296",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            2881.4,
+            1666.1
+          ]
+        },
+        {
+          "id": "R297",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            2881.1,
+            1694.1
+          ]
+        },
+        {
+          "id": "R298",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            2881.1,
+            1846.5
+          ]
+        },
+        {
+          "id": "R299",
+          "type": "Component_CapPlanarHoles",
+          "name": "Cap Holes",
+          "pos": [
+            3961,
+            963
+          ]
+        },
+        {
+          "id": "R300",
+          "type": "panel",
+          "pos": [
+            3921.2,
+            1040.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R301",
+          "type": "Component_BRepLineIntersect",
+          "name": "Brep | Line",
+          "pos": [
+            5548,
+            998
+          ]
+        },
+        {
+          "id": "R302",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            4522.1,
+            664
+          ]
+        },
+        {
+          "id": "R303",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            4520.1,
+            829.5
+          ]
+        },
+        {
+          "id": "R304",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            4947,
+            742
+          ]
+        },
+        {
+          "id": "R305",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            5290,
+            849
+          ]
+        },
+        {
+          "id": "R306",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            5089,
+            885
+          ]
+        },
+        {
+          "id": "R307",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            4726,
+            685
+          ]
+        },
+        {
+          "id": "R308",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            4726,
+            850
+          ]
+        },
+        {
+          "id": "R309",
+          "type": "panel",
+          "pos": [
+            471.6,
+            19.3
+          ],
+          "content": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of computational modeling, meshes are one of the most pervasive forms of representing 3D geometry. Mesh geometry can be a light-weight and flexible alternative to working with NURBS, and are used in everything from rendering and visualizations to digital fabrication and 3D printing.\"\r\n\r\n\"A Mesh is a collection of quadrilaterals and triangles that represent a surface or solid geometry.\"\r\nA mesh is composed of \"vertices, edges, and faces, as well as additional mesh properties such as colors and normals.\"\r\n\r\n\"Meshes can be favorable in situations where:\r\n\r\nThere must be a dynamically updated rendering of a form that is changing in shape but not in face connectivity\r\nA discretized approximation of a curved geometry would suffice\r\nA low-resolution geometry must be systematically smoothed (or articlated) using computational methods to arrive at a higher-resolution model.\r\nThe low resolution model must be able to be to simultaneously support local, high resolution detail\r\nMeshes can be unfavorable in situations where:\r\n\r\nCurvature and smoothness must be represented with a high level of precision\r\nTrue derivatives must be evaluated\r\nThe geometry must be converted into a manufacturable solid\r\nThe final form must be able to be easily edited manually\"\r\n\r\nSources:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/0_Getting%20Started%20with%20Meshes.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/1_What%20is%20a%20Mesh.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/2_Understanding%20Topology.html"
+        },
+        {
+          "id": "R310",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            476.3,
+            -36.8
+          ]
+        },
+        {
+          "id": "R311",
+          "type": "panel",
+          "pos": [
+            471.6,
+            606.4
+          ],
+          "content": "NURBS & Mesh:\r\n\r\nGrasshopper provides various tools to work with both NURBS & Meshes.\r\n\r\nUnless otherwise specified, solids & Breps in Grasshopper are NURBS geometry. When a Mesh is being used, it usually states that it is a \"Mesh\" and its icon shows small squarish meshes.\r\n\r\nBelow on the left are Geometry generation and analysis components for NURBS (can also be found under the tab \"Surface\")\r\n\r\nOn the right, Mesh components (can also be found under the tab \"Mesh\")"
+        },
+        {
+          "id": "R312",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            541,
+            927
+          ]
+        },
+        {
+          "id": "R313",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            541,
+            1035
+          ]
+        },
+        {
+          "id": "R314",
+          "type": "Component_Cylinder",
+          "name": "Cylinder",
+          "pos": [
+            540,
+            1136
+          ]
+        },
+        {
+          "id": "R315",
+          "type": "Component_Cone",
+          "name": "Cone",
+          "pos": [
+            540,
+            1322
+          ]
+        },
+        {
+          "id": "R316",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            996,
+            941
+          ]
+        },
+        {
+          "id": "R317",
+          "type": "Component_MeshSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            996,
+            1071
+          ]
+        },
+        {
+          "id": "R318",
+          "type": "Component_MeshSphere2",
+          "name": "Mesh Sphere Ex",
+          "pos": [
+            996,
+            1243
+          ]
+        },
+        {
+          "id": "R319",
+          "type": "panel",
+          "pos": [
+            1159,
+            19.3
+          ],
+          "content": "2- Brep: What is it?\r\n\r\n\"The word Brep stands for Boundary Representation. That in itself doesn't tell you much, but allow me to break down the general idea behind Breps. In Rhino UI itself, we don't use the word Brep, that one is only for programmers. Instead \"Polysurface\" is used, but it is not an ideal replacement because a Brep may well have only a single surface.\"\r\n- David Rutten\r\n\r\nSource:\r\n\r\nhttp://www.grasshopper3d.com/forum/topics/how-to-make-a-brep\r\n\r\n- In Grasshopper, a Brep is a NURBS goemetry, and not a Mesh.\r\n\r\nWhat is modeled in Rhino is a Surface or a Polysurface or a Mesh.\r\n\r\nWhen a Polysurface is being referenced in Grasshopper, it would be called as a Brep and not a polysurface.\r\n\r\n- The \"Mesh Brep\" component converts a Brep into a Mesh.\r\n\r\n\"NOTE: it is generally much easier to convert from a NURBS geometry to a mesh object rather than the other way around. While the UV coordinates of a NURBS surface are straightforward to convert to quad faces of a mesh, the opposite is not necessarily true, since a mesh might contain a combination of triangles and quads in a way that is not simple to extract a UV coordinate system out of.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/3_Creating%20Meshes.html"
+        },
+        {
+          "id": "R320",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1163.7,
+            -36.8
+          ]
+        },
+        {
+          "id": "R321",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            778.7,
+            917.7
+          ]
+        },
+        {
+          "id": "R322",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            778.3,
+            956.2
+          ]
+        },
+        {
+          "id": "R323",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            778.7,
+            1022.2
+          ]
+        },
+        {
+          "id": "R324",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            778.3,
+            1051.8
+          ]
+        },
+        {
+          "id": "R325",
+          "type": "Component_CenterBox",
+          "name": "Center Box",
+          "pos": [
+            1232,
+            935
+          ]
+        },
+        {
+          "id": "R326",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            1232,
+            1336
+          ]
+        },
+        {
+          "id": "R327",
+          "type": "Component_Cylinder",
+          "name": "Cylinder",
+          "pos": [
+            1231,
+            1684
+          ]
+        },
+        {
+          "id": "R328",
+          "type": "Component_Cone",
+          "name": "Cone",
+          "pos": [
+            1231,
+            1980
+          ]
+        },
+        {
+          "id": "R329",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            1485.6,
+            911.5
+          ]
+        },
+        {
+          "id": "R330",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            1485.2,
+            941.1
+          ]
+        },
+        {
+          "id": "R331",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            1485.3,
+            971.2
+          ]
+        },
+        {
+          "id": "R332",
+          "type": "Component_MeshBox",
+          "name": "Mesh Box",
+          "pos": [
+            1658,
+            931
+          ]
+        },
+        {
+          "id": "R333",
+          "type": "Component_MeshSphere",
+          "name": "Mesh Sphere",
+          "pos": [
+            1658,
+            1061
+          ]
+        },
+        {
+          "id": "R334",
+          "type": "Component_MeshSphere2",
+          "name": "Mesh Sphere Ex",
+          "pos": [
+            1658,
+            1249
+          ]
+        },
+        {
+          "id": "R335",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            1794.6,
+            912.8
+          ]
+        },
+        {
+          "id": "R336",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            1794.2,
+            942.4
+          ]
+        },
+        {
+          "id": "R337",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            1794.3,
+            972.6
+          ]
+        },
+        {
+          "id": "R338",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            1456,
+            1048
+          ]
+        },
+        {
+          "id": "R339",
+          "type": "Component_MeshSurfaceUV",
+          "name": "Mesh Surface",
+          "pos": [
+            1456,
+            1199
+          ]
+        },
+        {
+          "id": "R340",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            1254.9,
+            1159.8
+          ]
+        },
+        {
+          "id": "R341",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            835.6,
+            1116.2
+          ]
+        },
+        {
+          "id": "R342",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            835.2,
+            1145.8
+          ]
+        },
+        {
+          "id": "R343",
+          "type": "Component_CapPlanarHoles",
+          "name": "Cap Holes",
+          "pos": [
+            713,
+            1208
+          ]
+        },
+        {
+          "id": "R344",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            835.6,
+            1183.4
+          ]
+        },
+        {
+          "id": "R345",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            835.2,
+            1213
+          ]
+        },
+        {
+          "id": "R346",
+          "type": "panel",
+          "pos": [
+            3881.3,
+            1477.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R347",
+          "type": "panel",
+          "pos": [
+            3881.3,
+            1518.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R348",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            10778.4,
+            -36.8
+          ]
+        },
+        {
+          "id": "R349",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            8948.2,
+            1015.7
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 12
+        },
+        {
+          "id": "R350",
+          "type": "CloseMesh",
+          "name": "Close Mesh",
+          "pos": [
+            10249,
+            1364
+          ]
+        },
+        {
+          "id": "R351",
+          "type": "panel",
+          "pos": [
+            691,
+            829
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R352",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            1456,
+            1356
+          ]
+        },
+        {
+          "id": "R353",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            1456,
+            1706
+          ]
+        },
+        {
+          "id": "R354",
+          "type": "Component_MeshBRep",
+          "name": "Mesh Brep",
+          "pos": [
+            1456,
+            1986
+          ]
+        },
+        {
+          "id": "R355",
+          "type": "Component_MeshSurfaceUV",
+          "name": "Mesh Surface",
+          "pos": [
+            1456,
+            2104
+          ]
+        },
+        {
+          "id": "R356",
+          "type": "Component_MeshSurfaceUV",
+          "name": "Mesh Surface",
+          "pos": [
+            1456,
+            1830
+          ]
+        },
+        {
+          "id": "R357",
+          "type": "Component_MeshSurfaceUV",
+          "name": "Mesh Surface",
+          "pos": [
+            1456,
+            1499
+          ]
+        },
+        {
+          "id": "R358",
+          "type": "Component_MeshSurfaceUV",
+          "name": "Mesh Surface",
+          "pos": [
+            1456,
+            823
+          ]
+        },
+        {
+          "id": "R359",
+          "type": "panel",
+          "pos": [
+            3748.9,
+            1094.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R360",
+          "type": "panel",
+          "pos": [
+            4201.2,
+            1047.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R361",
+          "type": "Component_BrepJoin",
+          "name": "Brep Join",
+          "pos": [
+            4119,
+            1010
+          ]
+        },
+        {
+          "id": "R362",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            3567.5,
+            726.9
+          ]
+        },
+        {
+          "id": "R363",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            3567.5,
+            773.2
+          ]
+        },
+        {
+          "id": "R364",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            5064.5,
+            717.3
+          ]
+        },
+        {
+          "id": "R365",
+          "type": "Component_MeshFaceBoundaries",
+          "name": "Face Boundaries",
+          "pos": [
+            7882,
+            758
+          ]
+        },
+        {
+          "id": "R366",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            8153.9,
+            1031.8
+          ]
+        },
+        {
+          "id": "R367",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            8153.9,
+            1053.6
+          ]
+        },
+        {
+          "id": "R368",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            8153.9,
+            1076
+          ]
+        },
+        {
+          "id": "R369",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            8162.3,
+            1258.2
+          ]
+        },
+        {
+          "id": "R370",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            8423,
+            2000
+          ]
+        },
+        {
+          "id": "R371",
+          "type": "panel",
+          "pos": [
+            8343.9,
+            1408.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R372",
+          "type": "panel",
+          "pos": [
+            8344,
+            1145.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R373",
+          "type": "Component_4PointSurface",
+          "name": "4Point Surface",
+          "pos": [
+            8950,
+            1532
+          ]
+        },
+        {
+          "id": "R374",
+          "type": "panel",
+          "pos": [
+            8555,
+            1764.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R375",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            8741,
+            1413
+          ]
+        },
+        {
+          "id": "R376",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            8741,
+            1491
+          ]
+        },
+        {
+          "id": "R377",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            8741,
+            1565
+          ]
+        },
+        {
+          "id": "R378",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            8741,
+            1644
+          ]
+        },
+        {
+          "id": "R379",
+          "type": "Component_CullDuplicate",
+          "name": "Cull Duplicates",
+          "pos": [
+            8420,
+            1053
+          ]
+        },
+        {
+          "id": "R380",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            10730.7,
+            1426.6
+          ]
+        },
+        {
+          "id": "R381",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            10730.7,
+            1461.3
+          ]
+        },
+        {
+          "id": "R382",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            10730.7,
+            1491.2
+          ]
+        },
+        {
+          "id": "R383",
+          "type": "Component_Delaunay",
+          "name": "Delaunay Mesh",
+          "pos": [
+            13703,
+            730
+          ]
+        },
+        {
+          "id": "R384",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            13708,
+            1063
+          ]
+        },
+        {
+          "id": "R385",
+          "type": "Component_Connectivity",
+          "name": "Delaunay Edges",
+          "pos": [
+            13707,
+            904
+          ]
+        },
+        {
+          "id": "R386",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            13469.9,
+            702.8
+          ]
+        },
+        {
+          "id": "R387",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13545.1,
+            1103.4
+          ]
+        },
+        {
+          "id": "R388",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13403.9,
+            1044
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 295.84
+        },
+        {
+          "id": "R389",
+          "type": "Component_MeshEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            13868,
+            729
+          ]
+        },
+        {
+          "id": "R390",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            14066,
+            700.2
+          ]
+        },
+        {
+          "id": "R391",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            14066,
+            728.5
+          ]
+        },
+        {
+          "id": "R392",
+          "type": "Component_FacetDome",
+          "name": "Facet Dome",
+          "pos": [
+            12800,
+            1893
+          ]
+        },
+        {
+          "id": "R393",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            12297,
+            1898
+          ]
+        },
+        {
+          "id": "R394",
+          "type": "Component_PopulateBox",
+          "name": "Populate 3D",
+          "pos": [
+            12448,
+            1946
+          ]
+        },
+        {
+          "id": "R395",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12003.8,
+            1903
+          ],
+          "min": 1,
+          "max": 100,
+          "value": 49
+        },
+        {
+          "id": "R396",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12326.6,
+            2021.1
+          ],
+          "min": 1,
+          "max": 100,
+          "value": 32
+        },
+        {
+          "id": "R397",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12155.1,
+            1948
+          ],
+          "min": 1,
+          "max": 100,
+          "value": 1
+        },
+        {
+          "id": "R398",
+          "type": "Component_ConvexHull",
+          "name": "Convex Hull",
+          "pos": [
+            12798,
+            1045
+          ]
+        },
+        {
+          "id": "R399",
+          "type": "Component_3D_Delaunay",
+          "name": "3D Delaunay",
+          "pos": [
+            12798,
+            2238
+          ]
+        },
+        {
+          "id": "R400",
+          "type": "Component_3D_Voronoi",
+          "name": "3D Voronoi",
+          "pos": [
+            12833,
+            2511
+          ]
+        },
+        {
+          "id": "R401",
+          "type": "Component_VolumeVoronoi",
+          "name": "Voronoi 3D",
+          "pos": [
+            12798,
+            2065
+          ]
+        },
+        {
+          "id": "R402",
+          "type": "Component_3D_DelaunayCell",
+          "name": "3D DelaunayCell",
+          "pos": [
+            12798,
+            2378
+          ]
+        },
+        {
+          "id": "R403",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13045,
+            1043
+          ]
+        },
+        {
+          "id": "R404",
+          "type": "Component_Substrate",
+          "name": "Substrate",
+          "pos": [
+            12815,
+            1531
+          ]
+        },
+        {
+          "id": "R405",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12496.2,
+            1562
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 9
+        },
+        {
+          "id": "R406",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12495.9,
+            1502
+          ],
+          "min": 0,
+          "max": 500,
+          "value": 243
+        },
+        {
+          "id": "R407",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12488.3,
+            1522.4
+          ],
+          "min": 0,
+          "max": 7,
+          "value": 2.264
+        },
+        {
+          "id": "R408",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12500,
+            1579.2
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 13
+        },
+        {
+          "id": "R409",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13166.8,
+            757.5
+          ]
+        },
+        {
+          "id": "R410",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            14066,
+            757.5
+          ]
+        },
+        {
+          "id": "R411",
+          "type": "panel",
+          "pos": [
+            14630,
+            41.9
+          ],
+          "content": "Parametric Collar by Daniel Kiskery\r\nhttps://www.behance.net/gallery/57066297/Printed-Parametric-Collar"
+        },
+        {
+          "id": "R412",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            15267,
+            572
+          ]
+        },
+        {
+          "id": "R413",
+          "type": "FlattenTreeComponent",
+          "name": "Flatten Tree",
+          "pos": [
+            15134,
+            551
+          ]
+        },
+        {
+          "id": "R414",
+          "type": "panel",
+          "pos": [
+            15719.7,
+            767.7
+          ],
+          "content": "Double click to edit panel content…"
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R10.O0>R3.I1",
+        "R10.O0>R3.I2",
+        "R10.O0>R3.I3",
+        "R4.O0>R7.I0",
+        "R5.O0>R8.I0",
+        "R6.O0>R9.I0",
+        "R102.O0>R11.I0",
+        "R362.O0>R13.I0",
+        "R363.O0>R13.I1",
+        "R11.O2>R13.I2",
+        "R11.O3>R13.I3",
+        "R11.O4>R13.I4",
+        "R13.O0>R14.I0",
+        "R26.O0>R15.I0",
+        "R20.O0>R15.I1",
+        "R17.O0>R16.I1",
+        "R19.O0>R18.I1",
+        "R18.O0>R20.I0",
+        "R16.O0>R20.I1",
+        "R117.O0>R20.I2",
+        "R131.O0>R20.I3",
+        "R20.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R15.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R44.O0>R28.I0",
+        "R48.O0>R28.I1",
+        "R44.O0>R29.I0",
+        "R48.O0>R29.I0",
+        "R44.O0>R30.I0",
+        "R48.O0>R30.I1",
+        "R44.O0>R31.I0",
+        "R48.O0>R31.I1",
+        "R44.O0>R32.I0",
+        "R48.O0>R32.I1",
+        "R68.O0>R33.I0",
+        "R69.O0>R33.I1",
+        "R38.O0>R35.I0",
+        "R38.O0>R36.I0",
+        "R40.O0>R36.I1",
+        "R39.O0>R36.I2",
+        "R38.O0>R37.I0",
+        "R41.O0>R42.I0",
+        "R3.O0>R43.I0",
+        "R45.O0>R44.I1",
+        "R47.O0>R46.I1",
+        "R46.O0>R48.I0",
+        "R28.O0>R49.I0",
+        "R30.O0>R50.I0",
+        "R29.O0>R51.I0",
+        "R30.O0>R52.I0",
+        "R52.O0>R53.I0",
+        "R31.O0>R54.I0",
+        "R32.O0>R55.I0",
+        "R33.O0>R56.I0",
+        "R65.O0>R57.I1",
+        "R67.O0>R57.I2",
+        "R66.O0>R57.I3",
+        "R59.O0>R58.I1",
+        "R61.O0>R58.I2",
+        "R60.O0>R58.I3",
+        "R58.O0>R62.I0",
+        "R63.O0>R62.I1",
+        "R64.O0>R63.I0",
+        "R57.O0>R68.I0",
+        "R62.O0>R68.I1",
+        "R242.O0>R71.I0",
+        "R71.O0>R72.I0",
+        "R73.O0>R72.I1",
+        "R71.O0>R75.I0",
+        "R76.O0>R75.I1",
+        "R71.O0>R77.I0",
+        "R78.O0>R77.I1",
+        "R74.O0>R81.I0",
+        "R79.O0>R81.I1",
+        "R80.O0>R81.I2",
+        "R81.O0>R82.I0",
+        "R71.O0>R83.I0",
+        "R82.O0>R83.I1",
+        "R72.O0>R84.I0",
+        "R75.O0>R84.I1",
+        "R77.O0>R84.I2",
+        "R71.O0>R85.I0",
+        "R86.O0>R85.I1",
+        "R71.O0>R87.I0",
+        "R88.O0>R87.I1",
+        "R84.O0>R89.I0",
+        "R15.O0>R90.I0",
+        "R83.O0>R91.I0",
+        "R85.O0>R92.I0",
+        "R87.O0>R93.I0",
+        "R35.O0>R98.I0",
+        "R71.O0>R99.I0",
+        "R3.O0>R100.I0",
+        "R102.O0>R103.I0",
+        "R29.O0>R104.I0",
+        "R106.O0>R105.I0",
+        "R104.O0>R106.I0",
+        "R71.O0>R107.I0",
+        "R107.O1>R108.I0",
+        "R39.O0>R109.I0",
+        "R110.O0>R109.I1",
+        "R111.O0>R109.I2",
+        "R109.O0>R112.I0",
+        "R120.O0>R112.I1",
+        "R39.O0>R112.I2",
+        "R114.O0>R113.I0",
+        "R116.O0>R113.I1",
+        "R118.O0>R113.I2",
+        "R115.O0>R114.I1",
+        "R115.O0>R114.I2",
+        "R115.O0>R114.I3",
+        "R16.O0>R117.I0",
+        "R119.O0>R117.I1",
+        "R121.O0>R119.I0",
+        "R113.O0>R122.I0",
+        "R122.O0>R123.I0",
+        "R124.O0>R123.I1",
+        "R22.O0>R125.I0",
+        "R21.O0>R127.I0",
+        "R21.O1>R129.I0",
+        "R16.O0>R131.I0",
+        "R136.O0>R131.I1",
+        "R133.O0>R134.I0",
+        "R145.O0>R134.I1",
+        "R134.O0>R135.I0",
+        "R133.O0>R135.I1",
+        "R132.O0>R136.I0",
+        "R135.O0>R137.I0",
+        "R133.O0>R137.I1",
+        "R33.O0>R138.I0",
+        "R138.O0>R139.I0",
+        "R236.O0>R140.I0",
+        "R141.O0>R140.I1",
+        "R171.O0>R141.I0",
+        "R137.O0>R143.I0",
+        "R144.O0>R143.I1",
+        "R2.O2>R147.I0",
+        "R155.O0>R147.I1",
+        "R152.O0>R148.I0",
+        "R15.O0>R152.I0",
+        "R151.O0>R152.I1",
+        "R20.O0>R153.I0",
+        "R152.O0>R153.I1",
+        "R160.O0>R156.I0",
+        "R15.O0>R160.I0",
+        "R159.O0>R160.I1",
+        "R20.O0>R161.I0",
+        "R160.O0>R161.I1",
+        "R13.O0>R162.I0",
+        "R69.O0>R171.I0",
+        "R172.O0>R171.I1",
+        "R102.O0>R173.I0",
+        "R175.O0>R173.I1",
+        "R174.O0>R173.I2",
+        "R173.O0>R176.I0",
+        "R173.O0>R177.I0",
+        "R177.O0>R178.I0",
+        "R181.O0>R180.I1",
+        "R182.O0>R180.I2",
+        "R182.O0>R180.I3",
+        "R180.O0>R183.I0",
+        "R185.O0>R183.I1",
+        "R184.O0>R185.I0",
+        "R183.O0>R186.I0",
+        "R187.O1>R186.I1",
+        "R188.O0>R186.I2",
+        "R183.O0>R187.I0",
+        "R186.O0>R189.I0",
+        "R190.O0>R189.I1",
+        "R187.O1>R189.I2",
+        "R192.O0>R191.I0",
+        "R195.O0>R192.I0",
+        "R198.O0>R192.I1",
+        "R180.O0>R193.I0",
+        "R192.O0>R194.I0",
+        "R201.O0>R195.I0",
+        "R189.O0>R196.I0",
+        "R195.O0>R197.I0",
+        "R203.O0>R198.I0",
+        "R198.O0>R199.I0",
+        "R189.O0>R201.I0",
+        "R201.O0>R202.I0",
+        "R206.O0>R203.I0",
+        "R201.O0>R204.I0",
+        "R206.O0>R205.I0",
+        "R210.O0>R209.I0",
+        "R241.O0>R209.I1",
+        "R211.O0>R209.I2",
+        "R209.O0>R212.I0",
+        "R214.O0>R213.I1",
+        "R215.O0>R213.I2",
+        "R215.O0>R213.I3",
+        "R213.O0>R216.I0",
+        "R217.O0>R216.I1",
+        "R212.O0>R217.I0",
+        "R216.O0>R218.I0",
+        "R219.O1>R218.I1",
+        "R226.O0>R218.I2",
+        "R216.O0>R219.I0",
+        "R218.O0>R220.I0",
+        "R230.O0>R220.I1",
+        "R219.O1>R220.I2",
+        "R231.O0>R221.I0",
+        "R213.O0>R222.I0",
+        "R224.O0>R223.I0",
+        "R240.O0>R223.I1",
+        "R225.O0>R223.I2",
+        "R223.O0>R226.I0",
+        "R228.O0>R227.I0",
+        "R239.O0>R227.I1",
+        "R229.O0>R227.I2",
+        "R227.O0>R230.I0",
+        "R220.O0>R231.I0",
+        "R162.O0>R235.I0",
+        "R238.O0>R237.I0",
+        "R180.O0>R238.I0",
+        "R189.O0>R238.I1",
+        "R243.O0>R242.I0",
+        "R154.O0>R243.I1",
+        "R154.O0>R243.I2",
+        "R154.O0>R243.I3",
+        "R290.O0>R250.I0",
+        "R280.O0>R250.I0",
+        "R290.O0>R251.I0",
+        "R280.O0>R251.I1",
+        "R290.O0>R252.I0",
+        "R280.O0>R252.I1",
+        "R266.O0>R253.I1",
+        "R266.O0>R253.I2",
+        "R266.O0>R253.I3",
+        "R274.O0>R254.I1",
+        "R253.O0>R255.I0",
+        "R255.O1>R256.I0",
+        "R253.O0>R257.I0",
+        "R287.O0>R258.I0",
+        "R258.O0>R259.I0",
+        "R272.O0>R259.I1",
+        "R276.O0>R260.I0",
+        "R276.O0>R261.I0",
+        "R253.O0>R262.I0",
+        "R292.O0>R265.I0",
+        "R267.O0>R265.I1",
+        "R265.O0>R268.I0",
+        "R287.O0>R269.I0",
+        "R258.O0>R270.I0",
+        "R259.O0>R271.I0",
+        "R273.O0>R272.I0",
+        "R257.O0>R275.I0",
+        "R257.O1>R275.I1",
+        "R288.O0>R278.I0",
+        "R279.O0>R278.I1",
+        "R349.O0>R279.I0",
+        "R277.O0>R281.I0",
+        "R260.O0>R282.I0",
+        "R261.O0>R283.I0",
+        "R253.O0>R284.I0",
+        "R365.O0>R285.I0",
+        "R285.O0>R286.I0",
+        "R268.O0>R287.I0",
+        "R264.O0>R287.I1",
+        "R263.O0>R287.I3",
+        "R289.O0>R288.I1",
+        "R291.O0>R290.I1",
+        "R291.O0>R290.I2",
+        "R291.O0>R290.I3",
+        "R293.O0>R292.I1",
+        "R293.O0>R292.I2",
+        "R293.O0>R292.I3",
+        "R3.O0>R294.I0",
+        "R162.O0>R299.I0",
+        "R299.O0>R300.I0",
+        "R299.O0>R301.I0",
+        "R305.O0>R301.I1",
+        "R307.O0>R304.I0",
+        "R308.O0>R304.I1",
+        "R304.O0>R305.I0",
+        "R306.O0>R305.I1",
+        "R304.O0>R306.I0",
+        "R362.O0>R307.I0",
+        "R302.O0>R307.I1",
+        "R363.O0>R308.I0",
+        "R303.O0>R308.I1",
+        "R325.O0>R338.I0",
+        "R340.O0>R339.I0",
+        "R314.O0>R343.I0",
+        "R176.O0>R346.I0",
+        "R176.O1>R347.I0",
+        "R287.O0>R350.I0",
+        "R312.O0>R351.I0",
+        "R326.O0>R352.I0",
+        "R327.O0>R353.I0",
+        "R328.O0>R354.I0",
+        "R328.O0>R355.I0",
+        "R327.O0>R356.I0",
+        "R326.O0>R357.I0",
+        "R325.O0>R358.I0",
+        "R162.O1>R359.I0",
+        "R361.O1>R360.I0",
+        "R299.O0>R361.I0",
+        "R253.O0>R365.I0",
+        "R369.O0>R370.I0",
+        "R255.O3>R370.I1",
+        "R255.O1>R371.I0",
+        "R369.O0>R372.I0",
+        "R375.O0>R373.I0",
+        "R376.O0>R373.I1",
+        "R377.O0>R373.I2",
+        "R378.O0>R373.I3",
+        "R256.O0>R374.I0",
+        "R255.O0>R375.I0",
+        "R256.O0>R375.I1",
+        "R255.O0>R376.I0",
+        "R256.O1>R376.I1",
+        "R255.O0>R377.I0",
+        "R256.O2>R377.I1",
+        "R255.O0>R378.I0",
+        "R256.O3>R378.I1",
+        "R369.O0>R379.I0",
+        "R386.O0>R383.I0",
+        "R386.O0>R384.I0",
+        "R388.O0>R384.I1",
+        "R387.O0>R384.I2",
+        "R386.O0>R385.I0",
+        "R383.O0>R389.I0",
+        "R394.O0>R392.I0",
+        "R396.O0>R392.I2",
+        "R395.O0>R393.I1",
+        "R393.O0>R394.I0",
+        "R397.O0>R394.I2",
+        "R38.O0>R398.I0",
+        "R394.O0>R399.I0",
+        "R394.O0>R400.I0",
+        "R394.O0>R401.I0",
+        "R394.O0>R402.I0",
+        "R38.O0>R403.I0",
+        "R398.O2>R403.I1",
+        "R39.O0>R404.I0",
+        "R406.O0>R404.I1",
+        "R407.O0>R404.I2",
+        "R405.O0>R404.I4",
+        "R413.O0>R412.I0",
+        "R180.O0>R413.I0",
+        "R216.O0>R414.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R163",
+          "text": "3- Brep Analysis:\r\n\r\nLike the \"Evaluate Surface\" component, Breps also have similar components that let us extract information and manipulate them.\r\n\r\n- Make a simple \"Center Box\" component.\r\n\r\n- Use the \"Deconstruct Brep\" component to deconstruct the Box into its basic geometries:\r\n1- Faces (surfaces)\r\n2- Edges\r\n3- Vertecies\r\n\r\n- Use the \"Brep Edges\" component to only extract edges.\r\nNote that this component provides few more options relating to the nature of the edges.\r\nHover the cursor over the OUTPUTS and check them out.\r\n\r\n- Use the \"Brep Wireframe\" component to only extract edges. This is similar to the \"Deconstruct Brep\"'s Edges OUTPUT.\r\n\r\n- Check out the \"Shape In Brep\" and see how it can be useful to you.",
+          "pos": [
+            2243.5,
+            39.3
+          ],
+          "nearby": [
+            "R1"
+          ]
+        },
+        {
+          "panel_id": "R164",
+          "text": "5- Brep Operations 2:\r\n\r\nOther operations are also present, which apply to whole Breps, or involve intersections between Breps/Curves or Breps/Breps.\r\n\r\n- Check out the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep / Line\"\r\n- \"Brep / Brep\"\r\n- \"Trim Solid\"\r\n- \"Solid Union\"\r\n- \"Solid Difference\"\r\n- \"Solid Intersection\"\r\n- \"Box Slits\"\r\n\r\n\r\nBoolean Union (in Rhino) Vs. Solid Union (in Grasshopper)",
+          "pos": [
+            4502.1,
+            39.3
+          ],
+          "nearby": [
+            "R27"
+          ]
+        },
+        {
+          "panel_id": "R165",
+          "text": "4- Brep Operations 1:\r\n\r\nGrasshopper provides many useful components to manipulate Breps. We will see below few useful ones.\r\n\r\n- Based on the previous Definition on the left, use the following components and check what is needed for each in order to see their actions:\r\n\r\n- \"Brep Join\"\r\n- \"Cap Holes\"",
+          "pos": [
+            3248.2,
+            39.3
+          ],
+          "nearby": [
+            "R12"
+          ]
+        },
+        {
+          "panel_id": "R166",
+          "text": "9- Triangulation:\r\n\r\nSome of the interesting components in Grasshopper that provide complex geometry are triangulation operators, such as Delaunay and Voronoi.\r\n\r\nLet's checkout few Delaunay and Voronoi components below and see the required inouts and resultants.",
+          "pos": [
+            12547.7,
+            39.3
+          ],
+          "nearby": [
+            "R232"
+          ]
+        },
+        {
+          "panel_id": "R179",
+          "text": "Panels may not always keep data as Geometry",
+          "pos": [
+            4080,
+            1349.8
+          ],
+          "nearby": [
+            "R178"
+          ]
+        },
+        {
+          "panel_id": "R234",
+          "text": "Unit 2 Vase includes same Grafting Strategy!\r\n\r\nGrafting will be explained in depth in Unit 5",
+          "pos": [
+            17162.3,
+            89.3
+          ],
+          "nearby": [
+            "R200"
+          ]
+        },
+        {
+          "panel_id": "R244",
+          "text": "6- Mesh:\r\n\r\nSimilarly to Primitive Breps, basic Meshes can also be constructed within Grasshopper.\r\n\r\nCheck out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Box\"\r\n- \"Mesh Sphere\"\r\n\r\n\r\nIn addition to making Meshes from scratch, Grasshopper provides few components that let you convert Breps into Meshes, like the following components:\r\n\r\n- \"Mesh Brep\"\r\n- \"Simple Mesh\"",
+          "pos": [
+            6962.4,
+            19.3
+          ],
+          "nearby": [
+            "R245"
+          ]
+        },
+        {
+          "panel_id": "R246",
+          "text": "7- Mesh Analysis:\r\n\r\nSimilarly to the Brep Analysis components, Meshes also have Analysis components that help analyze and extract important information from Meshes in order to manipulate them parametrically.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Edges\"\r\n- \"Deconstruct Mesh\"\r\n- \"Deconstruct Face\"\r\n- \"Face Normals\"\r\n- \"Mesh Explode\"",
+          "pos": [
+            7779.7,
+            19.3
+          ],
+          "nearby": [
+            "R247"
+          ]
+        },
+        {
+          "panel_id": "R248",
+          "text": "8- Mesh Operations:\r\n\r\nAgain, similarly to Brep operations, Grasshopper provides useful components to manipulate Meshes.\r\n\r\n- Check out the following components and what is needed to feed them:\r\n\r\n- \"Mesh Union\"\r\n- \"Mesh Difference\"\r\n- \"Mesh Intersection\"\r\n\r\n- \"Mesh Smooth\"\r\n- \"Triangulate\"\r\n- \"Quadrangulate\"",
+          "pos": [
+            8884.9,
+            19.3
+          ],
+          "nearby": [
+            "R249"
+          ]
+        },
+        {
+          "panel_id": "R309",
+          "text": "1- NURBS & Mesh: What are they?\r\n\r\nNURBS:\r\n\r\n\"Non-Uniform Rational B-Splines) are mathematical representations that can accurately model any shape from a simple 2D line, circle, arc, or box to the most complex 3D free-form organic surface or solid. Because of their flexibility and accuracy, NURBS models can be used in any process from illustration and animation to manufacturing.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-5/1_surface-geometry.html\r\n\r\nMesh:\r\n\r\n\"In the field of computational modeling, meshes are one of the most pervasive forms of representing 3D geometry. Mesh geometry can be a light-weight and flexible alternative to working with NURBS, and are used in everything from rendering and visualizations to digital fabrication and 3D printing.\"\r\n\r\n\"A Mesh is a collection of quadrilaterals and triangles that represent a surface or solid geometry.\"\r\nA mesh is composed of \"vertices, edges, and faces, as well as additional mesh properties such as colors and normals.\"\r\n\r\n\"Meshes can be favorable in situations where:\r\n\r\nThere must be a dynamically updated rendering of a form that is changing in shape but not in face connectivity\r\nA discretized approximation of a curved geometry would suffice\r\nA low-resolution geometry must be systematically smoothed (or articlated) using computational methods to arrive at a higher-resolution model.\r\nThe low resolution model must be able to be to simultaneously support local, high resolution detail\r\nMeshes can be unfavorable in situations where:\r\n\r\nCurvature and smoothness must be represented with a high level of precision\r\nTrue derivatives must be evaluated\r\nThe geometry must be converted into a manufacturable solid\r\nThe final form must be able to be easily edited manually\"\r\n\r\nSources:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/0_Getting%20Started%20with%20Meshes.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/1_What%20is%20a%20Mesh.html\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/2_Understanding%20Topology.html",
+          "pos": [
+            471.6,
+            19.3
+          ],
+          "nearby": [
+            "R310"
+          ]
+        },
+        {
+          "panel_id": "R311",
+          "text": "NURBS & Mesh:\r\n\r\nGrasshopper provides various tools to work with both NURBS & Meshes.\r\n\r\nUnless otherwise specified, solids & Breps in Grasshopper are NURBS geometry. When a Mesh is being used, it usually states that it is a \"Mesh\" and its icon shows small squarish meshes.\r\n\r\nBelow on the left are Geometry generation and analysis components for NURBS (can also be found under the tab \"Surface\")\r\n\r\nOn the right, Mesh components (can also be found under the tab \"Mesh\")",
+          "pos": [
+            471.6,
+            606.4
+          ],
+          "nearby": [
+            "R312",
+            "R313",
+            "R321",
+            "R322",
+            "R323",
+            "R314",
+            "R324",
+            "R316"
+          ]
+        },
+        {
+          "panel_id": "R319",
+          "text": "2- Brep: What is it?\r\n\r\n\"The word Brep stands for Boundary Representation. That in itself doesn't tell you much, but allow me to break down the general idea behind Breps. In Rhino UI itself, we don't use the word Brep, that one is only for programmers. Instead \"Polysurface\" is used, but it is not an ideal replacement because a Brep may well have only a single surface.\"\r\n- David Rutten\r\n\r\nSource:\r\n\r\nhttp://www.grasshopper3d.com/forum/topics/how-to-make-a-brep\r\n\r\n- In Grasshopper, a Brep is a NURBS goemetry, and not a Mesh.\r\n\r\nWhat is modeled in Rhino is a Surface or a Polysurface or a Mesh.\r\n\r\nWhen a Polysurface is being referenced in Grasshopper, it would be called as a Brep and not a polysurface.\r\n\r\n- The \"Mesh Brep\" component converts a Brep into a Mesh.\r\n\r\n\"NOTE: it is generally much easier to convert from a NURBS geometry to a mesh object rather than the other way around. While the UV coordinates of a NURBS surface are straightforward to convert to quad faces of a mesh, the opposite is not necessarily true, since a mesh might contain a combination of triangles and quads in a way that is not simple to extract a UV coordinate system out of.\"\r\n\r\nSource:\r\nhttp://grasshopperprimer.com/en/1-foundations/1-6/3_Creating%20Meshes.html",
+          "pos": [
+            1159,
+            19.3
+          ],
+          "nearby": [
+            "R320"
+          ]
+        },
+        {
+          "panel_id": "R411",
+          "text": "Parametric Collar by Daniel Kiskery\r\nhttps://www.behance.net/gallery/57066297/Printed-Parametric-Collar",
+          "pos": [
+            14630,
+            41.9
+          ],
+          "nearby": [
+            "R34"
+          ]
+        }
+      ]
+    }
+  }
+}

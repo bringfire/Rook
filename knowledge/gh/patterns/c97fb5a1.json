@@ -1,0 +1,573 @@
+{
+  "pattern_id": "c97fb5a1",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:00.423357Z",
+  "solution": {
+    "brief": "Parametric workflow with 8 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Image Sampler",
+      "Plane Surface",
+      "slider",
+      "Populate 2D",
+      "slider",
+      "Populate 2D",
+      "slider",
+      "Surface Closest Point",
+      "Surface Closest Point",
+      "Image Sampler",
+      "Remap Numbers",
+      "Bounds",
+      "Number",
+      "Random",
+      "List Length",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Smaller Than",
+      "Closest Point",
+      "List Item",
+      "Cull Pattern",
+      "Cull Pattern",
+      "Voronoi",
+      "Mesh",
+      "Weaverbird's Mesh Thicken",
+      "Unweld Mesh",
+      "Remap Numbers",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Cull Pattern",
+      "slider",
+      "Split ARGB",
+      "Mesh Colours",
+      "Mesh Join"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:32:32.157019Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 44 wires -> 36 components, 44 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10000,
+          "value": 10000
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.7
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 9
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5.9
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Voronoi Image.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            731.6,
+            275.9
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            244,
+            303
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            12.5,
+            294.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            388,
+            429
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            170.5,
+            410.2
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 10000
+        },
+        {
+          "id": "R6",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            257,
+            115
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            26.7,
+            96
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R8",
+          "type": "Component_SurfaceClosestPoint",
+          "nick": "Srf CP",
+          "name": "Surface Closest Point",
+          "pos": [
+            369,
+            150
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_SurfaceClosestPoint",
+          "nick": "Srf CP",
+          "name": "Surface Closest Point",
+          "pos": [
+            508,
+            355
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            715.1,
+            -65.3
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1589,
+            -29
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1500,
+            -29
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            1341.4,
+            -37.6
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1602,
+            89
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1498,
+            108
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1495,
+            50
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            1235.7,
+            33.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            1239.1,
+            68.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.7
+        },
+        {
+          "id": "R19",
+          "type": "Component_SmallerThan",
+          "nick": "Smaller",
+          "name": "Smaller Than",
+          "pos": [
+            1723,
+            16
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            910,
+            -128
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1086,
+            -67
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            1822,
+            74
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            2111,
+            247
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            2030,
+            124
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            2120.1,
+            125.3
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "ThickenComponent",
+          "nick": "wbThicken",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            2231,
+            32
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_MeshUnweld",
+          "nick": "Unweld",
+          "name": "Unweld Mesh",
+          "pos": [
+            2337,
+            42
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1595,
+            -136
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1501,
+            -116
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            1246.3,
+            -115.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            1255.1,
+            -142.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 9
+        },
+        {
+          "id": "R32",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            1827,
+            -55
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "slider",
+          "pos": [
+            1982.1,
+            -6.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5.9
+        },
+        {
+          "id": "R34",
+          "type": "Component_ColourSplitARGB",
+          "nick": "ARGB",
+          "name": "Split ARGB",
+          "pos": [
+            1107,
+            321
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_MeshColour",
+          "nick": "MCol",
+          "name": "Mesh Colours",
+          "pos": [
+            2419,
+            185
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            2530,
+            185
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R3.O0>R2.I2",
+        "R2.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R2.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R8.I0",
+        "R2.O0>R8.I1",
+        "R4.O0>R9.I0",
+        "R2.O0>R9.I1",
+        "R13.O0>R11.I0",
+        "R12.O0>R11.I1",
+        "R13.O0>R12.I0",
+        "R16.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R13.O0>R15.I0",
+        "R17.O0>R16.I0",
+        "R18.O0>R16.I1",
+        "R14.O0>R19.I0",
+        "R11.O0>R19.I1",
+        "R9.O0>R20.I0",
+        "R8.O0>R20.I1",
+        "R10.O0>R21.I0",
+        "R20.O1>R21.I1",
+        "R9.O0>R22.I0",
+        "R19.O0>R22.I1",
+        "R1.O0>R23.I0",
+        "R19.O0>R23.I1",
+        "R22.O0>R24.I0",
+        "R2.O0>R24.I2",
+        "R25.O0>R26.I0",
+        "R32.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R34.O2>R28.I0",
+        "R12.O0>R28.I1",
+        "R29.O0>R28.I2",
+        "R31.O0>R29.I0",
+        "R30.O0>R29.I1",
+        "R28.O0>R32.I0",
+        "R19.O0>R32.I1",
+        "R1.O0>R34.I0",
+        "R27.O0>R35.I0",
+        "R23.O0>R35.I1",
+        "R35.O0>R36.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

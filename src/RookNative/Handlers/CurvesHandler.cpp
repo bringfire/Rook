@@ -1,0 +1,1208 @@
+// CurvesHandler.cpp
+//
+// 12 curve operation routes. Uses direct C++ SDK calls where possible,
+// RunScript with ObjectDiffTracker for complex interactive commands.
+
+#include "stdafx.h"
+#include "Handlers/CurvesHandler.h"
+#include "Infrastructure/UndoScope.h"
+#include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/WriteResult.h"
+#include "Infrastructure/ObjectDiffTracker.h"
+#include "Models/DocumentHelpers.h"
+#include "Threading/MainThreadDispatcher.h"
+#include "RookServer.h"
+
+namespace Rook {
+namespace Handlers {
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+static nlohmann::json Point3dToJson(const ON_3dPoint& pt)
+{
+    return { pt.x, pt.y, pt.z };
+}
+
+static ON_3dPoint ParsePoint3d(const nlohmann::json& arr)
+{
+    if (!arr.is_array() || arr.size() < 3)
+        throw std::invalid_argument("Expected [x,y,z] array");
+    return ON_3dPoint(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+}
+
+static ON_3dVector ParseVector3d(const nlohmann::json& arr)
+{
+    if (!arr.is_array() || arr.size() < 3)
+        throw std::invalid_argument("Expected [x,y,z] array");
+    return ON_3dVector(arr[0].get<double>(), arr[1].get<double>(), arr[2].get<double>());
+}
+
+// Extract an ON_Brep* from geometry (handles Brep, Extrusion, Surface).
+// Caller must delete if bMustDelete is true.
+static const ON_Brep* ExtractBrep(const ON_Geometry* geom, bool& bMustDelete)
+{
+    bMustDelete = false;
+
+    if (const ON_Brep* brep = ON_Brep::Cast(geom))
+        return brep;
+
+    if (const ON_Extrusion* ext = ON_Extrusion::Cast(geom))
+    {
+        ON_Brep* brep = ext->BrepForm();
+        if (brep) { bMustDelete = true; return brep; }
+    }
+
+    if (const ON_Surface* srf = ON_Surface::Cast(geom))
+    {
+        ON_Brep* brep = srf->BrepForm();
+        if (brep) { bMustDelete = true; return brep; }
+    }
+
+    return nullptr;
+}
+
+// ─── POST /curve/join ──────────────────────────────────────────────
+
+void HandleCurveJoin(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    if (!body.contains("ids") || !body["ids"].is_array() || body["ids"].size() < 2)
+    {
+        CRookServer::SendError(res, "Need at least 2 object IDs in 'ids' array");
+        return;
+    }
+
+    std::vector<ON_UUID> ids;
+    try { ids = ParseUuids(body, "ids"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, ids = std::move(ids)]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Join Curves");
+
+        // Collect curves
+        ON_SimpleArray<const ON_Curve*> inputCurves;
+        for (const auto& uuid : ids)
+        {
+            const CRhinoObject* obj = pDoc->LookupObject(uuid);
+            if (!obj) throw std::invalid_argument("Object not found: " + UuidToString(uuid));
+
+            const ON_Curve* crv = ON_Curve::Cast(obj->Geometry());
+            if (!crv) throw std::invalid_argument("Object " + UuidToString(uuid) + " is not a curve");
+
+            inputCurves.Append(crv);
+        }
+
+        double tol = pDoc->AbsoluteTolerance();
+        ON_SimpleArray<ON_Curve*> outputCurves;
+        RhinoMergeCurves(inputCurves, outputCurves, tol, FALSE, nullptr);
+
+        if (outputCurves.Count() == 0)
+            throw std::runtime_error("Join produced no results");
+
+        // Add results, delete originals
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (int i = 0; i < outputCurves.Count(); ++i)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject();
+            newObj->SetCurve(outputCurves[i]);  // takes ownership
+            outputCurves[i] = nullptr;
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        // Delete originals
+        for (const auto& uuid : ids)
+        {
+            const CRhinoObject* obj = pDoc->LookupObject(uuid);
+            if (obj) pDoc->DeleteObject(CRhinoObjRef(obj));
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["createdCount"] = static_cast<int>(resultIds.size());
+        wr.data["createdIds"] = std::move(resultIds);
+        wr.data["originalCount"] = static_cast<int>(ids.size());
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/explode ───────────────────────────────────────────
+
+void HandleCurveExplode(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Explode Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        ON_SimpleArray<ON_Curve*> segments;
+        int count = RhinoDuplicateCurveSegments(curve, segments);
+
+        if (count <= 1)
+        {
+            // Clean up any allocated segments
+            for (int i = 0; i < segments.Count(); ++i)
+                delete segments[i];
+            throw std::runtime_error("Curve has only one segment; nothing to explode");
+        }
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+
+        for (int i = 0; i < segments.Count(); ++i)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject(attrs);
+            newObj->SetCurve(segments[i]);  // takes ownership
+            segments[i] = nullptr;
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        pDoc->DeleteObject(CRhinoObjRef(obj));
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["createdCount"] = static_cast<int>(resultIds.size());
+        wr.data["createdIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/divide ────────────────────────────────────────────
+
+void HandleCurveDivide(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    bool byCount = body.contains("count") && body["count"].is_number_integer();
+    bool byLength = body.contains("length") && body["length"].is_number();
+    if (!byCount && !byLength)
+    {
+        CRookServer::SendError(res, "Must provide 'count' (int) or 'length' (number)");
+        return;
+    }
+
+    int divCount = byCount ? body["count"].get<int>() : 0;
+    double divLength = byLength ? body["length"].get<double>() : 0;
+    bool addPoints = body.value("addPoints", false);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, byCount, divCount, divLength, addPoints]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        ON_SimpleArray<ON_3dPoint> divPoints;
+        ON_SimpleArray<double> params;
+
+        if (byCount)
+        {
+            if (divCount < 2)
+                throw std::invalid_argument("Count must be at least 2");
+            if (!RhinoDivideCurve(*curve, static_cast<double>(divCount), 0.0,
+                    false, true, &divPoints, &params))
+                throw std::runtime_error("Division by count failed");
+        }
+        else
+        {
+            if (divLength <= 0)
+                throw std::invalid_argument("Length must be positive");
+            if (!RhinoDivideCurve(*curve, 0.0, divLength,
+                    false, true, &divPoints, &params))
+                throw std::runtime_error("Division by length failed");
+        }
+
+        if (params.Count() == 0)
+            throw std::runtime_error("Division produced no results");
+
+        // Build point and parameter arrays from RhinoDivideCurve results
+        nlohmann::json points = nlohmann::json::array();
+        nlohmann::json paramList = nlohmann::json::array();
+        for (int i = 0; i < divPoints.Count(); ++i)
+        {
+            const ON_3dPoint& pt = divPoints[i];
+            points.push_back({ pt.x, pt.y, pt.z });
+            if (i < params.Count())
+                paramList.push_back(params[i]);
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["pointCount"] = divPoints.Count();
+        wr.data["points"] = std::move(points);
+        wr.data["parameters"] = std::move(paramList);
+
+        if (addPoints)
+        {
+            UndoScope undo(pDoc, L"Divide Curve");
+            nlohmann::json createdIds = nlohmann::json::array();
+            for (int i = 0; i < divPoints.Count(); ++i)
+            {
+                CRhinoPointObject* ptObj = pDoc->AddPointObject(divPoints[i]);
+                if (ptObj)
+                    createdIds.push_back(UuidToString(ptObj->Attributes().m_uuid));
+            }
+            wr.data["createdIds"] = std::move(createdIds);
+            pDoc->Redraw();
+        }
+
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/extend ────────────────────────────────────────────
+
+void HandleCurveExtend(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("length") || !body["length"].is_number())
+    {
+        CRookServer::SendError(res, "Missing 'length' field (number)");
+        return;
+    }
+    double length = body["length"].get<double>();
+
+    std::string endStr = body.value("end", "end");
+    std::string styleStr = body.value("style", "smooth");
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, length, endStr, styleStr]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Extend Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        // Map style string to enum
+        CRhinoExtend::Type extType = CRhinoExtend::Smooth;
+        if (IEquals(styleStr, "line")) extType = CRhinoExtend::Line;
+        else if (IEquals(styleStr, "arc")) extType = CRhinoExtend::Arc;
+        else if (IEquals(styleStr, "natural")) extType = CRhinoExtend::Natural;
+
+        // Map end string to side: 0=start, 1=end, 2=both
+        int side = 1;
+        if (IEquals(endStr, "start")) side = 0;
+        else if (IEquals(endStr, "both")) side = 2;
+
+        // RhinoExtendCurve takes ON_Curve*& — modifies in-place, may reallocate
+        ON_Curve* crvCopy = curve->DuplicateCurve();
+        if (!crvCopy) throw std::runtime_error("Failed to duplicate curve");
+
+        bool ok = RhinoExtendCurve(crvCopy, extType, side, length);
+
+        if (!ok)
+        {
+            delete crvCopy;
+            throw std::runtime_error("Extend failed");
+        }
+
+        // Replace the original object
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        CRhinoCurveObject* newObj = pDoc->AddCurveObject(*crvCopy, &attrs);
+        delete crvCopy;
+        crvCopy = nullptr;
+        if (!newObj)
+            throw std::runtime_error("Failed to add extended curve");
+
+        ON_UUID newUuid = newObj->Attributes().m_uuid;
+        pDoc->DeleteObject(CRhinoObjRef(obj));
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["id"] = UuidToString(newUuid);
+        wr.data["extended"] = endStr;
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/trim ──────────────────────────────────────────────
+
+void HandleCurveTrim(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("t0") || !body["t0"].is_number() ||
+        !body.contains("t1") || !body["t1"].is_number())
+    {
+        CRookServer::SendError(res, "Missing 't0' and 't1' fields (numbers 0-1)");
+        return;
+    }
+    double t0Norm = body["t0"].get<double>();
+    double t1Norm = body["t1"].get<double>();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, t0Norm, t1Norm]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Trim Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        ON_Interval domain = curve->Domain();
+        double param0 = domain.ParameterAt(t0Norm);
+        double param1 = domain.ParameterAt(t1Norm);
+
+        ON_Curve* trimmed = curve->DuplicateCurve();
+        if (!trimmed) throw std::runtime_error("Failed to duplicate curve");
+
+        if (!trimmed->Trim(ON_Interval(param0, param1)))
+        {
+            delete trimmed;
+            throw std::runtime_error("Trim failed");
+        }
+
+        // Replace original
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        CRhinoCurveObject* newObj = pDoc->AddCurveObject(*trimmed, &attrs);
+        delete trimmed;
+        if (!newObj)
+            throw std::runtime_error("Failed to add trimmed curve");
+
+        ON_UUID newUuid = newObj->Attributes().m_uuid;
+        pDoc->DeleteObject(CRhinoObjRef(obj));
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["id"] = UuidToString(newUuid);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/split ─────────────────────────────────────────────
+
+void HandleCurveSplit(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    bool hasParam = body.contains("parameter") && body["parameter"].is_number();
+    bool hasPoint = body.contains("point") && body["point"].is_array();
+
+    if (!hasParam && !hasPoint)
+    {
+        CRookServer::SendError(res, "Must provide 'parameter' (0-1) or 'point' ([x,y,z])");
+        return;
+    }
+
+    double paramNorm = hasParam ? body["parameter"].get<double>() : 0;
+    ON_3dPoint splitPoint = ON_3dPoint::UnsetPoint;
+    if (hasPoint)
+    {
+        try { splitPoint = ParsePoint3d(body["point"]); }
+        catch (const std::invalid_argument& ex)
+        {
+            CRookServer::SendError(res, ex.what());
+            return;
+        }
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, hasParam, paramNorm, splitPoint]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Split Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        double t = 0;
+        if (hasParam)
+        {
+            t = curve->Domain().ParameterAt(paramNorm);
+        }
+        else
+        {
+            if (!curve->GetClosestPoint(splitPoint, &t))
+                throw std::runtime_error("Failed to find closest point on curve");
+        }
+
+        ON_Curve* left = nullptr;
+        ON_Curve* right = nullptr;
+        if (!curve->Split(t, left, right) || (!left && !right))
+        {
+            delete left;
+            delete right;
+            throw std::runtime_error("Split failed. Parameter may be at curve endpoint.");
+        }
+
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        nlohmann::json resultIds = nlohmann::json::array();
+
+        if (left)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject(attrs);
+            newObj->SetCurve(left);
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+        if (right)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject(attrs);
+            newObj->SetCurve(right);
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        pDoc->DeleteObject(CRhinoObjRef(obj));
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["createdCount"] = static_cast<int>(resultIds.size());
+        wr.data["createdIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/rebuild ───────────────────────────────────────────
+
+void HandleCurveRebuild(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "id"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    int pointCount = body.value("pointCount", 10);
+    int degree = body.value("degree", 3);
+    bool preserveTangents = body.value("preserveTangents", false);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, pointCount, degree, preserveTangents]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Rebuild Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        ON_NurbsCurve* rebuilt = RhinoRebuildCurve(*curve, degree, pointCount, preserveTangents);
+        if (!rebuilt)
+            throw std::runtime_error("Rebuild failed. Point count may be too low for the given degree.");
+
+        // Replace original
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        CRhinoCurveObject* newObj = pDoc->AddCurveObject(*rebuilt, &attrs);
+        delete rebuilt;
+        if (!newObj)
+            throw std::runtime_error("Failed to add rebuilt curve");
+
+        ON_UUID newUuid = newObj->Attributes().m_uuid;
+        pDoc->DeleteObject(CRhinoObjRef(obj));
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["id"] = UuidToString(newUuid);
+        wr.data["pointCount"] = pointCount;
+        wr.data["degree"] = degree;
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/fillet ────────────────────────────────────────────
+
+void HandleCurveFillet(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid1, uuid2;
+    try
+    {
+        uuid1 = ParseUuid(body, "id1");
+        uuid2 = ParseUuid(body, "id2");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("radius") || !body["radius"].is_number())
+    {
+        CRookServer::SendError(res, "Missing 'radius' field (number)");
+        return;
+    }
+    double radius = body["radius"].get<double>();
+    if (radius <= 0)
+    {
+        CRookServer::SendError(res, "Radius must be positive");
+        return;
+    }
+
+    bool join = body.value("join", true);
+    bool trim = body.value("trim", true);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid1, uuid2, radius, join, trim]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Fillet Curves");
+
+        // Use RunScript for reliability — direct curve fillet API is complex
+        // Deselect all, select the two curves
+        CRhinoObjectIterator clearIt(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* o = clearIt.First(); o; o = clearIt.Next())
+            const_cast<CRhinoObject*>(o)->Select(false);
+
+        const CRhinoObject* obj1 = pDoc->LookupObject(uuid1);
+        const CRhinoObject* obj2 = pDoc->LookupObject(uuid2);
+        if (!obj1 || !obj2) throw std::invalid_argument("One or both curves not found");
+
+        const_cast<CRhinoObject*>(obj1)->Select(true);
+        const_cast<CRhinoObject*>(obj2)->Select(true);
+
+        // Build command
+        ON_wString joinStr = join ? L"_Yes" : L"_No";
+        ON_wString trimStr = trim ? L"_Yes" : L"_No";
+
+        wchar_t script[512];
+        swprintf_s(script, 512,
+            L"_-FilletCrv _Radius=%g _Join=%ls _Trim=%ls _Enter _Enter",
+            radius,
+            static_cast<const wchar_t*>(joinStr),
+            static_cast<const wchar_t*>(trimStr));
+
+        ObjectDiffTracker tracker(pDoc);
+        RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), script, 0);
+        std::vector<ON_UUID> newIds = tracker.GetNewObjects();
+
+        WriteResult wr;
+        if (newIds.empty())
+        {
+            wr.success = false;
+            wr.data["error"] = "Fillet produced no results. Curves may not intersect or radius may be too large.";
+            return wr;
+        }
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (const auto& id : newIds)
+            resultIds.push_back(UuidToString(id));
+
+        wr.success = true;
+        wr.data["createdCount"] = static_cast<int>(newIds.size());
+        wr.data["createdIds"] = std::move(resultIds);
+        wr.data["radius"] = radius;
+        pDoc->Redraw();
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/project ───────────────────────────────────────────
+
+void HandleCurveProject(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::vector<ON_UUID> curveIds, brepIds;
+    try
+    {
+        curveIds = ParseUuids(body, "curveIds");
+        brepIds = ParseUuids(body, "brepIds");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("direction"))
+    {
+        CRookServer::SendError(res, "Missing 'direction' field ([x,y,z])");
+        return;
+    }
+
+    ON_3dVector direction;
+    try { direction = ParseVector3d(body["direction"]); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    double tolerance = body.value("tolerance", 0.0);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, curveIds = std::move(curveIds), brepIds = std::move(brepIds),
+         direction, tolerance]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Project Curves");
+
+        double tol = (tolerance > 0) ? tolerance : pDoc->AbsoluteTolerance();
+
+        // Collect curves and breps
+        ON_SimpleArray<const ON_Curve*> curves;
+        ON_SimpleArray<const ON_Brep*> breps;
+        std::vector<ON_Brep*> tempBreps; // for cleanup
+
+        for (const auto& uuid : curveIds)
+        {
+            const CRhinoObject* obj = pDoc->LookupObject(uuid);
+            if (!obj) throw std::invalid_argument("Curve not found: " + UuidToString(uuid));
+            const ON_Curve* crv = ON_Curve::Cast(obj->Geometry());
+            if (!crv) throw std::invalid_argument("Object is not a curve: " + UuidToString(uuid));
+            curves.Append(crv);
+        }
+
+        for (const auto& uuid : brepIds)
+        {
+            const CRhinoObject* obj = pDoc->LookupObject(uuid);
+            if (!obj) throw std::invalid_argument("Brep not found: " + UuidToString(uuid));
+
+            const ON_Geometry* geom = obj->Geometry();
+            if (const ON_Brep* brep = ON_Brep::Cast(geom))
+            {
+                breps.Append(brep);
+            }
+            else if (const ON_Extrusion* ext = ON_Extrusion::Cast(geom))
+            {
+                ON_Brep* tempBrep = ext->BrepForm();
+                if (tempBrep)
+                {
+                    tempBreps.push_back(tempBrep);
+                    breps.Append(tempBrep);
+                }
+            }
+            else
+            {
+                throw std::invalid_argument("Object is not a brep: " + UuidToString(uuid));
+            }
+        }
+
+        ON_SimpleArray<ON_Curve*> outCurves;
+        ON_SimpleArray<int> curveIndices, brepIndices;
+
+        bool ok = RhinoProjectCurvesToBreps(breps, curves, direction,
+            outCurves, curveIndices, brepIndices, tol);
+
+        // Clean up temp breps
+        for (auto* tb : tempBreps) delete tb;
+
+        if (!ok || outCurves.Count() == 0)
+            throw std::runtime_error("Projection produced no results");
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (int i = 0; i < outCurves.Count(); ++i)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject();
+            newObj->SetCurve(outCurves[i]);  // takes ownership
+            outCurves[i] = nullptr;
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["projectedCount"] = static_cast<int>(resultIds.size());
+        wr.data["projectedIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/pull ──────────────────────────────────────────────
+
+void HandleCurvePull(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID curveUuid, brepUuid;
+    try
+    {
+        curveUuid = ParseUuid(body, "curveId");
+        brepUuid = ParseUuid(body, "brepId");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    int faceIndex = body.value("faceIndex", -1);
+    double tolerance = body.value("tolerance", 0.0);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, curveUuid, brepUuid, faceIndex, tolerance]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Pull Curve");
+
+        double tol = (tolerance > 0) ? tolerance : pDoc->AbsoluteTolerance();
+
+        const CRhinoObject* crvObj = pDoc->LookupObject(curveUuid);
+        if (!crvObj) throw std::invalid_argument("Curve not found");
+        const ON_Curve* curve = ON_Curve::Cast(crvObj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        const CRhinoObject* brepObj = pDoc->LookupObject(brepUuid);
+        if (!brepObj) throw std::invalid_argument("Brep not found");
+
+        bool bMustDelete = false;
+        const ON_Brep* brep = ExtractBrep(brepObj->Geometry(), bMustDelete);
+        if (!brep) throw std::invalid_argument("Object is not a brep");
+        std::unique_ptr<const ON_Brep> brepGuard(bMustDelete ? brep : nullptr);
+
+        // Determine which face to pull to
+        int fi = (faceIndex >= 0 && faceIndex < brep->m_F.Count())
+            ? faceIndex : 0;
+
+        ON_SimpleArray<ON_Curve*> outCurves;
+        int count = RhinoPullCurveToFace(brep->m_F[fi], *curve, outCurves, tol);
+
+        if (count == 0 || outCurves.Count() == 0)
+            throw std::runtime_error("Pull produced no results");
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (int i = 0; i < outCurves.Count(); ++i)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject();
+            newObj->SetCurve(outCurves[i]);  // takes ownership
+            outCurves[i] = nullptr;
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["pulledCount"] = static_cast<int>(resultIds.size());
+        wr.data["pulledIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/offset ────────────────────────────────────────────
+
+void HandleCurveOffset(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID uuid;
+    try { uuid = ParseUuid(body, "curveId"); }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("distance") || !body["distance"].is_number())
+    {
+        CRookServer::SendError(res, "Missing 'distance' field (number)");
+        return;
+    }
+    double distance = body["distance"].get<double>();
+    int cornerStyle = body.value("cornerStyle", 1); // 1 = Sharp
+
+    // Extract plane normal before dispatch to avoid capturing full JSON body
+    ON_3dVector planeNormal(0, 0, 1); // Default: World XY
+    if (body.contains("plane") && body["plane"].is_object())
+    {
+        auto& planeJson = body["plane"];
+        if (planeJson.contains("normal"))
+        {
+            auto n = planeJson["normal"];
+            if (n.is_array() && n.size() >= 3)
+                planeNormal = ON_3dVector(n[0].get<double>(), n[1].get<double>(), n[2].get<double>());
+        }
+    }
+    planeNormal.Unitize();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, uuid, distance, cornerStyle, planeNormal]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Offset Curve");
+
+        const CRhinoObject* obj = pDoc->LookupObject(uuid);
+        if (!obj) throw std::invalid_argument("Object not found");
+
+        const ON_Curve* curve = ON_Curve::Cast(obj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        double tol = pDoc->AbsoluteTolerance();
+        ON_3dVector normal = planeNormal;
+
+        // Compute direction point: midpoint + perpendicular * distance
+        ON_3dPoint midPt;
+        ON_3dVector tangent;
+        curve->EvTangent(curve->Domain().Mid(), midPt, tangent);
+
+        ON_3dVector perp = ON_CrossProduct(tangent, normal);
+        if (perp.Length() < 1e-10)
+            perp = ON_3dVector(0, 1, 0);
+        perp.Unitize();
+
+        ON_3dPoint directionPoint = midPt + perp * distance;
+
+        ON_SimpleArray<ON_Curve*> outCurves;
+        int count = RhinoOffsetCurve(*curve, fabs(distance), directionPoint, normal,
+            cornerStyle, tol, outCurves);
+
+        if (count == 0 || outCurves.Count() == 0)
+            throw std::runtime_error("Offset produced no results");
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (int i = 0; i < outCurves.Count(); ++i)
+        {
+            CRhinoCurveObject* newObj = new CRhinoCurveObject();
+            newObj->SetCurve(outCurves[i]);
+            outCurves[i] = nullptr;
+            if (pDoc->AddObject(newObj))
+                resultIds.push_back(UuidToString(newObj->Attributes().m_uuid));
+            else
+                delete newObj;
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["offsetCount"] = static_cast<int>(resultIds.size());
+        wr.data["offsetIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/offset-on-surface ─────────────────────────────────
+
+void HandleCurveOffsetOnSurface(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    ON_UUID curveUuid, surfaceUuid;
+    try
+    {
+        curveUuid = ParseUuid(body, "curveId");
+        surfaceUuid = ParseUuid(body, "surfaceId");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+        return;
+    }
+
+    if (!body.contains("distance") || !body["distance"].is_number())
+    {
+        CRookServer::SendError(res, "Missing 'distance' field (number)");
+        return;
+    }
+    double distance = body["distance"].get<double>();
+    double tolerance = body.value("tolerance", 0.0);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, curveUuid, surfaceUuid, distance, tolerance]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Offset on Surface");
+
+        const CRhinoObject* crvObj = pDoc->LookupObject(curveUuid);
+        if (!crvObj) throw std::invalid_argument("Curve not found");
+        const ON_Curve* curve = ON_Curve::Cast(crvObj->Geometry());
+        if (!curve) throw std::invalid_argument("Object is not a curve");
+
+        const CRhinoObject* srfObj = pDoc->LookupObject(surfaceUuid);
+        if (!srfObj) throw std::invalid_argument("Surface not found");
+
+        // Validate that the surface object is a brep/surface/extrusion
+        bool bMustDelete = false;
+        const ON_Brep* brep = ExtractBrep(srfObj->Geometry(), bMustDelete);
+        if (!brep) throw std::invalid_argument("Object is not a surface/brep");
+        std::unique_ptr<const ON_Brep> brepGuard(bMustDelete ? brep : nullptr);
+
+        // Use RunScript for offset on surface — direct API is complex
+        // Deselect all, select curve
+        CRhinoObjectIterator clearIt(*pDoc,
+            CRhinoObjectIterator::normal_or_locked_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* o = clearIt.First(); o; o = clearIt.Next())
+            const_cast<CRhinoObject*>(o)->Select(false);
+        const_cast<CRhinoObject*>(crvObj)->Select(true);
+
+        ON_wString wSurfaceUuid = Utf8ToWide(UuidToString(surfaceUuid));
+        wchar_t script[512];
+        swprintf_s(script, 512,
+            L"_-OffsetCrvOnSrf %g _SelId %ls _Enter",
+            distance,
+            static_cast<const wchar_t*>(wSurfaceUuid));
+
+        ObjectDiffTracker tracker(pDoc);
+        RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), script, 0);
+        std::vector<ON_UUID> newIds = tracker.GetNewObjects();
+
+        if (newIds.empty())
+            throw std::runtime_error("Offset on surface produced no results");
+
+        nlohmann::json resultIds = nlohmann::json::array();
+        for (const auto& id : newIds)
+            resultIds.push_back(UuidToString(id));
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["offsetCount"] = static_cast<int>(newIds.size());
+        wr.data["offsetIds"] = std::move(resultIds);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+} // namespace Handlers
+} // namespace Rook

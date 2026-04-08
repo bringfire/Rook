@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_ea88730a",
+  "note_type": "component",
+  "name": "Knot Vector",
+  "brief": "Knot Vector | Inputs: N, D, P → K",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Knot Vector. Inputs: N (Integer), D (Integer), P (Boolean). Outputs: K (Number).",
+  "keywords": [
+    "knot vector",
+    "knot",
+    "vector",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "knot vector",
+    "knot",
+    "vector"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Knot Vector"
+  ],
+  "solution_principle": "Construct a nurbs curve knot vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "846470bd-4918-4d00-9388-7e022b2cba73",
+    "category": "curves",
+    "inputs": {
+      "N": "Integer",
+      "D": "Integer",
+      "P": "Boolean"
+    },
+    "outputs": {
+      "K": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|spline|knot vector"
+  }
+}

@@ -1,0 +1,688 @@
+[
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0012 Column Shelf\\0012 Column Shelf.gh",
+    "patterns": [
+      "6ba5ea93",
+      "9beda8e5"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0027 Metaball Building\\0027 Metaball Building.gh",
+    "patterns": [
+      "86e000a8"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0098 2D Gradation\\2D Gradation.gh",
+    "patterns": [
+      "4379fa1a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0066 Accordion Curtain\\Accordion Curtain.gh",
+    "patterns": [
+      "aa0cc1a9"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0111 Agate Section\\Agate Section.gh",
+    "patterns": [
+      "af1b7d6b"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0121 Arc Windmill\\Arc Windmill.gh",
+    "patterns": [
+      "e561d841"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0016 Basic Torque\\Basic Torque.gh",
+    "patterns": [
+      "36b862a1",
+      "6482148e"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0101 Box Sun\\Box Sun.gh",
+    "patterns": [
+      "d7bd8f48"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0049 Branch Dish\\Branch Dish.gh",
+    "patterns": [
+      "a5ef50b5"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0077 Bulb Connection\\Bulb Connection.gh",
+    "patterns": [
+      "fa0e52a1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0108 Candy Wall\\Candy Wall.gh",
+    "patterns": [
+      "60531d6e"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0100 Categorized Stool\\Categorized Stool.gh",
+    "patterns": [
+      "c6f3d804"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0094 Checker Textile\\Checker Textile.gh",
+    "patterns": [
+      "7cf2eae5"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0085 Church Frame\\Church Frame.gh",
+    "patterns": [
+      "1f185299"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0099 Circle Ring\\Circle Ring.gh",
+    "patterns": [
+      "f70cda39"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0061 Closed Spirograph\\Closed Spirograph.gh",
+    "patterns": [
+      "7b1c3e85"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0052 Complex Shelf\\Complex Shelf.gh",
+    "patterns": [
+      "ff06566a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0074 Contour Chair\\Contour Chair Cut.gh",
+    "patterns": [
+      "fdbc67df"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0074 Contour Chair\\Contour Chair.gh",
+    "patterns": [
+      "188588cb"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0095 Contour Wave\\Contour Wave.gh",
+    "patterns": [
+      "492dff24"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0063 Cracked Wall\\Cracked Wall.gh",
+    "patterns": [
+      "b199ac1c"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0008 Drill Bit\\Drill Bit.gh",
+    "patterns": [
+      "88b5cf12",
+      "fd023ae3"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0090 Dumbbell Pattern\\Dumbbell Pattern.gh",
+    "patterns": [
+      "6700397d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0103 Fake Shadow\\Fake Shadow.gh",
+    "patterns": [
+      "c922d7d7"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0102 Falling Flowers\\Falling Flowers.gh",
+    "patterns": [
+      "02f0af8b"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0047 Fish Jump\\Fish Jump.gh",
+    "patterns": [
+      "101412b0"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0040 Fish Swarm\\Fish Swarm.gh",
+    "patterns": [
+      "93a3cba5"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0082 Flip-up Dish\\Flip-up Dish.gh",
+    "patterns": [
+      "2f310f59"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0062 Flower Bowl\\Flower Bowl.gh",
+    "patterns": [
+      "2c225096"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0010 Flower Pattern\\Flower Pattern.gh",
+    "patterns": [
+      "943098fd",
+      "d4fc2c1f"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0051 Fractal Crystal\\Fractal Crystal.gh",
+    "patterns": [
+      "ff0d1823"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0017 Fractal Shell\\Fractal Shell.gh",
+    "patterns": [
+      "4da99b59",
+      "71ae8708"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0117 Gear Simulation\\Gear Simulation.gh",
+    "patterns": [
+      "acd022b1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0054 Ginkgo Window\\Ginkgo Window.gh",
+    "patterns": [
+      "91aa15f3"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0091 Glitch Ripple\\Glitch Ripple.gh",
+    "patterns": [
+      "a4e057d2"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0031 Gradient Islamic\\Gradient Islamic.gh",
+    "patterns": [
+      "da89a695"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0024 Gradient Tile\\Gradient Tile.gh",
+    "patterns": [
+      "ea79d920"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0105 Hatched Screw\\Hatched Screw.gh",
+    "patterns": [
+      "b96fb360"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0020 Hexagonal Bagworm\\Hexagonal Bagworm.gh",
+    "patterns": [
+      "130f6b1d",
+      "5e4258a8"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0039 Hexagonal Mari\\Hexagonal Mari.gh",
+    "patterns": [
+      "020ae70c"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0043 Hollowed Weave\\Hollowed Weave.gh",
+    "patterns": [
+      "0acaaa5d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0071 Impossible Object\\Impossible Object.gh",
+    "patterns": [
+      "4c37e8be"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0048 Inflated Diamond\\Inflated Diamond.gh",
+    "patterns": [
+      "d145fd16"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0112 Islamic Weaving\\Islamic Weaving.gh",
+    "patterns": [
+      "d4ff1297"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0078 Japanese Wave\\Japanese Wave.gh",
+    "patterns": [
+      "68d8cb33"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0118 Kawai Tsugite\\Kawai Tsugite.gh",
+    "patterns": [
+      "c8d20aff"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0044 Landscape Contour\\Landscape Contour.gh",
+    "patterns": [
+      "7cb10c17"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0011 Leaf Dome\\Leaf Dome.gh",
+    "patterns": [
+      "70c7a21a",
+      "b451950e"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0067 Leaf Wave\\Leaf Wave.gh",
+    "patterns": [
+      "1afd7951"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0050 Linear Pine\\Linear Pine.gh",
+    "patterns": [
+      "47f20cca"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0029 Lowpoly Attractor\\Lowpoly Attractor.gh",
+    "patterns": [
+      "f78deac4"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0089 Magic Hands\\Magic Hands.gh",
+    "patterns": [
+      "06799a58"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0033 Maze Tile\\Maze Tile.gh",
+    "patterns": [
+      "63f8ff55"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0026 Minimal Twisting\\Minimal Twisting.gh",
+    "patterns": [
+      "702d323f"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0072 Moire Circle\\Moire Circle.gh",
+    "patterns": [
+      "db9d7583"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0023 Moon Module\\Moon Module.gh",
+    "patterns": [
+      "ef9b6f3e"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0057 Mystery Circle\\Mystery Circle.gh",
+    "patterns": [
+      "b9005b9d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0093 Needle Ball\\Needle Ball.gh",
+    "patterns": [
+      "82a8a824"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0088 Nouveau Tile\\Nouveau Tile.gh",
+    "patterns": [
+      "287f9d46"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0019 Oil Pond\\Oil Pond.gh",
+    "patterns": [
+      "1c4628ff",
+      "95e3d25c"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0076 Orange Peel\\Orange Peel.gh",
+    "patterns": [
+      "4d9d50f9"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0114 Origami Fold\\Origami Fold.gh",
+    "patterns": [
+      "81915ce5"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0021 Packed Circle\\Packed Chair.gh",
+    "patterns": [
+      "08d50032"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0059 Parallelogram Tile\\Parallelogram Tile.gh",
+    "patterns": [
+      "95b35fc1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0041 Particle Vortex\\Particle Vortex.gh",
+    "patterns": [
+      "42ca7abc"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0053 Pattern Structure\\Pattern Structure.gh",
+    "patterns": [
+      "f446ae67"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0079 Pebble Fit\\Pebble Fit.gh",
+    "patterns": [
+      "7bee6722"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0070 Polygonal Shelf\\Polygonal Shelf.gh",
+    "patterns": [
+      "139f766a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0025 Porous Fruit\\Porous Fruit.gh",
+    "patterns": [
+      "0761a874"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0097 Punching Tetrapod\\Punching Tetrapod.gh",
+    "patterns": [
+      "f7069550"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0073 Puzzle Ring\\Puzzle Ring.gh",
+    "patterns": [
+      "55a0585c"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0080 Reaction Diffusion\\Reaction Diffusion.gh",
+    "patterns": [
+      "53d4186b"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0015 Recursive Stair\\Recursive Stair.gh",
+    "patterns": [
+      "0e4cb21f",
+      "77ddec83"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0046 Ribbon Loop\\Ribbon Loop.gh",
+    "patterns": [
+      "cfa14132"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0013 Rock Tile\\Rock Tile.gh",
+    "patterns": [
+      "a882942d",
+      "e301ae2d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0069 Rocking Chair\\Rocking Chair.gh",
+    "patterns": [
+      "10a660d4"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0119 Rose Garden\\Rose Garden.gh",
+    "patterns": [
+      "8b918ca6"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0107 Round Slices\\Round Slices.gh",
+    "patterns": [
+      "5e1808b7"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0038 Shaded Wave\\Shaded Wave.gh",
+    "patterns": [
+      "c10dcc76"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0014 Simple Tensegrity\\Simple Tensegrity.gh",
+    "patterns": [
+      "8eebcb1b",
+      "e34cb50d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0096 Simple Tent\\Simple Tent-fixed.gh",
+    "patterns": [
+      "197f9935"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0096 Simple Tent\\Simple Tent.gh",
+    "patterns": [
+      "220a9e75"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0030 Sine Pendant\\Sine Pendant.gh",
+    "patterns": [
+      "df24007a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0030 Sine Pendant\\Sine Pendant_organized.gh",
+    "patterns": [
+      "04081616"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0083 Snake Tower\\Snake Tower.gh",
+    "patterns": [
+      "4e5321a1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0092 Spider Cage\\Spider Cage.gh",
+    "patterns": [
+      "699566e7"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0086 Spider Dome\\Spider Dome.gh",
+    "patterns": [
+      "012865d1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0028 Spiral Cactus\\Spiral Cactus.gh",
+    "patterns": [
+      "e72dd3ca"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0115 Spiral Torus\\Spiral Torus.gh",
+    "patterns": [
+      "b3c6c78b"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0007 Square Lettuce\\Square Lettuce.gh",
+    "patterns": [
+      "1da6cd21",
+      "5823bd9a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0060 Star Pillow\\Star Pillow.gh",
+    "patterns": [
+      "81e14ed4"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0056 Star Tile\\Star Tile.gh",
+    "patterns": [
+      "57fc2956"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0081 Starfish Dome\\Starfish Dome.gh",
+    "patterns": [
+      "747f66fb"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0106 Summer Firework\\Summer Firework.gh",
+    "patterns": [
+      "169489f1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0104 Superformula Tower\\Superformula Tower.gh",
+    "patterns": [
+      "5a613664"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0120 Swarm Intelligence\\Swarm Intelligence.gh",
+    "patterns": [
+      "41f76822"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0064 Text Pin\\Text Pin.gh",
+    "patterns": [
+      "0486b272"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0018 Texture Displacement\\Texture Displacement.gh",
+    "patterns": [
+      "430e0b66",
+      "a047dfae"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0065 Torii Gates\\Torii Gates.gh",
+    "patterns": [
+      "e5da5e21"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0068 Triangle City\\Triangle City.gh",
+    "patterns": [
+      "9a9ffddc"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0022 Trigometry Pipe\\Trigometry Pipe.gh",
+    "patterns": [
+      "beceed1a"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0045 Twisted Louver\\Twisted Louver.gh",
+    "patterns": [
+      "da2bf65f"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0058 Undulant Portrait\\Undulant Portrait.gh",
+    "patterns": [
+      "e9f44fbd"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0009 Voronoi Image\\Voronoi Image.gh",
+    "patterns": [
+      "0dcad787",
+      "c97fb5a1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0087 Voxel Bunny\\Voxel Bunny.gh",
+    "patterns": [
+      "1ff3d2c7"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0042 Waffle Bomb\\Waffle Bomb.gh",
+    "patterns": [
+      "7ab260a7"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0075 Waffle Pattern\\Waffle Pattern.gh",
+    "patterns": [
+      "4ef0e9a1"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0084 Weaving Pot\\Weaving Pot.gh",
+    "patterns": [
+      "87f89c7d"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0032 Whipped Wire\\Whipped Wire.gh",
+    "patterns": [
+      "11cb8be9"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0113 Windup Pattern\\Windup Pattern.gh",
+    "patterns": [
+      "84c56405"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0055 Wood Joint\\Wood Joint.gh",
+    "patterns": [
+      "ef492b06"
+    ]
+  },
+  {
+    "file": "C:\\UDEV\\GrasshopperHowtos\\0037 Y Tile\\Y Tile.gh",
+    "patterns": [
+      "ddfc5df6"
+    ]
+  }
+]

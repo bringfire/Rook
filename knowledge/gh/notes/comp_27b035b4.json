@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_27b035b4",
+  "note_type": "component",
+  "name": "Rectangle",
+  "brief": "Rectangle | Inputs: P, X, Y, R → R, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Rectangle. Inputs: P (Plane), X (Domain), Y (Domain), R (Number). Outputs: R (Generic Data), L (Number).",
+  "keywords": [
+    "rectangle",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "rectangle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangle"
+  ],
+  "solution_principle": "Create a rectangle on a plane",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ca3169bb",
+    "comp_255e74fc",
+    "teaching_e23cfc74",
+    "comp_919aeca8",
+    "comp_e452abc5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d93100b6-d50b-40b2-831a-814659dc38e3",
+    "category": "curves",
+    "inputs": {
+      "P": "Plane",
+      "X": "Domain",
+      "Y": "Domain",
+      "R": "Number"
+    },
+    "outputs": {
+      "R": "Generic Data",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "46b5564d-d3eb-4bf1-ae16-15ed132cfd88"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|rectangle"
+  }
+}

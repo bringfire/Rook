@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_fe8edca1",
+  "note_type": "component",
+  "name": "Plane Coordinates",
+  "brief": "Plane Coordinates | Inputs: P, S → X, Y, Z",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Plane Coordinates. Inputs: P (Point), S (Plane). Outputs: X (Number), Y (Number), Z (Number).",
+  "keywords": [
+    "plane coordinates",
+    "plane",
+    "coordinates",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane coordinates",
+    "plane",
+    "coordinates"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Coordinates"
+  ],
+  "solution_principle": "Get the coordinates of a point in a plane axis system.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5f127fa4-ca61-418e-bb2d-e3739d900f1f",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Point",
+      "S": "Plane"
+    },
+    "outputs": {
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane coordinates"
+  }
+}

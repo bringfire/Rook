@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_b6103bc9",
+  "note_type": "component",
+  "name": "Decrypt Text",
+  "brief": "Decrypt Text | Inputs: Text, Pass → Decrypt",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Decrypt Text. Inputs: Text (Text), Pass (Text). Outputs: Decrypt (Generic Data).",
+  "keywords": [
+    "decrypt text",
+    "decrypt",
+    "text",
+    "lunchbox_serialization"
+  ],
+  "category": "lunchbox_serialization",
+  "tags": [
+    "lunchbox_serialization"
+  ],
+  "trigger_intents": [
+    "decrypt text",
+    "decrypt",
+    "text"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Decrypt Text"
+  ],
+  "solution_principle": "Decrypt text with a passphrase.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1294644e",
+    "comp_509cab11",
+    "teaching_f12729f0",
+    "comp_d38ff1a2",
+    "comp_da2c5c1e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a3586a96-8767-48df-87ff-bc336b24ae1b",
+    "category": "lunchbox_serialization",
+    "inputs": {
+      "Text": "Text",
+      "Pass": "Text"
+    },
+    "outputs": {
+      "Decrypt": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "22643c83-7db2-46fd-bf0a-36801978754c"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|serialization|decrypt text"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_ee5571b6",
+  "note_type": "component",
+  "name": "Gate And",
+  "brief": "Gate And | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Gate And. Inputs: A (Boolean), B (Boolean). Outputs: R (Boolean).",
+  "keywords": [
+    "gate and",
+    "gate",
+    "and",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "gate and",
+    "gate",
+    "and"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Gate And"
+  ],
+  "solution_principle": "Perform boolean conjunction (AND gate).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_bf182481",
+    "comp_6fbc1b75",
+    "comp_88aab490",
+    "comp_39c5db5b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "040f195d-0b4e-4fe0-901f-fedb2fd3db15",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Boolean",
+      "B": "Boolean"
+    },
+    "outputs": {
+      "R": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "de4a0d86-2709-4564-935a-88bf4d40af89"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|operators|gate and"
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "pattern_id": "a8c0a897",
+  "name": "smoke_test_sphere",
+  "version": "1.0",
+  "created": "2026-02-21T07:38:34.768327Z",
+  "solution": {
+    "brief": "Grasshopper workflow with 3 components",
+    "principle": "",
+    "components_needed": [
+      "panel",
+      "Sphere",
+      "Radius"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create sphere with radius slider"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "smoke-test",
+    "primitives",
+    "grasshopper",
+    "basic-workflow"
+  ],
+  "evolution": {
+    "created_from": "recipe_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "Radius",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R1",
+          "nick": "",
+          "content": ""
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "panel",
+          "pos": [
+            650,
+            100
+          ],
+          "content": ""
+        },
+        {
+          "id": "R2",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            400,
+            100
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "nick": "Radius",
+          "pos": [
+            150,
+            100
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R3.O0>R2.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

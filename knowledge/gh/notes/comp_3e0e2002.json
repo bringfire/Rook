@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_3e0e2002",
+  "note_type": "component",
+  "name": "Context Print",
+  "brief": "Context Print | Inputs: Tx → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Context Print. Inputs: Tx (Text).",
+  "keywords": [
+    "context print",
+    "context",
+    "print",
+    "param_utilities"
+  ],
+  "category": "param_utilities",
+  "tags": [
+    "param_utilities"
+  ],
+  "trigger_intents": [
+    "context print",
+    "context",
+    "print"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Context Print"
+  ],
+  "solution_principle": "Textual data to print at the end of the GrasshopperPlayer command.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00dd8796",
+    "comp_a8859f74",
+    "comp_8a34358d",
+    "comp_b77812c7",
+    "comp_62b2ee46"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "73215ec5-0eb5-4f85-9e07-b09c4590ce2b",
+    "category": "param_utilities",
+    "inputs": {
+      "Tx": "Text"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "72a29b54-2e48-474b-a400-d2124c4edf79"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|util|context print"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_78341aad",
+  "note_type": "component",
+  "name": "Amplitude",
+  "brief": "Amplitude | Inputs: V, A â†’ V",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Amplitude. Inputs: V (Vector), A (Number). Outputs: V (Vector).",
+  "keywords": [
+    "amplitude",
+    "amplitude"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "component",
+    "mathematical-functions",
+    "trigonometric",
+    "scaling",
+    "wave-control",
+    "parametric-modeling"
+  ],
+  "trigger_intents": [
+    "amplitude"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Amplitude"
+  ],
+  "solution_principle": "Set the amplitude (length) of a vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_a882942d",
+    "recipe_4da99b59",
+    "recipe_8bc58a33",
+    "recipe_155ea82b",
+    "recipe_130f6b1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6ec39468-dae7-4ffa-a766-f2ab22a2c62e",
+    "category": "vector_ops",
+    "inputs": {
+      "V": "Vector",
+      "A": "Number"
+    },
+    "outputs": {
+      "V": "Vector"
+    },
+    "typical_wiring": [],
+    "usage_count": 78,
+    "stable_key": "vector|vector|amplitude"
+  }
+}

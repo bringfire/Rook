@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_f66c936d",
+  "note_type": "component",
+  "name": "Substrate",
+  "brief": "Substrate | Inputs: B, N, A, D → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Substrate. Inputs: B (Rectangle), N (Integer), A (Number), D (Number), S (Integer). Outputs: S (Line).",
+  "keywords": [
+    "substrate",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "substrate"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Substrate"
+  ],
+  "solution_principle": "Substrate algorithm inspired by Jared Tarbell (Complexification.net)",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "415750fd-c0ec-4411-84d0-01f28ab23066",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "B": "Rectangle",
+      "N": "Integer",
+      "A": "Number",
+      "D": "Number",
+      "S": "Integer"
+    },
+    "outputs": {
+      "S": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|substrate"
+  }
+}

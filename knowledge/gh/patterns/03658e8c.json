@@ -1,0 +1,92 @@
+{
+  "pattern_id": "03658e8c",
+  "name": "Wasp Parts Reference Rhino Geometry via Params",
+  "version": "1.0",
+  "created": "2026-03-19T13:29:11.995177Z",
+  "solution": {
+    "brief": "Wasp parts require a paired .3dm file opened first; Brep, Points, and Curves are referenced into GH as part geometry and connection data.",
+    "principle": "Wasp externalizes part geometry to Rhino: GH definitions reference live Rhino objects via parameter components, so the correct .3dm must be open before the GH file solves. This separation keeps geometry editable in Rhino while logic lives in GH.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Basic Part",
+      "Param_Brep",
+      "Param_Point",
+      "Param_Curve"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I set up a Wasp part",
+      "Wasp definition is empty or giving errors",
+      "what geometry do I need for Wasp connections",
+      "how do I define connection planes for Wasp",
+      "Wasp part not working after opening GH file"
+    ],
+    "symptoms": [
+      "Wasp GH definition shows null or empty outputs",
+      "Param_Brep, Param_Point, or Param_Curve components are orange/red with no data",
+      "Wasp_Basic Part or Wasp_Connection From Direction produces no output",
+      "Opening a Wasp .gh file in isolation yields errors"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "A paired Rhino .3dm file exists with part geometry (Brep) and connection geometry (Points at face centers, Curves for X-axis orientation) already modeled",
+      "The .3dm file must be open in Rhino before the GH definition is opened or solved",
+      "Geometry in Rhino must be correctly named/layered so GH parameter components can reference them"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "e429efda",
+    "e1f1c3cf",
+    "fe6b0648"
+  ],
+  "tags": [
+    "wasp",
+    "workflow",
+    "external-reference",
+    "part-setup",
+    "connections",
+    "rhino-grasshopper",
+    "rhino-params",
+    "3dm-file",
+    "geometry-referencing",
+    "brep",
+    "part-geometry",
+    "prerequisite",
+    "discrete-design",
+    "plugin-workflow"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "note_id": "teaching_47c6c682",
+  "note_type": "teaching",
+  "name": "U08 - - Duplicate all necessary result",
+  "brief": "Teaching: - Duplicate all necessary result",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.262309Z",
+  "context": "- Duplicate all necessary result\r\n\r\n- Hide wires\r\n\r\n- Organize all Dimensions & Text Tags",
+  "keywords": [
+    "duplicate",
+    "all",
+    "necessary",
+    "result",
+    "text tag 3d",
+    "aligned dimension",
+    "merge",
+    "angular dimension",
+    "unit 08 class",
+    "final",
+    "schedule",
+    "areas",
+    "panel",
+    "number",
+    "dimensioning",
+    "triangles",
+    "cells",
+    "angular",
+    "dimensions"
+  ],
+  "category": "Unit 08",
+  "tags": [
+    "hands-on",
+    "result-duplication",
+    "dimensioning",
+    "tutorial",
+    "angular dimensions",
+    "panel number",
+    "final schedule",
+    "unit-08",
+    "multi-group",
+    "labeling",
+    "triangles in cells",
+    "advanced",
+    "geometry-preservation",
+    "text-annotation",
+    "workflow-finalization",
+    "areas",
+    "teaching"
+  ],
+  "trigger_intents": [
+    "- duplicate all necessary result",
+    "how to use - duplicate all necessary result",
+    "how to use text tag 3d",
+    "how to use aligned dimension",
+    "how to use merge",
+    "how to use angular dimension",
+    "duplicate all necessary result",
+    "hide wires",
+    "organize all dimensions & text tags"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Text Tag 3D",
+    "Aligned Dimension",
+    "Merge",
+    "Angular Dimension"
+  ],
+  "solution_principle": "- Duplicate all necessary result\r\n\r\n- Hide wires\r\n\r\n- Organize all Dimensions & Text Tags",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_09d68cd9",
+    "comp_79adb5f1",
+    "teaching_2918522f",
+    "teaching_43ee0a0e",
+    "teaching_f12729f0",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_220e8091",
+    "comp_aa74495c",
+    "comp_d551bf52"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.262309Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-08-Class",
+    "unit_number": 8,
+    "section_number": null,
+    "section_index": 4,
+    "x_range": [
+      8254,
+      9217.5
+    ],
+    "full_teaching_text": "- Duplicate all necessary result\r\n\r\n- Hide wires\r\n\r\n- Organize all Dimensions & Text Tags",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C118",
+      "C119",
+      "C120",
+      "C124",
+      "C414",
+      "C415",
+      "C416"
+    ],
+    "intra_section_flows": [],
+    "groups": [
+      {
+        "group_id": "G4",
+        "name": "FINAL Schedule",
+        "colour": "#00E5FF80"
+      },
+      {
+        "group_id": "G26",
+        "name": "Areas",
+        "colour": "#00E5FF96"
+      },
+      {
+        "group_id": "G25",
+        "name": "Panel Number",
+        "colour": "#00E5FF96"
+      },
+      {
+        "group_id": "G27",
+        "name": "Dimensioning",
+        "colour": "#00E5FF96"
+      },
+      {
+        "group_id": "G7",
+        "name": "Triangles in Cells",
+        "colour": "#FF000085"
+      },
+      {
+        "group_id": "G86",
+        "name": "Angular Dimensions",
+        "colour": "#53CEE079"
+      }
+    ],
+    "components_demonstrated": {
+      "Text Tag 3D": 2,
+      "Aligned Dimension": 1,
+      "Merge": 1,
+      "Angular Dimension": 3
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 7,
+      "sub_labels": 0,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 6
+    }
+  }
+}

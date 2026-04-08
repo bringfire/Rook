@@ -1,0 +1,133 @@
+{
+  "note_id": "teaching_04dab798",
+  "note_type": "teaching",
+  "name": "U03 - Lists",
+  "brief": "Teaching: Lists",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and ",
+  "keywords": [
+    "lists",
+    "series",
+    "numberslider",
+    "unit 03 class"
+  ],
+  "category": "Unit 03",
+  "tags": [
+    "boolean-inputs",
+    "series-component",
+    "prerequisite-for-mesh",
+    "hands-on",
+    "data-management",
+    "list-components",
+    "annotated",
+    "prerequisite-for-morphing",
+    "list-wrapping",
+    "tutorial",
+    "prerequisite-for-trees",
+    "unit-03",
+    "single-branch-tree",
+    "requires-u01",
+    "list-culling",
+    "teaching",
+    "beginner-intermediate",
+    "list-fundamentals",
+    "requires-panels"
+  ],
+  "trigger_intents": [
+    "lists",
+    "how to use lists",
+    "how to use series",
+    "let us see how we can use lists",
+    "go to the tab \"sets\", then \"list\"",
+    "list item"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Series",
+    "NumberSlider"
+  ],
+  "solution_principle": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on.",
+  "anti_patterns": [],
+  "preconditions": [
+    "Display > Draw Fancy Wires"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_2f6660b2",
+    "teaching_4f32fa83",
+    "teaching_56fc7a76",
+    "teaching_90fd2ccf",
+    "teaching_73f5abfe",
+    "teaching_088f486f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-03-Class",
+    "unit_number": 3,
+    "section_number": 2,
+    "section_index": 1,
+    "x_range": [
+      463.6,
+      1132.0
+    ],
+    "full_teaching_text": "2- Lists:\r\n\r\n- Let us see how we can use Lists.\r\n\r\n- Go to the tab \"Sets\", then \"List\".\r\n\r\n- You will find here most of the components that help you manipulate Lists.\r\n\r\n- We will discover the most useful components as we progress in this workshop...\r\n\r\n- One of the most usedul components is \"List Item\", which allows you to select an item from a List.\r\n\r\n- The \"i\" INPUT is the index of the item. The index is actually the order as we have seen previously.\r\n\r\nThe first index of any List is 0, and so on.\r\n\r\nThe last index of any List is -1, and so on.",
+    "sub_annotations": [
+      {
+        "id": "C261",
+        "text": "Display > Draw Fancy Wires",
+        "topic": "Display > Draw Fancy Wires",
+        "pos": [
+          495.9,
+          610.3
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C2",
+      "C3",
+      "C4",
+      "C5"
+    ],
+    "intra_section_flows": [
+      "C3.O0>C2.I0",
+      "C4.O0>C2.I1",
+      "C5.O0>C2.I2",
+      "C2.O0>C6.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G38",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G37",
+        "name": "",
+        "colour": "#00FFFB"
+      }
+    ],
+    "components_demonstrated": {
+      "Series": 1,
+      "NumberSlider": 3
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 4,
+      "sub_labels": 0,
+      "connected_panels": 1,
+      "flows": 4,
+      "groups": 2
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_af439b55",
+  "note_type": "component",
+  "name": "Polygon Center",
+  "brief": "Polygon Center | Inputs: P → Cv, Ce, Ca",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Polygon Center. Inputs: P (Curve). Outputs: Cv (Point), Ce (Point), Ca (Point).",
+  "keywords": [
+    "polygon center",
+    "polygon",
+    "center",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "polygon center",
+    "polygon",
+    "center"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Polygon Center"
+  ],
+  "solution_principle": "Find the center point (average) for a polyline.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3913d03d",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "59e94548-cefd-4774-b3de-48142fc783fb",
+    "category": "curve_analysis",
+    "inputs": {
+      "P": "Curve"
+    },
+    "outputs": {
+      "Cv": "Point",
+      "Ce": "Point",
+      "Ca": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|polygon center"
+  }
+}

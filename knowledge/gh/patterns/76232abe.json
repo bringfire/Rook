@@ -1,0 +1,73 @@
+{
+  "pattern_id": "76232abe",
+  "name": "wasp_33_teaching_PLAYER_SETTINGS",
+  "version": "1.0",
+  "created": "2026-03-19T18:50:19.406137Z",
+  "solution": {
+    "brief": "PLAYER SETTINGS\r\nFor the new multiplayer mode of DisCo, these components\r\nenable to setup different players with different tools and\r\nconstraints applied to each of them.",
+    "principle": "",
+    "components_needed": [
+      "Toggle",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "these",
+      "components",
+      "settings",
+      "mode",
+      "different",
+      "disco,",
+      "enable",
+      "setup",
+      "multiplayer",
+      "player"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

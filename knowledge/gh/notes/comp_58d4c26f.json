@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_58d4c26f",
+  "note_type": "component",
+  "name": "DynamicWeight1d",
+  "brief": "DynamicWeight1d | Inputs: Line, W → DW",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: DynamicWeight1d. Inputs: Line (Curve), W (Number). Outputs: DW (Generic Data).",
+  "keywords": [
+    "dynamicweight1d",
+    "kangaroo2_goals-lin"
+  ],
+  "category": "kangaroo2_goals-lin",
+  "tags": [
+    "kangaroo2_goals-lin"
+  ],
+  "trigger_intents": [
+    "dynamicweight1d",
+    "dynamic",
+    "weight1d"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "DynamicWeight1d"
+  ],
+  "solution_principle": "A load in the negative Z direction, which updates its magnitude according to the length of the line",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f7eebed",
+    "comp_d03e942d",
+    "comp_f66842b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7db2c4c9-15b5-4378-8495-a8f9a8db5723",
+    "category": "kangaroo2_goals-lin",
+    "inputs": {
+      "Line": "Curve",
+      "W": "Number"
+    },
+    "outputs": {
+      "DW": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-lin|dynamicweight1d"
+  }
+}

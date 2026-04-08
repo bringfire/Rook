@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_e3269f6b",
+  "note_type": "component",
+  "name": "Deconstruct Vector",
+  "brief": "Deconstruct Vector | Inputs: V → X, Y, Z",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Deconstruct Vector. Inputs: V (Vector). Outputs: X (Number), Y (Number), Z (Number).",
+  "keywords": [
+    "deconstruct vector",
+    "deconstruct",
+    "vector",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "deconstruct vector",
+    "deconstruct",
+    "vector"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Vector"
+  ],
+  "solution_principle": "Deconstruct a vector into its component parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_77cfd279",
+    "comp_a5dcb66a",
+    "teaching_a03f14e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a50fcd4a-cf42-4c3f-8616-022761e6cc93",
+    "category": "vector_ops",
+    "inputs": {
+      "V": "Vector"
+    },
+    "outputs": {
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "56b92eab-d121-43f7-94d3-6cd8f0ddead8"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|deconstruct vector"
+  }
+}

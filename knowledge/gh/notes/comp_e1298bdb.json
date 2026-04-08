@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_e1298bdb",
+  "note_type": "component",
+  "name": "Mass Addition",
+  "brief": "Mass Addition | Inputs: I → R, Pr",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Mass Addition. Inputs: I (Generic Data). Outputs: R (Generic Data), Pr (Generic Data).",
+  "keywords": [
+    "mass addition",
+    "mass",
+    "addition",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "mass addition",
+    "mass",
+    "addition"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mass Addition"
+  ],
+  "solution_principle": "Perform mass addition of a list of items",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_45e8aff0",
+    "comp_8c2fe922",
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_464d3c31",
+    "comp_ce619910",
+    "comp_7b8e8db5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5b850221-b527-4bd6-8c62-e94168cd6efa",
+    "category": "math_operators",
+    "inputs": {
+      "I": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data",
+      "Pr": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|operators|mass addition"
+  }
+}

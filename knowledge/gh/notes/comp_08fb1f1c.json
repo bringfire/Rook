@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_08fb1f1c",
+  "note_type": "component",
+  "name": "Fillet Distance",
+  "brief": "Fillet Distance | Inputs: C, D \u2192 C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Fillet Distance. Inputs: C (Curve), D (Number). Outputs: C (Curve).",
+  "keywords": [
+    "fillet distance",
+    "fillet",
+    "distance",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "fillet distance",
+    "fillet",
+    "distance"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Fillet Distance"
+  ],
+  "solution_principle": "Fillet the sharp corners of a curve by distance.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f3ac6697",
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6fb21315-a032-400e-a80f-248687f5507f",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "D": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "42ad8dc1-b0c0-40df-91f5-2c46e589e6c2"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|fillet distance",
+    "family": "curve_utilities"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

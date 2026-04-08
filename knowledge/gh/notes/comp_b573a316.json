@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_b573a316",
+  "note_type": "component",
+  "name": "Partition List",
+  "brief": "Partition List | Inputs: L, S → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Partition List. Inputs: L (Generic Data), S (Integer). Outputs: C (Generic Data).",
+  "keywords": [
+    "partition list",
+    "partition",
+    "list",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "partition list",
+    "partition",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Partition List"
+  ],
+  "solution_principle": "Partition a list into sub-lists",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_535c0613",
+    "comp_19ec081c",
+    "comp_c633e36d",
+    "comp_90238233",
+    "comp_8b8f3b4f",
+    "comp_04660496",
+    "comp_5eb04c57",
+    "comp_23d957e3",
+    "comp_b83b3d7e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5a93246d-2595-4c28-bc2d-90657634f92a",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "S": "Integer"
+    },
+    "outputs": {
+      "C": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9ab93e1a-ebdf-4090-9296-b000cff7b202"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|partition list"
+  }
+}

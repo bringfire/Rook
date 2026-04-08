@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_aa8d491f",
+  "note_type": "component",
+  "name": "Triangular",
+  "brief": "Triangular | Inputs: P, S, Ex, Ey → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Triangular. Inputs: P (Plane), S (Number), Ex (Integer), Ey (Integer). Outputs: C (Curve), P (Point).",
+  "keywords": [
+    "triangular",
+    "grid_ops"
+  ],
+  "category": "grid_ops",
+  "tags": [
+    "grid_ops"
+  ],
+  "trigger_intents": [
+    "triangular"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Triangular"
+  ],
+  "solution_principle": "2D grid with triangular cells",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bf6b0e1b",
+    "comp_66948ccd",
+    "comp_8d55aa57",
+    "comp_b42eaf19",
+    "comp_d184690d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "86a9944b-dea5-4126-9433-9e95ff07927a",
+    "category": "grid_ops",
+    "inputs": {
+      "P": "Plane",
+      "S": "Number",
+      "Ex": "Integer",
+      "Ey": "Integer"
+    },
+    "outputs": {
+      "C": "Curve",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "125dc122-8544-4617-945e-bb9a0c101c50",
+      "717a1e25-a075-4530-bc80-d43ecc2500d9"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|grid|triangular"
+  }
+}

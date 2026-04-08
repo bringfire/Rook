@@ -1,0 +1,82 @@
+{
+  "note_id": "comp_667ae0e9",
+  "note_type": "component",
+  "name": "Evaluate Curve",
+  "brief": "Evaluate Curve | Inputs: C, t → P, T, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Evaluate Curve. Inputs: C (Curve), t (Number). Outputs: P (Point), T (Vector), A (Number).",
+  "keywords": [
+    "evaluate curve",
+    "evaluate",
+    "curve",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "evaluate curve",
+    "evaluate",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Evaluate Curve"
+  ],
+  "solution_principle": "Evaluate a curve at the specified parameter.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ab80c58",
+    "comp_e6aa0ae1",
+    "comp_262f1d29",
+    "comp_07cd32cc",
+    "comp_fb45532b",
+    "comp_0d20e65c",
+    "comp_b59df947",
+    "comp_7340243b",
+    "comp_3579e6e9",
+    "comp_443199ee",
+    "comp_be7ed355",
+    "comp_123bf176",
+    "comp_af439b55",
+    "comp_3913d03d",
+    "comp_bf71cfc8",
+    "comp_aaf059b3",
+    "comp_866778e2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "fc6979e4-7e91-4508-8e05-37c680779751",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "t": "Number"
+    },
+    "outputs": {
+      "P": "Point",
+      "T": "Vector",
+      "A": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6b021f56-b194-4210-b9a1-6cef3b7d0848",
+      "69f3e5ee-4770-44b3-8851-ae10ae555398",
+      "269eaa85-9997-4d77-a9ba-4c58cb45c9d3"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|evaluate curve"
+  }
+}

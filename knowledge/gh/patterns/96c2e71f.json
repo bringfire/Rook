@@ -1,0 +1,69 @@
+{
+  "pattern_id": "96c2e71f",
+  "name": "wasp_19_teaching_Visualize_Field_Poin",
+  "version": "1.0",
+  "created": "2026-03-19T18:11:50.180029Z",
+  "solution": {
+    "brief": "Visualize Field Points",
+    "principle": "",
+    "components_needed": [
+      "Cull Pattern",
+      "Gradient",
+      "Gradient",
+      "Wasp_Field Isolines",
+      "Cull Pattern"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "points",
+      "field",
+      "visualize"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "field-driven",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

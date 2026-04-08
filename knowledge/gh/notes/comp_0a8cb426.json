@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_0a8cb426",
+  "note_type": "component",
+  "name": "Divide Domain",
+  "brief": "Divide Domain | Inputs: I, C \u2192 S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Divide Domain. Inputs: I (Domain), C (Integer). Outputs: S (Domain).",
+  "keywords": [
+    "divide domain",
+    "divide",
+    "domain",
+    "domain_ops"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "domain_ops"
+  ],
+  "trigger_intents": [
+    "divide domain",
+    "divide",
+    "domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Divide Domain"
+  ],
+  "solution_principle": "Divide a domain into equal segments.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b68c5872",
+    "comp_63777d62",
+    "comp_21348da4",
+    "comp_8368fa19",
+    "comp_de61777e",
+    "comp_6059f3dc",
+    "comp_54e23644"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75ef4190-91a2-42d9-a245-32a7162b0384",
+    "category": "domain_ops",
+    "inputs": {
+      "I": "Domain",
+      "C": "Integer"
+    },
+    "outputs": {
+      "S": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "75ac008b-1bc2-4edd-b967-667d628b9d24",
+      "95992b33-89e1-4d36-bd35-2754a11af21e"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|domain|divide domain",
+    "family": "domain_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,78 @@
+{
+  "pattern_id": "eee5c5d6",
+  "name": "wasp_basic_aggregation_02_teaching_5._Extract_Data_and",
+  "version": "1.0",
+  "created": "2026-03-19T15:51:11.790006Z",
+  "solution": {
+    "brief": "5. Extract Data and Visualize\r\nUsing a Name filter, it is possible to separate parts of different types.\r\nOnce separated, it is possible to process them separately,\r\nas well as extract geometry for visualization.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Filter Parts by Name",
+      "Wasp_Filter Parts by Name",
+      "Swatch",
+      "Wasp_Get Part Geometry",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Get Part Geometry",
+      "Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "name",
+      "filter,",
+      "using",
+      "separate",
+      "different",
+      "parts",
+      "extract",
+      "visualize",
+      "possible",
+      "data"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "aggregation",
+    "tutorial"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

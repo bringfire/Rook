@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_570eb369",
+  "note_type": "component",
+  "name": "Brep Edges",
+  "brief": "Brep Edges | Inputs: B → En, Ei, Em",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Brep Edges. Inputs: B (Brep). Outputs: En (Curve), Ei (Curve), Em (Curve).",
+  "keywords": [
+    "brep edges",
+    "brep",
+    "edges",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "brep edges",
+    "brep",
+    "edges"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep Edges"
+  ],
+  "solution_principle": "Extract the edge curves of a brep.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_93df8f05",
+    "comp_8c5cf0ba",
+    "comp_dc18aa71",
+    "comp_c177edf2",
+    "teaching_f520f3eb",
+    "comp_c29b093f",
+    "comp_84222c76",
+    "comp_d6ac8cfa",
+    "comp_515d8f2a",
+    "comp_bef5b3c9",
+    "comp_20b1645f",
+    "comp_64864243",
+    "comp_4d4a3a69",
+    "comp_7cf8d3e5",
+    "comp_72822308"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0148a65d-6f42-414a-9db7-9a9b2eb78437",
+    "category": "surface_analysis",
+    "inputs": {
+      "B": "Brep"
+    },
+    "outputs": {
+      "En": "Curve",
+      "Ei": "Curve",
+      "Em": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8d372bdc-9800-45e9-8a26-6e33c5253e21"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|brep edges"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_8a2fd1bb",
+  "note_type": "component",
+  "name": "Weaverbird's Picture Frame",
+  "brief": "Weaverbird's Picture Frame | Inputs: M, D, T → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Weaverbird's Picture Frame. Inputs: M (Geometry), D (Number), T (InsetTypeEnum). Outputs: O (Geometry).",
+  "keywords": [
+    "weaverbird's picture frame",
+    "weaverbird's",
+    "picture",
+    "frame",
+    "wb_transform"
+  ],
+  "category": "wb_transform",
+  "tags": [
+    "wb_transform"
+  ],
+  "trigger_intents": [
+    "weaverbird's picture frame",
+    "weaverbird's",
+    "picture",
+    "frame"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Picture Frame"
+  ],
+  "solution_principle": "Computes a new mesh with higher genus, where each face has a new hole in the center and resembles a picture frame. The resulting mesh always consists of quad faces.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5d97934c",
+    "comp_62987cca",
+    "comp_76a19d1a",
+    "comp_093bbf10",
+    "comp_249dabb0",
+    "comp_a5f10ae4",
+    "comp_c0d78da2",
+    "comp_f61dad98"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4098ec8a-819a-4ced-9ccc-86835d7e21cd",
+    "category": "wb_transform",
+    "inputs": {
+      "M": "Geometry",
+      "D": "Number",
+      "T": "InsetTypeEnum"
+    },
+    "outputs": {
+      "O": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4098ec7a-819a-4ced-9ccc-86835d7e21c9",
+      "4098ec7a-819a-4ced-9ccc-86835d7e25c9",
+      "4c91e97a-a19d-41bd-9ac8-86635fe28c11"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|transform|weaverbird's picture frame"
+  }
+}

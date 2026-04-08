@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_3472c8c4",
+  "note_type": "component",
+  "name": "Quad Remesh Settings",
+  "brief": "Quad Remesh Settings | Inputs: Tc, As, Ac, Te → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Quad Remesh Settings. Inputs: Tc (Integer), As (Number), Ac (Boolean), Te (Number), He (Boolean), Se (Integer), Sy (Integer), Gc (Integer). Outputs: S (Quad meshing settings).",
+  "keywords": [
+    "quad remesh settings",
+    "quad",
+    "remesh",
+    "settings",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "quad remesh settings",
+    "quad",
+    "remesh",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Quad Remesh Settings"
+  ],
+  "solution_principle": "Create setting for Quad-remeshing.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "27be41c6-50f8-4021-800d-ae8f9883640a",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "Tc": "Integer",
+      "As": "Number",
+      "Ac": "Boolean",
+      "Te": "Number",
+      "He": "Boolean",
+      "Se": "Integer",
+      "Sy": "Integer",
+      "Gc": "Integer"
+    },
+    "outputs": {
+      "S": "Quad meshing settings"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|quad remesh settings"
+  }
+}

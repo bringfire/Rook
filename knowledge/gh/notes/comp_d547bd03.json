@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_d547bd03",
+  "note_type": "component",
+  "name": "Tree Branch",
+  "brief": "Tree Branch | Inputs: T, P → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Tree Branch. Inputs: T (Generic Data), P (Path). Outputs: B (Generic Data).",
+  "keywords": [
+    "tree branch",
+    "tree",
+    "branch",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "tree branch",
+    "tree",
+    "branch"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Tree Branch"
+  ],
+  "solution_principle": "Retrieve a specific branch from a data tree.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8e643df3",
+    "comp_eddf9472",
+    "comp_609c22e2",
+    "comp_9cc0adac",
+    "comp_50ed8e56",
+    "comp_a92595dd",
+    "comp_d2a1e0b8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3a710c1e-1809-4e19-8c15-82adce31cd62",
+    "category": "tree_operations",
+    "inputs": {
+      "T": "Generic Data",
+      "P": "Path"
+    },
+    "outputs": {
+      "B": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "f80cfe18-9510-4b89-8301-8e58faf423bb"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|tree branch"
+  }
+}

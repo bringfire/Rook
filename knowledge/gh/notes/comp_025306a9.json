@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_025306a9",
+  "note_type": "component",
+  "name": "Surface Frames",
+  "brief": "Surface Frames | Inputs: S, U, V \u2192 F, uv",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Surface Frames. Inputs: S (Surface), U (Integer), V (Integer). Outputs: F (Plane), uv (Point).",
+  "keywords": [
+    "surface frames",
+    "surface",
+    "frames",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "surface frames",
+    "surface",
+    "frames"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Frames"
+  ],
+  "solution_principle": "Generate a grid of {uv} frames on a surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_46c625c1",
+    "comp_f5af2dcf",
+    "comp_31bee512",
+    "comp_aae57ed7",
+    "comp_3b7aeb69",
+    "comp_5c8f0ab0",
+    "comp_fb3bf6ab",
+    "comp_86639d9c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "332378f4-acb2-43fe-8593-ed22bfeb2721",
+    "category": "surface_utilities",
+    "inputs": {
+      "S": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "F": "Plane",
+      "uv": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5106bafc-d5d4-4983-83e7-7be3ed07f502"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|util|surface frames",
+    "family": "surface_utilities"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

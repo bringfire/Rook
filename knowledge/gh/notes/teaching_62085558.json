@@ -1,0 +1,339 @@
+{
+  "note_id": "teaching_62085558",
+  "note_type": "teaching",
+  "name": "U03 - Assignment 3",
+  "brief": "Teaching: Assignment 3",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points an",
+  "keywords": [
+    "assignment",
+    "cull pattern",
+    "list item",
+    "numberslider",
+    "random reduce",
+    "list length",
+    "split list",
+    "division",
+    "surface",
+    "boundary surfaces",
+    "square",
+    "unit 03 class",
+    "set",
+    "multiple",
+    "booleans",
+    "choosing",
+    "item",
+    "randomly",
+    "reducing",
+    "list",
+    "splitting",
+    "manual",
+    "parametric",
+    "length",
+    "how",
+    "many",
+    "items",
+    "are",
+    "the",
+    "half",
+    "percent",
+    "percentage",
+    "slider",
+    "perfentage"
+  ],
+  "category": "Unit 03",
+  "tags": [
+    "complex-wiring",
+    "hands-on",
+    "area-component",
+    "annotated",
+    "set-multiple-booleans",
+    "boundary-surfaces",
+    "requires-list-fundamentals",
+    "cull-pattern",
+    "tutorial",
+    "list-manipulation",
+    "unit-03",
+    "assignment",
+    "list-culling",
+    "randomly-reducing-list",
+    "coordinate-extraction",
+    "beginner-intermediate",
+    "percentage-slider",
+    "splitting-list-by-half",
+    "choosing-1-item",
+    "teaching",
+    "multi-group",
+    "splitting-manual-vs-parametric"
+  ],
+  "trigger_intents": [
+    "assignment 3",
+    "how to use assignment 3",
+    "how to use cull pattern",
+    "how to use list item",
+    "how to use random reduce",
+    "how to use list length",
+    "how to use split list",
+    "how to use division",
+    "how to use surface",
+    "how to use boundary surfaces",
+    "how to use square",
+    "flatten"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cull Pattern",
+    "List Item",
+    "NumberSlider",
+    "Random Reduce",
+    "List Length",
+    "Split List",
+    "Division",
+    "Surface",
+    "Boundary Surfaces",
+    "Square"
+  ],
+  "solution_principle": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction.",
+  "anti_patterns": [],
+  "preconditions": [
+    "80",
+    "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images",
+    "False\r\nTrue\r\nTrue\r\nTrue",
+    "50",
+    "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_36f6bbd8",
+    "comp_698dccba",
+    "teaching_56fc7a76",
+    "teaching_d541c317",
+    "teaching_90de351e",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_73f5abfe"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-03-Class",
+    "unit_number": 3,
+    "section_number": null,
+    "section_index": 7,
+    "x_range": [
+      8214.3,
+      10147.2
+    ],
+    "full_teaching_text": "Assignment 3:\r\n\r\n1- Build a grid of hexagonal cells: Size 10, 15 Ex, 15 Ex\r\n\r\n2- Right-Click on the C OUTPUT and select \"Flatten\".\r\n\r\n3- Use a (2-True/2-False) pattern to cull cells.\r\n\r\n4- Extract the center points' coordinates of the resultant cells.\r\n\r\n5- Select only the ones with the same X value of your choice (take a look at the X vlues and pick one value).\r\n\r\n6- Jitter the resultant Points.\r\n\r\n7- Organize them from smallest to largest Y value.\r\n\r\n8- Find the length of the List of Points and split the List in half.\r\n\r\nExtra step:\r\n9- Select the cells belonging to the first half as of step (8) and extrude them by their area value in the Z direction.",
+    "sub_annotations": [
+      {
+        "id": "C212",
+        "text": "80",
+        "topic": "80",
+        "pos": [
+          8760,
+          1263.8
+        ]
+      },
+      {
+        "id": "C247",
+        "text": "1- Right-Click on the Slider\r\n2- Select \"Animate\"\r\n3- Set up settings and export as images",
+        "topic": "Right-Click on the Slider",
+        "pos": [
+          8739.1,
+          1835.9
+        ]
+      },
+      {
+        "id": "C254",
+        "text": "False\r\nTrue\r\nTrue\r\nTrue",
+        "topic": "False",
+        "pos": [
+          9280.4,
+          740.5
+        ]
+      },
+      {
+        "id": "C256",
+        "text": "50",
+        "topic": "50",
+        "pos": [
+          8758.7,
+          1617
+        ]
+      },
+      {
+        "id": "C288",
+        "text": "False\r\nTrue\r\nFalse\r\nFalse\r\nTrue",
+        "topic": "False",
+        "pos": [
+          9172,
+          735.2
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C108",
+      "C109",
+      "C110",
+      "C111",
+      "C115",
+      "C117",
+      "C118",
+      "C205",
+      "C206",
+      "C207",
+      "C208",
+      "C209",
+      "C213",
+      "C215",
+      "C216",
+      "C218",
+      "C219",
+      "C223",
+      "C224",
+      "C225",
+      "C226",
+      "C235",
+      "C245",
+      "C257",
+      "C259",
+      "C289",
+      "C290"
+    ],
+    "intra_section_flows": [
+      "C223.O0>C108.I0",
+      "C253.O0>C108.I1",
+      "C223.O0>C109.I0",
+      "C110.O0>C109.I1",
+      "C223.O0>C111.I0",
+      "C260.O0>C111.I1",
+      "C223.O0>C115.I0",
+      "C115.O0>C116.I0",
+      "C223.O0>C117.I0",
+      "C120.O0>C117.I1",
+      "C115.O0>C118.I0",
+      "C119.O0>C118.I1",
+      "C118.O0>C120.I0",
+      "C223.O0>C207.I0",
+      "C210.O0>C207.I1",
+      "C211.O0>C213.I0",
+      "C235.O0>C213.I1",
+      "C213.O0>C214.I0",
+      "C223.O0>C215.I0",
+      "C217.O0>C215.I1",
+      "C115.O0>C216.I0",
+      "C214.O0>C216.I1",
+      "C216.O0>C217.I0",
+      "C224.O0>C223.I0",
+      "C225.O0>C224.I1",
+      "C226.O0>C224.I2",
+      "C289.O0>C224.I3",
+      "C223.O0>C245.I0",
+      "C245.O0>C246.I0",
+      "C255.O0>C257.I0",
+      "C290.O0>C257.I1",
+      "C257.O0>C258.I0",
+      "C246.O0>C259.I0",
+      "C258.O0>C259.I1",
+      "C259.O0>C260.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G20",
+        "name": "Set Multiple Booleans",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G13",
+        "name": "Choosing 1 item",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G12",
+        "name": "Randomly reducing list",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G7",
+        "name": "Splitting: Manual vs. Parametric",
+        "colour": "#85F9FF49"
+      },
+      {
+        "group_id": "G10",
+        "name": "List Length: How many items are in the list",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G11",
+        "name": "Splitting the list by half",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G58",
+        "name": "Splitting the list by half",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G8",
+        "name": "Percent",
+        "colour": "#FF000049"
+      },
+      {
+        "group_id": "G59",
+        "name": "Splitting the list by half",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G63",
+        "name": "Percentage Slider",
+        "colour": "#FF000085"
+      },
+      {
+        "group_id": "G5",
+        "name": "Perfentage",
+        "colour": "#85F9FF49"
+      },
+      {
+        "group_id": "G64",
+        "name": "Percent",
+        "colour": "#FF000049"
+      },
+      {
+        "group_id": "G68",
+        "name": "Percentage Slider",
+        "colour": "#FF000085"
+      }
+    ],
+    "components_demonstrated": {
+      "Cull Pattern": 1,
+      "List Item": 1,
+      "NumberSlider": 6,
+      "Random Reduce": 1,
+      "List Length": 2,
+      "Split List": 3,
+      "Division": 5,
+      "Surface": 6,
+      "Boundary Surfaces": 1,
+      "Square": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 5,
+      "working_components": 27,
+      "sub_labels": 1,
+      "connected_panels": 12,
+      "flows": 35,
+      "groups": 13
+    }
+  }
+}

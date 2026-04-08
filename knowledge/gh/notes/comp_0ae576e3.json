@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_0ae576e3",
+  "note_type": "component",
+  "name": "Circle CNR",
+  "brief": "Circle CNR | Inputs: C, N, R \u2192 C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Circle CNR. Inputs: C (Point), N (Vector), R (Number). Outputs: C (Circle).",
+  "keywords": [
+    "circle cnr",
+    "circle",
+    "cnr",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "circle cnr",
+    "circle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Circle CNR"
+  ],
+  "solution_principle": "Create a circle defined by center, normal and radius.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_28367a97",
+    "comp_3ffc4216",
+    "comp_4d211bcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d114323a-e6ee-4164-946b-e4ca0ce15efa",
+    "category": "curves",
+    "inputs": {
+      "C": "Point",
+      "N": "Vector",
+      "R": "Number"
+    },
+    "outputs": {
+      "C": "Circle"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "46b5564d-d3eb-4bf1-ae16-15ed132cfd88",
+      "845527a6-5cea-4ae9-a667-96ae1667a4e8",
+      "50b204ef-d3de-41bb-a006-02fba2d3f709"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|circle cnr",
+    "family": "curves"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

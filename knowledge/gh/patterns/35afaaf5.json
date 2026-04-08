@@ -1,0 +1,1468 @@
+{
+  "pattern_id": "35afaaf5",
+  "name": "wasp_21",
+  "version": "1.0",
+  "created": "2026-03-19T18:16:24.762722Z",
+  "solution": {
+    "brief": "Wasp example 21: advancing into new topic series",
+    "principle": "\n\nRelated insight: Related insight: Tutorial 22 (wasp_22) directly continues the new topic series introduced in tutorial 21, confirming that tutorial 21 is the start of a new series focused on part-based, file-io, and multi-part aggregation workflows. Tutorial 21 is a direct prerequisite for tutorial 22.\n\nRelated insight: \n\nRelated insight: Tutorial 24 (wasp_24) continues the new topic series beyond tutorial 23, confirming the new series extends through at least tutorial 24. Tutorial 21 is an indirect prerequisite for tutorial 24 via tutorials 22 and 23. The series increasingly incorporates attribute-driven, graph-mapper, and field-driven aggregation techniques.\n\nRelated insight: \n\nRelated insight: Tutorial 25 (wasp_25) continues the new topic series beyond tutorial 24, confirming the series extends through at least tutorial 25. The series now incorporates iso-curve and gradient-visualization techniques alongside the established attribute-driven, field-driven, and multi-part aggregation workflows. Tutorial 21 remains the indirect prerequisite for tutorial 25 via tutorials 22, 23, and 24.\n\nRelated insight: Tutorial 26 (wasp_26) continues the new topic series beyond tutorial 25, confirming the series extends through at least tutorial 26. The series now incorporates contour-field as a new technique alongside the established iso-curve, gradient-visualization, attribute-driven, field-driven, and multi-part aggregation workflows. Tutorial 21 remains the indirect prerequisite for tutorial 26 via tutorials 22, 23, 24, and 25.\n\nRelated insight: Tutorial 27 (wasp_27) continues the new topic series beyond tutorial 26, confirming the series extends through at least tutorial 27. Tutorial 27 introduces or emphasizes stochastic techniques within the established constraint-based, multi-part, and discrete-aggregation workflows. Tutorial 21 remains the indirect prerequisite for tutorial 27 via tutorials 22, 23, 24, 25, and 26.\n\nRelated insight: Tutorial 33 (wasp_33) continues the constraints sub-series beyond tutorial 27, confirming the new topic series extends through at least tutorial 33. Tutorial 33 introduces export, DisCo, and connection-rules as new techniques within the established constraint-based, multi-part, and discrete-aggregation workflows. Tutorial 21 remains the indirect prerequisite for tutorial 33 via the chain of tutorials 22 through 32.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Field Points",
+      "Wasp_Field-driven Aggregation",
+      "Wasp_Advanced Part",
+      "Wasp_Advanced Part",
+      "Wasp_Field",
+      "Curve",
+      "Bounding Box",
+      "Volume",
+      "slider",
+      "Scale NU",
+      "slider",
+      "slider",
+      "slider",
+      "Curve Closest Point",
+      "Remap Numbers",
+      "Bounds",
+      "Graph Mapper",
+      "Brep",
+      "Point",
+      "Curve",
+      "slider",
+      "Button",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Point List",
+      "slider",
+      "PART_NAME",
+      "Custom Preview",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "Brep",
+      "Point",
+      "Curve",
+      "Point List",
+      "slider",
+      "PART_NAME",
+      "Merge",
+      "Wasp_Filter Parts by Name",
+      "panel",
+      "Wasp_Filter Parts by Name",
+      "panel",
+      "Wasp_Get Part Geometry",
+      "Wasp_Get Part Geometry",
+      "panel",
+      "panel",
+      "Wasp_Field",
+      "panel",
+      "Deconstruct",
+      "Remap Numbers",
+      "Bounds",
+      "panel",
+      "Remap Numbers",
+      "panel",
+      "Multiplication",
+      "Multiplication",
+      "Merge",
+      "Graph Mapper",
+      "Custom Preview",
+      "Swatch",
+      "Custom Preview",
+      "Swatch",
+      "Wasp_Rules Generator",
+      "panel",
+      "panel",
+      "Toggle",
+      "Merge",
+      "Split List",
+      "List Length",
+      "Custom Preview",
+      "Scribble",
+      "Larger Than",
+      "Cull Pattern",
+      "Larger Than",
+      "slider",
+      "Cull Pattern",
+      "Swatch",
+      "Swatch",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a field-driven aggregation with Wasp",
+      "assemble parts using a field attractor",
+      "generate discrete aggregation guided by a field",
+      "use Wasp to grow a structure along a curve field",
+      "field-based multi-part assembly in Grasshopper",
+      "parametric aggregation with connection rules",
+      "Wasp advanced part aggregation with graph mapper control"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "8f250f41",
+    "9d5169fc",
+    "fa2528c3",
+    "da63ff29",
+    "7bb677d9",
+    "4e918d2c",
+    "084bb2d5",
+    "e1e6f130",
+    "9fdfcd0f",
+    "0780962c",
+    "d3a3bfc0"
+  ],
+  "tags": [
+    "parametric",
+    "rule-based",
+    "connection-rules",
+    "advanced",
+    "discrete-design",
+    "DisCo",
+    "generative",
+    "parametric-assembly",
+    "stochastic",
+    "tutorial",
+    "constraint-based",
+    "field-driven",
+    "wasp",
+    "part-based",
+    "grasshopper",
+    "iso-curve",
+    "discrete-assembly",
+    "new-series",
+    "parametric-growth",
+    "graph-mapper",
+    "voxel",
+    "aggregation",
+    "file-io",
+    "workflow",
+    "export",
+    "attribute-based",
+    "plugin-workflow",
+    "attribute-driven",
+    "contour-field",
+    "multi-part",
+    "discrete-aggregation",
+    "gradient-visualization"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:50:19.332153",
+    "evolved_by": [
+      "4e918d2c",
+      "084bb2d5",
+      "e1e6f130",
+      "9fdfcd0f",
+      "0780962c",
+      "d3a3bfc0"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T14:18:37.247658",
+        "trigger": "New pattern: 4e918d2c",
+        "changes": "wasp_22 confirms and extends the new series begun in wasp_21; wasp_21 gains tags reflecting the new series content (part-based, file-io, new-series) and context about its role as the series entry point."
+      },
+      {
+        "date": "2026-03-19T14:23:45.321210",
+        "trigger": "New pattern: 084bb2d5",
+        "changes": "wasp_21 is the start of the new series. Its context only noted tutorial 22 as continuation; now the series is confirmed to extend through at least tutorial 24. Tags enriched with attribute-driven, graph-mapper, attribute-based from the evolving series."
+      },
+      {
+        "date": "2026-03-19T14:25:20.417254",
+        "trigger": "New pattern: e1e6f130",
+        "changes": "wasp_21 is the series origin; its context should track the full progression of the series, now confirmed to extend to tutorial 25 with new iso-curve and gradient-visualization topics."
+      },
+      {
+        "date": "2026-03-19T14:27:36.257366",
+        "trigger": "New pattern: 9fdfcd0f",
+        "changes": "Series continuity update: wasp_26 extends the chain through wasp_21; adds contour-field tag which is new to the series."
+      },
+      {
+        "date": "2026-03-19T14:32:53.128086",
+        "trigger": "New pattern: 0780962c",
+        "changes": "wasp_27 is the next confirmed continuation of the series started in wasp_21; the context chain tracking series progression should be updated, and the stochastic tag is newly relevant."
+      },
+      {
+        "date": "2026-03-19T14:50:19.332153",
+        "trigger": "New pattern: d3a3bfc0",
+        "changes": "wasp_33 confirms the series extends to at least tutorial 33 and introduces export, DisCo, and connection-rules tags not previously represented in wasp_21's context."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.05
+        }
+      ],
+      "panels": [
+        {
+          "id": "R26",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R30",
+          "nick": "PART_NAME",
+          "content": "OCTA"
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "content": "positive-y-field"
+        },
+        {
+          "id": "R40",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "content": "OCTA"
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "content": "HEXA"
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "content": "positive-y-field"
+        },
+        {
+          "id": "R49",
+          "nick": "",
+          "content": "negative-y-field"
+        },
+        {
+          "id": "R51",
+          "nick": "",
+          "content": "negative-y-field"
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "content": "0 To 1"
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "content": "1 To 0"
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "content": "HEX"
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "content": "HEX\r\nHEX\r\nSID\r\nSID\r\nSID"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            343,
+            783
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            338,
+            437
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldPts",
+          "name": "Wasp_Field Points",
+          "pos": [
+            775,
+            1113
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldAggregation",
+          "name": "Wasp_Field-driven Aggregation",
+          "pos": [
+            2750,
+            654
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            731,
+            443
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            729,
+            795
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "ZuiPythonComponent",
+          "nick": "Field",
+          "name": "Wasp_Field",
+          "pos": [
+            2254,
+            1098
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Curve",
+          "nick": "CURVE_PATH",
+          "name": "Curve",
+          "pos": [
+            83.7,
+            1289.3
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            329,
+            1088
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_VolumeProperties_OBSOLETE",
+          "name": "Volume",
+          "pos": [
+            443,
+            1135
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            317.2,
+            1181.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R12",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            561,
+            1117
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            317,
+            1202.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            317,
+            1223.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            531.1,
+            1184
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R16",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1097,
+            1272
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1297,
+            1312
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1198,
+            1323
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1362.3,
+            1228.8
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            136.9,
+            372.8
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            139.4,
+            427.6
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            138.7,
+            475.7
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            2488.9,
+            593.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R24",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            2548,
+            733
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R27",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            369,
+            565
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            174.1,
+            575.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R30",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            435.5,
+            303.5
+          ],
+          "content": "OCTA"
+        },
+        {
+          "id": "R31",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2773,
+            1569
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2658.6,
+            1503.9
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            84.6,
+            145
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "panel",
+          "pos": [
+            1980.5,
+            1060.6
+          ],
+          "content": "positive-y-field"
+        },
+        {
+          "id": "R35",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            162.3,
+            715.1
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            164.8,
+            769.9
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            164.1,
+            818
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            447,
+            910
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            250.9,
+            920.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R40",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            460.6,
+            645.8
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R41",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            957,
+            563
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            3057,
+            714
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "panel",
+          "pos": [
+            2911.6,
+            730.7
+          ],
+          "content": "OCTA"
+        },
+        {
+          "id": "R44",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            3058,
+            837
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "panel",
+          "pos": [
+            2912.8,
+            854.2
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R46",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            3244,
+            827
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            3241,
+            704
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "panel",
+          "pos": [
+            440.9,
+            423.1
+          ],
+          "content": "positive-y-field"
+        },
+        {
+          "id": "R49",
+          "type": "panel",
+          "pos": [
+            451.1,
+            764.3
+          ],
+          "content": "negative-y-field"
+        },
+        {
+          "id": "R50",
+          "type": "ZuiPythonComponent",
+          "nick": "Field",
+          "name": "Wasp_Field",
+          "pos": [
+            2258,
+            1309
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "panel",
+          "pos": [
+            2011.7,
+            1269.8
+          ],
+          "content": "negative-y-field"
+        },
+        {
+          "id": "R52",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            1062,
+            1559
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1276,
+            1579
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1179,
+            1584
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "panel",
+          "pos": [
+            1151.1,
+            1616.1
+          ],
+          "content": "0 To 1"
+        },
+        {
+          "id": "R56",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1273,
+            1732
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "panel",
+          "pos": [
+            1148.8,
+            1770
+          ],
+          "content": "1 To 0"
+        },
+        {
+          "id": "R58",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1962,
+            1144
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1971,
+            1387
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2434,
+            1208
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            1463.8,
+            1551.8
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3396,
+            714
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3258.7,
+            755.8
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3401,
+            838
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3265.1,
+            880.1
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            2021,
+            743
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "panel",
+          "pos": [
+            112.7,
+            503.9
+          ],
+          "content": "HEX"
+        },
+        {
+          "id": "R68",
+          "type": "panel",
+          "pos": [
+            136.4,
+            849.8
+          ],
+          "content": "HEX\r\nHEX\r\nSID\r\nSID\r\nSID"
+        },
+        {
+          "id": "R69",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1837,
+            752
+          ],
+          "value": true
+        },
+        {
+          "id": "R70",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1390,
+            1640
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            1698,
+            1674
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1531,
+            1742
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2776,
+            1708
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2652.8,
+            1659
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Component_LargerThan",
+          "nick": "Larger",
+          "name": "Larger Than",
+          "pos": [
+            2452,
+            1718
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            2543,
+            1698
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_LargerThan",
+          "nick": "Larger",
+          "name": "Larger Than",
+          "pos": [
+            2450,
+            1567
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "slider",
+          "pos": [
+            2121.2,
+            1643.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.05
+        },
+        {
+          "id": "R79",
+          "type": "Component_CullPattern",
+          "nick": "Cull",
+          "name": "Cull Pattern",
+          "pos": [
+            2547,
+            1547
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2606.8,
+            1598.8
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2608.1,
+            1748.4
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            362.9,
+            1036.9
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1140.9,
+            1194.9
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1093.1,
+            1433.4
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1999.2,
+            975.7
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -88,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R35.O0>R1.I0",
+        "R36.O0>R1.I1",
+        "R37.O0>R1.I2",
+        "R68.O0>R1.I3",
+        "R20.O0>R2.I0",
+        "R21.O0>R2.I1",
+        "R22.O0>R2.I2",
+        "R67.O0>R2.I3",
+        "R12.O0>R3.I0",
+        "R15.O0>R3.I1",
+        "R41.O0>R4.I0",
+        "R23.O0>R4.I2",
+        "R66.O0>R4.I3",
+        "R60.O0>R4.I4",
+        "R24.O0>R4.I9",
+        "R30.O0>R5.I0",
+        "R20.O0>R5.I1",
+        "R2.O0>R5.I2",
+        "R48.O0>R5.I4",
+        "R40.O0>R6.I0",
+        "R35.O0>R6.I1",
+        "R1.O0>R6.I2",
+        "R49.O0>R6.I4",
+        "R34.O0>R7.I0",
+        "R3.O0>R7.I1",
+        "R58.O0>R7.I2",
+        "R8.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R9.O0>R12.I0",
+        "R10.O1>R12.I1",
+        "R11.O0>R12.I2",
+        "R13.O0>R12.I3",
+        "R14.O0>R12.I4",
+        "R3.O1>R16.I0",
+        "R8.O0>R16.I1",
+        "R16.O2>R17.I0",
+        "R18.O0>R17.I1",
+        "R16.O2>R18.I0",
+        "R21.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R79.O0>R31.I0",
+        "R80.O0>R31.I1",
+        "R36.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R5.O0>R41.I0",
+        "R6.O0>R41.I1",
+        "R4.O1>R42.I0",
+        "R43.O0>R42.I1",
+        "R4.O1>R44.I0",
+        "R45.O0>R44.I1",
+        "R44.O0>R46.I0",
+        "R42.O0>R47.I0",
+        "R51.O0>R50.I0",
+        "R3.O0>R50.I1",
+        "R59.O0>R50.I2",
+        "R3.O1>R52.I0",
+        "R52.O1>R53.I0",
+        "R54.O0>R53.I1",
+        "R55.O0>R53.I2",
+        "R52.O1>R54.I0",
+        "R52.O1>R56.I0",
+        "R54.O0>R56.I1",
+        "R57.O0>R56.I2",
+        "R19.O0>R58.I0",
+        "R71.O0>R58.I1",
+        "R19.O0>R59.I0",
+        "R71.O1>R59.I1",
+        "R7.O0>R60.I0",
+        "R50.O0>R60.I1",
+        "R47.O0>R62.I0",
+        "R63.O0>R62.I1",
+        "R46.O0>R64.I0",
+        "R65.O0>R64.I1",
+        "R41.O0>R66.I0",
+        "R69.O0>R66.I3",
+        "R53.O0>R70.I0",
+        "R56.O0>R70.I1",
+        "R61.O0>R71.I0",
+        "R72.O0>R71.I1",
+        "R53.O0>R72.I0",
+        "R76.O0>R73.I0",
+        "R81.O0>R73.I1",
+        "R59.O0>R75.I0",
+        "R78.O0>R75.I1",
+        "R3.O1>R76.I0",
+        "R75.O0>R76.I1",
+        "R58.O0>R77.I0",
+        "R78.O0>R77.I1",
+        "R3.O1>R79.I0",
+        "R77.O0>R79.I1",
+        "R86.O0>R88.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R26",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R88",
+            "R86",
+            "R20",
+            "R21",
+            "R2",
+            "R22",
+            "R29",
+            "R28"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "2_06_Multi-Channel Field",
+          "text": "2_06_Multi-Channel Field",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "ADVANCED PART",
+          "text": "ADVANCED PART\r\nIn order to work with multi-channel field, each part need to be assigned\r\nto a specific field. To do this, it is necessary to use a AdvancedPart\r\ncomponent, which provides more inputs to specify Part parameters.\r\nThe FIELD input of the AdvancedPart component is set to the name\r\nof the desired field.",
+          "nearby_components": [
+            "Wasp_Update File",
+            "Brep",
+            "Point",
+            "Curve"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            84.6,
+            145
+          ]
+        },
+        {
+          "step": "4",
+          "title": "CREATING BASE POINT GRID",
+          "text": "CREATING BASE POINT GRID",
+          "nearby_components": [
+            "Bounding Box"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            362.9,
+            1036.9
+          ]
+        },
+        {
+          "step": "5",
+          "title": "FIELD MODULATION VALUES",
+          "text": "FIELD MODULATION VALUES\r\nThe original distance field is modulated using\r\nthe Y value of the points, creating a sort of\r\n\"band\" pattern in the field.",
+          "nearby_components": [
+            "Deconstruct",
+            "Bounds",
+            "Curve Closest Point",
+            "Bounds",
+            "Remap Numbers",
+            "Remap Numbers"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1093.1,
+            1433.4
+          ]
+        },
+        {
+          "step": "6",
+          "title": "DISTANCE FIELD VALUES",
+          "text": "DISTANCE FIELD VALUES",
+          "nearby_components": [
+            "Curve Closest Point",
+            "Bounds"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1140.9,
+            1194.9
+          ]
+        },
+        {
+          "step": "7",
+          "title": "By using a multiplication component, the base",
+          "text": "By using a multiplication component, the base\r\ndistance field is modulated into two separate\r\nfields.",
+          "nearby_components": [
+            "Multiplication",
+            "Wasp_Rules Generator",
+            "Toggle",
+            "Wasp_Field"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1999.2,
+            975.7
+          ]
+        },
+        {
+          "step": "8",
+          "title": "Visualize Field 2",
+          "text": "Visualize Field 2",
+          "nearby_components": [
+            "Swatch",
+            "Swatch",
+            "Cull Pattern",
+            "Custom Preview",
+            "Custom Preview"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2652.8,
+            1659
+          ]
+        },
+        {
+          "step": "9",
+          "title": "Visualize Field 1",
+          "text": "Visualize Field 1",
+          "nearby_components": [
+            "Swatch",
+            "Cull Pattern",
+            "Custom Preview"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2658.6,
+            1503.9
+          ]
+        }
+      ]
+    }
+  }
+}

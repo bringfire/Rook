@@ -1,0 +1,137 @@
+{
+  "note_id": "teaching_f59f973f",
+  "note_type": "teaching",
+  "name": "U02 - Surface Referencing from Rhino",
+  "brief": "Teaching: Surface Referencing from Rhino",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "7- Surface Referencing from Rhino:\r\n\r\n- You can always model the surface in Rhino and then reference it inside Grasshopper.\r\n\r\n- In Rhino, choose the Surface icon \"Surface from 3 or 4 corner points\"\r\n- While constructing the surface, start from the bottom left corner and go in a clock-wise fashion.\r\n- After modeling the surface, make sure to make it non-planar.\r\n- Click on the icon \"Points on\" and move the corner points in Z direction to make a non-planar surface.\r\n- In Grasshopper workspace, ty",
+  "keywords": [
+    "surface",
+    "referencing",
+    "from",
+    "rhino",
+    "construct point",
+    "numberslider",
+    "unit 02 class",
+    "referenced"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "unit-02",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "annotated",
+    "referenced surface from rhino",
+    "rhino-reference",
+    "surface-fundamentals",
+    "prerequisite",
+    "workflow"
+  ],
+  "trigger_intents": [
+    "surface referencing from rhino",
+    "how to use surface referencing from rhino",
+    "how to use surface",
+    "how to use construct point",
+    "surface from 3 or 4 corner points",
+    "points on",
+    "surface",
+    "set one surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Construct Point",
+    "NumberSlider"
+  ],
+  "solution_principle": "7- Surface Referencing from Rhino:\r\n\r\n- You can always model the surface in Rhino and then reference it inside Grasshopper.\r\n\r\n- In Rhino, choose the Surface icon \"Surface from 3 or 4 corner points\"\r\n- While constructing the surface, start from the bottom left corner and go in a clock-wise fashion.\r\n- After modeling the surface, make sure to make it non-planar.\r\n- Click on the icon \"Points on\" and move the corner points in Z direction to make a non-planar surface.\r\n- In Grasshopper workspace, type \"Surface\" and choose \"Surface\"\r\n- Now select the modeled surface in Rhino, and, inside Grasshopper, right-click on the \"Surface\" component and select \"Set one Surface\"\r\n\r\n\r\n- In case the surface is changed in Rhino, it will automatically update in Grasshopper.\r\nHowever, if the surface is deleted, the referencing component will become empty and hence the definition will include an error.\r\n\r\n- Keep in mind that if there are multiple geometries referenced from Rhino (Points, Lines, Curves, Surfaces, etc...) and few but not all get deleted in Rhino, the Grasshopper referencing component shows an error, however the remaining geometries stay inside the component as referenced.\r\nAs a best practice, whenever referenced geometries from Rhino change, it is important to re-reference/update the Grasshopper referencing components and always make sure that the definition does not contain any errors.",
+  "anti_patterns": [],
+  "preconditions": [
+    "The way to build a Surface in Rhino is Extremely important: Think of going from X to Y Direction, counter clock-wise, starting with the local Origin of the Surface"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_2fe96b89",
+    "teaching_b85f762f",
+    "teaching_26b87a73",
+    "teaching_d9d15b6e",
+    "teaching_336d7638"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.258773Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": 7,
+    "section_index": 8,
+    "x_range": [
+      9521.8,
+      10508.6
+    ],
+    "full_teaching_text": "7- Surface Referencing from Rhino:\r\n\r\n- You can always model the surface in Rhino and then reference it inside Grasshopper.\r\n\r\n- In Rhino, choose the Surface icon \"Surface from 3 or 4 corner points\"\r\n- While constructing the surface, start from the bottom left corner and go in a clock-wise fashion.\r\n- After modeling the surface, make sure to make it non-planar.\r\n- Click on the icon \"Points on\" and move the corner points in Z direction to make a non-planar surface.\r\n- In Grasshopper workspace, type \"Surface\" and choose \"Surface\"\r\n- Now select the modeled surface in Rhino, and, inside Grasshopper, right-click on the \"Surface\" component and select \"Set one Surface\"\r\n\r\n\r\n- In case the surface is changed in Rhino, it will automatically update in Grasshopper.\r\nHowever, if the surface is deleted, the referencing component will become empty and hence the definition will include an error.\r\n\r\n- Keep in mind that if there are multiple geometries referenced from Rhino (Points, Lines, Curves, Surfaces, etc...) and few but not all get deleted in Rhino, the Grasshopper referencing component shows an error, however the remaining geometries stay inside the component as referenced.\r\nAs a best practice, whenever referenced geometries from Rhino change, it is important to re-reference/update the Grasshopper referencing components and always make sure that the definition does not contain any errors.",
+    "sub_annotations": [
+      {
+        "id": "C342",
+        "text": "The way to build a Surface in Rhino is Extremely important: Think of going from X to Y Direction, counter clock-wise, starting with the local Origin of the Surface",
+        "topic": "The way to build a Surface in Rhino is Extremely important: Think of going from X to Y Direction, counter clock-wise, starting with the local Origin of the Surface",
+        "pos": [
+          9543.3,
+          684.5
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C34",
+      "C282",
+      "C283",
+      "C284",
+      "C451"
+    ],
+    "intra_section_flows": [
+      "C283.O0>C282.I0",
+      "C284.O0>C282.I1",
+      "C451.O0>C282.I2"
+    ],
+    "groups": [
+      {
+        "group_id": "G65",
+        "name": "Referenced Surface from Rhino",
+        "colour": "#47B3FF37"
+      },
+      {
+        "group_id": "G108",
+        "name": "",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G109",
+        "name": "",
+        "colour": "#00FFFB"
+      }
+    ],
+    "components_demonstrated": {
+      "Surface": 1,
+      "Construct Point": 1,
+      "NumberSlider": 3
+    },
+    "stats": {
+      "teaching_panels": 2,
+      "sub_annotations": 1,
+      "working_components": 5,
+      "sub_labels": 0,
+      "connected_panels": 0,
+      "flows": 3,
+      "groups": 3
+    }
+  }
+}

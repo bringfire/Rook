@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_e3e04d00",
+  "note_type": "component",
+  "name": "Center Box",
+  "brief": "Center Box | Inputs: B, X, Y, Z → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Center Box. Inputs: B (Plane), X (Number), Y (Number), Z (Number). Outputs: B (Box).",
+  "keywords": [
+    "center box",
+    "center",
+    "box",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "center box",
+    "center",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Center Box"
+  ],
+  "solution_principle": "Create a box centered on a plane.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_28632a9a",
+    "comp_7d5c54d0",
+    "comp_66286a67",
+    "comp_696c094f",
+    "comp_ffd7ba8d",
+    "comp_6d34b2c0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "28061aae-04fb-4cb5-ac45-16f3b66bc0a4",
+    "category": "primitives",
+    "inputs": {
+      "B": "Plane",
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "outputs": {
+      "B": "Box"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+      "79aa7f47-397c-4d3f-9761-aaf421bb7f5f"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|center box"
+  }
+}

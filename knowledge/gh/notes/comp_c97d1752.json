@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_c97d1752",
+  "note_type": "component",
+  "name": "Deconstruct Mesh",
+  "brief": "Deconstruct Mesh | Inputs: M → V, F, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Deconstruct Mesh. Inputs: M (Mesh). Outputs: V (Point), F (Mesh face), C (Colour), N (Vector).",
+  "keywords": [
+    "deconstruct mesh",
+    "deconstruct",
+    "mesh",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "deconstruct mesh",
+    "deconstruct",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Mesh"
+  ],
+  "solution_principle": "Deconstruct a mesh into its component parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7bcf3a3a",
+    "comp_fff2002f",
+    "comp_38f1c08d",
+    "comp_0693fc0f",
+    "comp_bf1c655b",
+    "comp_7ec0071a",
+    "comp_686c9721",
+    "comp_437178bb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "ba2d8f57-0738-42b4-b5a5-fe4d853517eb",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "V": "Point",
+      "F": "Mesh face",
+      "C": "Colour",
+      "N": "Vector"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "cb4ca22c-3419-4962-a078-ad4ff7f1f929",
+      "4373a3f7-7b9a-4379-bb16-a760ba0dde4f"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|deconstruct mesh"
+  }
+}

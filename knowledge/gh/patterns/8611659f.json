@@ -1,0 +1,998 @@
+{
+  "pattern_id": "8611659f",
+  "name": "wasp_28",
+  "version": "1.0",
+  "created": "2026-03-19T18:35:39.197353Z",
+  "solution": {
+    "brief": "Wasp example 28: constraints series continued",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Transform Part",
+      "Wasp_Transform Part",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Deconstruct Part",
+      "Wasp_Advanced Part",
+      "Brep",
+      "Point",
+      "Curve",
+      "COMPONENT_NAME",
+      "Mesh Join",
+      "Curve",
+      "Move",
+      "Series",
+      "Unit X",
+      "slider",
+      "slider",
+      "Move",
+      "Series",
+      "slider",
+      "slider",
+      "Unit Y",
+      "Geometry",
+      "Clean Tree",
+      "Curve",
+      "Entwine",
+      "Wasp_Get Part Geometry",
+      "RULES",
+      "Wasp_Rule From Text",
+      "slider",
+      "Button",
+      "slider",
+      "Custom Preview",
+      "Wasp_Deconstruct Collider",
+      "Random",
+      "List Length",
+      "Gradient",
+      "Custom Preview",
+      "Swatch",
+      "Split List",
+      "List Length",
+      "Data",
+      "Wasp_Get Part Geometry",
+      "Custom Preview",
+      "Swatch",
+      "Data",
+      "Wasp_Support",
+      "Wasp_Collider",
+      "List Item",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "set up wasp stochastic aggregation",
+      "create discrete aggregation with wasp",
+      "build part-based assembly grasshopper",
+      "wasp aggregation with custom parts and rules",
+      "stochastic part assembly wasp",
+      "generate wasp parts from brep geometry",
+      "define wasp connections and rules",
+      "wasp discrete design aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "0780962c",
+    "0574c25d",
+    "e1e6f130"
+  ],
+  "tags": [
+    "parametric-assembly",
+    "stochastic",
+    "connections",
+    "collider",
+    "wasp",
+    "constraints",
+    "part-based",
+    "advanced",
+    "discrete-design",
+    "aggregation",
+    "constraint-based",
+    "discrete-assembly",
+    "continuation",
+    "tutorial",
+    "grasshopper",
+    "workflow",
+    "plugin-workflow",
+    "rule-based",
+    "multi-part",
+    "discrete-aggregation"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "COMPONENT_NAME",
+          "content": "B"
+        },
+        {
+          "id": "R28",
+          "nick": "RULES",
+          "content": "B|0_B|1\r\nB|1_B|0\r\nB|2_B|4\r\nB|3_B|5\r\nB|6_B|7"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "-1"
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            515,
+            307
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "PartTr",
+          "name": "Wasp_Transform Part",
+          "pos": [
+            1727,
+            521
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "PartTr",
+          "name": "Wasp_Transform Part",
+          "pos": [
+            1539,
+            511
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            2288,
+            364
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "DePart",
+          "name": "Wasp_Deconstruct Part",
+          "pos": [
+            3050,
+            920
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            816,
+            276
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Brep",
+          "nick": "GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            288.7,
+            196.3
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            289.3,
+            297.1
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_UP",
+          "name": "Curve",
+          "pos": [
+            288.6,
+            396.8
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "nick": "COMPONENT_NAME",
+          "pos": [
+            587,
+            109
+          ],
+          "content": "B"
+        },
+        {
+          "id": "R11",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            295,
+            841
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Curve",
+          "nick": "SUPPORT_DIRECTION",
+          "name": "Curve",
+          "pos": [
+            181.4,
+            554.4
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1370,
+            538
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1183,
+            549
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            1267,
+            549
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            977,
+            543.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            978.6,
+            571.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R18",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1550,
+            615
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1371,
+            626
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            1118,
+            619.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            1118.7,
+            657.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R22",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            1458,
+            626
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            118.1,
+            880.2
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            200,
+            841
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Curve",
+          "nick": "SUPPORT_DIRECTION",
+          "name": "Curve",
+          "pos": [
+            182.3,
+            649.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            391,
+            592
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            2891,
+            573
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "nick": "RULES",
+          "pos": [
+            1569.1,
+            38.1
+          ],
+          "content": "B|0_B|1\r\nB|1_B|0\r\nB|2_B|4\r\nB|3_B|5\r\nB|6_B|7"
+        },
+        {
+          "id": "R29",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleTxt",
+          "name": "Wasp_Rule From Text",
+          "pos": [
+            1794,
+            97
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            2019.8,
+            385.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R31",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            2089,
+            447
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            2023.8,
+            305.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R33",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3181,
+            583
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "ZuiPythonComponent",
+          "nick": "DeColl",
+          "name": "Wasp_Deconstruct Collider",
+          "pos": [
+            3223,
+            999
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            2934,
+            649
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2853,
+            649
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2985,
+            616
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3449,
+            989
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3318.2,
+            1003.3
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            2585,
+            511
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2499,
+            521
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            2741.3,
+            453.3
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            2891,
+            448
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3176,
+            458
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3043.6,
+            472.9
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            2741.4,
+            578
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "ZuiPythonComponent",
+          "nick": "Support",
+          "name": "Wasp_Support",
+          "pos": [
+            529,
+            602
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "ZuiPythonComponent",
+          "nick": "Collider",
+          "name": "Wasp_Collider",
+          "pos": [
+            443,
+            871
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2951,
+            920
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            2869.4,
+            915.9
+          ],
+          "content": "-1"
+        },
+        {
+          "id": "R51",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.4,
+            704.9
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            133.3,
+            450.3
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1400.1,
+            414.5
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2890.4,
+            727.2
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2011.8,
+            180.1
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R58",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -97,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I0",
+        "R8.O0>R1.I1",
+        "R9.O0>R1.I2",
+        "R3.O0>R2.I0",
+        "R18.O1>R2.I1",
+        "R6.O0>R3.I0",
+        "R13.O1>R3.I1",
+        "R6.O0>R4.I0",
+        "R2.O0>R4.I1",
+        "R32.O0>R4.I2",
+        "R29.O0>R4.I3",
+        "R30.O0>R4.I6",
+        "R31.O0>R4.I9",
+        "R49.O0>R5.I0",
+        "R10.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R1.O0>R6.I2",
+        "R48.O0>R6.I7",
+        "R47.O0>R6.I8",
+        "R24.O0>R11.I0",
+        "R15.O0>R13.I1",
+        "R16.O0>R14.I1",
+        "R17.O0>R14.I2",
+        "R14.O0>R15.I0",
+        "R22.O0>R18.I1",
+        "R20.O0>R19.I1",
+        "R21.O0>R19.I2",
+        "R19.O0>R22.I0",
+        "R23.O0>R24.I3",
+        "R12.O0>R26.I0",
+        "R25.O0>R26.I1",
+        "R46.O0>R27.I0",
+        "R28.O0>R29.I0",
+        "R27.O0>R33.I0",
+        "R37.O0>R33.I1",
+        "R5.O9>R34.I0",
+        "R36.O0>R35.I1",
+        "R46.O0>R36.I0",
+        "R35.O0>R37.I2",
+        "R34.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R4.O1>R40.I0",
+        "R41.O0>R40.I1",
+        "R2.O0>R41.I0",
+        "R42.O0>R43.I0",
+        "R43.O0>R44.I0",
+        "R45.O0>R44.I1",
+        "R26.O0>R47.I0",
+        "R11.O0>R48.I0",
+        "R46.O0>R49.I0",
+        "R50.O0>R49.I1",
+        "R59.O0>R61.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R57",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R7",
+            "R61",
+            "R8",
+            "R59",
+            "R1",
+            "R9",
+            "R6",
+            "R12"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "ADDITIONAL COLLIDER",
+          "text": "ADDITIONAL COLLIDER\r\nAn extra collider (e.g., geometry of assembly tool) can be\r\nincluded in the Part definition, in order to check for feasibility\r\nof each part placement.",
+          "nearby_components": [
+            "Curve",
+            "Geometry",
+            "Curve",
+            "Clean Tree",
+            "Mesh Join"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            22.4,
+            704.9
+          ]
+        },
+        {
+          "step": "3",
+          "title": "04_2_Local_Constraints_Additional_Collider",
+          "text": "04_2_Local_Constraints_Additional_Collider",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "4",
+          "title": "SUPPORTS",
+          "text": "SUPPORTS\r\nSee example file:\r\n4_01_Local_Constraints_Supports",
+          "nearby_components": [
+            "Curve",
+            "Curve",
+            "Curve",
+            "Point"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            133.3,
+            450.3
+          ]
+        },
+        {
+          "step": "5",
+          "title": "AGGREGATION BASE",
+          "text": "AGGREGATION BASE",
+          "nearby_components": [
+            "Move",
+            "Wasp_Transform Part",
+            "Unit X",
+            "Series",
+            "Unit Y",
+            "Move"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1400.1,
+            414.5
+          ]
+        },
+        {
+          "step": "6",
+          "title": "CONSTRAINT MODE",
+          "text": "CONSTRAINT MODE\r\nConstraint mode is set to 1 to activate\r\nlocal constraints check.",
+          "nearby_components": [
+            "NumberSlider",
+            "NumberSlider",
+            "Wasp_Rule From Text"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2011.8,
+            180.1
+          ]
+        },
+        {
+          "step": "7",
+          "title": "COLLIDER",
+          "text": "COLLIDER\r\nExtract the collider from last placed part\r\nand visualize it.",
+          "nearby_components": [
+            "List Length",
+            "Random",
+            "Gradient",
+            "Wasp_Get Part Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2890.4,
+            727.2
+          ]
+        }
+      ]
+    }
+  }
+}

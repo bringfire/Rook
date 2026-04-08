@@ -1,0 +1,335 @@
+{
+  "pattern_id": "71f4e1e4",
+  "name": "S18E04",
+  "version": "1.0",
+  "created": "2026-02-22T14:07:04.349928Z",
+  "solution": {
+    "brief": "Recipe from FILES\\18\\S18E04.gh (20 components)",
+    "principle": "\n\nRelated insight: Part of a complexity progression: S18E04 (20 components) → S18E05 (24 components) → higher complexity workflows (70+ components).",
+    "components_needed": [
+      "Bifocals",
+      "Scribble",
+      "Surface",
+      "Evaluate Surface",
+      "Construct Point",
+      "Gene Pool",
+      "Gene Pool",
+      "PolyLine",
+      "Area",
+      "panel",
+      "Galapagos",
+      "Curve",
+      "Point In Curve",
+      "panel",
+      "Multiplication",
+      "panel",
+      "Equality",
+      "panel",
+      "Mass Addition",
+      "List Item"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s18e04"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "04081616",
+    "b199ac1c",
+    "91aa15f3",
+    "4b340f0f"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "mid-complexity",
+    "recipe",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:07:51.396792",
+    "evolved_by": [
+      "4b340f0f"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:07:51.396792",
+        "trigger": "New pattern: 4b340f0f",
+        "changes": "S18E05 establishes a clear progression from S18E04, showing incremental complexity scaling in the 20-25 component range"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "1\r\n10\r\n20\r\n30"
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "content": "0"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/18/S18E04.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            24,
+            13
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            69,
+            79.8
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            341.7,
+            189.9
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            540,
+            255
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            366,
+            348
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            53.7,
+            237.9
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            54.2,
+            339.6
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            669,
+            211
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            758,
+            211
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            972,
+            66
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R11",
+          "type": "GalapagosObject",
+          "name": "Galapagos",
+          "pos": [
+            1076.8,
+            353.9
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            235.8,
+            178.2
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_PointInRegion",
+          "nick": "InCurve",
+          "name": "Point In Curve",
+          "pos": [
+            616,
+            426
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            831,
+            347.2
+          ],
+          "content": "1\r\n10\r\n20\r\n30"
+        },
+        {
+          "id": "R15",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            905,
+            260
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "panel",
+          "pos": [
+            995.1,
+            210.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R17",
+          "type": "Component_EqualTo",
+          "nick": "Equals",
+          "name": "Equality",
+          "pos": [
+            744,
+            450
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "panel",
+          "pos": [
+            654.5,
+            471.5
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R19",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            858,
+            510
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            997,
+            468
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R6.O0>R5.I0",
+        "R7.O0>R5.I1",
+        "R4.O0>R8.I0",
+        "R8.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R4.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R9.O0>R15.I0",
+        "R20.O0>R15.I1",
+        "R15.O0>R16.I0",
+        "R13.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R17.O0>R19.I0",
+        "R14.O0>R20.I0",
+        "R19.O0>R20.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

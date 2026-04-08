@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_63fecbcb",
+  "note_type": "component",
+  "name": "Weaverbird's Naked boundary",
+  "brief": "Weaverbird's Naked boundary | Inputs: M → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Weaverbird's Naked boundary. Inputs: M (Geometry). Outputs: C (Curve).",
+  "keywords": [
+    "weaverbird's naked boundary",
+    "weaverbird's",
+    "naked",
+    "boundary",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's naked boundary",
+    "weaverbird's",
+    "naked",
+    "boundary"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Naked boundary"
+  ],
+  "solution_principle": "Finds the naked, or singly covered, polycurve as the connection of multiple naked edges\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_093bbf10",
+    "comp_249dabb0",
+    "comp_3756d5bc",
+    "comp_31d184dc",
+    "comp_5706c591",
+    "comp_fd4acea1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "919a9141-c43e-417c-3838-c1ad637291b9",
+    "category": "wb_extract",
+    "inputs": {
+      "M": "Geometry"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3e563215-b163-4843-4c37-e1512b636ecc",
+      "4098ecba-269a-1ced-9ce4-86836dae2101"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's naked boundary"
+  }
+}

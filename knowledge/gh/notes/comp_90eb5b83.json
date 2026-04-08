@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_90eb5b83",
+  "note_type": "component",
+  "name": "Absolute",
+  "brief": "Absolute | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Absolute. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "absolute",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "absolute"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Absolute"
+  ],
+  "solution_principle": "Compute the absolute of a value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8c2fe922",
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_464d3c31",
+    "comp_05f4e5c2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "28124995-cf99-4298-b6f4-c75a8e379f18",
+    "category": "math_operators",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a3371040-e552-4bc8-b0ff-10a840258e88"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|operators|absolute"
+  }
+}

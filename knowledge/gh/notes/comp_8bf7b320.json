@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_8bf7b320",
+  "note_type": "component",
+  "name": "Annotation Dot",
+  "brief": "Annotation Dot | Inputs: Ad, L, T, H → Ad, L, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Annotation Dot. Inputs: Ad (Text Dot), L (Point), T (Text), H (Integer). Outputs: Ad (Text Dot), L (Point), T (Text), H (Integer).",
+  "keywords": [
+    "annotation dot",
+    "annotation",
+    "dot",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation dot",
+    "annotation",
+    "dot"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Dot"
+  ],
+  "solution_principle": "Annotation Dot",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_fe0e6d93",
+    "comp_6e038908",
+    "comp_375a03ab",
+    "comp_ec86ef0e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2da6cc22-3b17-40ff-909a-162f77a7d532",
+    "category": "rhino_annotations",
+    "inputs": {
+      "Ad": "Text Dot",
+      "L": "Point",
+      "T": "Text",
+      "H": "Integer"
+    },
+    "outputs": {
+      "Ad": "Text Dot",
+      "L": "Point",
+      "T": "Text",
+      "H": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation dot"
+  }
+}

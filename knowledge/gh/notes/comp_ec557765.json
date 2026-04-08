@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_ec557765",
+  "note_type": "component",
+  "name": "SoapFilm",
+  "brief": "SoapFilm | Inputs: Pts, Strength → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: SoapFilm. Inputs: Pts (Point), Strength (Number). Outputs: S (Generic Data).",
+  "keywords": [
+    "soapfilm",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "soapfilm",
+    "soap",
+    "film"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SoapFilm"
+  ],
+  "solution_principle": "Area minimizing triangle, for generating zero mean curvature meshes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64690b85",
+    "comp_bb62e1bd",
+    "comp_07a34b21",
+    "comp_0e24416c",
+    "comp_b6f7b7c7",
+    "comp_a950612e",
+    "comp_192b3a74",
+    "comp_ca719375",
+    "comp_423504a1",
+    "comp_1c697a1f",
+    "comp_721292da",
+    "comp_30b5d502",
+    "comp_1ca68d02",
+    "comp_66650a97",
+    "comp_dc5d5161",
+    "comp_1dc5ec6e",
+    "comp_87d86890"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0c68b153-3c88-4e62-9827-f3793c013f88",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "Pts": "Point",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "76ab889c-8593-4892-861d-a80b5311a981"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|soapfilm"
+  }
+}

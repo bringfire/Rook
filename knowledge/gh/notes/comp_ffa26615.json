@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_ffa26615",
+  "note_type": "component",
+  "name": "Connect Curves",
+  "brief": "Connect Curves | Inputs: C, G, L, B → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Connect Curves. Inputs: C (Curve), G (Integer), L (Boolean), B (Number). Outputs: C (Curve).",
+  "keywords": [
+    "connect curves",
+    "connect",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "connect curves",
+    "connect",
+    "curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Connect Curves"
+  ],
+  "solution_principle": "Connect a sequence of curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d0a1b843-873d-4d1d-965c-b5423b35f327",
+    "category": "curves",
+    "inputs": {
+      "C": "Curve",
+      "G": "Integer",
+      "L": "Boolean",
+      "B": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "71b5b089-500a-4ea6-81c5-2f960441a0e8"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|connect curves"
+  }
+}

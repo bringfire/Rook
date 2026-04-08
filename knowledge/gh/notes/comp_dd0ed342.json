@@ -1,0 +1,58 @@
+{
+  "note_id": "comp_dd0ed342",
+  "note_type": "component",
+  "name": "MeshDirection",
+  "brief": "MeshDirection | Inputs: M → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: MeshDirection. Inputs: M (Mesh). Outputs: M (Mesh).",
+  "keywords": [
+    "meshdirection",
+    "kangaroo2_mesh"
+  ],
+  "category": "kangaroo2_mesh",
+  "tags": [
+    "kangaroo2_mesh"
+  ],
+  "trigger_intents": [
+    "meshdirection",
+    "mesh",
+    "direction"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "MeshDirection"
+  ],
+  "solution_principle": "Sort the face directions of a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9c2695de-127b-4b46-a17b-f3a676891c0d",
+    "category": "kangaroo2_mesh",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2491e794-8360-4317-b0ad-4950f6e0906a",
+      "77e9376b-a397-4010-9b2c-dd0326107a91"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|mesh|meshdirection"
+  }
+}

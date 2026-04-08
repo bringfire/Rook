@@ -1,0 +1,1049 @@
+{
+  "pattern_id": "5a613664",
+  "name": "trigonometric_parametric_surface-creation",
+  "version": "1.0",
+  "created": "2026-02-02T20:35:58.452139Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Cosine",
+      "Number of Points",
+      "Pi",
+      "panel",
+      "m1",
+      "Multiplication",
+      "Division",
+      "panel",
+      "Division",
+      "a",
+      "n1",
+      "n2",
+      "Absolute",
+      "Multiplication",
+      "Division",
+      "Division",
+      "Absolute",
+      "Sine",
+      "panel",
+      "Division",
+      "Negative",
+      "Series",
+      "Addition",
+      "Power",
+      "Cosine",
+      "Sine",
+      "Construct Point",
+      "Division",
+      "Multiplication",
+      "Multiplication",
+      "Power",
+      "Power",
+      "Number",
+      "Point",
+      "Series",
+      "slider",
+      "slider",
+      "Graft Tree",
+      "Nurbs Curve",
+      "Series",
+      "slider",
+      "Graft Tree",
+      "Series",
+      "slider",
+      "Graft Tree",
+      "List Length",
+      "Series",
+      "Tree Statistics",
+      "List Length",
+      "Series",
+      "Multiplication",
+      "slider",
+      "Move",
+      "Unit Z",
+      "Loft",
+      "Custom Preview",
+      "Divide Surface",
+      "slider",
+      "Mesh FromPoints",
+      "Addition",
+      "Unit Z",
+      "Dot Product",
+      "Gradient",
+      "Dot Product",
+      "Unit X",
+      "Negative",
+      "Addition",
+      "Remap Numbers",
+      "Bounds",
+      "Power",
+      "Square Root"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "loft curves",
+      "sine wave",
+      "cosine wave",
+      "number sequence",
+      "range of values",
+      "oscillation",
+      "sinusoidal",
+      "surface from curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "trigonometric",
+    "parametric",
+    "surface-creation",
+    "point-sequence",
+    "panelization"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:31:58.320334Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 87 wires -> 71 components, 87 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "Number of Points",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R5",
+          "nick": "m1",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R10",
+          "nick": "a",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R11",
+          "nick": "n1",
+          "min": 0.1,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "nick": "n2",
+          "min": 0.1,
+          "max": 20,
+          "value": 4
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 49
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.16
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        }
+      ],
+      "panels": [
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "4"
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "1"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Superformula Tower.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "FuncCos",
+          "nick": "Cos",
+          "name": "Cosine",
+          "pos": [
+            566,
+            140
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "nick": "Number of Points",
+          "pos": [
+            -192,
+            91.6
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R3",
+          "type": "Component_Pi",
+          "name": "Pi",
+          "pos": [
+            -31,
+            -39
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            -137.2,
+            -50.9
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "nick": "m1",
+          "pos": [
+            -175.4,
+            168.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R6",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            372,
+            125
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            463,
+            140
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            333.3,
+            200.6
+          ],
+          "content": "4"
+        },
+        {
+          "id": "R9",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            681,
+            172
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "nick": "a",
+          "pos": [
+            -170.4,
+            265.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "n1",
+          "pos": [
+            -164,
+            520.7
+          ],
+          "min": 0.1,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "nick": "n2",
+          "pos": [
+            -178.2,
+            369.7
+          ],
+          "min": 0.1,
+          "max": 20,
+          "value": 4
+        },
+        {
+          "id": "R13",
+          "type": "OperatorAbsolute",
+          "nick": "Abs",
+          "name": "Absolute",
+          "pos": [
+            776,
+            172
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            373,
+            281
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            464,
+            296
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            682,
+            328
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "OperatorAbsolute",
+          "nick": "Abs",
+          "name": "Absolute",
+          "pos": [
+            777,
+            328
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            565,
+            303
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            124.4,
+            454
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R20",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            258,
+            496
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            345,
+            495
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            206,
+            31
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            940,
+            278
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Operator_Power",
+          "nick": "Pow",
+          "name": "Power",
+          "pos": [
+            1034,
+            383
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "FuncCos",
+          "nick": "Cos",
+          "name": "Cosine",
+          "pos": [
+            1061,
+            64
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "FuncSin",
+          "nick": "Sin",
+          "name": "Sine",
+          "pos": [
+            1056,
+            132
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            1333,
+            105
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            80,
+            -29
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1215,
+            67
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1219,
+            134
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Operator_Power",
+          "nick": "Pow",
+          "name": "Power",
+          "pos": [
+            879,
+            182
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Operator_Power",
+          "nick": "Pow",
+          "name": "Power",
+          "pos": [
+            852,
+            338
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            266.1,
+            364.6
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1576.1,
+            105.8
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            67,
+            399
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            -162.4,
+            404.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R37",
+          "type": "slider",
+          "pos": [
+            -161.8,
+            438
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 49
+        },
+        {
+          "id": "R38",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            160,
+            399
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_Curve",
+          "nick": "Nurbs",
+          "name": "Nurbs Curve",
+          "pos": [
+            1896,
+            141
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            76,
+            570
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            -165.2,
+            560.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R42",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            168,
+            564
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            85,
+            192
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "pos": [
+            -170.2,
+            200.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.16
+        },
+        {
+          "id": "R45",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            166,
+            197
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1361,
+            358
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1493,
+            338
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_TreeStatistics",
+          "nick": "TStat",
+          "name": "Tree Statistics",
+          "pos": [
+            1358,
+            208
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1461,
+            188
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1555,
+            214
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1594,
+            322
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "slider",
+          "pos": [
+            1233.2,
+            275.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R53",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1803,
+            224
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1744,
+            304
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2010,
+            135
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2103,
+            226
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_DivideSurface",
+          "nick": "SDivide",
+          "name": "Divide Surface",
+          "pos": [
+            2149,
+            0
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            1907.6,
+            47.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R59",
+          "type": "Component_MeshFromPoints",
+          "nick": "FromPoints",
+          "name": "Mesh FromPoints",
+          "pos": [
+            2591,
+            171
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            2153,
+            86
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            2053,
+            -95
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_VectorDotProduct",
+          "nick": "DProd",
+          "name": "Dot Product",
+          "pos": [
+            2254,
+            -67
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2603,
+            -77
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_VectorDotProduct",
+          "nick": "DProd",
+          "name": "Dot Product",
+          "pos": [
+            2256,
+            -155
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            2072,
+            -157
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2151,
+            -157
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            2383,
+            -121
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2557,
+            -112
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2471,
+            -112
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Operator_Power",
+          "nick": "Pow",
+          "name": "Power",
+          "pos": [
+            1541,
+            441
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "FuncSquareRoot",
+          "nick": "Sqrt",
+          "name": "Square Root",
+          "pos": [
+            1675,
+            335
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I0",
+        "R4.O0>R3.I0",
+        "R22.O0>R6.I0",
+        "R45.O0>R6.I1",
+        "R6.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R1.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R9.O0>R13.I0",
+        "R22.O0>R14.I0",
+        "R45.O0>R14.I1",
+        "R14.O0>R15.I0",
+        "R8.O0>R15.I1",
+        "R18.O0>R16.I0",
+        "R10.O0>R16.I1",
+        "R16.O0>R17.I0",
+        "R15.O0>R18.I0",
+        "R19.O0>R20.I0",
+        "R42.O0>R20.I1",
+        "R20.O0>R21.I0",
+        "R28.O0>R22.I1",
+        "R2.O0>R22.I2",
+        "R31.O0>R23.I0",
+        "R32.O0>R23.I1",
+        "R23.O0>R24.I0",
+        "R21.O0>R24.I1",
+        "R22.O0>R25.I0",
+        "R22.O0>R26.I0",
+        "R29.O0>R27.I0",
+        "R30.O0>R27.I1",
+        "R3.O0>R28.I0",
+        "R2.O0>R28.I1",
+        "R24.O0>R29.I0",
+        "R25.O0>R29.I1",
+        "R24.O0>R30.I0",
+        "R26.O0>R30.I1",
+        "R13.O0>R31.I0",
+        "R33.O0>R31.I1",
+        "R17.O0>R32.I0",
+        "R33.O0>R32.I1",
+        "R12.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R37.O0>R35.I2",
+        "R35.O0>R38.I0",
+        "R53.O0>R39.I0",
+        "R11.O0>R40.I0",
+        "R41.O0>R40.I1",
+        "R37.O0>R40.I2",
+        "R40.O0>R42.I0",
+        "R5.O0>R43.I0",
+        "R44.O0>R43.I1",
+        "R37.O0>R43.I2",
+        "R43.O0>R45.I0",
+        "R27.O0>R46.I0",
+        "R52.O0>R47.I1",
+        "R46.O0>R47.I2",
+        "R27.O0>R48.I0",
+        "R48.O0>R49.I0",
+        "R52.O0>R50.I1",
+        "R49.O0>R50.I2",
+        "R50.O0>R51.I0",
+        "R47.O0>R51.I1",
+        "R34.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R71.O0>R54.I0",
+        "R39.O0>R55.I0",
+        "R55.O0>R56.I0",
+        "R55.O0>R57.I0",
+        "R58.O0>R57.I1",
+        "R58.O0>R57.I2",
+        "R57.O0>R59.I0",
+        "R60.O0>R59.I1",
+        "R60.O0>R59.I2",
+        "R63.O0>R59.I3",
+        "R58.O0>R60.I0",
+        "R61.O0>R62.I0",
+        "R57.O1>R62.I1",
+        "R68.O0>R63.I2",
+        "R66.O0>R64.I0",
+        "R57.O1>R64.I1",
+        "R65.O0>R66.I0",
+        "R64.O0>R67.I0",
+        "R62.O0>R67.I1",
+        "R67.O0>R68.I0",
+        "R69.O0>R68.I1",
+        "R67.O0>R69.I0",
+        "R51.O0>R71.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,637 @@
+{
+  "pattern_id": "d494a6a3",
+  "name": "9-1",
+  "version": "1.0",
+  "created": "2026-02-22T14:21:36.564006Z",
+  "solution": {
+    "brief": "Recipe from FILES\\9\\9-1.gh (36 components)",
+    "principle": "",
+    "components_needed": [
+      "Proximity 2D",
+      "Populate 2D",
+      "slider",
+      "slider",
+      "slider",
+      "Proximity 3D",
+      "Center Box",
+      "slider",
+      "Populate 3D",
+      "slider",
+      "slider",
+      "MultiPipe",
+      "Populate 2D",
+      "slider",
+      "Proximity 2D",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "MultiPipe",
+      "Point",
+      "Distance",
+      "Remap+",
+      "Custom Preview",
+      "Surface",
+      "Populate Geometry",
+      "Proximity 2D",
+      "slider",
+      "MultiPipe",
+      "slider",
+      "Curve Closest Point",
+      "Remap+",
+      "slider",
+      "slider",
+      "slider",
+      "Graph Mapper"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "9 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a2a197b3",
+    "ec97a8ea",
+    "95fe7fe0"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "tutorial-series",
+    "36-components",
+    "mid-complexity",
+    "series-9"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 80
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 54
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0.25
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 44
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.05
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.65
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 80
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "FILES/9/9-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Proximity2D",
+          "nick": "Prox",
+          "name": "Proximity 2D",
+          "pos": [
+            424,
+            109
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            328,
+            69
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            35.6,
+            63.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 80
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            173.6,
+            128.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            171.5,
+            149.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R6",
+          "type": "Component_Proximity3D",
+          "nick": "Prox",
+          "name": "Proximity 3D",
+          "pos": [
+            497,
+            395
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_CenterBox",
+          "nick": "Box",
+          "name": "Center Box",
+          "pos": [
+            278,
+            319
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            48.5,
+            320
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R9",
+          "type": "Component_PopulateBox",
+          "nick": "Pop3D",
+          "name": "Populate 3D",
+          "pos": [
+            366,
+            349
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            151.9,
+            363.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 54
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            236.5,
+            427.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R12",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            652,
+            735
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_PopulateRectangle",
+          "nick": "Pop2D",
+          "name": "Populate 2D",
+          "pos": [
+            277,
+            607
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            47.3,
+            587.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R15",
+          "type": "Component_Proximity2D",
+          "nick": "Prox",
+          "name": "Proximity 2D",
+          "pos": [
+            386,
+            647
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            147,
+            651.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            292,
+            711
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.25
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            48.8,
+            608.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            289.3,
+            731.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R20",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            934,
+            435
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            422.5,
+            262.5
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            495,
+            271
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            591,
+            291
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1021,
+            445
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            192.2,
+            950.3
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            275,
+            979
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Proximity2D",
+          "nick": "Prox",
+          "name": "Proximity 2D",
+          "pos": [
+            396,
+            1055
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            161.6,
+            1055.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R29",
+          "type": "MultiPipeOld",
+          "nick": "MP",
+          "name": "MultiPipe",
+          "pos": [
+            751,
+            986
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "pos": [
+            59.9,
+            1000.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 44
+        },
+        {
+          "id": "R31",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            468,
+            896
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            569,
+            936
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "slider",
+          "pos": [
+            338.6,
+            948.4
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.05
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            339.1,
+            972
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.65
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "pos": [
+            50.3,
+            977.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 80
+        },
+        {
+          "id": "R36",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            685.1,
+            242.2
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R3.O0>R1.I2",
+        "R5.O0>R1.I4",
+        "R3.O0>R2.I1",
+        "R9.O0>R6.I0",
+        "R11.O0>R6.I1",
+        "R8.O0>R7.I1",
+        "R8.O0>R7.I2",
+        "R8.O0>R7.I3",
+        "R7.O0>R9.I0",
+        "R10.O0>R9.I2",
+        "R15.O0>R12.I0",
+        "R17.O0>R12.I1",
+        "R13.O0>R12.I2",
+        "R19.O0>R12.I3",
+        "R14.O0>R13.I1",
+        "R18.O0>R13.I2",
+        "R13.O0>R15.I0",
+        "R16.O0>R15.I2",
+        "R6.O0>R20.I0",
+        "R36.O0>R20.I1",
+        "R9.O0>R20.I2",
+        "R21.O0>R22.I0",
+        "R9.O0>R22.I1",
+        "R22.O0>R23.I0",
+        "R20.O0>R24.I0",
+        "R25.O0>R26.I0",
+        "R35.O0>R26.I1",
+        "R30.O0>R26.I2",
+        "R26.O0>R27.I0",
+        "R28.O0>R27.I2",
+        "R27.O0>R29.I0",
+        "R32.O0>R29.I1",
+        "R26.O0>R29.I2",
+        "R26.O0>R31.I0",
+        "R31.O2>R32.I0",
+        "R33.O0>R32.I1",
+        "R34.O0>R32.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

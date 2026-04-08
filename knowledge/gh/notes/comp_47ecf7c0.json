@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_47ecf7c0",
+  "note_type": "component",
+  "name": "Collider",
+  "brief": "Collider | Inputs: Objects, Radii, IgnoreA, IgnoreB → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Collider. Inputs: Objects (Generic Data), Radii (Number), IgnoreA (Integer), IgnoreB (Integer), Strength (Number). Outputs: C (Generic Data).",
+  "keywords": [
+    "collider",
+    "kangaroo2_goals-col"
+  ],
+  "category": "kangaroo2_goals-col",
+  "tags": [
+    "kangaroo2_goals-col"
+  ],
+  "trigger_intents": [
+    "collider"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Collider"
+  ],
+  "solution_principle": "Collisions between thickened line segments and spheres",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "94bf912d-4d0c-4764-a100-5813a98a8b73",
+    "category": "kangaroo2_goals-col",
+    "inputs": {
+      "Objects": "Generic Data",
+      "Radii": "Number",
+      "IgnoreA": "Integer",
+      "IgnoreB": "Integer",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "C": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-col|collider"
+  }
+}

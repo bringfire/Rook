@@ -1,0 +1,91 @@
+{
+  "note_id": "tutorial_4d1f21a2",
+  "note_type": "teaching",
+  "name": "Intermediate 4-6: Point in Curves \u00e2\u20ac\u201d Geometric Containment Test",
+  "brief": "Point in Curves \u00e2\u2020\u2019 Equality \u00e2\u2020\u2019 Cull Pattern \u00e2\u2020\u2019 Circle. Tests whether points are inside closed curves for spatial filtering.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.217021Z",
+  "context": "Demonstrates geometric containment testing. Grid of Points. Closed Curve references (regions). Point in Curves: tests whether each point falls inside the closed curve(s). Returns relationship values (0=outside, 1=inside, 2=on boundary). Equality: compares against 1 (inside) to produce boolean True/False. Cull Pattern: filters points to only those INSIDE the curves. Circle: creates circles at the filtered (inside) points. Custom Preview shows circles only within the curve boundaries.",
+  "keywords": [
+    "point in curve",
+    "containment test",
+    "inside outside",
+    "region filter",
+    "geometric containment",
+    "spatial selection"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "containment",
+    "point-in-curve",
+    "boolean-filtering",
+    "spatial-selection",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "point in curves test",
+    "is point inside curve",
+    "geometric containment grasshopper",
+    "filter points inside region",
+    "point containment test",
+    "region based filtering"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "Curve",
+    "Point in Curves",
+    "Equality",
+    "Cull Pattern",
+    "Circle",
+    "Custom Preview",
+    "Panel"
+  ],
+  "solution_principle": "Point in Curves (or Point in Curve) tests geometric containment \u00e2\u20ac\u201d is a point inside a closed curve? Returns 0 (outside), 1 (inside), 2 (coincident/on boundary). Equality comparison converts the result to boolean for Cull Pattern. This enables region-based geometry filtering \u00e2\u20ac\u201d only create geometry where points are inside specific areas.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_1afdc366",
+    "tutorial_0b9dde96",
+    "tutorial_2ea87e9f",
+    "tutorial_31ac118b",
+    "tutorial_041c47d4",
+    "tutorial_0e40ec54"
+  ],
+  "times_used": 1,
+  "times_succeeded": 1,
+  "retrieval_count": 0,
+  "last_accessed": "2026-04-02T16:27:06.953644Z",
+  "last_verified": "2026-04-02T16:27:06.953644Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-6.jpg",
+    "lesson_number": 4,
+    "step_number": 6,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Point": 1,
+      "Curve": 1,
+      "Point in Curves": 1,
+      "Equality": 1,
+      "Cull Pattern": 1,
+      "Circle": 1,
+      "Custom Preview": 1,
+      "Panel": 1
+    }
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

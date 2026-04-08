@@ -1,0 +1,593 @@
+{
+  "pattern_id": "8eebcb1b",
+  "name": "parametric_pipe-output",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:11.244407Z",
+  "solution": {
+    "brief": "Parametric workflow with 7 adjustable parameters",
+    "principle": "\n\nRelated insight: Part of complexity spectrum: moderate (7 params) vs complex (54+ components)",
+    "components_needed": [
+      "Polygon",
+      "slider",
+      "slider",
+      "Move",
+      "Unit Z",
+      "slider",
+      "Control Points",
+      "Control Points",
+      "removeDuplicatePts",
+      "removeDuplicatePts",
+      "Line",
+      "Explode",
+      "Explode",
+      "Merge",
+      "Length(Line)",
+      "Shift List",
+      "Line",
+      "Length(Line)",
+      "slider",
+      "Merge",
+      "Solver",
+      "Show",
+      "Merge",
+      "Toggle",
+      "Button",
+      "Length",
+      "Multiplication",
+      "slider",
+      "List Length",
+      "Sub List",
+      "Split List",
+      "slider",
+      "Pipe",
+      "slider",
+      "Custom Preview",
+      "Swatch",
+      "Custom Preview",
+      "Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create tube",
+      "tubular form",
+      "pipe a curve"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "15ebd329"
+  ],
+  "tags": [
+    "moderate-complexity",
+    "parametric",
+    "pipe-output"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T09:00:26.069375",
+    "evolved_by": [
+      "15ebd329"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:30:33.945376Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 49 wires -> 38 components, 49 flows"
+      },
+      {
+        "date": "2026-02-22T09:00:26.069375",
+        "trigger": "New pattern: 15ebd329",
+        "changes": "New pattern shows complex end of parametric workflow spectrum, helping classify this as moderate complexity"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.7
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.505
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.046
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Simple Tensegrity.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            565,
+            242
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            204.2,
+            251.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            230,
+            219.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R4",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            761,
+            254
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            573,
+            334
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            230.1,
+            337.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.7
+        },
+        {
+          "id": "R7",
+          "type": "Component_ControlPoints",
+          "nick": "CP",
+          "name": "Control Points",
+          "pos": [
+            912,
+            52
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ControlPoints",
+          "nick": "CP",
+          "name": "Control Points",
+          "pos": [
+            913,
+            134
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            1031,
+            47
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicatePts",
+          "pos": [
+            1029,
+            129
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1260,
+            64
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1252,
+            201
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1256,
+            260
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1416,
+            161
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            1670,
+            97
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1193,
+            -154
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1311,
+            -121
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "SpringByLineComponent",
+          "name": "Length(Line)",
+          "pos": [
+            1664,
+            -11
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            1211.4,
+            -63.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R20",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1862,
+            -31
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "KangarooGH",
+          "name": "Solver",
+          "pos": [
+            2261,
+            36
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            1678,
+            -142
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1508,
+            -204
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1895,
+            222
+          ],
+          "value": true
+        },
+        {
+          "id": "R25",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1899,
+            95
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            1489,
+            258
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1593,
+            268
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            1332.6,
+            368
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.505
+        },
+        {
+          "id": "R29",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2420,
+            -97
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_SubList",
+          "nick": "SubSet",
+          "name": "Sub List",
+          "pos": [
+            2563,
+            48
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            2743,
+            20
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            2499.4,
+            -36
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R33",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            2896,
+            58
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            2637.5,
+            76.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.046
+        },
+        {
+          "id": "R35",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3032,
+            62
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2828.4,
+            125.5
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3034,
+            -33
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2817.9,
+            -78.7
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R1.I1",
+        "R2.O0>R1.I2",
+        "R1.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R6.O0>R5.I0",
+        "R1.O0>R7.I0",
+        "R4.O0>R8.I0",
+        "R7.O0>R9.I0",
+        "R8.O0>R10.I0",
+        "R9.O0>R11.I0",
+        "R10.O0>R11.I1",
+        "R1.O0>R12.I0",
+        "R4.O0>R13.I0",
+        "R11.O0>R14.I0",
+        "R12.O0>R14.I1",
+        "R13.O0>R14.I2",
+        "R14.O0>R15.I0",
+        "R27.O0>R15.I1",
+        "R10.O0>R16.I0",
+        "R9.O0>R17.I0",
+        "R16.O0>R17.I1",
+        "R17.O0>R18.I0",
+        "R17.O0>R18.I1",
+        "R19.O0>R18.I2",
+        "R22.O0>R20.I0",
+        "R18.O0>R20.I1",
+        "R15.O0>R20.I2",
+        "R20.O0>R21.I0",
+        "R25.O0>R21.I2",
+        "R24.O0>R21.I8",
+        "R23.O0>R22.I0",
+        "R1.O0>R23.I0",
+        "R4.O0>R23.I1",
+        "R11.O0>R23.I2",
+        "R17.O0>R23.I3",
+        "R14.O0>R26.I0",
+        "R26.O0>R27.I0",
+        "R28.O0>R27.I1",
+        "R23.O0>R29.I0",
+        "R21.O1>R30.I0",
+        "R29.O0>R30.I1",
+        "R30.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R31.O1>R33.I0",
+        "R34.O0>R33.I1",
+        "R33.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R31.O0>R37.I0",
+        "R38.O0>R37.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

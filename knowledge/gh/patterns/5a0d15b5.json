@@ -1,0 +1,274 @@
+{
+  "pattern_id": "5a0d15b5",
+  "name": "hex_grid_surface_domain_remap",
+  "version": "1.0",
+  "created": "2026-02-20T22:50:30.560699Z",
+  "solution": {
+    "brief": "Map hexagonal grid curves onto a surface via UV domain remapping. Extracts control points from hex cells, remaps XY coordinates to 0-1 using global bounds, evaluates surface at remapped UVs, and rebuilds polylines on the surface. Key pattern: flatten before Bounds for global domain, preserve tree structure through Remap for per-curve grouping.",
+    "principle": "",
+    "components_needed": [
+      "Flatten Tree",
+      "Flatten Tree",
+      "PolyLine",
+      "Control Points",
+      "Evaluate Surface",
+      "Construct Point",
+      "Remap Numbers",
+      "Remap Numbers",
+      "Bounds",
+      "Bounds",
+      "Deconstruct",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Hexagonal",
+      "4Point Surface",
+      "Panel",
+      "Panel",
+      "Panel",
+      "Panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create hexagonal grid on surface",
+      "map hex pattern onto curved surface",
+      "tessellate surface with hexagons",
+      "hexagonal surface division",
+      "hex grid UV domain remapping",
+      "remap curves to surface",
+      "map 2D pattern onto surface"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "04081616",
+    "1f185299"
+  ],
+  "tags": [
+    "hexagonal",
+    "surface",
+    "domain-remap",
+    "uv-mapping",
+    "polyline",
+    "tessellation",
+    "data-tree",
+    "flatten-bounds",
+    "curve-surface",
+    "projection"
+  ],
+  "evolution": {
+    "created_from": "recipe_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "wiring": [
+      {
+        "from": "f0e160ef-5a03-4f6c-931f-8f28ea5000c6",
+        "from_param": "Y",
+        "to": "d26e8a28-35f4-4a52-a237-064e629373e8",
+        "to_param": "T"
+      },
+      {
+        "from": "f0e160ef-5a03-4f6c-931f-8f28ea5000c6",
+        "from_param": "X",
+        "to": "232d2059-0b42-4722-9467-e5faf417ebde",
+        "to_param": "T"
+      },
+      {
+        "from": "e600d780-d7b8-4694-9dd1-b7c9e02c4b90",
+        "from_param": "P",
+        "to": "68a1c77e-029a-4143-8500-e9757551d3e1",
+        "to_param": "V"
+      },
+      {
+        "from": "bf1ee016-8c29-4b34-aedb-108efd587a5d",
+        "from_param": "C",
+        "to": "7252fbe3-2d31-4d96-a1d0-6e26b26bea92",
+        "to_param": "C"
+      },
+      {
+        "from": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+        "from_param": "S",
+        "to": "e600d780-d7b8-4694-9dd1-b7c9e02c4b90",
+        "to_param": "S"
+      },
+      {
+        "from": "02f15214-eb92-4e27-a9c9-d40a2fef54b8",
+        "from_param": "Pt",
+        "to": "e600d780-d7b8-4694-9dd1-b7c9e02c4b90",
+        "to_param": "uv"
+      },
+      {
+        "from": "67595185-9ce4-4972-960a-f5718fefe75e",
+        "from_param": "R",
+        "to": "02f15214-eb92-4e27-a9c9-d40a2fef54b8",
+        "to_param": "X"
+      },
+      {
+        "from": "fe18666f-4d61-46c9-a0d4-bbfcd7802b7f",
+        "from_param": "R",
+        "to": "02f15214-eb92-4e27-a9c9-d40a2fef54b8",
+        "to_param": "Y"
+      },
+      {
+        "from": "f0e160ef-5a03-4f6c-931f-8f28ea5000c6",
+        "from_param": "Y",
+        "to": "fe18666f-4d61-46c9-a0d4-bbfcd7802b7f",
+        "to_param": "V"
+      },
+      {
+        "from": "99e04ca8-6b58-45b8-bea2-36c80c520ca6",
+        "from_param": "I",
+        "to": "fe18666f-4d61-46c9-a0d4-bbfcd7802b7f",
+        "to_param": "S"
+      },
+      {
+        "from": "f0e160ef-5a03-4f6c-931f-8f28ea5000c6",
+        "from_param": "X",
+        "to": "67595185-9ce4-4972-960a-f5718fefe75e",
+        "to_param": "V"
+      },
+      {
+        "from": "24efe419-4f9e-49f9-a9d2-e4f2e158d042",
+        "from_param": "I",
+        "to": "67595185-9ce4-4972-960a-f5718fefe75e",
+        "to_param": "S"
+      },
+      {
+        "from": "d26e8a28-35f4-4a52-a237-064e629373e8",
+        "from_param": "T",
+        "to": "99e04ca8-6b58-45b8-bea2-36c80c520ca6",
+        "to_param": "N"
+      },
+      {
+        "from": "232d2059-0b42-4722-9467-e5faf417ebde",
+        "from_param": "T",
+        "to": "24efe419-4f9e-49f9-a9d2-e4f2e158d042",
+        "to_param": "N"
+      },
+      {
+        "from": "7252fbe3-2d31-4d96-a1d0-6e26b26bea92",
+        "from_param": "P",
+        "to": "f0e160ef-5a03-4f6c-931f-8f28ea5000c6",
+        "to_param": "P"
+      },
+      {
+        "from": "af80f85b-233f-4b60-a59f-a911db3e8580",
+        "from_param": "Size",
+        "to": "bf1ee016-8c29-4b34-aedb-108efd587a5d",
+        "to_param": "S"
+      },
+      {
+        "from": "063488e2-02a8-4df1-92f4-5c197819f864",
+        "from_param": "ExtentX",
+        "to": "bf1ee016-8c29-4b34-aedb-108efd587a5d",
+        "to_param": "Ex"
+      },
+      {
+        "from": "ac721c41-fbb8-49fa-9de8-82225288dafc",
+        "from_param": "ExtentY",
+        "to": "bf1ee016-8c29-4b34-aedb-108efd587a5d",
+        "to_param": "Ey"
+      },
+      {
+        "from": "aea4ff8e-789f-4945-8620-b43a92a74951",
+        "from_param": "Panel",
+        "to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+        "to_param": "A"
+      },
+      {
+        "from": "9d183d1a-ea13-4aec-aa28-a09945faebb9",
+        "from_param": "Panel",
+        "to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+        "to_param": "B"
+      },
+      {
+        "from": "45af7c26-415b-48cb-80df-a904c050a6f6",
+        "from_param": "Panel",
+        "to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+        "to_param": "C"
+      },
+      {
+        "from": "2965c716-77a1-4d70-8bfe-c6d31c242e57",
+        "from_param": "Panel",
+        "to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+        "to_param": "D"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "ac721c41-fbb8-49fa-9de8-82225288dafc",
+          "role": "parameter",
+          "connected_to": "Hexagonal",
+          "param": "Ey"
+        },
+        {
+          "guid": "063488e2-02a8-4df1-92f4-5c197819f864",
+          "role": "parameter",
+          "connected_to": "Hexagonal",
+          "param": "Ex"
+        },
+        {
+          "guid": "af80f85b-233f-4b60-a59f-a911db3e8580",
+          "role": "parameter",
+          "connected_to": "Hexagonal",
+          "param": "S"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "2965c716-77a1-4d70-8bfe-c6d31c242e57",
+          "role": "text",
+          "connected_to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+          "param": "D"
+        },
+        {
+          "guid": "45af7c26-415b-48cb-80df-a904c050a6f6",
+          "role": "text",
+          "connected_to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+          "param": "C"
+        },
+        {
+          "guid": "aea4ff8e-789f-4945-8620-b43a92a74951",
+          "role": "text",
+          "connected_to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+          "param": "A"
+        },
+        {
+          "guid": "9d183d1a-ea13-4aec-aa28-a09945faebb9",
+          "role": "text",
+          "connected_to": "273dcec7-5b5c-497e-a974-6e7027b974a5",
+          "param": "B"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": ""
+  }
+}

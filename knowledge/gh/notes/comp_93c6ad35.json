@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_93c6ad35",
+  "note_type": "component",
+  "name": "Set Union",
+  "brief": "Set Union | Inputs: A, B → U",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Set Union. Inputs: A (Generic Data), B (Generic Data). Outputs: U (Generic Data).",
+  "keywords": [
+    "set union",
+    "set",
+    "union",
+    "set_operations"
+  ],
+  "category": "set_operations",
+  "tags": [
+    "set_operations"
+  ],
+  "trigger_intents": [
+    "set union",
+    "set",
+    "union"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Set Union"
+  ],
+  "solution_principle": "Creates the union of two sets (the collection of unique objects present in either set).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_02db7147",
+    "comp_3da2c6c5",
+    "comp_63672325",
+    "comp_e4d5c4f3",
+    "comp_afef693b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8eed5d78-7810-4ba1-968e-8a1f1db98e39",
+    "category": "set_operations",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "outputs": {
+      "U": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "82f19c48-9e73-43a4-ae6c-3a8368099b08"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sets|set union"
+  }
+}

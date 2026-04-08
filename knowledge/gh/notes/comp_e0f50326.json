@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_e0f50326",
+  "note_type": "component",
+  "name": "interconnectPoints",
+  "brief": "interconnectPoints | Inputs: P → I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: interconnectPoints. Inputs: P (Point). Outputs: I (Curve).",
+  "keywords": [
+    "interconnectpoints",
+    "kangaroo2_utility"
+  ],
+  "category": "kangaroo2_utility",
+  "tags": [
+    "kangaroo2_utility"
+  ],
+  "trigger_intents": [
+    "interconnectpoints",
+    "interconnect",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "interconnectPoints"
+  ],
+  "solution_principle": "Draws one line between every pair of points in a list",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ea65cfe",
+    "comp_6e9a9654",
+    "comp_d5b60c80",
+    "comp_e8f5fb4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a412ddf4-4899-4456-8325-f3f9a8134a25",
+    "category": "kangaroo2_utility",
+    "inputs": {
+      "P": "Point"
+    },
+    "outputs": {
+      "I": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|utility|interconnectpoints"
+  }
+}

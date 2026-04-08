@@ -1,0 +1,89 @@
+{
+  "note_id": "comp_919aeca8",
+  "note_type": "component",
+  "name": "Circle 3Pt",
+  "brief": "Circle 3Pt | Inputs: A, B, C → C, P, R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Circle 3Pt. Inputs: A (Point), B (Point), C (Point). Outputs: C (Circle), P (Plane), R (Number).",
+  "keywords": [
+    "circle 3pt",
+    "circle",
+    "3pt",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "circle 3pt",
+    "circle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Circle 3Pt"
+  ],
+  "solution_principle": "Create a circle defined by three points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e452abc5",
+    "comp_0ae576e3",
+    "comp_abdf444b",
+    "comp_28367a97",
+    "comp_255e74fc",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6",
+    "comp_7dee6c13",
+    "comp_8340a347",
+    "comp_a4ce095c",
+    "comp_27b035b4",
+    "comp_f3627a5f",
+    "comp_ffa26615",
+    "comp_ca3169bb",
+    "comp_1bddbc3b",
+    "comp_8631d3ae",
+    "comp_9d38d8da",
+    "comp_bd64fa41",
+    "comp_131dc400",
+    "comp_36410bd6",
+    "comp_9b552c69",
+    "comp_2e26698e",
+    "comp_e6b90611",
+    "comp_ea88730a",
+    "comp_ba658789"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "47886835-e3ff-4516-a3ed-1b419f055464",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "C": "Circle",
+      "P": "Plane",
+      "R": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9fa1b081-b1c7-4a12-a163-0aa8da9ff6c4"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|circle 3pt"
+  }
+}

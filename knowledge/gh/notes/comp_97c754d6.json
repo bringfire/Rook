@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_97c754d6",
+  "note_type": "component",
+  "name": "Show",
+  "brief": "Show | Inputs: G → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Show. Inputs: G (Generic Data). Outputs: G (Generic Data).",
+  "keywords": [
+    "show",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "show"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Show"
+  ],
+  "solution_principle": "Show",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0ef4f3f0",
+    "comp_5713da8f",
+    "comp_a99f6b65",
+    "comp_ab89f681",
+    "comp_617b0a2f",
+    "comp_fc845a73",
+    "comp_a575c692",
+    "comp_ce7f5782"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0ed5e67d-539d-480e-88cb-d81fa795d66c",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "G": "Generic Data"
+    },
+    "outputs": {
+      "G": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|show"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_4cfdef19",
+  "note_type": "component",
+  "name": "QuadTree",
+  "brief": "QuadTree | Inputs: P, Pl, S, G → Q, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: QuadTree. Inputs: P (Point), Pl (Plane), S (Boolean), G (Integer). Outputs: Q (Curve), P (Point).",
+  "keywords": [
+    "quadtree",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "quadtree",
+    "quad",
+    "tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "QuadTree"
+  ],
+  "solution_principle": "A two-dimensional quadtree structure",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8102032b-9699-4949-ab12-3017a31d1062",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point",
+      "Pl": "Plane",
+      "S": "Boolean",
+      "G": "Integer"
+    },
+    "outputs": {
+      "Q": "Curve",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "458ed0e0-19a3-419b-8ead-f524925b8a35"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|quadtree"
+  }
+}

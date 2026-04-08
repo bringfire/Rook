@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_107c3cf2",
+  "note_type": "component",
+  "name": "Box Slits",
+  "brief": "Box Slits | Inputs: B, G → B, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Box Slits. Inputs: B (Box), G (Number). Outputs: B (Brep), T (Integer).",
+  "keywords": [
+    "box slits",
+    "box",
+    "slits",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "box slits",
+    "box",
+    "slits"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Box Slits"
+  ],
+  "solution_principle": "Add slits to a collection of intersecting boxes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c6dc49bb",
+    "comp_5f77f7fc",
+    "comp_dd2a0014",
+    "comp_85550cda",
+    "comp_0ce60bf8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2d3b6ef3-5c26-4e2f-bcb3-8ffb9fb0f7c3",
+    "category": "intersection_shape",
+    "inputs": {
+      "B": "Box",
+      "G": "Number"
+    },
+    "outputs": {
+      "B": "Brep",
+      "T": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0feeeaca-8f1f-4d7c-a24a-8e7dd68604a2"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|box slits"
+  }
+}

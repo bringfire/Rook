@@ -1,0 +1,81 @@
+{
+  "note_id": "comp_a474810a",
+  "note_type": "component",
+  "name": "Annotation Tolerance Settings",
+  "brief": "Annotation Tolerance Settings | Inputs: To, Tf, Tr, Ar → To, Tf, Tr",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Annotation Tolerance Settings. Inputs: To (Tolerance Settings), Tf (Integer), Tr (Integer), Ar (Integer), Uv (Number), Lv (Number), Hs (Number). Outputs: To (Tolerance Settings), Tf (Integer), Tr (Integer), Ar (Integer), Uv (Number), Lv (Number), Hs (Number).",
+  "keywords": [
+    "annotation tolerance settings",
+    "annotation",
+    "tolerance",
+    "settings",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation tolerance settings",
+    "annotation",
+    "tolerance",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Tolerance Settings"
+  ],
+  "solution_principle": "Annotation Style Tolerance Settings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_375a03ab",
+    "comp_ec86ef0e",
+    "comp_ac161ae6",
+    "comp_c02c11a2",
+    "comp_3d741f10"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3cfd77d3-30d0-45f6-adeb-ea8defed58d3",
+    "category": "rhino_annotations",
+    "inputs": {
+      "To": "Tolerance Settings",
+      "Tf": "Integer",
+      "Tr": "Integer",
+      "Ar": "Integer",
+      "Uv": "Number",
+      "Lv": "Number",
+      "Hs": "Number"
+    },
+    "outputs": {
+      "To": "Tolerance Settings",
+      "Tf": "Integer",
+      "Tr": "Integer",
+      "Ar": "Integer",
+      "Uv": "Number",
+      "Lv": "Number",
+      "Hs": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "169fee80-074f-4b6a-9e60-cde26129d10b",
+      "28f6d54b-68cf-4044-a1ff-6949aae1921b",
+      "2eccca8b-b190-4eef-9ead-0659ac1ef900"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation tolerance settings"
+  }
+}

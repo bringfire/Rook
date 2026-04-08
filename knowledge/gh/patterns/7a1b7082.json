@@ -1,0 +1,1065 @@
+{
+  "pattern_id": "7a1b7082",
+  "name": "14-2",
+  "version": "1.0",
+  "created": "2026-02-22T14:00:28.221995Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\14-2.gh (72 components)",
+    "principle": "\n\nRelated insight: Related insight: Geometric domain specialization: While this 72-component workflow represents general parametric operations, related patterns like '4-qos' (28 components) show specialization for Islamic geometry, indicating how workflows can be optimized for specific geometric domains.\n\nRelated insight: The Islamic geometry specialization includes multiple variations ('4- qos', '5- qos 6 o 5') showing systematic domain-specific optimization patterns.",
+    "components_needed": [
+      "Bifocals",
+      "slider",
+      "Division",
+      "panel",
+      "Construct Point",
+      "Division",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Construct Point",
+      "Line",
+      "Perp Frame",
+      "slider",
+      "Deconstruct Plane",
+      "Line SDL",
+      "slider",
+      "Project Point",
+      "Line SDL",
+      "Distance",
+      "Point On Curve",
+      "Arc 3Pt",
+      "Revolution",
+      "slider",
+      "Division",
+      "Construct Point",
+      "Division",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Construct Point",
+      "Subtraction",
+      "Multiplication",
+      "Move",
+      "Unit X",
+      "Arc",
+      "XZ Plane",
+      "Move",
+      "Unit X",
+      "Project Point",
+      "Unit Z",
+      "Sub Curve",
+      "Curve Closest Point",
+      "Sketch",
+      "Point On Curve",
+      "Line",
+      "Perp Frame",
+      "slider",
+      "Line SDL",
+      "Deconstruct Plane",
+      "Project Point",
+      "Line",
+      "Line SDL",
+      "Distance",
+      "Point On Curve",
+      "Arc 3Pt",
+      "Join Curves",
+      "slider",
+      "Division",
+      "Construct Point",
+      "XZ Plane",
+      "Arc",
+      "Point",
+      "Project Point",
+      "Unit Z",
+      "Curve Closest Point",
+      "Sub Curve",
+      "Mirror",
+      "Line SDL",
+      "Point On Curve",
+      "Line SDL",
+      "Point On Curve",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "14 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ddfc5df6",
+    "fdbc67df",
+    "1f185299",
+    "53245b80",
+    "58525853",
+    "398e734c"
+  ],
+  "tags": [
+    "geometric-specialization",
+    "parametric",
+    "grasshopper",
+    "domain-optimization",
+    "recipe",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:04:41.362934",
+    "evolved_by": [
+      "58525853",
+      "398e734c"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:04:17.579216",
+        "trigger": "New pattern: 58525853",
+        "changes": "Adding context about geometric specialization helps understand that parametric workflows can be tailored for specific geometric applications, with Islamic geometry being one specialized branch"
+      },
+      {
+        "date": "2026-02-22T09:04:41.362934",
+        "trigger": "New pattern: 398e734c",
+        "changes": "New pattern strengthens the geometric specialization insight by showing multiple related Islamic geometry workflows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 15.4
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14.8
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12.3
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.47
+        }
+      ],
+      "panels": [
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "2"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/14/14-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            38,
+            18
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            85.5,
+            189
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 15.4
+        },
+        {
+          "id": "R3",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            309,
+            209
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            212.7,
+            209.5
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R5",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            592,
+            246
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            321,
+            310
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            106.1,
+            310.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R8",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            416,
+            371
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            109,
+            368.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R10",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            591,
+            345
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            742,
+            285
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_CurvePerpFrame",
+          "nick": "PFrame",
+          "name": "Perp Frame",
+          "pos": [
+            932,
+            295
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            679.6,
+            308.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R14",
+          "type": "Component_DeconstructPlane",
+          "nick": "DePlane",
+          "name": "Deconstruct Plane",
+          "pos": [
+            1024,
+            296
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            924,
+            412
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            681.7,
+            422.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R17",
+          "type": "Component_ProjectPoint",
+          "nick": "Project",
+          "name": "Project Point",
+          "pos": [
+            1170,
+            363
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            1292,
+            383
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            1169,
+            455
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1350.8,
+            373.9
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Arc3Pt",
+          "nick": "Arc",
+          "name": "Arc 3Pt",
+          "pos": [
+            1629,
+            284
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_RevSurface",
+          "nick": "RevSrf",
+          "name": "Revolution",
+          "pos": [
+            1770,
+            359
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            92.1,
+            563
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14.8
+        },
+        {
+          "id": "R24",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            300,
+            582
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            480,
+            594
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            306,
+            672
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            82.1,
+            655.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R28",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            386,
+            682
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            93.3,
+            747.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R30",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            478,
+            661
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_VariableSubtraction",
+          "nick": "A-B",
+          "name": "Subtraction",
+          "pos": [
+            348,
+            796
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            483,
+            756
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            711,
+            642
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            600,
+            740
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_Arc",
+          "name": "Arc",
+          "pos": [
+            878,
+            656
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            794,
+            632
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            722,
+            825
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            627,
+            835
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_ProjectPoint",
+          "nick": "Project",
+          "name": "Project Point",
+          "pos": [
+            904,
+            824
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            823,
+            824
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_SubCurve",
+          "nick": "SubCrv",
+          "name": "Sub Curve",
+          "pos": [
+            1187,
+            643
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1037,
+            733
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            1183,
+            553.7
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1241.5,
+            702.2
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1484,
+            657
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_CurvePerpFrame",
+          "nick": "PFrame",
+          "name": "Perp Frame",
+          "pos": [
+            1641,
+            711
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            1386,
+            723.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R48",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            1771,
+            566
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_DeconstructPlane",
+          "nick": "DePlane",
+          "name": "Deconstruct Plane",
+          "pos": [
+            1760,
+            715
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_ProjectPoint",
+          "nick": "Project",
+          "name": "Project Point",
+          "pos": [
+            1921,
+            673
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1904,
+            845
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            2054,
+            731
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            1904,
+            896
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            2115.8,
+            725.9
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_Arc3Pt",
+          "nick": "Arc",
+          "name": "Arc 3Pt",
+          "pos": [
+            2297,
+            613
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            2436,
+            569
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            87,
+            1087.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12.3
+        },
+        {
+          "id": "R58",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            293,
+            1107
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            427,
+            1127
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            525,
+            1127
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_Arc",
+          "name": "Arc",
+          "pos": [
+            617,
+            1147
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            638,
+            1207.3
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_ProjectPoint",
+          "nick": "Project",
+          "name": "Project Point",
+          "pos": [
+            789,
+            1220
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            639,
+            1273
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            903,
+            1150
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_SubCurve",
+          "nick": "SubCrv",
+          "name": "Sub Curve",
+          "pos": [
+            1004,
+            1040
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_Mirror",
+          "name": "Mirror",
+          "pos": [
+            1119,
+            1124
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            1364,
+            1045
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1149.2,
+            1006
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            1374,
+            1164
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1188.9,
+            1128.4
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            1145.5,
+            1077.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.47
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R3.O0>R5.I0",
+        "R3.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R8.O0>R10.I2",
+        "R5.O0>R11.I0",
+        "R10.O0>R11.I1",
+        "R11.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R12.O0>R14.I0",
+        "R10.O0>R15.I0",
+        "R16.O0>R15.I2",
+        "R14.O0>R17.I0",
+        "R14.O2>R17.I1",
+        "R15.O0>R17.I2",
+        "R17.O0>R18.I0",
+        "R14.O2>R18.I1",
+        "R19.O0>R18.I2",
+        "R5.O0>R19.I0",
+        "R17.O0>R19.I1",
+        "R5.O0>R21.I0",
+        "R20.O0>R21.I1",
+        "R10.O0>R21.I2",
+        "R21.O0>R22.I0",
+        "R15.O0>R22.I1",
+        "R23.O0>R24.I0",
+        "R24.O0>R25.I0",
+        "R24.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R26.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R28.O0>R30.I2",
+        "R29.O0>R31.I0",
+        "R26.O0>R32.I0",
+        "R31.O0>R32.I1",
+        "R25.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R32.O0>R34.I0",
+        "R36.O0>R35.I0",
+        "R32.O0>R35.I1",
+        "R33.O0>R36.I0",
+        "R25.O0>R37.I0",
+        "R38.O0>R37.I1",
+        "R26.O0>R38.I0",
+        "R37.O0>R39.I0",
+        "R40.O0>R39.I1",
+        "R35.O0>R39.I2",
+        "R35.O0>R41.I0",
+        "R42.O1>R41.I1",
+        "R39.O0>R42.I0",
+        "R35.O0>R42.I1",
+        "R44.O0>R45.I0",
+        "R30.O0>R45.I1",
+        "R45.O0>R46.I0",
+        "R47.O0>R46.I1",
+        "R30.O0>R48.I0",
+        "R46.O0>R49.I0",
+        "R49.O0>R50.I0",
+        "R49.O2>R50.I1",
+        "R48.O0>R50.I2",
+        "R50.O0>R51.I0",
+        "R44.O0>R51.I1",
+        "R50.O0>R52.I0",
+        "R49.O2>R52.I1",
+        "R51.O0>R52.I2",
+        "R50.O0>R53.I0",
+        "R44.O0>R53.I1",
+        "R44.O0>R55.I0",
+        "R54.O0>R55.I1",
+        "R30.O0>R55.I2",
+        "R41.O0>R56.I0",
+        "R55.O0>R56.I0",
+        "R57.O0>R58.I0",
+        "R58.O0>R59.I0",
+        "R59.O0>R60.I0",
+        "R60.O0>R61.I0",
+        "R57.O0>R61.I1",
+        "R62.O0>R63.I0",
+        "R64.O0>R63.I1",
+        "R61.O0>R63.I2",
+        "R63.O0>R65.I0",
+        "R61.O0>R65.I1",
+        "R61.O0>R66.I0",
+        "R65.O1>R66.I1",
+        "R66.O0>R67.I0",
+        "R69.O0>R68.I0",
+        "R72.O0>R68.I2",
+        "R71.O0>R70.I0",
+        "R72.O0>R70.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

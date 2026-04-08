@@ -1,0 +1,340 @@
+{
+  "version": "1.0",
+  "consolidated_at": "2026-01-11T18:20:03.446049Z",
+  "consolidation_model": "claude-sonnet-4-20250514",
+  "tools": {
+    "rhino_layer_create": {
+      "quick": "Creates Rhino layers with name (required), optional parent for nesting, RGB color [0-255], visibility/lock settings. Names must be unique or HTTP 400 error occurs.",
+      "contexts": {
+        "basic": {
+          "description": "Basic layer creation with just a name parameter for simple flat layer structures",
+          "summary": "Creates a new layer in Rhino with the specified name, rejecting duplicate names with HTTP 400 errors.",
+          "required_params": "name",
+          "optional_params": "",
+          "gotchas": "Layer names must be unique - attempting to create a layer with an existing name will fail with HTTP 400 error; No validation on name format or length appears to be enforced",
+          "example": {
+            "name": "TestLayer"
+          },
+          "patterns_analyzed": 52,
+          "success_rate": 0.9122807017543859
+        },
+        "nested": {
+          "description": "Nested layer creation using the parent parameter to establish hierarchical relationships between layers",
+          "summary": "Create nested layers by specifying an existing parent layer using the `parent` parameter, ensuring unique layer names to avoid conflicts.",
+          "required_params": "name",
+          "optional_params": "parent, description, color",
+          "gotchas": "Layer names must be unique across the entire document; Parent layer must exist before creating child layer; Path syntax (Parent::Child) creates literal layer names, not hierarchies; Duplicate layer names cause HTTP 400 errors",
+          "example": {
+            "name": "ChildLayer",
+            "parent": "ParentLayer",
+            "description": "Test nested layer creation",
+            "color": [
+              255,
+              128,
+              0
+            ]
+          },
+          "patterns_analyzed": 45,
+          "success_rate": 0.8181818181818182
+        },
+        "colored": {
+          "description": "Colored layer creation using RGB color arrays to set layer appearance properties",
+          "summary": "Create layers with specific colors by providing RGB color arrays in the format [red, green, blue] with values 0-255.",
+          "required_params": "name",
+          "optional_params": "color, description, visible, locked, parameters",
+          "gotchas": "Layer names must be unique or creation will fail with HTTP 400 error; RGB values outside 0-255 range are accepted but may produce unexpected colors; Color can be specified either directly or within a nested parameters object",
+          "example": {
+            "name": "orange_layer",
+            "color": [
+              255,
+              128,
+              0
+            ],
+            "description": "Layer with orange color"
+          },
+          "patterns_analyzed": 24,
+          "success_rate": 0.75
+        },
+        "complex": {
+          "description": "Complex layer creation combining multiple parameters like name, parent, color, and other attributes for full-featured layers.",
+          "summary": "Use rhino_layer_create with multiple parameters to create full-featured layers that can include color, visibility, parent relationships, and other advanced properties.",
+          "required_params": "name",
+          "optional_params": "description, parameters, color, visible, locked, parent",
+          "gotchas": "None identified from the patterns",
+          "example": {
+            "name": "AdvancedLayer",
+            "description": "Layer with multiple properties",
+            "parameters": {
+              "color": [
+                255,
+                128,
+                0
+              ],
+              "visible": true,
+              "locked": false,
+              "parent": "MainLayer"
+            }
+          },
+          "patterns_analyzed": 3,
+          "success_rate": 1.0
+        }
+      },
+      "errors": {
+        "duplicate_layer_names": {
+          "count": 67,
+          "description": "HTTP 400 errors caused by attempting to create layers with names that already exist in the Rhino document",
+          "avoidance": "Always use unique layer names by incorporating timestamps, UUIDs, or checking existing layers before creation. Implement name validation to ensure uniqueness."
+        },
+        "generic_creation_failures": {
+          "count": 42,
+          "description": "General 'Failed for:' errors during layer creation operations without specific error details, suggesting broader API communication or parameter issues",
+          "avoidance": "Verify API connectivity, check parameter formatting, ensure proper authentication, and validate that the Rhino service is responsive before attempting layer creation."
+        },
+        "hierarchy_creation_confusion": {
+          "count": 3,
+          "description": "Misunderstanding of how to create nested layers, including confusion between path syntax (Parent::Child) and parent parameter usage",
+          "avoidance": "Use the 'parent' parameter for creating child layers rather than path syntax in the name. Create parent layers first, then reference them by name in the parent parameter for child layers."
+        },
+        "parameter_structure_errors": {
+          "count": 1,
+          "description": "Errors related to incorrect parameter formatting or invalid color values in layer creation requests",
+          "avoidance": "Validate color arrays are within RGB range [0-255], ensure proper JSON structure for parameters, and verify all required parameters are included with correct data types."
+        }
+      },
+      "meta": {
+        "total_patterns": 124,
+        "total_antipatterns": 140,
+        "contexts_identified": 4,
+        "consolidation_confidence": 0.9480462519936204
+      }
+    },
+    "rhino_create": {
+      "quick": "Creates 2D/3D geometry in Rhino: points, lines, circles, boxes, spheres, cylinders, cones, arcs, polylines. Specify type + required parameters (center/origin, radius/dimensions). Optional: name, color, layer.",
+      "contexts": {
+        "basic_2d": {
+          "description": "Creating simple 2D geometry like points, lines, circles, and rectangles with minimal parameters",
+          "summary": "Use rhino_create with type=\"POINT\" to create basic 2D points, optionally specifying coordinates.",
+          "required_params": "type",
+          "optional_params": "point, test_name, parameters",
+          "gotchas": "None identified from available patterns",
+          "example": {
+            "type": "POINT",
+            "point": [
+              0,
+              0,
+              0
+            ]
+          },
+          "patterns_analyzed": 3,
+          "success_rate": 1.0
+        },
+        "solid_3d": {
+          "description": "Creating 3D solid objects like spheres, boxes, cylinders, and cones with position and dimension parameters",
+          "summary": "Create basic 3D solid primitives (spheres, boxes, cylinders, cones) by specifying the geometry type, position, and type-specific dimensions.",
+          "required_params": "type, center (for SPHERE/CYLINDER/CONE) or origin (for BOX), radius (for SPHERE/CYLINDER/CONE), width/depth/height (for BOX), height (for CYLINDER/CONE)",
+          "optional_params": "name, color, layer",
+          "gotchas": "Different geometry types use different positioning parameters (center vs origin); BOX requires width/depth/height while others use radius; CYLINDER and CONE both need radius and height; color must use RGB object notation with r/g/b properties",
+          "example": {
+            "type": "SPHERE",
+            "center": [
+              0,
+              0,
+              0
+            ],
+            "radius": 5,
+            "name": "TestSphere",
+            "color": {
+              "r": 255,
+              "g": 0,
+              "b": 0
+            }
+          },
+          "patterns_analyzed": 17,
+          "success_rate": 1.0
+        },
+        "curves": {
+          "description": "Creating complex curve geometry like polylines and arcs that require multiple points or angle specifications",
+          "summary": "Use rhino_create to generate various curve geometries by specifying the curve type and its defining parameters like points, center, radius, or dimensions.",
+          "required_params": "type",
+          "optional_params": "start, end, center, radius, points, origin, width, height, startAngle, endAngle, name",
+          "gotchas": "Different curve types require different parameter combinations; coordinates must be 3D arrays even for 2D curves; radius can be zero or negative; angles are in degrees for arcs",
+          "example": {
+            "type": "ARC",
+            "center": [
+              0,
+              0,
+              0
+            ],
+            "radius": 5,
+            "startAngle": 0,
+            "endAngle": 90
+          },
+          "patterns_analyzed": 9,
+          "success_rate": 1.0
+        },
+        "attributed": {
+          "description": "Creating geometry with additional attributes like colors, names, layers, and other metadata properties",
+          "summary": "Use rhino_create with standard geometry parameters plus attribute parameters like color to create geometry with metadata properties.",
+          "required_params": "type, center, radius",
+          "optional_params": "color",
+          "gotchas": "None identified from available patterns",
+          "example": {
+            "type": "SPHERE",
+            "center": [
+              0,
+              0,
+              0
+            ],
+            "radius": 5,
+            "color": [
+              255,
+              0,
+              0
+            ]
+          },
+          "patterns_analyzed": 2,
+          "success_rate": 1.0
+        }
+      },
+      "errors": {
+        "invalid_geometry_types": {
+          "count": 3,
+          "description": "Using unsupported or non-existent geometry type values",
+          "avoidance": "Always use valid geometry types like 'BOX', 'LINE', 'POLYLINE', 'CIRCLE', etc. Check documentation for supported types before making requests."
+        },
+        "missing_required_parameters": {
+          "count": 2,
+          "description": "Failing to provide essential parameters needed for geometry creation",
+          "avoidance": "Ensure all required parameters are included - e.g., LINE needs both start and end points, POLYLINE needs at least 2 points."
+        },
+        "invalid_parameter_values": {
+          "count": 1,
+          "description": "Providing parameter values that are mathematically or logically invalid",
+          "avoidance": "Validate parameter values before submission - dimensions should be positive, coordinates should be valid numbers."
+        },
+        "incorrect_parameter_structure": {
+          "count": 1,
+          "description": "Using wrong parameter names or structure that doesn't match the expected schema",
+          "avoidance": "Follow the correct parameter schema - use 'type' for geometry type, not 'geometry_type', and structure parameters according to tool specifications."
+        }
+      },
+      "meta": {
+        "total_patterns": 31,
+        "total_antipatterns": 7,
+        "contexts_identified": 4,
+        "consolidation_confidence": 0.924
+      }
+    },
+    "rhino_transform": {
+      "quick": "Transform objects with move (vector), rotate (angle/axis/center), scale (factor/center), mirror (plane). Requires object IDs for move; others work on selection.",
+      "contexts": {
+        "move": {
+          "description": "Move operations translate objects by a specified vector in 3D space",
+          "summary": "Use rhino_transform with operation \"move\" and a 3D vector to translate selected objects by the specified distance.",
+          "required_params": "operation, vector, ids",
+          "optional_params": "",
+          "gotchas": "Empty ids array will cause the operation to fail; Must have objects selected before attempting move; Vector must be a 3-element array with numeric values",
+          "example": {
+            "operation": "move",
+            "vector": [
+              10.0,
+              0.0,
+              0.0
+            ],
+            "ids": [
+              "189bcc33-48fd-4202-8058-7f9847eddf6b"
+            ]
+          },
+          "patterns_analyzed": 2,
+          "success_rate": 0.4
+        },
+        "rotate": {
+          "description": "Rotate operations rotate objects around a specified axis and center point by a given angle",
+          "summary": "Use rhino_transform with operation \"rotate\" to rotate objects around a specified 3D axis by a given angle from a center point.",
+          "required_params": "operation, angle, axis, center",
+          "optional_params": "ids",
+          "gotchas": "Axis must be a valid 3D vector; angle appears to be in degrees not radians; center point coordinates must match the object's coordinate system",
+          "example": {
+            "operation": "rotate",
+            "angle": 45,
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "center": [
+              0,
+              0,
+              0
+            ]
+          },
+          "patterns_analyzed": 2,
+          "success_rate": 1.0
+        },
+        "scale": {
+          "description": "Scale operations resize objects by a scaling factor from a specified center point",
+          "summary": "Use rhino_transform with operation \"scale\" to resize objects by a factor from a specified center point.",
+          "required_params": "operation, factor, center",
+          "optional_params": "",
+          "gotchas": "Zero or negative scaling factors may cause errors; center point determines where scaling occurs from; factor of 1 results in no change",
+          "example": {
+            "operation": "scale",
+            "factor": 2,
+            "center": [
+              0,
+              0,
+              0
+            ]
+          },
+          "patterns_analyzed": 1,
+          "success_rate": 1.0
+        },
+        "mirror": {
+          "description": "Mirror operations create reflections of objects across a plane defined by an origin point and normal vector",
+          "summary": "Use rhino_transform with operation \"mirror\" to reflect objects across a plane defined by an origin point and normal vector.",
+          "required_params": "operation, planeOrigin, planeNormal",
+          "optional_params": "",
+          "gotchas": "Ensure plane normal vector is properly normalized; verify coordinate system orientation matches expected results",
+          "example": {
+            "operation": "mirror",
+            "planeOrigin": [
+              0,
+              0,
+              0
+            ],
+            "planeNormal": [
+              1,
+              0,
+              0
+            ]
+          },
+          "patterns_analyzed": 1,
+          "success_rate": 1.0
+        }
+      },
+      "errors": {
+        "empty_object_selection": {
+          "count": 4,
+          "description": "Attempting to perform transformations with empty ids array, meaning no objects are selected for the operation",
+          "avoidance": "Always ensure at least one valid object ID is provided in the ids array before calling the transform function"
+        },
+        "incomplete_parameters": {
+          "count": 2,
+          "description": "Providing partial parameter sets that include test metadata or geometry descriptions but lack proper transformation operation specification",
+          "avoidance": "Focus on providing only the required parameters: ids (array of object IDs), operation (transformation type), and relevant transformation parameters like vector, angle, axis, etc."
+        },
+        "missing_operation_type": {
+          "count": 1,
+          "description": "Providing only object IDs without specifying what transformation operation to perform",
+          "avoidance": "Always include the 'operation' parameter to specify the type of transformation (move, rotate, scale, mirror, etc.)"
+        }
+      },
+      "meta": {
+        "total_patterns": 6,
+        "total_antipatterns": 6,
+        "contexts_identified": 4,
+        "consolidation_confidence": 0.764
+      }
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "pattern_id": "d1f677ba",
+  "name": "Wasp_Stochastic Aggregation — Component I/O",
+  "version": "1.0",
+  "created": "2026-03-19T13:26:36.740877Z",
+  "solution": {
+    "brief": "Wasp_Stochastic Aggregation grows discrete assemblies by connecting Parts, Rules, and N count; use RESET to restart and PART_OUT for geometry visualization.",
+    "principle": "The component is stateful and additive — it accumulates parts over its previous state, so increasing N grows the assembly incrementally. RESET is the only way to clear state. The pipeline requires WaspPart definitions and WaspRule objects before aggregation can run, and geometry is retrieved separately via Wasp_Get Part Geometry.\n\nRelated insight: PartGeo mechanic: Wasp_Get Part Geometry takes PART_OUT and extracts world-space geometry by applying each part's stored position/orientation transform to its base geometry — parts are abstract WaspPart objects until this extraction step makes their geometry accessible to GH visualization.",
+    "components_needed": [
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Rule",
+      "Wasp_Get Part Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I set up stochastic aggregation in Wasp",
+      "what inputs does Wasp aggregation need",
+      "how do I grow a discrete assembly with Wasp",
+      "my Wasp aggregation isn't placing parts",
+      "how do I restart or reset a Wasp aggregation"
+    ],
+    "symptoms": [
+      "aggregation not growing when slider is changed",
+      "unsure which inputs are required vs optional for aggregation",
+      "parts placed but no geometry visible in viewport",
+      "need to clear aggregation and start fresh"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "WaspPart objects are defined via Wasp_Basic Part",
+      "WaspRule objects are created and merged before connecting to RULES input",
+      "N is set to an integer value greater than 0",
+      "Wasp plugin is installed and loaded in Grasshopper"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "c19bb3ff",
+    "ad19a9bc",
+    "e1f1c3cf",
+    "fe6b0648",
+    "842e394c",
+    "414ec8c8"
+  ],
+  "tags": [
+    "connections",
+    "rules",
+    "discrete-assembly",
+    "discrete-design",
+    "geometry-extraction",
+    "part-geometry",
+    "stochastic",
+    "part-definition",
+    "component-reference",
+    "visualization",
+    "growth",
+    "wasp",
+    "grasshopper-plugin",
+    "part-setup",
+    "workflow",
+    "part-out",
+    "plugin-workflow",
+    "aggregation",
+    "discrete-aggregation"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T09:28:32.406448",
+    "evolved_by": [
+      "414ec8c8"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:28:32.406448",
+        "trigger": "New pattern: 414ec8c8",
+        "changes": "New dedicated PartGeo pattern provides the missing mechanical detail about world-space transformation; tags updated to reflect the geometry extraction step that this component feeds into."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

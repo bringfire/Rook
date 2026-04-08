@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_d2c5115b",
+  "note_type": "component",
+  "name": "Vector Display Ex",
+  "brief": "Vector Display Ex | Inputs: P, V, C, W → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Vector Display Ex. Inputs: P (Point), V (Vector), C (Colour), W (Integer).",
+  "keywords": [
+    "vector display ex",
+    "vector",
+    "display",
+    "ex"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "vector display ex",
+    "vector",
+    "display"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector Display Ex"
+  ],
+  "solution_principle": "Preview vectors in the viewport",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0fb35f5d",
+    "comp_830290b0",
+    "comp_fba41916",
+    "comp_f2304758",
+    "comp_0fd9ea65",
+    "comp_cfbdeacb",
+    "comp_aea539ca",
+    "comp_675f0a34",
+    "comp_ecc508b3",
+    "comp_d14893ed",
+    "comp_6e6fff25",
+    "comp_206021c5",
+    "comp_e4921619",
+    "comp_aa861f7c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "11e95a7b-1e2c-4b66-bd95-fcad51f8662a",
+    "category": "display",
+    "inputs": {
+      "P": "Point",
+      "V": "Vector",
+      "C": "Colour",
+      "W": "Integer"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "2a3f7078-2e25-4dd4-96f7-0efb491bd61c"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|vector|vector display ex"
+  }
+}

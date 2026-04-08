@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_a8f88743",
+  "note_type": "component",
+  "name": "Import PDB",
+  "brief": "Import PDB | Inputs: F → A, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Import PDB. Inputs: F (Text). Outputs: A (Atom), B (Line).",
+  "keywords": [
+    "import pdb",
+    "import",
+    "pdb",
+    "input_params"
+  ],
+  "category": "input_params",
+  "tags": [
+    "input_params"
+  ],
+  "trigger_intents": [
+    "import pdb",
+    "import"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Import PDB"
+  ],
+  "solution_principle": "Import data from Protein Data Bank *.pdb files.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b0f5c835",
+    "comp_fab85179",
+    "comp_b4f8e5de",
+    "comp_ed53587c",
+    "comp_8ab6343c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "383929c0-6515-4899-8b4b-3bd0d0b32471",
+    "category": "input_params",
+    "inputs": {
+      "F": "Text"
+    },
+    "outputs": {
+      "A": "Atom",
+      "B": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "317f1cb2-820d-4a8f-b5c8-5de3594ddfba"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|input|import pdb"
+  }
+}

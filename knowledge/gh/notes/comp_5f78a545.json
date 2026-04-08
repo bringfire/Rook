@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_5f78a545",
+  "note_type": "component",
+  "name": "Merge 03",
+  "brief": "Merge 03 | Inputs: A, B, C → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Merge 03. Inputs: A (Generic Data), B (Generic Data), C (Generic Data). Outputs: S (Generic Data).",
+  "keywords": [
+    "merge 03",
+    "merge",
+    "03",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "merge 03",
+    "merge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge 03"
+  ],
+  "solution_principle": "Merge three streams into one.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_930cd728",
+    "comp_d92445a4",
+    "comp_0337df47",
+    "comp_e163e947",
+    "comp_9390569c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "481f0339-1299-43ba-b15c-c07891a8f822",
+    "category": "tree_operations",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data",
+      "C": "Generic Data"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "22f66ff6-d281-453c-bd8c-36ed24026783"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|merge 03"
+  }
+}

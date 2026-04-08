@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_36410bd6",
+  "note_type": "component",
+  "name": "InEllipse",
+  "brief": "InEllipse | Inputs: A, B, C → E, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: InEllipse. Inputs: A (Point), B (Point), C (Point). Outputs: E (Curve), P (Plane).",
+  "keywords": [
+    "inellipse",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "inellipse",
+    "ellipse"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "InEllipse"
+  ],
+  "solution_principle": "Create the inscribed ellipse (Steiner ellipse) of a triangle.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd",
+    "comp_e499f2a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "679a9c6a-ab97-4c20-b02c-680f9a9a1a44",
+    "category": "curves",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "E": "Curve",
+      "P": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9bc98a1d-2ecc-407e-948a-09a09ed3e69d"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|inellipse"
+  }
+}

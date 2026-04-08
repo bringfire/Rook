@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_de846cdf",
+  "note_type": "component",
+  "name": "Python 3 Script",
+  "brief": "Python 3 Script | Inputs: x, y → out, a",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Python 3 Script. Inputs: x (Generic Data), y (Generic Data). Outputs: out (Text), a (Generic Data).",
+  "keywords": [
+    "python 3 script",
+    "python",
+    "3",
+    "script",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "python 3 script",
+    "python",
+    "script"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Python 3 Script"
+  ],
+  "solution_principle": "Python 3 scripting component",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3c3e5309",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_9dd86c9d",
+    "comp_e953e26a",
+    "comp_a1655c21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "719467e6-7cf5-4848-99b0-c5dd57e5442c",
+    "category": "scripting",
+    "inputs": {
+      "x": "Generic Data",
+      "y": "Generic Data"
+    },
+    "outputs": {
+      "out": "Text",
+      "a": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "079bd9bd-54a0-41d4-98af-db999015f63d",
+      "88c3f2b5-27f7-48a2-9528-1397fad62b93",
+      "97aa26ef-88ae-4ba6-98a6-ed6ddeca11d1"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|script|python 3 script"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_44745d46",
+  "note_type": "component",
+  "name": "Patch",
+  "brief": "Patch | Inputs: C, P, S, F → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Patch. Inputs: C (Curve), P (Point), S (Integer), F (Number), T (Boolean). Outputs: P (Surface).",
+  "keywords": [
+    "patch",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "patch"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Patch"
+  ],
+  "solution_principle": "Create a patch surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b",
+    "comp_5f73dc24",
+    "comp_5df6692e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "57b2184c-8931-4e70-9220-612ec5b3809a",
+    "category": "surface_ops",
+    "inputs": {
+      "C": "Curve",
+      "P": "Point",
+      "S": "Integer",
+      "F": "Number",
+      "T": "Boolean"
+    },
+    "outputs": {
+      "P": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d51e9b65-aa4e-4fd6-976c-cef35d421d05"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|patch"
+  }
+}

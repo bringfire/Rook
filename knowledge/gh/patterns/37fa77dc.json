@@ -1,0 +1,74 @@
+{
+  "pattern_id": "37fa77dc",
+  "name": "wasp_06_multi_part_teaching_4._Extract_Attribute",
+  "version": "1.0",
+  "created": "2026-03-19T17:28:51.222848Z",
+  "solution": {
+    "brief": "4. Extract Attributes\r\nAttributes can be retrieved from a specific part\r\nusing their ID. The resulting values can be used\r\nfor further Grasshopper processing.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Get Attribute by Name",
+      "Swatch",
+      "Wasp_Get Attribute by Name"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "their",
+      "from",
+      "resulting",
+      "specific",
+      "retrieved",
+      "using",
+      "extract",
+      "part",
+      "attributes"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "multi-part",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

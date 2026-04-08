@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_d835e771",
+  "note_type": "component",
+  "name": "Align Planes",
+  "brief": "Align Planes | Inputs: P, M → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Align Planes. Inputs: P (Plane), M (Plane). Outputs: P (Plane).",
+  "keywords": [
+    "align planes",
+    "align",
+    "planes",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "align planes",
+    "align",
+    "planes"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Align Planes"
+  ],
+  "solution_principle": "Align planes by minimizing their serial rotation.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_4ddf2895",
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2318aee8-01fe-4ea8-9524-6966023fc622",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Plane",
+      "M": "Plane"
+    },
+    "outputs": {
+      "P": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "e76040ec-3b91-41e1-8e00-c74c23b89391"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|align planes"
+  }
+}

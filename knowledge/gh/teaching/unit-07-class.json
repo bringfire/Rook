@@ -1,0 +1,1480 @@
+{
+  "document": {
+    "name": "Unit-07-Class",
+    "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-07-Class.gh"
+  },
+  "total_components": 358,
+  "total_flows": 328,
+  "total_groups": 74,
+  "total_columns": 6,
+  "meaningful_sections": 6,
+  "sections": [
+    {
+      "column_index": 0,
+      "header_id": "C15",
+      "x_range": [
+        36.9,
+        468.5
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C96",
+          "text": "Assignment 7a:\r\n\r\n- Use the components below and find out how they can be useful.",
+          "topic": "Assignment 7a",
+          "pos": [
+            468.4,
+            3368.2
+          ]
+        },
+        {
+          "id": "C119",
+          "text": "1- LunchBox: Build a Truss with LunchBox\r\n\r\n- Build 2 Curves in Rhino and reference them inside Grasshopper.\r\n\r\n- Use the \"2D Truss\" and input both curves.\r\n\r\n- Feed a Number Slider in the N INPUT.\r\n\r\n- Hover over the T INPUT and check what it needs.\r\n\r\n- IMPORTANT!\r\nYou may realize that the resultant Truss has uneven divisions, to solve that, rebuild the curves using the \"Rebuild Curve\" component.",
+          "topic": "LunchBox: Build a Truss with LunchBox",
+          "pos": [
+            465.6,
+            2232
+          ]
+        }
+      ],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "NumberSlider": 2
+      },
+      "working_component_ids": [
+        "C14",
+        "C76"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C1",
+        "C3"
+      ],
+      "intra_section_flows": [],
+      "groups": [
+        {
+          "group_id": "G52",
+          "name": "",
+          "colour": "#FFFFFF96"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 2,
+        "working_components": 2,
+        "sub_labels": 2,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 1
+      }
+    },
+    {
+      "column_index": 1,
+      "header_id": "C13",
+      "x_range": [
+        473.5,
+        1393.8
+      ],
+      "section_title": "LunchBox: A powerful Plugin to generate panels and other functions.",
+      "section_number": 1,
+      "teaching_text": "1- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\n- \"Isotrim\" and \"Divide Surface\" components are useful tools in Grasshopper. However when the design intention becomes more complex, involving diamond or hexagonal divisions, building a definition manually in Grasshopper may become time consuming.\r\n\r\nLunchBox is a very useful plugin that provides ready made components for multi-purpose surface division. It also provides other functions such as Surface Flatness test and more.\r\n\r\nUsing LunchBox:\r\n\r\n- Build a Surface in Rhino with 4 corners, using the \"SrfPt\".\r\n- Turn on the Control Points and make the surface unplanar.\r\n- Reference the Surface in Grasshopper.\r\n\r\n- Use the following LunchBox compnents from the Panels Tab:\r\n1- Quad Panels\r\n2- Random Quad Panels\r\n3- Skewed Quads\r\n4- Hexagon Cells\r\n5- Diamond Panels\r\n6- Triangular Panels A\r\n7- Triangular Panels B\r\n8- Triangular Panels C\r\n\r\n- Use the following LunchBox compnents from the Structure Tab:\r\n1- Grid Structure\r\n2- Hexagonal Structure\r\n3- Diagrid Structure\r\n4- Braced Grid 1-D Structure\r\n5- Braced Grid 2-D Structure",
+      "teaching_panel_id": "C12",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Isotrim",
+        "Divide Surface",
+        "SrfPt",
+        "Reference the Surface in Grasshopper."
+      ],
+      "components_demonstrated": {
+        "Quad Panels": 1,
+        "Grid Structure": 1,
+        "Diamond Panels": 1,
+        "Hexagon Cells": 1,
+        "Hexagonal Structure": 1,
+        "Rebuild Surface": 1,
+        "Attractor": 1,
+        "Platonic Dodecahedron": 1,
+        "Triangle Panels C": 1,
+        "Diagrid Structure": 1,
+        "Braced Grid 2-D Structure": 1,
+        "Triangular Panels A": 1,
+        "Braced Grid 1-D Structure": 1,
+        "Patch Surface": 1,
+        "Platonic Octahedron": 1,
+        "Subdivide Quad": 1,
+        "Subdivide Triangle": 1,
+        "Surface": 2,
+        "Random Quad Panels": 1,
+        "Skewed Quads": 1,
+        "NumberSlider": 9,
+        "2D Truss": 2,
+        "Curve": 3,
+        "Triangle Panels B": 1,
+        "Rebuild Curve": 2,
+        "Area": 1,
+        "Deconstruct Brep": 1,
+        "Point": 2,
+        "BooleanToggle": 1,
+        "Space Truss Structure 1": 1,
+        "Space Truss Structure 2": 1,
+        "Pipe": 3
+      },
+      "working_component_ids": [
+        "C16",
+        "C17",
+        "C18",
+        "C19",
+        "C20",
+        "C22",
+        "C23",
+        "C24",
+        "C25",
+        "C26",
+        "C27",
+        "C28",
+        "C29",
+        "C30",
+        "C31",
+        "C33",
+        "C34",
+        "C75",
+        "C77",
+        "C78",
+        "C79",
+        "C80",
+        "C81",
+        "C82",
+        "C83",
+        "C160",
+        "C169",
+        "C170",
+        "C171",
+        "C199",
+        "C200",
+        "C201",
+        "C217",
+        "C253",
+        "C259",
+        "C260",
+        "C261",
+        "C262",
+        "C263",
+        "C264",
+        "C271",
+        "C272",
+        "C273",
+        "C274",
+        "C289",
+        "C290",
+        "C84",
+        "C304"
+      ],
+      "connected_panel_ids": [
+        "C198"
+      ],
+      "sub_label_ids": [
+        "C97",
+        "C120"
+      ],
+      "intra_section_flows": [
+        "C75.O0>C16.I0",
+        "C75.O0>C17.I0",
+        "C75.O0>C18.I0",
+        "C75.O0>C19.I0",
+        "C259.O0>C19.I3",
+        "C75.O0>C20.I0",
+        "C79.O0>C20.I3",
+        "C260.O0>C20.I4",
+        "C75.O0>C25.I0",
+        "C75.O0>C26.I0",
+        "C75.O0>C27.I0",
+        "C75.O0>C28.I0",
+        "C75.O0>C29.I0",
+        "C75.O0>C77.I0",
+        "C304.O0>C77.I3",
+        "C75.O0>C78.I0",
+        "C81.O0>C80.I0",
+        "C82.O0>C80.I1",
+        "C83.O0>C80.I2",
+        "C84.O0>C80.I3",
+        "C75.O0>C160.I0",
+        "C170.O0>C169.I0",
+        "C171.O0>C169.I1",
+        "C83.O0>C169.I2",
+        "C84.O0>C169.I3",
+        "C81.O0>C170.I0",
+        "C82.O0>C171.I0",
+        "C16.O0>C198.I0",
+        "C16.O0>C199.I0",
+        "C16.O0>C200.I0",
+        "C75.O0>C261.I0",
+        "C263.O0>C261.I3",
+        "C264.O0>C262.I0",
+        "C75.O0>C262.I1",
+        "C289.O0>C262.I2",
+        "C290.O0>C262.I3",
+        "C262.O0>C271.I0",
+        "C262.O1>C272.I0",
+        "C262.O2>C273.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G34",
+          "name": "LunchBox Panels Tab",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G33",
+          "name": "LunchBox Structure Tab",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G48",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G35",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G47",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G64",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G25",
+          "name": "Rebuild Curves for even divisions",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G18",
+          "name": "",
+          "colour": "#FF000096"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 48,
+        "sub_labels": 2,
+        "connected_panels": 1,
+        "flows": 39,
+        "groups": 8
+      }
+    },
+    {
+      "column_index": 2,
+      "header_id": "C162",
+      "x_range": [
+        1398.8,
+        3165.0
+      ],
+      "section_title": "LunchBox: A powerful Plugin to generate panels and other functions.",
+      "section_number": 2,
+      "teaching_text": "2- LunchBox: A powerful Plugin to generate panels and other functions.\r\n\r\nUsing the same referenced surface, let us check its flateness and visualize it with colors:\r\n\r\n- Use the \"Flatness Check\" component from LunchBox Util Tab. \r\n- From the D OUTPUT, get the minimum and maximum of all values (using the \"Bounds\" component).\r\n- Use the \"Panel Frame\" component from LunchBox Generate Tab in order to generate Panel Frames in relation to the Flateness Deviation Factor of each Panel.\r\nThis means that if a panel has a small D factor, it woud have a smaller opening that a panel with a bigger D factor.\r\n\r\n- IMPORTANT!\r\nIf the difference between the minimum and maximum number of the D values is small, then you may need to REMAP all numbers with a new domain, to have a bigger bigger difference between the minimum and maximum (bounds of the values) so that the Panel Frame could be more perceivable.\r\n\r\n\r\n- Visualizing Flatness Deviation:\r\n\r\n- Get the \"Gradient\" component.\r\n- L0 & L1: Need the minimum & maximum values of Deviation... For that, we need to deconstruct the domain in order to extract seperate values for minimum and maximum.\r\n- Use the \"Deconstrctu Domain\" and extract the minimum and maximum values.\r\n- Plug the minimum value into L0 and maximum value into L1.\r\n- \"t\" INPUT represents the parameter along the gradient range.\r\nWe need to sort all values from minimum to maximum in order to assign the respective color range for each, according to its value order inside the list of values.\r\n- Use the \"Sort List\":\r\n- Feed all Deviation values into the K INPUT of \"Sort List\".\r\n- Feed all the panels to be sorted into the A INPUT of \"Sort List\".\r\n- The OUTPUT K & A of \"Sort List\" includes all panels sorted according to their Deviation values, from monimum to maximum.\r\n- To visualize the colors, use a \"Custom Preview\" component:\r\n- Feed the Gradient OUTPUT into S of \"Custom Preview\".\r\n- Feed the sorted panels A into G of \"Custom Preview.\r\n- Now, we have an assigned color to each panel, following the gradient scheme, from least Deviation value to the greatest Deviation value.",
+      "teaching_panel_id": "C161",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C224",
+          "text": "0.7",
+          "topic": "0.7",
+          "pos": [
+            1686.1,
+            1896.2
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Flatness Check",
+        "Bounds",
+        "Panel Frame",
+        "IMPORTANT!",
+        "Visualizing Flatness Deviation:",
+        "Get the \"Gradient\" component.",
+        "Gradient",
+        "Deconstrctu Domain",
+        "Use the \"Sort List\":",
+        "Sort List",
+        "Custom Preview"
+      ],
+      "components_demonstrated": {
+        "Flatness Check": 1,
+        "Panel Frame": 3,
+        "Sort List": 1,
+        "Custom Preview": 1,
+        "Gradient": 1,
+        "Deconstruct Domain": 1,
+        "Bounds": 3,
+        "Remap Numbers": 1,
+        "Construct Domain": 1,
+        "NumberSlider": 6,
+        "List Item": 4,
+        "Split List": 1,
+        "Geometry": 4,
+        "Smaller Than": 1,
+        "Dispatch": 1,
+        "Deconstruct Brep": 3,
+        "Line": 2,
+        "Surface": 5,
+        "Point List": 2,
+        "4Point Surface": 1,
+        "Addition": 1,
+        "Division": 1
+      },
+      "working_component_ids": [
+        "C21",
+        "C32",
+        "C86",
+        "C87",
+        "C88",
+        "C89",
+        "C90",
+        "C91",
+        "C92",
+        "C93",
+        "C94",
+        "C95",
+        "C164",
+        "C202",
+        "C204",
+        "C219",
+        "C220",
+        "C221",
+        "C222",
+        "C223",
+        "C225",
+        "C227",
+        "C228",
+        "C237",
+        "C265",
+        "C275",
+        "C276",
+        "C277",
+        "C278",
+        "C279",
+        "C280",
+        "C281",
+        "C291",
+        "C292",
+        "C293",
+        "C294",
+        "C311",
+        "C312",
+        "C315",
+        "C316",
+        "C317",
+        "C327",
+        "C328",
+        "C203",
+        "C205"
+      ],
+      "connected_panel_ids": [
+        "C85",
+        "C163",
+        "C165",
+        "C206",
+        "C207",
+        "C218",
+        "C226",
+        "C250",
+        "C313",
+        "C314"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C91.O0>C32.I1",
+        "C21.O2>C85.I0",
+        "C21.O2>C86.I0",
+        "C86.O1>C87.I0",
+        "C88.O0>C87.I1",
+        "C206.O0>C88.I0",
+        "C207.O0>C88.I1",
+        "C86.O0>C88.I2",
+        "C90.O0>C89.I0",
+        "C86.O0>C90.I0",
+        "C21.O2>C91.I0",
+        "C92.O0>C91.I1",
+        "C93.O0>C91.I2",
+        "C21.O2>C92.I0",
+        "C95.O0>C93.I0",
+        "C94.O0>C93.I1",
+        "C92.O0>C163.I0",
+        "C91.O0>C164.I0",
+        "C164.O0>C165.I0",
+        "C203.O0>C202.I1",
+        "C86.O1>C204.I0",
+        "C205.O0>C204.I1",
+        "C89.O0>C206.I0",
+        "C89.O1>C207.I0",
+        "C86.O0>C218.I0",
+        "C86.O1>C219.I0",
+        "C220.O0>C219.I1",
+        "C86.O0>C223.I0",
+        "C265.O0>C223.I1",
+        "C86.O1>C225.I0",
+        "C223.O0>C225.I1",
+        "C223.O0>C226.I0",
+        "C21.O2>C237.I1",
+        "C90.O0>C250.I0",
+        "C228.O0>C276.I0",
+        "C276.O2>C277.I0",
+        "C277.O0>C278.I0",
+        "C277.O2>C278.I1",
+        "C291.O2>C292.I0",
+        "C291.O2>C293.I0",
+        "C292.O3>C294.I0",
+        "C292.O2>C294.I1",
+        "C292.O1>C294.I2",
+        "C292.O0>C294.I3",
+        "C206.O0>C311.I0",
+        "C207.O0>C311.I1",
+        "C311.O0>C312.I0",
+        "C313.O0>C312.I1",
+        "C312.O0>C314.I0",
+        "C277.O1>C315.I0",
+        "C277.O3>C315.I1",
+        "C294.O0>C316.I0",
+        "C316.O2>C317.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G8",
+          "name": "                                                     Framing Surfaces per Deviation Values",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G30",
+          "name": "LunchBox Flatness Check",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G31",
+          "name": "Parametric Frames in relationship to each Panel's Deviation Factor",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G26",
+          "name": "Original Flatness Deviation Values",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G7",
+          "name": "Color Coding Surfaces per Deviation Values",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G17",
+          "name": "",
+          "colour": "#53CEE079"
+        },
+        {
+          "group_id": "G27",
+          "name": "Visualizing the Panels Flatness with colors",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G54",
+          "name": "Colors_TURN OFF DRAW ONLY SELECTED, SHOW, DESELECT",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G32",
+          "name": "Remapped Values with new Minimum & Maximum",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G28",
+          "name": "Buildig a new domain to define new Minimum & Maximum",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G29",
+          "name": "Minimum & Maximum of all Flatness Deviation values",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G63",
+          "name": "Minimum & Maximum of all Flatness Deviation values",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G16",
+          "name": "Manually splitting List by index",
+          "colour": "#53CEE079"
+        },
+        {
+          "group_id": "G15",
+          "name": "Parametrically splitting List by values smaller/larger than ()",
+          "colour": "#53CEE079"
+        },
+        {
+          "group_id": "G4",
+          "name": "Point Order Investigation",
+          "colour": "#0E00CC75"
+        },
+        {
+          "group_id": "G3",
+          "name": "REBUILDING THE SURFACE",
+          "colour": "#F20000B2"
+        },
+        {
+          "group_id": "G72",
+          "name": "Point Order Investigation",
+          "colour": "#0E00CC75"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 45,
+        "sub_labels": 0,
+        "connected_panels": 10,
+        "flows": 53,
+        "groups": 17
+      }
+    },
+    {
+      "column_index": 3,
+      "header_id": "C36",
+      "x_range": [
+        3170,
+        4758.5
+      ],
+      "section_title": "Paneling Tools: Another powerful Plugin to generate panels.",
+      "section_number": 3,
+      "teaching_text": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- First step is to create a rectangular grid using one of the tools in \"Grid\" tab.  Some of these components take a list of points, which you can generate using GH standard components, or divide a curve using one of the tools under \"Curve\" tab of PanelingTools.\r\n\r\n- Once a grid is created, you can shuffle it using one of the attraction methods under \"Grid Attractors\" tab.  One output is the shuffled grid, another output is the normalized weights based on the attraction method that can be used for variable offset or variable paneling for example.\r\n\r\n- \"Grid Utility\" tab helps you do things like extracting points from the grid, replace points, extract center grid, expand grids, create surface from grid, etc.\r\n\r\n- \"Panel Utility\" tab has components to pull panel edges to a surface using pull, iso curves or shortest path.\r\n\r\n- \"Panel2D\" tab has many ways to panel the rectangular grid and populate 2D components.\r\n\r\n- \"Panel3D\" contain components to populate 3D patterns between 2 bounding grids.\r\n\r\nSource:\r\nhttp://www.grasshopper3d.com/group/panelingtools\r\n\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf",
+      "teaching_panel_id": "C35",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C73",
+          "text": "Assignment 7b:\r\n\r\n- Try the following components:\r\n- \"Morph 2D Mean\".\r\n- \"Gaussian Curvature\".\r\n- \"Random Attraction\".\r\n\r\nThere are many more interesting components provided by Paneling Tools plugin!\r\nTake time and try to check as many as possible.\r\n\r\nHave a quick look at the PDF Primer for more info:\r\nPanelingTools for Grasshopper Primer (PDF):\r\nhttps://wiki.mcneel.com/_media/labs/panelingtools4grasshopperprimer.pdf",
+          "topic": "Assignment 7b",
+          "pos": [
+            3869.4,
+            1561.3
+          ]
+        },
+        {
+          "id": "C172",
+          "text": "3- Paneling Tools: Another powerful Plugin to generate panels.\r\n\r\n- Use the \"Planar Grid\" to generate a planar grid of points.\r\n\r\n- Notice the \"Gd\" OUTPUT of this component, it means a \"Grid\".\r\n\r\n- Let us use the \"Point Attraction\" component:\r\n- Needs a Point: Build a new Point in Rhino, reference it in Grasshopper and feed it to the Point Attraction's A INPUT.\r\n- Use a Number Slider to play with the magnitude M INPUT.\r\n- Use the \"Generate Borders\" component to generate lines between points.\r\n- Use the \"Generate Faces\" component to generate surfaces between points.\r\n\r\n- Use the \"Morph 2D\" component to morph curves inro grid cells:\r\n- Build a circle and feed it to the PC INPUT of the \"Morph 2D\".",
+          "topic": "Paneling Tools: Another powerful Plugin to generate panels.",
+          "pos": [
+            3165.4,
+            595
+          ]
+        },
+        {
+          "id": "C173",
+          "text": "- Surface Division:\r\n\r\nBuild a new surface in Rhino, reference it in Grasshopper and try divide it by:\r\n\r\n- Either by domain number: Use the \"Surface Domain Number\" component.\r\n- Or by domain length: Use the \"Surface Domain Length\" component.\r\n- Or by distance: Use the \"Surface Distance\" component.",
+          "topic": "- Surface Division",
+          "pos": [
+            3165.4,
+            1561
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Grid",
+        "Curve",
+        "Grid Attractors",
+        "Grid Utility",
+        "Panel Utility",
+        "Panel2D",
+        "Panel3D"
+      ],
+      "components_demonstrated": {
+        "Surface Domain Number": 1,
+        "Surface Domain Length": 2,
+        "NumberSlider": 18,
+        "Planar Grid": 1,
+        "Point Attraction": 2,
+        "Point": 2,
+        "Gaussian Curvature": 1,
+        "Surface": 2,
+        "Generate Borders": 1,
+        "Generate Faces": 5,
+        "Morph 2D": 2,
+        "Circle": 3,
+        "Rectangle": 1,
+        "Morph 2D Mean": 1,
+        "Surface Distance": 1,
+        "Random Attraction": 1
+      },
+      "working_component_ids": [
+        "C41",
+        "C42",
+        "C43",
+        "C44",
+        "C45",
+        "C46",
+        "C47",
+        "C48",
+        "C49",
+        "C50",
+        "C51",
+        "C52",
+        "C53",
+        "C54",
+        "C55",
+        "C56",
+        "C57",
+        "C58",
+        "C59",
+        "C60",
+        "C61",
+        "C62",
+        "C63",
+        "C64",
+        "C65",
+        "C66",
+        "C67",
+        "C68",
+        "C69",
+        "C70",
+        "C71",
+        "C72",
+        "C238",
+        "C239",
+        "C240",
+        "C241",
+        "C242",
+        "C251",
+        "C266",
+        "C267",
+        "C295",
+        "C296",
+        "C297",
+        "C298"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C74"
+      ],
+      "intra_section_flows": [
+        "C64.O0>C41.I0",
+        "C65.O0>C41.I1",
+        "C66.O0>C41.I2",
+        "C64.O0>C42.I0",
+        "C67.O0>C42.I1",
+        "C68.O0>C42.I2",
+        "C46.O0>C44.I3",
+        "C47.O0>C44.I4",
+        "C43.O0>C44.I5",
+        "C45.O0>C44.I6",
+        "C44.O0>C48.I0",
+        "C50.O0>C48.I1",
+        "C52.O0>C48.I2",
+        "C238.O0>C51.I0",
+        "C53.O0>C51.I1",
+        "C49.O0>C51.I2",
+        "C48.O0>C54.I0",
+        "C56.O0>C54.I1",
+        "C48.O0>C55.I0",
+        "C57.O0>C55.I1",
+        "C48.O0>C58.I0",
+        "C59.O0>C58.I1",
+        "C48.O0>C61.I0",
+        "C48.O1>C61.I1",
+        "C62.O0>C61.I2",
+        "C60.O0>C61.I3",
+        "C63.O0>C61.I4",
+        "C63.O0>C61.I5",
+        "C70.O0>C69.I1",
+        "C70.O0>C69.I2",
+        "C44.O0>C71.I0",
+        "C72.O0>C71.I1",
+        "C44.O0>C238.I0",
+        "C239.O0>C238.I1",
+        "C240.O0>C238.I2",
+        "C71.O0>C241.I0",
+        "C242.O0>C241.I1",
+        "C41.O0>C251.I0",
+        "C42.O0>C266.I0",
+        "C69.O0>C267.I0",
+        "C296.O0>C295.I1",
+        "C297.O0>C295.I2",
+        "C295.O0>C298.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G5",
+          "name": "Unexpected division order",
+          "colour": "#0E00CC75"
+        },
+        {
+          "group_id": "G50",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G49",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G53",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G67",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G71",
+          "name": "How division should normally be",
+          "colour": "#0E00CC75"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 3,
+        "working_components": 44,
+        "sub_labels": 1,
+        "connected_panels": 0,
+        "flows": 43,
+        "groups": 6
+      }
+    },
+    {
+      "column_index": 4,
+      "header_id": "C38",
+      "x_range": [
+        4763.5,
+        7013.6
+      ],
+      "section_title": "Weaverbird: Plugin for Mesh manipulation.",
+      "section_number": 4,
+      "teaching_text": "4- Weaverbird: Plugin for Mesh manipulation.\r\n\r\nGrasshopper includes basic mesh components, such as:\r\n- \"Simple Mesh\".\r\n- \"Mesh Brep\".\r\n- \"Mesh Surface\".\r\n\r\nWeaverbird allows for more options. Check out the following components:\r\n- \"Weaverbird's Loop Division\".\r\n- \"Weaverbird's Catmull-Clark Subdivision\".\r\n- \"Weaverbird's Sierpinsky Carpet\".\r\n- \"Weaverbird's Stellate/Cumulation\".\r\n- \"Weaverbird's Laplacian Smoothing\".\r\n- \"Weaverbird's Offset Mesh\".\r\n- \"Weaverbird's Mesh Thicken\".\r\n\r\n- Generate Edges of Meshes using the \"Mesh Edges\".\r\nUse new \"Curve\" components and feed in the OUTPUTS of the Mesh Edges.\r\n\r\n- Get the Face Boundaries of mesh and use them to generate new NURBS surfaces.\r\n\r\n- IMPORTANT:\r\nIf the faces are not planar, the \"Boundary Surface\" component won't work.\r\nYou may need to Triangulate all faces first.\r\n\r\n- What if we don't need planar surfaces?\r\n- In this case, extract all faces' borders (as curves), then loft opposite sides to make non-planar surfaces.",
+      "teaching_panel_id": "C37",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Simple Mesh\".",
+        "Simple Mesh",
+        "Mesh Brep\".",
+        "Mesh Brep",
+        "Mesh Surface\".",
+        "Mesh Surface",
+        "Weaverbird's Loop Division\".",
+        "Weaverbird's Loop Division",
+        "Weaverbird's Catmull-Clark Subdivision\".",
+        "Weaverbird's Catmull-Clark Subdivision",
+        "Weaverbird's Sierpinsky Carpet\".",
+        "Weaverbird's Sierpinsky Carpet",
+        "Weaverbird's Stellate/Cumulation\".",
+        "Weaverbird's Stellate/Cumulation",
+        "Weaverbird's Laplacian Smoothing\".",
+        "Weaverbird's Laplacian Smoothing",
+        "Weaverbird's Offset Mesh\".",
+        "Weaverbird's Offset Mesh",
+        "Weaverbird's Mesh Thicken\".",
+        "Weaverbird's Mesh Thicken"
+      ],
+      "components_demonstrated": {
+        "Mesh Brep": 1,
+        "Mesh Surface": 1,
+        "Simple Mesh": 1,
+        "Triangulate": 1,
+        "Boundary Surfaces": 4,
+        "Weaverbird's Laplacian Smoothing": 1,
+        "Weaverbird's Catmull-Clark Subdivision": 1,
+        "Mesh Edges": 1,
+        "Weaverbird's Mesh Thicken": 1,
+        "Weaverbird's Offset Mesh": 1,
+        "Weaverbird's Stellate/Cumulation": 1,
+        "Weaverbird's Sierpinski Carpet": 1,
+        "Weaverbird's Loop Subdivision": 1,
+        "Brep Join": 3,
+        "Curve": 8,
+        "Explode": 2,
+        "List Item": 6,
+        "Loft": 2,
+        "Flip Curve": 2,
+        "4Point Surface": 1,
+        "NumberSlider": 6,
+        "Partition List": 1,
+        "Flatten Tree": 1,
+        "BooleanToggle": 1,
+        "Offset Mesh": 1,
+        "Face Boundaries": 3,
+        "Cull Duplicates": 1,
+        "Surface": 1
+      },
+      "working_component_ids": [
+        "C99",
+        "C100",
+        "C101",
+        "C103",
+        "C104",
+        "C105",
+        "C106",
+        "C107",
+        "C108",
+        "C109",
+        "C110",
+        "C111",
+        "C112",
+        "C113",
+        "C114",
+        "C115",
+        "C116",
+        "C117",
+        "C118",
+        "C174",
+        "C175",
+        "C176",
+        "C177",
+        "C178",
+        "C212",
+        "C213",
+        "C243",
+        "C244",
+        "C245",
+        "C268",
+        "C283",
+        "C284",
+        "C285",
+        "C286",
+        "C301",
+        "C302",
+        "C303",
+        "C307",
+        "C308",
+        "C309",
+        "C310",
+        "C325",
+        "C326",
+        "C330",
+        "C331",
+        "C332",
+        "C334",
+        "C340",
+        "C341",
+        "C342",
+        "C349",
+        "C353",
+        "C354",
+        "C98",
+        "C102"
+      ],
+      "connected_panel_ids": [
+        "C282",
+        "C287",
+        "C318",
+        "C319",
+        "C320",
+        "C321",
+        "C329",
+        "C350",
+        "C351",
+        "C352",
+        "C355"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C98.O0>C99.I0",
+        "C98.O0>C100.I0",
+        "C102.O0>C100.I1",
+        "C102.O0>C100.I2",
+        "C98.O0>C101.I0",
+        "C100.O0>C103.I0",
+        "C342.O0>C104.I0",
+        "C100.O0>C105.I0",
+        "C100.O0>C106.I0",
+        "C106.O0>C107.I0",
+        "C100.O0>C108.I0",
+        "C100.O0>C109.I0",
+        "C100.O0>C110.I0",
+        "C268.O0>C110.I1",
+        "C100.O0>C111.I0",
+        "C99.O0>C112.I0",
+        "C104.O0>C113.I0",
+        "C349.O0>C114.I0",
+        "C114.O0>C115.I0",
+        "C174.O0>C175.I0",
+        "C175.O0>C176.I0",
+        "C212.O0>C177.I0",
+        "C178.O0>C177.I0",
+        "C176.O2>C178.I0",
+        "C245.O0>C243.I0",
+        "C245.O1>C243.I1",
+        "C245.O2>C243.I2",
+        "C245.O3>C243.I3",
+        "C174.O0>C244.I0",
+        "C354.O0>C245.I0",
+        "C175.O0>C282.I0",
+        "C283.O0>C285.I0",
+        "C286.O0>C285.I0",
+        "C284.O0>C286.I0",
+        "C244.O1>C287.I0",
+        "C341.O0>C301.I0",
+        "C350.O0>C301.I1",
+        "C301.O0>C302.I0",
+        "C302.O0>C303.I0",
+        "C341.O0>C307.I0",
+        "C308.O0>C307.I1",
+        "C174.O0>C309.I0",
+        "C310.O0>C309.I1",
+        "C301.O0>C318.I0",
+        "C302.O0>C319.I0",
+        "C303.O0>C320.I0",
+        "C175.O0>C321.I0",
+        "C330.O0>C325.I0",
+        "C326.O0>C325.I1",
+        "C330.O0>C329.I0",
+        "C303.O0>C330.I0",
+        "C244.O1>C331.I0",
+        "C332.O0>C331.I1",
+        "C100.O0>C340.I0",
+        "C334.O0>C340.I3",
+        "C110.O0>C341.I0",
+        "C103.O0>C342.I0",
+        "C106.O0>C349.I0",
+        "C113.O0>C351.I0",
+        "C104.O0>C352.I0",
+        "C309.O0>C353.I0",
+        "C244.O1>C354.I0",
+        "C354.O0>C355.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G55",
+          "name": "Grasshopper's Standard Mesh Components",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G14",
+          "name": "Triangulate All Meshes: To Guarantee that all geometry is planar",
+          "colour": "#FF000076"
+        },
+        {
+          "group_id": "G45",
+          "name": "Mesh to Surface",
+          "colour": "#33EBFF96"
+        },
+        {
+          "group_id": "G44",
+          "name": "Weaverbird's Components",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G56",
+          "name": "Mesh to Surface (Not All Faces we converted because they are not planar)",
+          "colour": "#33EBFF96"
+        },
+        {
+          "group_id": "G23",
+          "name": "What if we don't need planar surfaces... Then try this procedure",
+          "colour": "#DF29FF96"
+        },
+        {
+          "group_id": "G24",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G12",
+          "name": "Alternative method: 4Pt Surface",
+          "colour": "#DF29FF96"
+        },
+        {
+          "group_id": "G68",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G2",
+          "name": "Converting Pyramids into Breps",
+          "colour": "#33EBFF96"
+        },
+        {
+          "group_id": "G1",
+          "name": "Pufferfish",
+          "colour": "#825CF787"
+        },
+        {
+          "group_id": "G46",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 55,
+        "sub_labels": 0,
+        "connected_panels": 11,
+        "flows": 63,
+        "groups": 12
+      }
+    },
+    {
+      "column_index": 5,
+      "header_id": "C40",
+      "x_range": [
+        7018.6,
+        null
+      ],
+      "section_title": "Orienting & Flattening (for Digital Fabrication)",
+      "section_number": 5,
+      "teaching_text": "5- Orienting & Flattening (for Digital Fabrication): \r\n\r\n- Build a new Surface in Rhino and give it a sharp curvature by manipulating the control points.\r\n\r\n- Use the \"Mesh Surface\" component.\r\n\r\n- Triangulate all meshes.\r\n\r\n- Convert all meshes into Surfaces.\r\n\r\n- Make a \"Square Grid\" in order to use the grid cells as targets for the oriented and flatenned surfaces.\r\n\r\n- We will check several ways of orienting and flatenning surfaces in 3D, from being placed on a geometry to being placed flat on XY plane.",
+      "teaching_panel_id": "C39",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C129",
+          "text": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then convert them to NURBS by using \"Boundary Surfaces\"! We are now able to choose the Faces!",
+          "topic": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!",
+          "pos": [
+            7022.1,
+            720.4
+          ]
+        },
+        {
+          "id": "C137",
+          "text": "We also sort the planes so that they are in the same order as their respective surfaces",
+          "topic": "We also sort the planes so that they are in the same order as their respective surfaces",
+          "pos": [
+            8703.8,
+            1066.5
+          ]
+        },
+        {
+          "id": "C190",
+          "text": "1- Orienting:\r\n- Use \"Orient\" component.\r\n- Feed the new Surfaces into the G INPUT.\r\n- Evaluate all surfaces and use the Frames OUTPUT from the Evaluate Surface as INPUT A in the \"Orient\" component.\r\n- Get the center of all grid cells from the Square Grid andfeed them in the INPUT B of \"Orient\" as the target planes.\r\n- Result: All surfaces are oriented onto the XY Plane and placed inside the Square Grid.\r\nHowever, the oriented surfaces are not ordered according to their sizes, and it looks like all cells have been filled, while there are less surfaces on the original geometry than the number of cells.\r\nSo, let's try to solve these issues...",
+          "topic": "Orienting",
+          "pos": [
+            8162.6,
+            338.4
+          ]
+        },
+        {
+          "id": "C191",
+          "text": "2- Sorting:\r\n- Sort all surfaces according to their areas.",
+          "topic": "Sorting",
+          "pos": [
+            8686,
+            338.4
+          ]
+        },
+        {
+          "id": "C192",
+          "text": "3- Short Listing:\r\n- Use the \"Short List\" component to get rid of additional cells from the Square Grid by using the shortest list length.",
+          "topic": "Short Listing",
+          "pos": [
+            9209.8,
+            338.4
+          ]
+        },
+        {
+          "id": "C193",
+          "text": "4- Orient Direction:\r\n- Try the \"Orient Direction\" component and see the difference.\r\n- It looks like all surfaces are rotated randomly. Although this did not happen with the previously used components, let us try to solve this issue.",
+          "topic": "Orient Direction",
+          "pos": [
+            9729.4,
+            338.4
+          ]
+        },
+        {
+          "id": "C194",
+          "text": "5- Orienting each surface alone by its geoemtric properties: Longest side to be along X axis:\r\n- Get the Edges of the Geometry from previous component \"Orient Direction\" using the \"Brep Edges\" component.\r\n- Get the Length of all curves using the \"Curve Length\" component.\r\n- Sort all Curve Lengths using the \"Sort List\" component.\r\n- Reverse the A OUTPUT (so that the List starts with the greatest values of Curve Lenghts).\r\n- Extract the Start & End Points of each longest edge using the \"End Points\" component.\r\n- Construct 2Point Vectors based on the direction of Curves: From Start Point to End Point Direction.\r\n- Extract the Middle Point of each Greatest Curve so that it can be used as the Reference Point when Orienting again.\r\n- Prepare Target Direction Vectors (in X Direction) at the Centroids of the Square Grid Cells.\r\n- IMPORTANT: Match the new Vectors Lengths at the Centroids of the Square Grid with the Vectors made by the Curves: Use an \"Amplitude\" component.",
+          "topic": "Orienting each surface alone by its geoemtric properties: Longest side to be along X axis",
+          "pos": [
+            10315,
+            338.4
+          ]
+        },
+        {
+          "id": "C195",
+          "text": "Assignment 7c:\r\n\r\n- Build a new Surface in Rhino and repeat the same procedure.",
+          "topic": "Assignment 7c",
+          "pos": [
+            11720,
+            338.4
+          ]
+        },
+        {
+          "id": "C236",
+          "text": "Alternative method:\r\nOrienting surfaces, evaluating the oriented surfaces and using their respective frames",
+          "topic": "Alternative method",
+          "pos": [
+            8881.1,
+            1302.1
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Use the \"Mesh Surface\" component.",
+        "Mesh Surface",
+        "Triangulate all meshes.",
+        "Convert all meshes into Surfaces.",
+        "Square Grid"
+      ],
+      "components_demonstrated": {
+        "Square": 1,
+        "Surface": 5,
+        "Mesh Surface": 1,
+        "NumberSlider": 4,
+        "Triangulate": 1,
+        "Deconstruct Mesh": 1,
+        "Area": 2,
+        "List Item": 4,
+        "Orient": 3,
+        "Shortest List": 1,
+        "MultiDimensionalSlider": 4,
+        "Sort List": 2,
+        "Brep Edges": 1,
+        "End Points": 1,
+        "Move": 1,
+        "Vector 2Pt": 2,
+        "Amplitude": 1,
+        "Unit X": 1,
+        "Orient Direction": 2,
+        "Unit Z": 1,
+        "Length": 1,
+        "Vector Display": 5,
+        "Evaluate Curve": 1,
+        "Point": 3,
+        "Data": 2,
+        "Merge": 1,
+        "Boundary Surfaces": 1,
+        "Evaluate Surface": 4,
+        "Face Boundaries": 1,
+        "Multiplication": 1,
+        "XY Plane": 1
+      },
+      "working_component_ids": [
+        "C122",
+        "C124",
+        "C125",
+        "C126",
+        "C127",
+        "C128",
+        "C131",
+        "C132",
+        "C134",
+        "C138",
+        "C139",
+        "C140",
+        "C141",
+        "C142",
+        "C143",
+        "C144",
+        "C145",
+        "C146",
+        "C147",
+        "C148",
+        "C149",
+        "C150",
+        "C151",
+        "C152",
+        "C153",
+        "C154",
+        "C155",
+        "C156",
+        "C157",
+        "C158",
+        "C159",
+        "C216",
+        "C233",
+        "C234",
+        "C235",
+        "C246",
+        "C248",
+        "C249",
+        "C252",
+        "C254",
+        "C255",
+        "C258",
+        "C269",
+        "C270",
+        "C306",
+        "C333",
+        "C335",
+        "C336",
+        "C337",
+        "C338",
+        "C339",
+        "C343",
+        "C344",
+        "C345",
+        "C346",
+        "C347",
+        "C348",
+        "C356",
+        "C357",
+        "C358"
+      ],
+      "connected_panel_ids": [
+        "C121",
+        "C123",
+        "C130",
+        "C135",
+        "C136",
+        "C196",
+        "C214",
+        "C256",
+        "C257",
+        "C288",
+        "C322",
+        "C323",
+        "C324"
+      ],
+      "sub_label_ids": [
+        "C185",
+        "C186",
+        "C187",
+        "C188",
+        "C189",
+        "C197"
+      ],
+      "intra_section_flows": [
+        "C123.O0>C122.I1",
+        "C135.O0>C122.I2",
+        "C346.O0>C122.I3",
+        "C124.O0>C125.I0",
+        "C126.O0>C125.I1",
+        "C126.O0>C125.I2",
+        "C125.O0>C127.I0",
+        "C127.O0>C128.I0",
+        "C128.O1>C130.I0",
+        "C356.O0>C131.I0",
+        "C356.O0>C132.I0",
+        "C134.O0>C132.I1",
+        "C131.O0>C136.I0",
+        "C142.O1>C138.I0",
+        "C142.O2>C138.I1",
+        "C140.O1>C138.I2",
+        "C138.O0>C139.I0",
+        "C356.O0>C139.I1",
+        "C140.O1>C139.I2",
+        "C122.O0>C139.I3",
+        "C122.O0>C140.I0",
+        "C131.O0>C142.I0",
+        "C356.O0>C142.I1",
+        "C344.O4>C142.I2",
+        "C356.O0>C143.I0",
+        "C344.O4>C143.I1",
+        "C140.O1>C143.I2",
+        "C154.O0>C144.I0",
+        "C151.O1>C145.I0",
+        "C322.O0>C145.I1",
+        "C145.O0>C146.I0",
+        "C252.O0>C147.I0",
+        "C152.O0>C147.I1",
+        "C146.O0>C148.I0",
+        "C146.O1>C148.I1",
+        "C252.O0>C149.I0",
+        "C147.O0>C149.I1",
+        "C149.O0>C150.I0",
+        "C148.O1>C150.I1",
+        "C157.O0>C151.I0",
+        "C144.O0>C151.I1",
+        "C154.O0>C153.I0",
+        "C159.O0>C153.I1",
+        "C148.O0>C153.I2",
+        "C252.O0>C153.I3",
+        "C150.O0>C153.I4",
+        "C270.O0>C154.I0",
+        "C339.O0>C154.I1",
+        "C339.O1>C154.I2",
+        "C254.O0>C154.I3",
+        "C155.O0>C154.I4",
+        "C144.O0>C157.I0",
+        "C147.O0>C158.I0",
+        "C150.O0>C158.I1",
+        "C145.O0>C159.I0",
+        "C196.O0>C159.I1",
+        "C157.O0>C214.I0",
+        "C147.O0>C216.I0",
+        "C149.O0>C216.I1",
+        "C142.O1>C235.I0",
+        "C345.O4>C235.I1",
+        "C140.O1>C235.I2",
+        "C146.O0>C246.I0",
+        "C148.O0>C246.I1",
+        "C153.O0>C249.I0",
+        "C248.O0>C249.I1",
+        "C151.O0>C256.I0",
+        "C258.O0>C257.I0",
+        "C151.O1>C288.I0",
+        "C339.O0>C306.I0",
+        "C339.O1>C306.I1",
+        "C148.O1>C323.I0",
+        "C149.O1>C324.I0",
+        "C343.O0>C333.I0",
+        "C356.O0>C335.I0",
+        "C336.O0>C335.I1",
+        "C142.O1>C337.I0",
+        "C338.O0>C337.I1",
+        "C270.O0>C339.I0",
+        "C156.O0>C339.I1",
+        "C127.O0>C343.I0",
+        "C356.O0>C344.I0",
+        "C141.O0>C344.I1",
+        "C142.O1>C345.I0",
+        "C234.O0>C345.I1",
+        "C135.O0>C346.I0",
+        "C121.O0>C346.I1",
+        "C154.O0>C347.I0",
+        "C348.O0>C347.I1",
+        "C254.O0>C357.I0",
+        "C155.O0>C357.I1",
+        "C140.O1>C358.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G43",
+          "name": "",
+          "colour": "#FF7B0096"
+        },
+        {
+          "group_id": "G57",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G58",
+          "name": "",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G42",
+          "name": "",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G22",
+          "name": "Orienting BOTH surfaces and frames",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G40",
+          "name": "",
+          "colour": "#FF008096"
+        },
+        {
+          "group_id": "G59",
+          "name": "",
+          "colour": "#4C00FF96"
+        },
+        {
+          "group_id": "G39",
+          "name": "",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G60",
+          "name": "Direction by longest edge",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G19",
+          "name": "Making the vector in X direction to be used as a target vector",
+          "colour": "#00C8FF"
+        },
+        {
+          "group_id": "G61",
+          "name": "Target vectors",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G37",
+          "name": "IMPORTANT: Match the new Vectors Lengths at the Centroids of the Square Grid with the Vectors made by the Curves",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G20",
+          "name": "",
+          "colour": "#FF00004D"
+        },
+        {
+          "group_id": "G38",
+          "name": "",
+          "colour": "#FFFF9196"
+        },
+        {
+          "group_id": "G36",
+          "name": "Visual control",
+          "colour": "#FF6600CE"
+        },
+        {
+          "group_id": "G65",
+          "name": "Visual control",
+          "colour": "#FF6600CE"
+        },
+        {
+          "group_id": "G13",
+          "name": "Alternative method",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G11",
+          "name": "",
+          "colour": "#00C8FF"
+        },
+        {
+          "group_id": "G10",
+          "name": "Shortlisted Cells",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G9",
+          "name": "Triangles in Cells",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G6",
+          "name": "Sorted Surfaces by Area (from smaller to larger Surfaces)",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G41",
+          "name": "",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G66",
+          "name": "",
+          "colour": "#AA87FF96"
+        },
+        {
+          "group_id": "G73",
+          "name": "",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G74",
+          "name": "Optional",
+          "colour": "#AA87FF96"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 9,
+        "working_components": 60,
+        "sub_labels": 6,
+        "connected_panels": 13,
+        "flows": 92,
+        "groups": 25
+      }
+    }
+  ]
+}

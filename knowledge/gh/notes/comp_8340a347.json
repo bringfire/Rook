@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_8340a347",
+  "note_type": "component",
+  "name": "Arc",
+  "brief": "Arc | Inputs: P, R, A → A, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Arc. Inputs: P (Plane), R (Number), A (Domain). Outputs: A (Arc), L (Number).",
+  "keywords": [
+    "arc",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Arc"
+  ],
+  "solution_principle": "Create an arc defined by base plane, radius and angle domain.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e499f2a6",
+    "comp_abdf444b",
+    "comp_bd64fa41",
+    "comp_ba658789",
+    "comp_919aeca8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "bb59bffc-f54c-4682-9778-f6c3fe74fce3",
+    "category": "curves",
+    "inputs": {
+      "P": "Plane",
+      "R": "Number",
+      "A": "Domain"
+    },
+    "outputs": {
+      "A": "Arc",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9d2583dd-6cf5-497c-8c40-c9a290598396"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|arc"
+  }
+}

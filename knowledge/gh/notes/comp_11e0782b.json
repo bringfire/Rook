@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_11e0782b",
+  "note_type": "component",
+  "name": "Shortest Walk",
+  "brief": "Shortest Walk | Inputs: Crvs, Lengths, Paths → Walk, Links, Directions",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Shortest Walk. Inputs: Crvs (Curve), Lengths (Number), Paths (Line). Outputs: Walk (Generic Data), Links (Generic Data), Directions (Generic Data), Lengths (Generic Data).",
+  "keywords": [
+    "shortest walk",
+    "shortest",
+    "walk",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "shortest walk",
+    "shortest",
+    "walk"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Shortest Walk"
+  ],
+  "solution_principle": "Find the 'Shortest Walk' within a curve network. This node uses updated code originally authored by Giulio Piacentino of McNeel and Associates. https://www.food4rhino.com/en/app/shortest-walk-gh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8bdb8e9f-f1dd-491d-ab9a-f80f1e170708",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Crvs": "Curve",
+      "Lengths": "Number",
+      "Paths": "Line"
+    },
+    "outputs": {
+      "Walk": "Generic Data",
+      "Links": "Generic Data",
+      "Directions": "Generic Data",
+      "Lengths": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|shortest walk"
+  }
+}

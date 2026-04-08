@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_ca719375",
+  "note_type": "component",
+  "name": "TangentIncircles",
+  "brief": "TangentIncircles | Inputs: M, B, Strength → TI",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: TangentIncircles. Inputs: M (Mesh), B (Curve), Strength (Number). Outputs: TI (Generic Data).",
+  "keywords": [
+    "tangentincircles",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "tangentincircles",
+    "tangent",
+    "incircles"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "TangentIncircles"
+  ],
+  "solution_principle": "TangentIncircles",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1c697a1f",
+    "comp_64690b85",
+    "comp_ec557765",
+    "comp_07a34b21",
+    "comp_0e24416c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3962cf86-9b9e-41d7-94f9-42bd0326291d",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "B": "Curve",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "TI": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "56e9e40d-6d2f-4daf-9316-034f30cf24a0"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|tangentincircles"
+  }
+}

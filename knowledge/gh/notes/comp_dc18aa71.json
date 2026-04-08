@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_dc18aa71",
+  "note_type": "component",
+  "name": "Shape In Brep",
+  "brief": "Shape In Brep | Inputs: B, S → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Shape In Brep. Inputs: B (Brep), S (Geometry). Outputs: R (Integer).",
+  "keywords": [
+    "shape in brep",
+    "shape",
+    "in",
+    "brep",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "shape in brep",
+    "shape",
+    "brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Shape In Brep"
+  ],
+  "solution_principle": "Tests whether a shape is inside a brep",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_570eb369",
+    "comp_93df8f05",
+    "comp_8c5cf0ba",
+    "teaching_f520f3eb",
+    "comp_7cf8d3e5",
+    "comp_c177edf2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2ba64356-be21-4c12-bbd4-ced54f04c8ef",
+    "category": "surface_analysis",
+    "inputs": {
+      "B": "Brep",
+      "S": "Geometry"
+    },
+    "outputs": {
+      "R": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|shape in brep"
+  }
+}

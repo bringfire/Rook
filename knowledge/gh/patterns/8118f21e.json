@@ -1,0 +1,526 @@
+{
+  "pattern_id": "8118f21e",
+  "name": "14-8",
+  "version": "1.0",
+  "created": "2026-02-22T14:02:30.126222Z",
+  "solution": {
+    "brief": "Recipe from FILES\\14\\14-8.gh (34 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Curve",
+      "Rotate",
+      "Point On Curve",
+      "Point On Curve",
+      "Deconstruct",
+      "Deconstruct",
+      "Construct Point",
+      "Circle",
+      "Line",
+      "Rail Revolution",
+      "Line SDL",
+      "Surface Split",
+      "List Item",
+      "panel",
+      "Construct Point",
+      "Construct Point",
+      "Point On Curve",
+      "Line",
+      "Line",
+      "Rotate 3D",
+      "Series",
+      "slider",
+      "Division",
+      "slider",
+      "Curve | Curve",
+      "Mirror",
+      "Construct Plane",
+      "Unit Z",
+      "Line",
+      "Project",
+      "Surface Split",
+      "Polar Array",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "14 8"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ddfc5df6",
+    "1f185299",
+    "85738048",
+    "bb37312d",
+    "fdbc67df"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "surface-creation",
+    "complex-workflow",
+    "recipe",
+    "trigonometric"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "panels": [
+        {
+          "id": "R15",
+          "nick": "",
+          "content": "2"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/14/14-8.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            40,
+            22
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            109.7,
+            154.8
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            216,
+            208
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            283.5,
+            165.6
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            282.1,
+            190.7
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            457,
+            146
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            457,
+            213
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            586,
+            179
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            733,
+            191
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            656,
+            236
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_RevRailSurface",
+          "nick": "RailRev",
+          "name": "Rail Revolution",
+          "pos": [
+            872,
+            138
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            745,
+            83
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_SurfaceCurveSplit",
+          "nick": "SrfSplit",
+          "name": "Surface Split",
+          "pos": [
+            1061,
+            116
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1189,
+            129
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "pos": [
+            1110.8,
+            120.1
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R16",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            1186,
+            232
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            1186,
+            301
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            1105,
+            337.8
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1370,
+            341
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1566,
+            299
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Rotate3D",
+          "nick": "Rot3D",
+          "name": "Rotate 3D",
+          "pos": [
+            1562,
+            365
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1418,
+            424
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            1070.4,
+            417.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 45
+        },
+        {
+          "id": "R24",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            1306,
+            441
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            1072.8,
+            443.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R26",
+          "type": "Component_CurveIntersection",
+          "nick": "CCX",
+          "name": "Curve | Curve",
+          "pos": [
+            1703,
+            314
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Mirror",
+          "name": "Mirror",
+          "pos": [
+            1860,
+            331
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_ConstructPlane",
+          "nick": "Pl",
+          "name": "Construct Plane",
+          "pos": [
+            1766,
+            455
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1688,
+            497
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1972,
+            304
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_ProjectCurve",
+          "name": "Project",
+          "pos": [
+            2065,
+            221
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_SurfaceCurveSplit",
+          "nick": "SrfSplit",
+          "name": "Surface Split",
+          "pos": [
+            2202,
+            167
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_ArrayPolar",
+          "nick": "ArrPolar",
+          "name": "Polar Array",
+          "pos": [
+            2376,
+            206
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            2150.9,
+            231.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "flows": [
+        "R2.O0>R3.I0",
+        "R4.O0>R6.I0",
+        "R5.O0>R7.I0",
+        "R6.O0>R8.I0",
+        "R7.O1>R8.I1",
+        "R6.O2>R8.I2",
+        "R8.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R4.O0>R10.I0",
+        "R8.O0>R10.I1",
+        "R2.O0>R11.I0",
+        "R9.O0>R11.I1",
+        "R12.O0>R11.I2",
+        "R8.O0>R12.I0",
+        "R11.O0>R13.I0",
+        "R3.O0>R13.I1",
+        "R2.O0>R13.I1",
+        "R13.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R6.O0>R16.I0",
+        "R6.O0>R17.I0",
+        "R7.O1>R17.I1",
+        "R17.O0>R19.I0",
+        "R18.O0>R19.I1",
+        "R16.O0>R20.I0",
+        "R18.O0>R20.I1",
+        "R19.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R17.O0>R21.I2",
+        "R24.O0>R22.I0",
+        "R24.O0>R22.I1",
+        "R25.O0>R22.I2",
+        "R23.O0>R24.I0",
+        "R25.O0>R24.I1",
+        "R20.O0>R26.I0",
+        "R21.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R28.O0>R27.I1",
+        "R19.O0>R28.I1",
+        "R29.O0>R28.I2",
+        "R26.O0>R30.I0",
+        "R27.O0>R30.I1",
+        "R30.O0>R31.I0",
+        "R14.O0>R31.I1",
+        "R14.O0>R32.I0",
+        "R31.O0>R32.I1",
+        "R32.O0>R33.I0",
+        "R8.O0>R33.I1",
+        "R25.O0>R33.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_d7c90291",
+  "note_type": "component",
+  "name": "Rhino Command",
+  "brief": "Rhino Command | Inputs: Send, Command → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Rhino Command. Inputs: Send (Boolean), Command (Text).",
+  "keywords": [
+    "rhino command",
+    "rhino",
+    "command",
+    "lunchbox_workflow"
+  ],
+  "category": "lunchbox_workflow",
+  "tags": [
+    "lunchbox_workflow"
+  ],
+  "trigger_intents": [
+    "rhino command",
+    "rhino",
+    "command"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rhino Command"
+  ],
+  "solution_principle": "Sends a command to the Rhino command-line.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_40a3a277",
+    "comp_20272dd0",
+    "comp_7175161c",
+    "comp_ddb71e6f",
+    "comp_da2c5c1e",
+    "comp_d38ff1a2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3c822206-4de9-484f-9ccb-8bc5b563ccff",
+    "category": "lunchbox_workflow",
+    "inputs": {
+      "Send": "Boolean",
+      "Command": "Text"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "5186d211-40eb-4af0-a2fb-a4fb640f4ca3"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|workflow|rhino command"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_721292da",
+  "note_type": "component",
+  "name": "CyclicQuad",
+  "brief": "CyclicQuad | Inputs: M, Strength → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: CyclicQuad. Inputs: M (Mesh), Strength (Number). Outputs: C (Generic Data).",
+  "keywords": [
+    "cyclicquad",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "cyclicquad",
+    "cyclic",
+    "quad"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "CyclicQuad"
+  ],
+  "solution_principle": "Make a quadrilateral have a circumscribed circle",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5d81faae-befc-4c12-b558-beaf2ebee8f1",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "C": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "15ab0db0-5093-4a37-854a-cee70457a847"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|cyclicquad"
+  },
+  "deprecated": true,
+  "deprecated_by": "15ab0db0-5093-4a37-854a-cee70457a847"
+}

@@ -1,0 +1,99 @@
+{
+  "pattern_id": "da154e47",
+  "name": "custom_workflow",
+  "version": "1.0",
+  "created": "2026-03-06T23:49:16.778627Z",
+  "solution": {
+    "brief": "Grasshopper workflow with 7 components",
+    "principle": "",
+    "components_needed": [
+      "Total Height",
+      "Outer Radius",
+      "Inner Radius",
+      "Step Count",
+      "Handrail Height",
+      "Tread Thickness",
+      "Spiral Staircase Generator"
+    ]
+  },
+  "triggers": {
+    "intents": [],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "11111111-1111-1111-1111-111111111111",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "22222222-2222-2222-2222-222222222222",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "33333333-3333-3333-3333-333333333333",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "44444444-4444-4444-4444-444444444444",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "55555555-5555-5555-5555-555555555555",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        },
+        {
+          "guid": "66666666-6666-6666-6666-666666666666",
+          "role": "parameter",
+          "connected_to": null,
+          "param": null
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "spiral_staircase.ghx"
+  }
+}

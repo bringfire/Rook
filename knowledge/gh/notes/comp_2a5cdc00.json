@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_2a5cdc00",
+  "note_type": "component",
+  "name": "Seam",
+  "brief": "Seam | Inputs: C, t → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Seam. Inputs: C (Curve), t (Number). Outputs: C (Curve).",
+  "keywords": [
+    "seam",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "seam"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Seam"
+  ],
+  "solution_principle": "Adjust the seam of a closed curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_f3ac6697",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "42ad8dc1-b0c0-40df-91f5-2c46e589e6c2",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "t": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|util|seam"
+  }
+}

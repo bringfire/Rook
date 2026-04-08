@@ -1,0 +1,83 @@
+{
+  "note_id": "teaching_06550ff3",
+  "note_type": "teaching",
+  "name": "U01 - Right-Click, select \"Find\", type the name of the component to find",
+  "brief": "Teaching: Right-Click, select \"Find\", type the name of the component to find",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "Right-Click, select \"Find\", type the name of the component to find",
+  "keywords": [
+    "right",
+    "click",
+    "select",
+    "find",
+    "type",
+    "the",
+    "name",
+    "component",
+    "unit 01 class"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "unit-01",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "interface",
+    "navigation",
+    "component-search"
+  ],
+  "trigger_intents": [
+    "right-click, select \"find\", type the name of the component to find",
+    "how to use right-click, select \"find\", type the name of the component to find"
+  ],
+  "trigger_symptoms": [],
+  "components": [],
+  "solution_principle": "Right-Click, select \"Find\", type the name of the component to find",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_7f2bbf35",
+    "teaching_e23cfc74",
+    "teaching_0a6208a3",
+    "teaching_0df0144b",
+    "teaching_37677299",
+    "comp_3756d5bc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": null,
+    "section_index": 9,
+    "x_range": [
+      7748.6,
+      null
+    ],
+    "full_teaching_text": "Right-Click, select \"Find\", type the name of the component to find",
+    "sub_annotations": [],
+    "working_component_ids": [],
+    "intra_section_flows": [],
+    "groups": [],
+    "components_demonstrated": {},
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 0,
+      "sub_labels": 0,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 0
+    }
+  }
+}

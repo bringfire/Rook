@@ -1,0 +1,1116 @@
+{
+  "pattern_id": "b7aff2fc",
+  "name": "11-1",
+  "version": "1.0",
+  "created": "2026-02-22T13:54:15.342709Z",
+  "solution": {
+    "brief": "Recipe from FILES\\11\\11-1.gh (81 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Polygon",
+      "slider",
+      "Rotate Plane",
+      "XY Plane",
+      "slider",
+      "Explode",
+      "Point On Curve",
+      "Point List",
+      "slider",
+      "Point List",
+      "List Item",
+      "List Item",
+      "Point",
+      "Point",
+      "Point",
+      "Entwine",
+      "PolyLine",
+      "Surface",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Entwine",
+      "Entwine",
+      "Entwine",
+      "panel",
+      "Loop Start",
+      "Loop End",
+      "Explode",
+      "Point On Curve",
+      "List Item",
+      "List Item",
+      "Point",
+      "Point",
+      "Point",
+      "Entwine",
+      "PolyLine",
+      "slider",
+      "Surface",
+      "Explode",
+      "Point On Curve",
+      "List Item",
+      "List Item",
+      "Point",
+      "Point",
+      "Point",
+      "Entwine",
+      "PolyLine",
+      "slider",
+      "Surface",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "Polygon",
+      "slider",
+      "Rotate Plane",
+      "XY Plane",
+      "slider",
+      "Discontinuity",
+      "Scale",
+      "Fast Loop End",
+      "Fast Loop Start",
+      "slider",
+      "Surface",
+      "Polygon",
+      "slider",
+      "Plane",
+      "Explode",
+      "Evaluate Curve",
+      "slider",
+      "PolyLine",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "slider",
+      "Move",
+      "Unit Z",
+      "Series",
+      "slider",
+      "slider",
+      "Loft",
+      "Deconstruct Brep"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "11 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "139f766a",
+    "af1b7d6b",
+    "91aa15f3"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "workflow",
+    "recipe"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.53
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R79",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5.5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R20",
+          "nick": "",
+          "content": "1\r\n2"
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "content": "3\r\n4"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "5\r\n6"
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "content": "7\r\n8"
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/11/11-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            41,
+            -23
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            491,
+            190
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            229,
+            190
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R4",
+          "type": "Component_RotatePlane",
+          "nick": "PRot",
+          "name": "Rotate Plane",
+          "pos": [
+            400,
+            160
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            254,
+            142
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            84.9,
+            160.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R7",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            743,
+            187
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            837,
+            160.6
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            1055,
+            111
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            719.6,
+            82.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.53
+        },
+        {
+          "id": "R11",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            1055,
+            56
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1029,
+            203
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1029,
+            273
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1144.7,
+            209.5
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1144.2,
+            254.2
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1144.2,
+            296
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            1255,
+            244
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1409,
+            254
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1553.7,
+            254.4
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "pos": [
+            -860.4,
+            889.2
+          ],
+          "content": "1\r\n2"
+        },
+        {
+          "id": "R21",
+          "type": "panel",
+          "pos": [
+            -860.8,
+            1006.9
+          ],
+          "content": "3\r\n4"
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            -860.5,
+            1125.2
+          ],
+          "content": "5\r\n6"
+        },
+        {
+          "id": "R23",
+          "type": "panel",
+          "pos": [
+            -860.2,
+            1242.5
+          ],
+          "content": "7\r\n8"
+        },
+        {
+          "id": "R24",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            -528,
+            1001
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            -528,
+            1211
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            -335,
+            1101
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "panel",
+          "pos": [
+            -244.7,
+            986.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "Loop Start",
+          "pos": [
+            622,
+            442
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "PlaceholderComponent",
+          "name": "Loop End",
+          "pos": [
+            1613,
+            442
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            743,
+            560
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            837,
+            551
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1029,
+            581
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1029,
+            515
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1143.2,
+            548.2
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1143.8,
+            515.9
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1143.3,
+            581.2
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            1270,
+            555
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1409,
+            565
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            364.8,
+            419.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R40",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1712,
+            422.8
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            881,
+            902
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_CurvePointAt",
+          "nick": "CurvePoint",
+          "name": "Point On Curve",
+          "pos": [
+            958.3,
+            883.6
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1154,
+            911
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1154,
+            981
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1283.5,
+            912.8
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1283.9,
+            956
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1284,
+            999.3
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_Entwine",
+          "name": "Entwine",
+          "pos": [
+            1409,
+            955
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1524,
+            965
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            503.6,
+            796.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R51",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1742,
+            826.1
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            771,
+            825
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1646,
+            825
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            945,
+            1220
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            639.7,
+            1231.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R56",
+          "type": "Component_RotatePlane",
+          "nick": "PRot",
+          "name": "Rotate Plane",
+          "pos": [
+            812,
+            1190
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            669,
+            1180
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            504.5,
+            1203.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 90
+        },
+        {
+          "id": "R59",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            1234,
+            1223
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            1335,
+            1213
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1472,
+            1173
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            1061,
+            1173
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            769.7,
+            1120.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R64",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1572.4,
+            1174.4
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            777,
+            1538
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            500.4,
+            1539.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        },
+        {
+          "id": "R67",
+          "type": "Param_Plane",
+          "nick": "Pln",
+          "name": "Plane",
+          "pos": [
+            678.2,
+            1505.2
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1046,
+            1533
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            1198,
+            1544
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "slider",
+          "pos": [
+            878.1,
+            1570.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.41
+        },
+        {
+          "id": "R71",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            1329,
+            1534
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            891,
+            1418
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1423,
+            1418
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "slider",
+          "pos": [
+            500.9,
+            1447.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R75",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1706,
+            1504
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1580,
+            1644
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1466,
+            1644
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "slider",
+          "pos": [
+            1185.7,
+            1633.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R79",
+          "type": "slider",
+          "pos": [
+            500.2,
+            1519.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5.5
+        },
+        {
+          "id": "R80",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1843,
+            1504
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            1976,
+            1514
+          ]
+        }
+      ],
+      "flows": [
+        "R4.O0>R2.I0",
+        "R3.O0>R2.I2",
+        "R5.O0>R4.I0",
+        "R6.O0>R4.I1",
+        "R2.O0>R7.I0",
+        "R8.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R7.O1>R11.I0",
+        "R10.O0>R11.I1",
+        "R8.O0>R12.I0",
+        "R7.O1>R13.I0",
+        "R14.O0>R17.I0",
+        "R15.O0>R17.I1",
+        "R16.O0>R17.I2",
+        "R17.O0>R18.I0",
+        "R20.O0>R24.I0",
+        "R21.O0>R24.I1",
+        "R22.O0>R25.I0",
+        "R23.O0>R25.I1",
+        "R24.O0>R26.I0",
+        "R25.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R31.O0>R32.I0",
+        "R30.O1>R33.I0",
+        "R34.O0>R37.I0",
+        "R35.O0>R37.I1",
+        "R36.O0>R37.I2",
+        "R37.O0>R38.I0",
+        "R42.O0>R43.I0",
+        "R41.O1>R44.I0",
+        "R45.O0>R48.I0",
+        "R46.O0>R48.I1",
+        "R47.O0>R48.I2",
+        "R48.O0>R49.I0",
+        "R56.O0>R54.I0",
+        "R55.O0>R54.I2",
+        "R57.O0>R56.I0",
+        "R58.O0>R56.I1",
+        "R59.O0>R60.I1",
+        "R67.O0>R65.I0",
+        "R79.O0>R65.I1",
+        "R66.O0>R65.I2",
+        "R68.O0>R69.I0",
+        "R70.O0>R69.I1",
+        "R69.O0>R71.I0",
+        "R76.O0>R75.I1",
+        "R77.O0>R76.I0",
+        "R78.O0>R77.I1",
+        "R74.O0>R77.I2",
+        "R75.O0>R80.I0",
+        "R80.O0>R81.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_eb2d7d4d",
+  "note_type": "component",
+  "name": "CreatePlankton",
+  "brief": "CreatePlankton | Inputs: M → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: CreatePlankton. Inputs: M (Mesh). Outputs: P (Generic Data).",
+  "keywords": [
+    "createplankton",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "createplankton",
+    "create",
+    "plankton"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "CreatePlankton"
+  ],
+  "solution_principle": "Create a new Plankton halfedge mesh from a Grasshopper Mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d",
+    "comp_3472c8c4",
+    "comp_f66c936d",
+    "comp_2196422c",
+    "comp_9bce8961",
+    "comp_4cfdef19",
+    "comp_da8636fd",
+    "comp_e47235e7",
+    "comp_23c0d526",
+    "comp_73a7cd7d",
+    "comp_f06438f9",
+    "comp_d9de95a0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "047097d1-83bd-4f76-9994-dff721c24047",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "P": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "97c28a7c-5d5a-4b3d-a935-b8730e88749b"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|createplankton"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_bce12009",
+  "note_type": "component",
+  "name": "Surface Box",
+  "brief": "Surface Box | Inputs: S, D, H → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Surface Box. Inputs: S (Surface), D (Domain²), H (Number). Outputs: B (Twisted Box).",
+  "keywords": [
+    "surface box",
+    "surface",
+    "box",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "surface box",
+    "surface",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Box"
+  ],
+  "solution_principle": "Create a twisted box on a surface patch.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ef96fa08",
+    "comp_18607aa4",
+    "comp_c5155393",
+    "comp_47a89531",
+    "comp_94f55c41"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4f65c681-9331-4818-9d54-6290cae686c3",
+    "category": "morphing",
+    "inputs": {
+      "S": "Surface",
+      "D": "Domain²",
+      "H": "Number"
+    },
+    "outputs": {
+      "B": "Twisted Box"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6283fb37-e273-4eb2-8d2a-e347881e3928"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|surface box"
+  }
+}

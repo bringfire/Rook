@@ -1,0 +1,74 @@
+{
+  "pattern_id": "50cd4f68",
+  "name": "wasp_03_graph_grammar_teaching_3._Aggregate!",
+  "version": "1.0",
+  "created": "2026-03-19T17:23:00.575285Z",
+  "solution": {
+    "brief": "3. Aggregate!\r\nStochastic Aggregation builds an aggregation by randomly selecting one part\r\nand one rule to be applied at every step. The component adds parts additively \r\nover the already aggregated parts. If a new aggregation has to be created,\r\nthe RESET button allows to reset the aggregation and restart.",
+    "principle": "",
+    "components_needed": [
+      "PARTS_NUM",
+      "Wasp_Basic Part",
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "stochastic",
+      "aggregate!",
+      "randomly",
+      "rule",
+      "builds",
+      "applied",
+      "selecting",
+      "part",
+      "aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "graph-grammar",
+    "deterministic",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

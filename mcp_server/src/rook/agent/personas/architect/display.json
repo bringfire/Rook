@@ -1,0 +1,8 @@
+{
+  "label": "Architect",
+  "description": "Design-aware modeling with deep reasoning (Opus)",
+  "color": "#c084fc",
+  "model_role": "planner",
+  "tool_access": "full",
+  "avatar": null
+}

@@ -1,0 +1,89 @@
+{
+  "pattern_id": "414ec8c8",
+  "name": "Wasp_Get Part Geometry — Component I/O",
+  "version": "1.0",
+  "created": "2026-03-19T13:27:49.516492Z",
+  "solution": {
+    "brief": "Use Wasp_Get Part Geometry to extract placed geometry from aggregation PART_OUT for visualization via Custom Preview.",
+    "principle": "After running a Wasp aggregation, parts exist as abstract WaspPart objects with position/orientation data; PartGeo extracts and transforms the underlying geometry to each part's world-space placement, making it accessible for standard GH visualization and processing workflows.",
+    "components_needed": [
+      "Wasp_Get Part Geometry",
+      "Custom Preview",
+      "Wasp_Stochastic Aggregation"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I visualize wasp aggregation results",
+      "extract geometry from wasp parts",
+      "see the placed parts from stochastic aggregation",
+      "display wasp aggregation with colors",
+      "get mesh or brep from wasp part objects"
+    ],
+    "symptoms": [
+      "PART_OUT from aggregation is not directly previewable or shows no geometry",
+      "need to apply materials or colors to aggregated parts",
+      "aggregation runs but geometry is invisible in viewport",
+      "want to post-process or analyze placed part geometry"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Wasp_Stochastic Aggregation (or similar) has been run and produces PART_OUT",
+      "PART_OUT contains valid WaspPart objects (aggregation has placed at least one part)",
+      "Wasp plugin is installed and loaded in Grasshopper"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "842e394c",
+    "d1f677ba",
+    "fe6b0648"
+  ],
+  "tags": [
+    "wasp",
+    "aggregation",
+    "visualization",
+    "geometry-extraction",
+    "custom-preview",
+    "part-geometry",
+    "component-reference",
+    "part-out",
+    "discrete-design",
+    "grasshopper-plugin",
+    "workflow",
+    "plugin-workflow",
+    "discrete-assembly"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

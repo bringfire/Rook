@@ -1,0 +1,171 @@
+{
+  "note_id": "recipe_77ddec83",
+  "note_type": "recipe",
+  "name": "Recursive Stair",
+  "brief": "Recursive Stair: ZuiPythonComponent \u00e2\u2020\u2019 CustomPreviewComponent \u00e2\u2020\u2019 ListLength \u00e2\u2020\u2019 Range \u00e2\u2020\u2019 GradientControl (11 components, 5 sliders, 11 connections)",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:11.832793Z",
+  "context": "Extracted from: Recursive Stair.gh",
+  "keywords": [
+    "parametric"
+  ],
+  "category": "parametric",
+  "tags": [
+    "adjustable-parameters",
+    "custom-preview-component",
+    "gradient-control",
+    "list-length",
+    "parametric-modeling",
+    "range",
+    "workflow",
+    "zui-python-component"
+  ],
+  "trigger_intents": [],
+  "trigger_symptoms": [],
+  "components": [
+    "Python Script",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Number Slider",
+    "Panel",
+    "Number Slider",
+    "Custom Preview",
+    "List Length",
+    "Range",
+    "Gradient"
+  ],
+  "solution_principle": "Processing chain: ZuiPythonComponent \u00e2\u2020\u2019 CustomPreviewComponent \u00e2\u2020\u2019 ListLength \u00e2\u2020\u2019 Range \u00e2\u2020\u2019 GradientControl.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_70c7a21a",
+    "recipe_0486b272",
+    "recipe_169489f1",
+    "recipe_188588cb",
+    "recipe_2c225096"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "batch_extraction",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "wiring": [
+      {
+        "from": "8c337e75-83a3-4da6-8c69-f98109108421",
+        "from_param": "Number Slider",
+        "to": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "to_param": "x"
+      },
+      {
+        "from": "92be2df3-4d75-4022-935e-d2b2dd550131",
+        "from_param": "Number Slider",
+        "to": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "to_param": "y"
+      },
+      {
+        "from": "9eb2583e-4301-46c2-bf64-10a1014b2cad",
+        "from_param": "Number Slider",
+        "to": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "to_param": "z"
+      },
+      {
+        "from": "5ea6b166-2a47-47ef-a367-bb7b2e4c8f49",
+        "from_param": "Number Slider",
+        "to": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "to_param": "angle"
+      },
+      {
+        "from": "97e29877-9d48-42c6-966a-decbebafdb83",
+        "from_param": "Number Slider",
+        "to": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "to_param": "steps"
+      },
+      {
+        "from": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "from_param": "a",
+        "to": "c20ef356-dfd2-4fbd-bdd2-f20bff73f5a9",
+        "to_param": "G"
+      },
+      {
+        "from": "d077914f-c462-4d7c-8ad7-c0f0f9b58638",
+        "from_param": "C",
+        "to": "c20ef356-dfd2-4fbd-bdd2-f20bff73f5a9",
+        "to_param": "S"
+      },
+      {
+        "from": "01aa385b-aca9-462e-bf98-4a2affd8c1a3",
+        "from_param": "a",
+        "to": "3b896726-fca8-48e8-b3f4-856bbbe58169",
+        "to_param": "L"
+      },
+      {
+        "from": "3b896726-fca8-48e8-b3f4-856bbbe58169",
+        "from_param": "L",
+        "to": "62f01e2d-530b-4bbf-93a2-e680363e7a99",
+        "to_param": "N"
+      },
+      {
+        "from": "62f01e2d-530b-4bbf-93a2-e680363e7a99",
+        "from_param": "R",
+        "to": "d077914f-c462-4d7c-8ad7-c0f0f9b58638",
+        "to_param": "t"
+      }
+    ],
+    "input_structure": {
+      "sliders": [
+        {
+          "guid": "8c337e75-83a3-4da6-8c69-f98109108421",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "x"
+        },
+        {
+          "guid": "92be2df3-4d75-4022-935e-d2b2dd550131",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "y"
+        },
+        {
+          "guid": "9eb2583e-4301-46c2-bf64-10a1014b2cad",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "z"
+        },
+        {
+          "guid": "97e29877-9d48-42c6-966a-decbebafdb83",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "steps"
+        },
+        {
+          "guid": "5ea6b166-2a47-47ef-a367-bb7b2e4c8f49",
+          "role": "parameter",
+          "connected_to": "Python Script",
+          "param": "angle"
+        }
+      ],
+      "panels": [
+        {
+          "guid": "1182f427-6c3e-4869-9901-832b339ed2fa",
+          "role": "text",
+          "connected_to": null,
+          "param": null
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Recursive Stair.gh",
+    "pattern_type": "recipe",
+    "verification_test": "",
+    "verification_expected": "",
+    "component_count": 11
+  }
+}

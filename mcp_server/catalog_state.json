@@ -1,0 +1,16 @@
+{
+  "created": "2026-02-07T18:34:14.339295Z",
+  "last_updated": "2026-02-07T18:34:14.339295Z",
+  "total_discovered": 677,
+  "core_count": 677,
+  "summary": {
+    "in_sparse_with_intents": 676,
+    "in_sparse_no_intents": 1,
+    "in_tiered_only": 0,
+    "missing": 0
+  },
+  "missing_by_category": {},
+  "cataloged_guids": [],
+  "phase": "cataloged",
+  "catalog_timestamp": "2026-02-07T18:34:14.339434Z"
+}

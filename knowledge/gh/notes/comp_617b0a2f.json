@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_617b0a2f",
+  "note_type": "component",
+  "name": "ZombieSolver",
+  "brief": "ZombieSolver | Inputs: GoalObjects, Threshold, Tolerance, MaxIterations → I, V, O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: ZombieSolver. Inputs: GoalObjects (Generic Data), Threshold (Number), Tolerance (Number), MaxIterations (Integer). Outputs: I (Integer), V (Point), O (Generic Data).",
+  "keywords": [
+    "zombiesolver",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "zombiesolver",
+    "zombie",
+    "solver"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "ZombieSolver"
+  ],
+  "solution_principle": "A version of the solver component which keeps all iterations internal, and outputs the final result",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4408343b-577e-4fd8-96ff-df7549189186",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "GoalObjects": "Generic Data",
+      "Threshold": "Number",
+      "Tolerance": "Number",
+      "MaxIterations": "Integer"
+    },
+    "outputs": {
+      "I": "Integer",
+      "V": "Point",
+      "O": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0febdb68-70bd-4882-b5e4-f68d1cddc4ae",
+      "313490f5-8e38-4dde-9e9a-05e4d739b35d"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|zombiesolver"
+  }
+}

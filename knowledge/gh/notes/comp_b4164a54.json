@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_b4164a54",
+  "note_type": "component",
+  "name": "Query Model Location",
+  "brief": "Query Model Location | Inputs: none → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Query Model Location. Outputs: L (Earth Location).",
+  "keywords": [
+    "query model location",
+    "query",
+    "model",
+    "location",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "query model location",
+    "query",
+    "model",
+    "location"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Location"
+  ],
+  "solution_principle": "Query a Rhino document for its location on earth",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_84da874b",
+    "comp_2d8cfb46",
+    "comp_4b17fa39",
+    "comp_ad796399",
+    "comp_ae5e70e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "902e68a0-33fe-4301-b5e7-35aa0f835da9",
+    "category": "rhino_model",
+    "inputs": {},
+    "outputs": {
+      "L": "Earth Location"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|model|query model location"
+  }
+}

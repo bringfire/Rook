@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_3d7c1b11",
+  "note_type": "component",
+  "name": "Brep Join Progression",
+  "brief": "Brep Join Progression | Inputs: Brep, tol, compact → Brep",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Brep Join Progression. Inputs: Brep (Brep), tol (Number), compact (Boolean). Outputs: Brep (Generic Data).",
+  "keywords": [
+    "brep join progression",
+    "brep",
+    "join",
+    "progression",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "brep join progression",
+    "brep",
+    "join",
+    "progression"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep Join Progression"
+  ],
+  "solution_principle": "Progressively join Brep faces with a tolerance value. Faces are progressively joined together in the order they are supplied.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_26b87a73",
+    "teaching_0ae1e0de",
+    "teaching_24f645a3",
+    "teaching_2a15f208",
+    "teaching_9a2ab0b7",
+    "comp_aa74495c",
+    "comp_be584748",
+    "comp_d3ee4423",
+    "comp_d551bf52",
+    "comp_fced4dd4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8083a51c-2e58-4f1b-af42-a5c6d22eb6a5",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Brep": "Brep",
+      "tol": "Number",
+      "compact": "Boolean"
+    },
+    "outputs": {
+      "Brep": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0cdbe954-cbc8-49ab-a768-a31654027d39"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|brep join progression"
+  }
+}

@@ -1,0 +1,1083 @@
+{
+  "pattern_id": "a2a197b3",
+  "name": "3-1",
+  "version": "1.0",
+  "created": "2026-02-22T14:11:31.304263Z",
+  "solution": {
+    "brief": "Recipe from FILES\\3\\3-1.gh (71 components)",
+    "principle": "\n\nRelated insight: Part of tutorial series with varying complexity - contrasts with simpler 22-component implementations (8-5, 10-5) that achieve similar parametric surface results with different efficiency trade-offs.\n\nRelated insight: Cross-series complexity comparison: 9-1 (36 components) represents mid-complexity level, while 3-1 (71 components) sits in the high-complexity tier alongside 10-1 (70 components).\n\nRelated insight: Related insight: Recipe complexity new mega-complex tier: Unit-01-Class demonstrates 134-component parametric workflows, establishing a new ultra-high complexity category far beyond the previous 99-component upper bound, making 71-component recipes like 3-1 appear as high-complexity but not peak-complexity implementations.",
+    "components_needed": [
+      "Bifocals",
+      "Scribble",
+      "Series",
+      "panel",
+      "panel",
+      "panel",
+      "Dispatch",
+      "panel",
+      "panel",
+      "panel",
+      "Rectangle",
+      "slider",
+      "Multiplication",
+      "Explode",
+      "List Item",
+      "Distance",
+      "Multiplication",
+      "Extrude",
+      "Unit Z",
+      "Cap Holes",
+      "Construct Point",
+      "Series",
+      "slider",
+      "Dispatch",
+      "Move",
+      "Unit Y",
+      "Point",
+      "Weave",
+      "PolyLine",
+      "Arc",
+      "slider",
+      "Construct Domain",
+      "Radians",
+      "slider",
+      "panel",
+      "Division",
+      "Radians",
+      "Offset Curve",
+      "slider",
+      "End Points",
+      "End Points",
+      "Line",
+      "Line",
+      "Join Curves",
+      "Boundary Surfaces",
+      "Extrude",
+      "Unit Z",
+      "slider",
+      "Move",
+      "Unit Z",
+      "Series",
+      "panel",
+      "slider",
+      "Rotate",
+      "Series",
+      "panel",
+      "slider",
+      "Square",
+      "slider",
+      "Area",
+      "Curve",
+      "Curve Closest Point",
+      "Remap+",
+      "Orient",
+      "Brep",
+      "Point",
+      "List Item",
+      "List Item",
+      "panel",
+      "panel",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "3 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "139f766a",
+    "02f0af8b",
+    "81915ce5",
+    "9a0d9a8b",
+    "ab3edec5",
+    "c76ac51b",
+    "a92739b4",
+    "61b52783",
+    "d494a6a3",
+    "0fbec7ad",
+    "c802b64e"
+  ],
+  "tags": [
+    "unit-01-class-related",
+    "71-components",
+    "curve-division",
+    "trigonometric",
+    "tutorial-series",
+    "surface-creation",
+    "high-complexity",
+    "recipe",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:26:16.898471",
+    "evolved_by": [
+      "61b52783",
+      "d494a6a3",
+      "c802b64e"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:21:11.711502",
+        "trigger": "New pattern: 61b52783",
+        "changes": "Adding tutorial-series tag and context about component efficiency patterns across the series"
+      },
+      {
+        "date": "2026-02-22T09:22:05.841300",
+        "trigger": "New pattern: d494a6a3",
+        "changes": "New pattern 9-1 provides a mid-complexity reference point that helps categorize 3-1 as high-complexity and establishes cross-series complexity patterns"
+      },
+      {
+        "date": "2026-02-22T09:26:16.898471",
+        "trigger": "New pattern: c802b64e",
+        "changes": "3-1's 71 components now sits in a different context with the 134-component mega-complex tier established, requiring perspective adjustment"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.49
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R53",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 29
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        }
+      ],
+      "panels": [
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "content": "100"
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "0\r\n1\r\n1\r\n0\r\n0\r\n0\r\n1"
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "ابعاد مورد نیاز برای ترسیم مکعب\r\n\r\na = 2.2 b\r\nh = 1.5 x"
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "content": "360"
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R69",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/3/3-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            84,
+            -59
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            21.3,
+            162.5
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            169,
+            252
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            82.8,
+            221.5
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R5",
+          "type": "panel",
+          "pos": [
+            336.6,
+            11.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R6",
+          "type": "panel",
+          "pos": [
+            69.6,
+            275.4
+          ],
+          "content": "100"
+        },
+        {
+          "id": "R7",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            462,
+            315
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            137.2,
+            310.2
+          ],
+          "content": "0\r\n1\r\n1\r\n0\r\n0\r\n0\r\n1"
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            550.9,
+            45.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            26.7,
+            446.1
+          ],
+          "content": "ابعاد مورد نیاز برای ترسیم مکعب\r\n\r\na = 2.2 b\r\nh = 1.5 x"
+        },
+        {
+          "id": "R11",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            355,
+            601
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            12.1,
+            592.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.49
+        },
+        {
+          "id": "R13",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            264,
+            579
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            466,
+            621
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            578,
+            611
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            714,
+            601
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            815,
+            611
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            983,
+            556
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            900,
+            611
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1074,
+            556
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            355,
+            784
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            272,
+            764
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            10.8,
+            774.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 16
+        },
+        {
+          "id": "R24",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            444,
+            794
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            685,
+            767
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            593,
+            823
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            801.1,
+            804.3
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            879,
+            757
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            973,
+            767
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Arc",
+          "name": "Arc",
+          "pos": [
+            637,
+            1000
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            21.5,
+            985.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R32",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            492,
+            1079
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "FuncToRadians",
+          "nick": "Rad",
+          "name": "Radians",
+          "pos": [
+            405,
+            1062
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            21.9,
+            1053.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R35",
+          "type": "panel",
+          "pos": [
+            22.2,
+            1098.3
+          ],
+          "content": "360"
+        },
+        {
+          "id": "R36",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            297,
+            1130
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "FuncToRadians",
+          "nick": "Rad",
+          "name": "Radians",
+          "pos": [
+            404,
+            1107
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_OffsetCurve",
+          "nick": "Offset",
+          "name": "Offset Curve",
+          "pos": [
+            813,
+            1072
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            541.9,
+            1073.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.8
+        },
+        {
+          "id": "R40",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            876,
+            941
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            949,
+            1092
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1083,
+            970
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1083,
+            1092
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            1250,
+            970
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            1448,
+            962
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1621,
+            970
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1491,
+            1022
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "slider",
+          "pos": [
+            1177,
+            1032.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R49",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1762,
+            970
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1666,
+            1095
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1560,
+            1095
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "panel",
+          "pos": [
+            1456,
+            1065.8
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R53",
+          "type": "slider",
+          "pos": [
+            1166.7,
+            1097.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 29
+        },
+        {
+          "id": "R54",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            1997,
+            980
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1891,
+            1136
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "panel",
+          "pos": [
+            1749.1,
+            1082
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            22.2,
+            1144.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R58",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            365,
+            1270
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "slider",
+          "pos": [
+            23.6,
+            1282.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R60",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            487,
+            1248
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            492.2,
+            1296.3
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            579,
+            1273
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            707,
+            1308
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_Orient",
+          "name": "Orient",
+          "pos": [
+            1021,
+            1261
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            832.7,
+            1227.6
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            825.6,
+            1297.5
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            916,
+            1246
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            918,
+            1317
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "panel",
+          "pos": [
+            551.4,
+            1334.5
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R70",
+          "type": "panel",
+          "pos": [
+            552,
+            1310.2
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R71",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1120,
+            1256
+          ]
+        }
+      ],
+      "flows": [
+        "R4.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R6.O0>R3.I2",
+        "R3.O0>R5.I0",
+        "R3.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R7.O0>R9.I0",
+        "R13.O0>R11.I1",
+        "R12.O0>R11.I2",
+        "R12.O0>R13.I0",
+        "R11.O0>R14.I0",
+        "R14.O1>R15.I0",
+        "R15.O0>R16.I0",
+        "R15.O2>R16.I1",
+        "R16.O0>R17.I0",
+        "R11.O0>R18.I0",
+        "R19.O0>R18.I1",
+        "R17.O0>R19.I0",
+        "R18.O0>R20.I0",
+        "R22.O0>R21.I0",
+        "R23.O0>R22.I2",
+        "R21.O0>R24.I0",
+        "R24.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R25.O0>R28.I1",
+        "R27.O0>R28.I2",
+        "R28.O0>R29.I0",
+        "R31.O0>R30.I1",
+        "R32.O0>R30.I2",
+        "R33.O0>R32.I0",
+        "R37.O0>R32.I1",
+        "R34.O0>R33.I0",
+        "R35.O0>R36.I0",
+        "R57.O0>R36.I1",
+        "R36.O0>R37.I0",
+        "R30.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R30.O0>R40.I0",
+        "R38.O0>R41.I0",
+        "R40.O0>R42.I0",
+        "R41.O0>R42.I1",
+        "R40.O1>R43.I0",
+        "R41.O1>R43.I1",
+        "R30.O0>R44.I0",
+        "R38.O0>R44.I0",
+        "R42.O0>R44.I0",
+        "R43.O0>R44.I0",
+        "R44.O0>R45.I0",
+        "R45.O0>R46.I0",
+        "R47.O0>R46.I1",
+        "R48.O0>R47.I0",
+        "R46.O0>R49.I0",
+        "R50.O0>R49.I1",
+        "R51.O0>R50.I0",
+        "R52.O0>R51.I0",
+        "R48.O0>R51.I1",
+        "R53.O0>R51.I2",
+        "R49.O0>R54.I0",
+        "R55.O0>R54.I1",
+        "R56.O0>R55.I0",
+        "R36.O0>R55.I1",
+        "R53.O0>R55.I2",
+        "R59.O0>R58.I2",
+        "R59.O0>R58.I3",
+        "R58.O0>R60.I0",
+        "R60.O1>R62.I0",
+        "R61.O0>R62.I1",
+        "R62.O2>R63.I0",
+        "R70.O0>R63.I1",
+        "R69.O0>R63.I2",
+        "R67.O0>R64.I0",
+        "R68.O0>R64.I1",
+        "R60.O1>R64.I2",
+        "R65.O0>R67.I0",
+        "R63.O0>R67.I1",
+        "R66.O0>R68.I0",
+        "R63.O0>R68.I1",
+        "R64.O0>R71.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R10",
+          "text": "ابعاد مورد نیاز برای ترسیم مکعب\r\n\r\na = 2.2 b\r\nh = 1.5 x",
+          "pos": [
+            26.7,
+            446.1
+          ],
+          "nearby": [
+            "R12",
+            "R3",
+            "R13",
+            "R2"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,693 @@
+{
+  "pattern_id": "4e918d2c",
+  "name": "wasp_22",
+  "version": "1.0",
+  "created": "2026-03-19T18:17:59.310232Z",
+  "solution": {
+    "brief": "Wasp example 22: new topic series",
+    "principle": "\n\nRelated insight: Related insight: Tutorial 23 (wasp_23) directly continues the new topic series from tutorial 22, further developing part-based, multi-part, rule-based, and constraint-based discrete aggregation. Tutorial 22 is a direct prerequisite for tutorial 23, and the new series (started at tutorial 21) extends through at least tutorial 23.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Field Points",
+      "Wasp_Save Field to File",
+      "Wasp_Load Field from File",
+      "Wasp_Field-driven Aggregation",
+      "Wasp_Deconstruct Field",
+      "Geometry",
+      "Point",
+      "Curve",
+      "Geometry",
+      "Curve",
+      "slider",
+      "Pull Point",
+      "Remap Numbers",
+      "Bounds",
+      "panel",
+      "Graph Mapper",
+      "Wasp_Field",
+      "Gradient",
+      "Custom Preview",
+      "Wasp_Basic Part",
+      "panel",
+      "Wasp_Rules Generator",
+      "slider",
+      "Button",
+      "Wasp_Get Part Geometry",
+      "panel",
+      "panel",
+      "Button",
+      "File Path",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Button",
+      "Custom Preview",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field-driven discrete aggregation with Wasp",
+      "grow parts along a vector field",
+      "wasp aggregation with field influence",
+      "load and save aggregation field",
+      "generate parts based on field gradient",
+      "wasp part assembly driven by field",
+      "discrete element aggregation with direction rules",
+      "wasp field-based growth simulation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "7bb677d9",
+    "35afaaf5",
+    "8f250f41",
+    "fdf0db8a"
+  ],
+  "tags": [
+    "parametric",
+    "rule-based",
+    "advanced",
+    "discrete-design",
+    "generative",
+    "tutorial",
+    "constraint-based",
+    "field-driven",
+    "wasp",
+    "part-based",
+    "grasshopper",
+    "new-series",
+    "aggregation",
+    "file-io",
+    "workflow",
+    "plugin-workflow",
+    "multi-part",
+    "discrete-aggregation",
+    "field-gradient",
+    "spatial-computing"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:22:02.463021",
+    "evolved_by": [
+      "fdf0db8a"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T14:22:02.463021",
+        "trigger": "New pattern: fdf0db8a",
+        "changes": "wasp_23 directly follows wasp_22 in the new series; wasp_22 had no context and needs this chain established. Also adding 'spatial-computing' and 'constraint-based' tags present in wasp_23."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R24",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        }
+      ],
+      "panels": [
+        {
+          "id": "R16",
+          "nick": "",
+          "content": "1 To 0"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "P"
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\2.Fields"
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "content": "myField"
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            523,
+            238
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldPts",
+          "name": "Wasp_Field Points",
+          "pos": [
+            290,
+            1016
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "SaveField",
+          "name": "Wasp_Save Field to File",
+          "pos": [
+            1646,
+            1030
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "LoadField",
+          "name": "Wasp_Load Field from File",
+          "pos": [
+            446,
+            615
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "FieldAggregation",
+          "name": "Wasp_Field-driven Aggregation",
+          "pos": [
+            1401,
+            272
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "DeField",
+          "name": "Wasp_Deconstruct Field",
+          "pos": [
+            773,
+            775
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            385.2,
+            162.7
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            385.8,
+            228.3
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            385.9,
+            293.5
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            107.1,
+            996.4
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            300.9,
+            1163.2
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            43.6,
+            1063.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R13",
+          "type": "Component_PullPoint",
+          "nick": "Pull",
+          "name": "Pull Point",
+          "pos": [
+            462,
+            1150
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            735,
+            1180
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            618,
+            1190
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "panel",
+          "pos": [
+            588.7,
+            1215.6
+          ],
+          "content": "1 To 0"
+        },
+        {
+          "id": "R17",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            806.5,
+            1140.8
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "ZuiPythonComponent",
+          "nick": "Field",
+          "name": "Wasp_Field",
+          "pos": [
+            1046,
+            1000
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            879,
+            753
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1051,
+            735
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            770,
+            182
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            605.1,
+            106.6
+          ],
+          "content": "P"
+        },
+        {
+          "id": "R23",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            1084,
+            312
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "slider",
+          "pos": [
+            1150.4,
+            212.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R25",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1208,
+            351
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1584,
+            322
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "panel",
+          "pos": [
+            1275.1,
+            1022.5
+          ],
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\2.Fields"
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "pos": [
+            1493.3,
+            1063
+          ],
+          "content": "myField"
+        },
+        {
+          "id": "R29",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1457,
+            1086
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Param_FilePath",
+          "nick": "Path",
+          "name": "File Path",
+          "pos": [
+            321.5,
+            605.1
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R33",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1230.7,
+            776.8
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            62.3,
+            362.1
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            242,
+            628
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1704,
+            332
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -96,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I0",
+        "R8.O0>R1.I1",
+        "R9.O0>R1.I2",
+        "R10.O0>R2.I0",
+        "R12.O0>R2.I1",
+        "R18.O0>R3.I0",
+        "R27.O0>R3.I1",
+        "R28.O0>R3.I2",
+        "R29.O0>R3.I3",
+        "R30.O0>R4.I0",
+        "R36.O0>R4.I1",
+        "R21.O0>R5.I0",
+        "R24.O0>R5.I2",
+        "R23.O0>R5.I3",
+        "R4.O0>R5.I4",
+        "R25.O0>R5.I9",
+        "R4.O0>R6.I0",
+        "R2.O1>R13.I0",
+        "R11.O0>R13.I1",
+        "R13.O1>R14.I0",
+        "R15.O0>R14.I1",
+        "R16.O0>R14.I2",
+        "R13.O1>R15.I0",
+        "R2.O0>R18.I1",
+        "R17.O0>R18.I2",
+        "R6.O5>R19.I2",
+        "R6.O1>R20.I0",
+        "R19.O0>R20.I1",
+        "R22.O0>R21.I0",
+        "R7.O0>R21.I1",
+        "R1.O0>R21.I2",
+        "R21.O0>R23.I0",
+        "R5.O1>R26.I0",
+        "R26.O0>R37.I0",
+        "R38.O0>R40.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R32",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R7",
+            "R40",
+            "R8",
+            "R9",
+            "R1",
+            "R38",
+            "R21",
+            "R30"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "2_07_Save_Load_Fields",
+          "text": "2_07_Save_Load_Fields",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "LOAD",
+          "text": "LOAD\r\nOnce a Field has been saved with the SaveField component,\r\nit can be quickly reloaded in Grasshopper using the LoadField\r\ncomponent. This allows to split Field generation and aggregation\r\nin two separate files, avoiding costly computing.\r\nThe LOAD input can be triggered with a button to reload the file\r\nafter changes.",
+          "nearby_components": [
+            "Button",
+            "Wasp_Update File",
+            "Curve",
+            "Point",
+            "File Path",
+            "Geometry",
+            "Wasp_Load Field from File",
+            "Wasp_Connection From Direction"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            62.3,
+            362.1
+          ]
+        },
+        {
+          "step": "4",
+          "title": "SAVE",
+          "text": "SAVE\r\nFields can be saved to file and reloaded in a second\r\nmoment or in another file.\r\nThis is particularly useful when working with very large\r\nand complex fields, which can be computed only once\r\nand then reloaded from file (loading from file is faster \r\nthan re-generating the whole field).",
+          "nearby_components": [
+            "Custom Preview",
+            "Wasp_Field",
+            "Gradient"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1230.7,
+            776.8
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,333 @@
+"""Tests for ToolDispatcher script safety — compile() pre-check and post-dispatch verification.
+
+Covers:
+  1. _transform_execute: syntax validation via compile() before Rhino dispatch
+  2. ToolDispatcher.dispatch: post-dispatch verification for all needs_verification() tools
+  3. Integration: chat and agent paths both get verification through the dispatcher
+"""
+
+import asyncio
+import pytest
+from unittest.mock import AsyncMock, patch, MagicMock
+
+from rook.agent.tool_dispatcher import (
+    _transform_execute,
+    ToolDispatcher,
+    BRIDGE_ROUTES,
+    TRANSFORM_FUNCTIONS,
+)
+from rook.agent.chat.execution_policy import (
+    CREATION_TOOLS,
+    MODAL_RISK_TOOLS,
+    needs_verification,
+    annotate_result,
+)
+
+
+# =============================================================================
+# _transform_execute: compile() pre-check
+# =============================================================================
+
+class TestTransformExecuteSyntaxCheck:
+    """Layer 1: compile() catches syntax errors before Rhino."""
+
+    def test_valid_code_passes_through(self):
+        """Valid Python should pass through unchanged after compile() succeeds."""
+        endpoint, method, data = _transform_execute({"code": "x = 1 + 2"})
+        assert endpoint == "/execute"
+        assert method == "POST"
+        assert data["code"] == "x = 1 + 2"
+
+    def test_syntax_error_returns_error_dict(self):
+        """Syntax errors should return an error dict, not reach Rhino."""
+        endpoint, method, data = _transform_execute({"code": "def foo(:"})
+        assert endpoint is None
+        assert method is None
+        assert data["success"] is False
+        assert "syntax error" in data["data"].lower()
+        assert "NOT sent to Rhino" in data["data"]
+
+    def test_syntax_error_includes_line_number(self):
+        """The error message should include the line number from compile()."""
+        code = "x = 1\ny = 2\nfor in range(5):\n    pass"
+        _, _, data = _transform_execute({"code": code})
+        assert data["success"] is False
+        assert "line" in data["data"].lower()
+
+    def test_empty_code_passes_through(self):
+        """Empty code should not trigger compile() — just pass through."""
+        endpoint, method, data = _transform_execute({"code": ""})
+        assert endpoint == "/execute"
+        assert method == "POST"
+
+    def test_no_code_key_passes_through(self):
+        """Missing code key should not crash."""
+        endpoint, method, data = _transform_execute({})
+        assert endpoint == "/execute"
+        assert method == "POST"
+
+    def test_multiline_valid_code(self):
+        """Multi-line valid Python should compile and pass through unchanged."""
+        code = "import rhinoscriptsyntax as rs\nids = rs.AllObjects()\nfor i in ids:\n    print(i)"
+        endpoint, method, data = _transform_execute({"code": code})
+        assert endpoint == "/execute"
+        assert data["code"] == code
+
+    def test_indentation_error_caught(self):
+        """IndentationError (subclass of SyntaxError) should be caught."""
+        code = "if True:\nx = 1"
+        endpoint, method, data = _transform_execute({"code": code})
+        assert endpoint is None
+        assert data["success"] is False
+
+    def test_interactive_rs_call_rejected_pre_dispatch(self):
+        """Blocking rhinoscriptsyntax Get* calls should never reach Rhino."""
+        code = "import rhinoscriptsyntax as rs\nrs.GetPoint('Pick a point')"
+        endpoint, method, data = _transform_execute({"code": code})
+        assert endpoint is None
+        assert method is None
+        assert data["success"] is False
+        assert "not sent to rhino" in data["data"].lower()
+        assert "interactive rhino input call" in data["data"].lower()
+
+    def test_interactive_direct_import_rejected_pre_dispatch(self):
+        """Directly imported blocking rhinoscriptsyntax calls should be caught."""
+        code = "from rhinoscriptsyntax import GetObject\nGetObject('Select object')"
+        endpoint, method, data = _transform_execute({"code": code})
+        assert endpoint is None
+        assert method is None
+        assert data["success"] is False
+        assert "getobject()" in data["data"].lower()
+
+    def test_extra_args_preserved(self):
+        """Non-code args should pass through unchanged."""
+        endpoint, method, data = _transform_execute({"code": "x = 1", "timeout": 5000})
+        assert endpoint == "/execute"
+        assert data.get("timeout") == 5000
+
+
+# =============================================================================
+# ToolDispatcher.dispatch: post-dispatch verification
+# =============================================================================
+
+class TestDispatcherVerification:
+    """Post-dispatch verification runs for all needs_verification() tools."""
+
+    @pytest.fixture
+    def dispatcher(self):
+        return ToolDispatcher(port=9950)
+
+    @pytest.mark.asyncio
+    async def test_creation_tool_gets_verified(self, dispatcher):
+        """rhino_create results should be annotated with verified field."""
+        mock_result = {"success": True, "data": {"id": "abc", "objectsCreated": 1}}
+        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            # First call: /create, second call: /command/prompt
+            mock_rhino.side_effect = [mock_result, prompt_idle]
+            result = await dispatcher.dispatch("rhino_create", {"type": "BOX"})
+
+        assert "verified" in result
+        assert result["verified"] is True
+
+    @pytest.mark.asyncio
+    async def test_creation_tool_zero_objects_unverified(self, dispatcher):
+        """rhino_create with objectsCreated=0 should be marked unverified."""
+        mock_result = {"success": True, "data": {"objectsCreated": 0}}
+        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.side_effect = [mock_result, prompt_idle]
+            result = await dispatcher.dispatch("rhino_create", {"type": "BOX"})
+
+        assert result["verified"] is False
+        assert "objectsCreated=0" in result.get("verification_note", "")
+
+    @pytest.mark.asyncio
+    async def test_modal_risk_tool_blocked_prompt(self, dispatcher):
+        """rhino_execute with active prompt should be marked unverified."""
+        mock_result = {"success": True, "data": {"output": "ok"}}
+        prompt_active = {"success": True, "data": {"is_active": True, "prompt": "Enter value"}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            # Transform wraps code, so we need compile to pass first
+            mock_rhino.side_effect = [mock_result, prompt_active]
+            result = await dispatcher.dispatch("rhino_execute", {"code": "x = 1"})
+
+        assert result["verified"] is False
+        assert "waiting for input" in result.get("verification_note", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_syntax_error_never_calls_rhino(self, dispatcher):
+        """Syntax errors should short-circuit — no HTTP calls to Rhino."""
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            result = await dispatcher.dispatch("rhino_execute", {"code": "def foo(:"})
+
+        # call_rhino should never be called
+        mock_rhino.assert_not_called()
+        assert result["success"] is False
+        assert "syntax error" in result["data"].lower()
+
+    @pytest.mark.asyncio
+    async def test_syntax_error_no_misleading_annotation(self, dispatcher):
+        """Pre-dispatch compile failures must NOT get modal-risk annotation.
+
+        Regression test: without the _pre_dispatch_failure signal, annotate_result
+        would add a post-execution reminder — misleading because the script never
+        reached Rhino.
+        """
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            result = await dispatcher.dispatch("rhino_execute", {"code": "def foo(:"})
+
+        mock_rhino.assert_not_called()
+        # Must NOT have verification_note from the modal-risk annotator
+        assert "verified" not in result
+        assert "verification_note" not in result
+        # The _pre_dispatch_failure tag must be consumed (popped), not leaked
+        assert "_pre_dispatch_failure" not in result
+
+    @pytest.mark.asyncio
+    async def test_bridge_tool_no_verification(self, dispatcher):
+        """rhino_ping should NOT get verification annotation."""
+        mock_result = {"success": True, "data": "pong"}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("rhino_ping", {})
+
+        assert "verified" not in result
+
+    @pytest.mark.asyncio
+    async def test_rhino_boolean_gets_verified(self, dispatcher):
+        """rhino_boolean (transform tier + CREATION_TOOLS) should be verified."""
+        mock_result = {"success": True, "data": {"id": "xyz", "objectsCreated": 1}}
+        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.side_effect = [mock_result, prompt_idle]
+            result = await dispatcher.dispatch("rhino_boolean", {
+                "operation": "union", "ids": ["a", "b"]
+            })
+
+        assert "verified" in result
+
+    @pytest.mark.asyncio
+    async def test_rhino_command_gets_verified(self, dispatcher):
+        """rhino_command (bridge tier + MODAL_RISK_TOOLS) should be verified."""
+        mock_result = {"success": True, "data": {"output": "ok", "objectsCreated": 0}}
+        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.side_effect = [mock_result, prompt_idle]
+            result = await dispatcher.dispatch("rhino_command", {"command": "_Line"})
+
+        assert "verified" in result
+
+    @pytest.mark.asyncio
+    async def test_prompt_poll_failure_marks_unverified(self, dispatcher):
+        """If prompt poll raises an exception, modal-risk tools should be unverified."""
+        mock_result = {"success": True, "data": {"output": "ok"}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            # First call succeeds (the tool), second call raises (prompt poll)
+            mock_rhino.side_effect = [mock_result, ConnectionError("Rhino unreachable")]
+            result = await dispatcher.dispatch("rhino_execute", {"code": "x = 1"})
+
+        assert result["verified"] is False
+        assert "could not verify" in result.get("verification_note", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_failed_tool_skips_prompt_poll(self, dispatcher):
+        """If the tool itself returned success=False, skip the prompt poll entirely."""
+        mock_result = {"success": False, "data": "Command failed"}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch("rhino_command", {"command": "_BadCmd"})
+
+        # Only 1 call (the tool itself), no prompt poll
+        assert mock_rhino.call_count == 1
+
+
+# =============================================================================
+# rhino_execute_intent route-based verification
+# =============================================================================
+
+class TestExecuteIntentVerification:
+    """rhino_execute_intent is verified when substrate is known_command or interactive."""
+
+    @pytest.fixture
+    def dispatcher(self):
+        d = ToolDispatcher(port=9950)
+        # Register a mock rhino_execute_intent as local tool
+        async def mock_intent(intent="", **kwargs):
+            return {
+                "success": True,
+                "data": {
+                    "route_taken": "known_command",
+                    "objectsCreated": 1,
+                },
+            }
+        d.register_local("rhino_execute_intent", mock_intent)
+        return d
+
+    @pytest.mark.asyncio
+    async def test_known_command_substrate_gets_verified(self, dispatcher):
+        """rhino_execute_intent with known_command substrate should be verified."""
+        prompt_idle = {"success": True, "data": {"is_active": False, "prompt": ""}}
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = prompt_idle
+            result = await dispatcher.dispatch("rhino_execute_intent", {"intent": "create a box"})
+
+        assert "verified" in result
+
+    @pytest.mark.asyncio
+    async def test_direct_api_substrate_not_verified(self):
+        """rhino_execute_intent with direct_api substrate should NOT be verified."""
+        d = ToolDispatcher(port=9950)
+
+        async def mock_intent(intent="", **kwargs):
+            return {
+                "success": True,
+                "data": {
+                    "route_taken": "direct_api",
+                    "objectsCreated": 1,
+                },
+            }
+        d.register_local("rhino_execute_intent", mock_intent)
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            result = await d.dispatch("rhino_execute_intent", {"intent": "create a box"})
+
+        # direct_api does not need verification — no RunScript, no modal risk
+        assert "verified" not in result
+        mock_rhino.assert_not_called()
+
+
+# =============================================================================
+# Coverage: all CREATION_TOOLS and MODAL_RISK_TOOLS are dispatchable
+# =============================================================================
+
+class TestVerificationCoverage:
+    """Every tool in needs_verification() must be reachable by the dispatcher."""
+
+    def test_all_creation_tools_are_dispatchable(self):
+        """Every CREATION_TOOL must be in BRIDGE_ROUTES or TRANSFORM_FUNCTIONS."""
+        for tool in CREATION_TOOLS:
+            assert tool in BRIDGE_ROUTES or tool in TRANSFORM_FUNCTIONS, (
+                f"{tool} is in CREATION_TOOLS but not dispatchable"
+            )
+
+    def test_all_modal_risk_tools_are_dispatchable(self):
+        """Every MODAL_RISK_TOOL must be in BRIDGE_ROUTES or TRANSFORM_FUNCTIONS."""
+        for tool in MODAL_RISK_TOOLS:
+            assert tool in BRIDGE_ROUTES or tool in TRANSFORM_FUNCTIONS, (
+                f"{tool} is in MODAL_RISK_TOOLS but not dispatchable"
+            )
+
+    def test_rhino_execute_in_transform_not_bridge(self):
+        """rhino_execute must go through transform (for compile + try/except), not bridge."""
+        assert "rhino_execute" in TRANSFORM_FUNCTIONS
+        assert "rhino_execute" not in BRIDGE_ROUTES

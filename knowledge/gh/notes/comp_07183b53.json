@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_07183b53",
+  "note_type": "component",
+  "name": "Colour LCH",
+  "brief": "Colour LCH | Inputs: A, L, C, H \u2192 C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Colour LCH. Inputs: A (Number), L (Number), C (Number), H (Number). Outputs: C (Colour).",
+  "keywords": [
+    "colour lch",
+    "colour",
+    "lch",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "colour lch",
+    "colour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Colour LCH"
+  ],
+  "solution_principle": "Create a colour from floating point {CIE LCH} channels.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8f9a9360",
+    "comp_8fcd45e0",
+    "comp_eca58848",
+    "comp_02b42f44",
+    "comp_4155102a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75a07554-8a2c-4d87-81b9-d854f498509d",
+    "category": "display",
+    "inputs": {
+      "A": "Number",
+      "L": "Number",
+      "C": "Number",
+      "H": "Number"
+    },
+    "outputs": {
+      "C": "Colour"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "77185dc2-2f18-469d-9686-00f5b6049195",
+      "a45d68b3-c299-4b17-bdae-7975f216cec6",
+      "8b4da37d-1124-436a-9de2-952e4224a220"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|colour|colour lch",
+    "family": "display"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

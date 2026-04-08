@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_ffd7ba8d",
+  "note_type": "component",
+  "name": "Quad Sphere",
+  "brief": "Quad Sphere | Inputs: B, R → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Quad Sphere. Inputs: B (Plane), R (Number). Outputs: S (Brep).",
+  "keywords": [
+    "quad sphere",
+    "quad",
+    "sphere",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "quad sphere",
+    "quad",
+    "sphere"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Quad Sphere"
+  ],
+  "solution_principle": "Create a spherical brep made from quad nurbs patches.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_28632a9a",
+    "comp_696c094f",
+    "comp_7d5c54d0",
+    "comp_e3e04d00"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "361790d6-9d66-4808-8c5a-8de9c218c227",
+    "category": "primitives",
+    "inputs": {
+      "B": "Plane",
+      "R": "Number"
+    },
+    "outputs": {
+      "S": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "dabc854d-f50e-408a-b001-d043c7de151d"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|quad sphere"
+  }
+}

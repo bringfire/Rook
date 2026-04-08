@@ -1,0 +1,1067 @@
+{
+  "pattern_id": "7b0ab1c4",
+  "name": "wasp_31",
+  "version": "1.0",
+  "created": "2026-03-19T18:45:38.783634Z",
+  "solution": {
+    "brief": "Wasp example 31: constraints series continued",
+    "principle": "\n\nRelated insight: Related insight: wasp_32 directly continues this constraints series, extending the constraint techniques with mesh-constraint approaches. wasp_31 is thus the immediate prerequisite for wasp_32 in the constraints sub-series.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Plane Constraint",
+      "Wasp_Plane Constraint",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Geometry",
+      "Point",
+      "Curve",
+      "panel",
+      "panel",
+      "Point",
+      "Curve",
+      "panel",
+      "Merge",
+      "Wasp_Rules Generator",
+      "Toggle",
+      "slider",
+      "Wasp_Get Part Geometry",
+      "XY Plane",
+      "Toggle",
+      "Toggle",
+      "Toggle",
+      "Toggle",
+      "XZ Plane",
+      "Construct Point",
+      "slider",
+      "Merge",
+      "slider",
+      "Button",
+      "Random",
+      "List Length",
+      "Gradient",
+      "Custom Preview",
+      "Negative",
+      "Plane Surface",
+      "panel",
+      "Iso Curve",
+      "Range",
+      "Construct Point",
+      "Plane Surface",
+      "panel",
+      "Iso Curve",
+      "Range",
+      "Construct Point",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Toggle",
+      "Wasp_Plane Constraint",
+      "Toggle",
+      "Toggle",
+      "Construct Point",
+      "slider",
+      "Negative",
+      "Toggle",
+      "YZ Plane",
+      "Plane Surface",
+      "panel",
+      "Iso Curve",
+      "Range",
+      "Construct Point",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a stochastic wasp aggregation",
+      "generate discrete aggregation with plane constraints",
+      "wasp modular assembly with directional connections",
+      "random part aggregation with constraints",
+      "wasp basic part stochastic growth",
+      "discrete design aggregation grasshopper",
+      "wasp connection rules generator"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "0574c25d",
+    "e1e6f130",
+    "c46205e4",
+    "fe3d267c",
+    "9fdfcd0f",
+    "ecc3bcfb"
+  ],
+  "tags": [
+    "modular-assembly",
+    "generative",
+    "workflow",
+    "grasshopper",
+    "continuation",
+    "stochastic",
+    "discrete-assembly",
+    "plugin-workflow",
+    "plane-constraint",
+    "tutorial",
+    "rule-based",
+    "constraint-based",
+    "wasp",
+    "constraints",
+    "part-based",
+    "advanced",
+    "discrete-design",
+    "aggregation"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T14:48:41.467553",
+    "evolved_by": [
+      "ecc3bcfb"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T14:48:41.467553",
+        "trigger": "New pattern: ecc3bcfb",
+        "changes": "wasp_31 is the direct predecessor of wasp_32 in the constraints series. Its context should reflect this successor relationship, mirroring the pattern established in wasp_29's context."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "",
+          "content": "STICK"
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "END"
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "MID"
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "content": "-500 to 500"
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "content": "-500 to 500"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "content": "-500 to 500"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            437,
+            443
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            438,
+            283
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "PlaneConst",
+          "name": "Wasp_Plane Constraint",
+          "pos": [
+            660,
+            1024
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "PlaneConst",
+          "name": "Wasp_Plane Constraint",
+          "pos": [
+            664,
+            878
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1551,
+            312
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            785,
+            223
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            304.2,
+            203.9
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            305.9,
+            273.7
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            305.5,
+            323.6
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "pos": [
+            615.1,
+            146
+          ],
+          "content": "STICK"
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            283.6,
+            349.3
+          ],
+          "content": "END"
+        },
+        {
+          "id": "R12",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            312.5,
+            434
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            312.1,
+            483.9
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            290.2,
+            511.3
+          ],
+          "content": "MID"
+        },
+        {
+          "id": "R15",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            594,
+            356
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            1097,
+            347
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            911,
+            356
+          ],
+          "value": true
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            1265.3,
+            252.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R19",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1781,
+            363
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_XYPlane",
+          "nick": "XY",
+          "name": "XY Plane",
+          "pos": [
+            526,
+            838
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            450,
+            859
+          ],
+          "value": true
+        },
+        {
+          "id": "R22",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            452,
+            888
+          ],
+          "value": true
+        },
+        {
+          "id": "R23",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            458,
+            1010
+          ],
+          "value": false
+        },
+        {
+          "id": "R24",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            456,
+            1038
+          ],
+          "value": false
+        },
+        {
+          "id": "R25",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            514,
+            984
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            404,
+            983
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            80.3,
+            975.5
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R28",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            805,
+            1034
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            1270.3,
+            333
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R30",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1328,
+            391
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1815,
+            460
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            1731,
+            460
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1865,
+            408
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2050,
+            373
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            320,
+            984
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            681,
+            1364
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "panel",
+          "pos": [
+            515.6,
+            1370.6
+          ],
+          "content": "-500 to 500"
+        },
+        {
+          "id": "R38",
+          "type": "Component_IsoCurve",
+          "nick": "Iso",
+          "name": "Iso Curve",
+          "pos": [
+            794,
+            1374
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            590,
+            1432
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            674,
+            1440
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            683,
+            1520
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "panel",
+          "pos": [
+            518.1,
+            1526.8
+          ],
+          "content": "-500 to 500"
+        },
+        {
+          "id": "R43",
+          "type": "Component_IsoCurve",
+          "nick": "Iso",
+          "name": "Iso Curve",
+          "pos": [
+            796,
+            1530
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            592,
+            1588
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            676,
+            1596
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1267.3,
+            122.1
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            80.6,
+            567.8
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            495,
+            1290.6
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -5.6,
+            -185.1
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R51",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            457,
+            1073
+          ],
+          "value": false
+        },
+        {
+          "id": "R53",
+          "type": "ZuiPythonComponent",
+          "nick": "PlaneConst",
+          "name": "Wasp_Plane Constraint",
+          "pos": [
+            660,
+            1185
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            457,
+            1174
+          ],
+          "value": false
+        },
+        {
+          "id": "R55",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            455,
+            1202
+          ],
+          "value": false
+        },
+        {
+          "id": "R56",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            382,
+            1145
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            58.3,
+            1138.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 250
+        },
+        {
+          "id": "R58",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            298,
+            1146
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            455,
+            1231
+          ],
+          "value": false
+        },
+        {
+          "id": "R60",
+          "type": "Component_YZPlane",
+          "nick": "YZ",
+          "name": "YZ Plane",
+          "pos": [
+            489,
+            1145
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            684,
+            1691
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "panel",
+          "pos": [
+            519.3,
+            1698.4
+          ],
+          "content": "-500 to 500"
+        },
+        {
+          "id": "R63",
+          "type": "Component_IsoCurve",
+          "nick": "Iso",
+          "name": "Iso Curve",
+          "pos": [
+            797,
+            1701
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            593,
+            1759
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            677,
+            1767
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -92,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I0",
+        "R12.O0>R1.I1",
+        "R13.O0>R1.I2",
+        "R14.O0>R1.I3",
+        "R7.O0>R2.I0",
+        "R8.O0>R2.I1",
+        "R9.O0>R2.I2",
+        "R11.O0>R2.I3",
+        "R25.O0>R3.I0",
+        "R23.O0>R3.I1",
+        "R24.O0>R3.I2",
+        "R52.O0>R3.I3",
+        "R20.O0>R4.I0",
+        "R21.O0>R4.I1",
+        "R22.O0>R4.I2",
+        "R6.O0>R5.I0",
+        "R18.O0>R5.I2",
+        "R16.O0>R5.I3",
+        "R29.O0>R5.I6",
+        "R28.O0>R5.I7",
+        "R30.O0>R5.I9",
+        "R10.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R15.O0>R6.I2",
+        "R2.O0>R15.I0",
+        "R1.O0>R15.I1",
+        "R6.O0>R16.I0",
+        "R17.O0>R16.I3",
+        "R5.O1>R19.I0",
+        "R26.O0>R25.I0",
+        "R35.O0>R26.I1",
+        "R4.O0>R28.I0",
+        "R3.O0>R28.I1",
+        "R53.O0>R28.I2",
+        "R32.O0>R31.I1",
+        "R5.O1>R32.I0",
+        "R31.O0>R33.I2",
+        "R19.O0>R34.I0",
+        "R33.O0>R34.I1",
+        "R27.O0>R35.I0",
+        "R20.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R37.O0>R36.I2",
+        "R36.O0>R38.I0",
+        "R40.O0>R38.I1",
+        "R39.O0>R40.I0",
+        "R39.O0>R40.I1",
+        "R25.O0>R41.I0",
+        "R42.O0>R41.I1",
+        "R42.O0>R41.I2",
+        "R41.O0>R43.I0",
+        "R45.O0>R43.I1",
+        "R44.O0>R45.I0",
+        "R44.O0>R45.I1",
+        "R60.O0>R53.I0",
+        "R54.O0>R53.I1",
+        "R55.O0>R53.I2",
+        "R59.O0>R53.I3",
+        "R58.O0>R56.I1",
+        "R57.O0>R58.I0",
+        "R56.O0>R60.I0",
+        "R60.O0>R61.I0",
+        "R62.O0>R61.I1",
+        "R62.O0>R61.I2",
+        "R61.O0>R63.I0",
+        "R65.O0>R63.I1",
+        "R64.O0>R65.I0",
+        "R64.O0>R65.I1",
+        "R66.O0>R68.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R50",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            218.7,
+            -267.3
+          ],
+          "nearby": [
+            "R68",
+            "R7",
+            "R8",
+            "R2",
+            "R9",
+            "R66",
+            "R12",
+            "R15"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "04_3_Global_Constraints_Plane",
+          "text": "04_3_Global_Constraints_Plane",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            34.2,
+            40.7
+          ]
+        },
+        {
+          "step": "3",
+          "title": "PLANE CONSTRAINTS",
+          "text": "PLANE CONSTRAINTS\r\nPlane constraints allow to constrain the growth of an aggregation\r\nonly on the positive or negative Z (set with the POS input) of a given plane.\r\nConstraints can be \"soft\", meaning that only the centroid of the part\r\nis checked against the constraint, or \"hard\", meaning that also the geometry\r\nis checked for intersections (set by the SOFT input).\r\nAdditionally, the REQ input can be used to define if a constraint is necessary\r\nor optional. If using a mis of necessary and optional constraints, the aggregation\r\nwill try to place all parts which have all necessary constraints satisfyed, and\r\nat least one of the optional ones.",
+          "nearby_components": [
+            "Curve",
+            "Point",
+            "Curve",
+            "Point",
+            "Wasp_Connection From Direction",
+            "NumberSlider",
+            "Geometry",
+            "Wasp_Connection From Direction"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            80.6,
+            567.8
+          ]
+        },
+        {
+          "step": "4",
+          "title": "VISUALIZE PLANE CONSTRAINTS",
+          "text": "VISUALIZE PLANE CONSTRAINTS",
+          "nearby_components": [
+            "Toggle",
+            "Toggle",
+            "Toggle"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            495,
+            1290.6
+          ]
+        },
+        {
+          "step": "5",
+          "title": "CONSTRAINT MODE",
+          "text": "CONSTRAINT MODE\r\nConstraint mode is set to 2 to activate\r\nglobal constraints check.",
+          "nearby_components": [
+            "NumberSlider",
+            "NumberSlider"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1267.3,
+            122.1
+          ]
+        }
+      ]
+    }
+  }
+}

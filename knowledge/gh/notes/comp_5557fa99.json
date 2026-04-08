@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_5557fa99",
+  "note_type": "component",
+  "name": "Reverse",
+  "brief": "Reverse | Inputs: V → V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Reverse. Inputs: V (Vector). Outputs: V (Vector).",
+  "keywords": [
+    "reverse",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "reverse"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Reverse"
+  ],
+  "solution_principle": "Reverse a vector (multiply by -1).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_53b0ce5c",
+    "comp_b9817b61",
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_77cfd279",
+    "comp_fcefbd42",
+    "comp_62548e45",
+    "comp_ca9d93b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d5788074-d75d-4021-b1a3-0bf992928584",
+    "category": "vector_ops",
+    "inputs": {
+      "V": "Vector"
+    },
+    "outputs": {
+      "V": "Vector"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|vector|reverse"
+  }
+}

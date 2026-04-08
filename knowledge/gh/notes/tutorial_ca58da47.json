@@ -1,0 +1,85 @@
+{
+  "note_id": "tutorial_ca58da47",
+  "note_type": "teaching",
+  "name": "Intermediate 4-3: Shatter Curve \u00e2\u20ac\u201d Split and Pipe Segments",
+  "brief": "Shatter curve at Range parameters \u00e2\u2020\u2019 List Item to select segments \u00e2\u2020\u2019 Pipe (radius slider) \u00e2\u2020\u2019 Cap Holes. Splitting curves into segments.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.216023Z",
+  "context": "Single definition showing curve segmentation. Curve param \u00e2\u2020\u2019 Shatter component (Curve, Parameters from Range output). Range generates evenly spaced parameter values along the curve. Shatter splits the curve at those parameters into individual segments. List Item: selects specific segments from the shattered curve list by index. Selected segments \u00e2\u2020\u2019 Pipe component (Curve, Radius from slider) \u00e2\u2020\u2019 creates tubular geometry. Cap Holes: closes the open ends of pipes. Demonstrates how to work with individual curve segments after splitting.",
+  "keywords": [
+    "shatter curve",
+    "split curve",
+    "pipe",
+    "list item",
+    "curve segments",
+    "cap holes"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "curve-operations",
+    "shatter",
+    "pipe",
+    "list-item",
+    "segmentation",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "shatter curve into segments",
+    "split curve at parameters",
+    "pipe from curve segment",
+    "list item select segment",
+    "curve segmentation grasshopper",
+    "shatter range pipe pattern"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve",
+    "Range",
+    "Shatter",
+    "List Item",
+    "Pipe",
+    "Cap Holes",
+    "Number Slider"
+  ],
+  "solution_principle": "Shatter splits a curve at specified parameter values into separate segments. Range generates the split parameters (evenly spaced). List Item selects specific segments by index for individual processing. Pipe creates tubular geometry from curves \u00e2\u20ac\u201d radius controls thickness. Cap Holes closes open Brep ends. This Shatter \u00e2\u2020\u2019 select \u00e2\u2020\u2019 process pattern is fundamental for working with curve segments.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_9e2a929b",
+    "tutorial_7880dc50",
+    "tutorial_b80b38d3",
+    "tutorial_6a31371d",
+    "teaching_24f645a3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.216023Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-3.jpg",
+    "lesson_number": 4,
+    "step_number": 3,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Curve": 1,
+      "Range": 1,
+      "Shatter": 1,
+      "List Item": 1,
+      "Pipe": 1,
+      "Cap Holes": 1,
+      "Number Slider": 1
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_47a89531",
+  "note_type": "component",
+  "name": "Blend Box",
+  "brief": "Blend Box | Inputs: Sa, Da, Sb, Db → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Blend Box. Inputs: Sa (Surface), Da (Domain²), Sb (Surface), Db (Domain²). Outputs: B (Twisted Box).",
+  "keywords": [
+    "blend box",
+    "blend",
+    "box",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "blend box",
+    "blend",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Blend Box"
+  ],
+  "solution_principle": "Create a twisted box between two surfaces.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_18607aa4",
+    "comp_c5155393",
+    "comp_bce12009",
+    "teaching_0abb40f1",
+    "comp_ef96fa08"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6283fb37-e273-4eb2-8d2a-e347881e3928",
+    "category": "morphing",
+    "inputs": {
+      "Sa": "Surface",
+      "Da": "Domain²",
+      "Sb": "Surface",
+      "Db": "Domain²"
+    },
+    "outputs": {
+      "B": "Twisted Box"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4f65c681-9331-4818-9d54-6290cae686c3"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|blend box"
+  }
+}

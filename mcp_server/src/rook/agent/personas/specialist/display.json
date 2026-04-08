@@ -1,0 +1,8 @@
+{
+  "label": "Specialist",
+  "description": "Complex GH composition, boolean chains, multi-step spatial reasoning",
+  "color": "#e74c3c",
+  "model_role": "specialist",
+  "tool_access": "full",
+  "avatar": null
+}

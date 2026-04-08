@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_54e23644",
+  "note_type": "component",
+  "name": "Consecutive Domains",
+  "brief": "Consecutive Domains | Inputs: N, A → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Consecutive Domains. Inputs: N (Number), A (Boolean). Outputs: D (Domain).",
+  "keywords": [
+    "consecutive domains",
+    "consecutive",
+    "domains",
+    "domain_ops"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "domain_ops"
+  ],
+  "trigger_intents": [
+    "consecutive domains",
+    "consecutive",
+    "domains"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Consecutive Domains"
+  ],
+  "solution_principle": "Create consecutive domains from a list of numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b68c5872",
+    "comp_0a8cb426",
+    "comp_63777d62",
+    "comp_8368fa19",
+    "comp_21348da4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "95992b33-89e1-4d36-bd35-2754a11af21e",
+    "category": "domain_ops",
+    "inputs": {
+      "N": "Number",
+      "A": "Boolean"
+    },
+    "outputs": {
+      "D": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|domain|consecutive domains"
+  }
+}

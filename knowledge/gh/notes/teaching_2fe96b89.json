@@ -1,0 +1,177 @@
+{
+  "note_id": "teaching_2fe96b89",
+  "note_type": "teaching",
+  "name": "U02 - Editing the referenced Rhino Surface",
+  "brief": "Teaching: Editing the referenced Rhino Surface",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "12- Editing the referenced Rhino Surface:\r\n\r\n- Select the Rhino surface that is referenced inside Grasshopper.\r\n\r\n- Click on \"Points On\" and change some of the corner points.\r\nYou will notice that while doing so, all the Grasshopper parametric geometries update accordingly.\r\n\r\n- This is a basic example showing the power of Grasshopper as a Parametric Tool with which you can go back and change something at the beginning of your design process while not losing any of the steps along your Parametri",
+  "keywords": [
+    "editing",
+    "the",
+    "referenced",
+    "rhino",
+    "surface",
+    "offset",
+    "numberslider",
+    "booleantoggle",
+    "divide surface",
+    "move",
+    "amplitude",
+    "line",
+    "multidimensionalslider",
+    "unit 02 class"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "rhino-reference",
+    "surface-operations",
+    "hands-on",
+    "annotated",
+    "unit-02",
+    "copying-behavior",
+    "surface-editing",
+    "surface-creation",
+    "high-priority",
+    "tutorial",
+    "beginner",
+    "error-handling",
+    "best-practices",
+    "workflow",
+    "teaching"
+  ],
+  "trigger_intents": [
+    "editing the referenced rhino surface",
+    "how to use editing the referenced rhino surface",
+    "how to use offset",
+    "how to use surface",
+    "how to use booleantoggle",
+    "how to use divide surface",
+    "how to use move",
+    "how to use amplitude",
+    "how to use line",
+    "how to use multidimensionalslider",
+    "points on"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Offset",
+    "Surface",
+    "NumberSlider",
+    "BooleanToggle",
+    "Divide Surface",
+    "Move",
+    "Amplitude",
+    "Line",
+    "MultiDimensionalSlider"
+  ],
+  "solution_principle": "12- Editing the referenced Rhino Surface:\r\n\r\n- Select the Rhino surface that is referenced inside Grasshopper.\r\n\r\n- Click on \"Points On\" and change some of the corner points.\r\nYou will notice that while doing so, all the Grasshopper parametric geometries update accordingly.\r\n\r\n- This is a basic example showing the power of Grasshopper as a Parametric Tool with which you can go back and change something at the beginning of your design process while not losing any of the steps along your Parametric Definition.\r\n\r\n- You can even model a totally different surface in Rhino or Grasshopper and then use that new one to feed the Definition from its beginning.",
+  "anti_patterns": [],
+  "preconditions": [
+    "Assignment 2b:\r\n\r\n- Take a look at the \"Offset Surface\" component & the \"Amplitude\" of the vector given to make the Normal Lines onto the Surface above.\r\n\r\n- Use the same number to both the D INPUT of"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_13c22f6b",
+    "teaching_26b87a73",
+    "teaching_b85f762f",
+    "teaching_d9d15b6e",
+    "teaching_801cb203",
+    "teaching_567ea1e1",
+    "teaching_336d7638",
+    "teaching_3c21c714",
+    "teaching_f59f973f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.258773Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": 12,
+    "section_index": 13,
+    "x_range": [
+      15297.1,
+      16557.7
+    ],
+    "full_teaching_text": "12- Editing the referenced Rhino Surface:\r\n\r\n- Select the Rhino surface that is referenced inside Grasshopper.\r\n\r\n- Click on \"Points On\" and change some of the corner points.\r\nYou will notice that while doing so, all the Grasshopper parametric geometries update accordingly.\r\n\r\n- This is a basic example showing the power of Grasshopper as a Parametric Tool with which you can go back and change something at the beginning of your design process while not losing any of the steps along your Parametric Definition.\r\n\r\n- You can even model a totally different surface in Rhino or Grasshopper and then use that new one to feed the Definition from its beginning.",
+    "sub_annotations": [
+      {
+        "id": "C142",
+        "text": "Assignment 2b:\r\n\r\n- Take a look at the \"Offset Surface\" component & the \"Amplitude\" of the vector given to make the Normal Lines onto the Surface above.\r\n\r\n- Use the same number to both the D INPUT of the \"Offset Surface\" component and the A INPUT of the \"Amplitude\" component.\r\n\r\n- Turn the visibility of both the resultant offsetted surface and the resultant normal Lines ON.\r\n\r\n- Notice that when you change the number slider, the offsetted surface and the Lines changes simultaneously as if they are following each other...\r\n\r\n- This is an example of how you can use same numbers with many components' INPUTS.",
+        "topic": "Assignment 2b",
+        "pos": [
+          15298.3,
+          1351.2
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C172",
+      "C173",
+      "C174",
+      "C175",
+      "C176",
+      "C177",
+      "C178",
+      "C179",
+      "C391"
+    ],
+    "intra_section_flows": [
+      "C173.O0>C172.I0",
+      "C174.O0>C172.I1",
+      "C175.O0>C172.I2",
+      "C173.O0>C176.I0",
+      "C176.O0>C177.I0",
+      "C178.O0>C177.I1",
+      "C176.O1>C178.I0",
+      "C174.O0>C178.I1",
+      "C176.O0>C179.I0",
+      "C177.O0>C179.I1"
+    ],
+    "groups": [
+      {
+        "group_id": "G22",
+        "name": "",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G103",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G23",
+        "name": "",
+        "colour": "#FF00005F"
+      }
+    ],
+    "components_demonstrated": {
+      "Offset": 1,
+      "Surface": 1,
+      "NumberSlider": 1,
+      "BooleanToggle": 1,
+      "Divide Surface": 1,
+      "Move": 1,
+      "Amplitude": 1,
+      "Line": 1,
+      "MultiDimensionalSlider": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 1,
+      "working_components": 9,
+      "sub_labels": 1,
+      "connected_panels": 0,
+      "flows": 10,
+      "groups": 3
+    }
+  }
+}

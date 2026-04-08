@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_3ff9d3b7",
+  "note_type": "component",
+  "name": "Create XML from Tree",
+  "brief": "Create XML from Tree | Inputs: Write, Path, Tree → XML",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Create XML from Tree. Inputs: Write (Boolean), Path (Text), Tree (Text). Outputs: XML (Generic Data).",
+  "keywords": [
+    "create xml from tree",
+    "create",
+    "xml",
+    "from",
+    "tree",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "create xml from tree",
+    "create",
+    "from",
+    "tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create XML from Tree"
+  ],
+  "solution_principle": "Create XML from a Grasshopper tree containing text or numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64802dfe",
+    "comp_7bfacccc",
+    "comp_1d114717",
+    "comp_1db206a9",
+    "comp_68c9f86f",
+    "comp_d95ea85a",
+    "comp_8b146658",
+    "comp_779bd9b1",
+    "comp_1a3cec73"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "26e5dee7-a353-4d76-b0ee-48814b6ea92d",
+    "category": "lunchbox_data",
+    "inputs": {
+      "Write": "Boolean",
+      "Path": "Text",
+      "Tree": "Text"
+    },
+    "outputs": {
+      "XML": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0c252dd0-e91e-4e99-9315-8f15edf068da"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|create xml from tree"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "note_id": "comp_29b31edd",
+  "note_type": "component",
+  "name": "Mesh Join",
+  "brief": "Mesh Join | Inputs: M → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Mesh Join. Inputs: M (Mesh). Outputs: M (Mesh).",
+  "keywords": [
+    "mesh join",
+    "mesh",
+    "join",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "mesh join",
+    "mesh",
+    "join"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Join"
+  ],
+  "solution_principle": "Join a set of meshes into a single mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_32856052",
+    "comp_00ac6e55",
+    "comp_4ee8ef75",
+    "comp_d1c58c31",
+    "comp_d742578c",
+    "comp_16f5762a",
+    "comp_eaf39ce0",
+    "comp_e1903606",
+    "comp_c516bec0",
+    "comp_9000d88c",
+    "comp_08ab0b08",
+    "comp_29a1c0dd",
+    "comp_18d5859f",
+    "comp_1520b06d",
+    "comp_8cc7ac3b",
+    "comp_993babbd",
+    "comp_4091e805",
+    "comp_95a740ec"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4bc9dbbf-fec8-4348-a3af-e33e7edc8e7b",
+    "category": "mesh_utilities",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4dce5963-dc1a-4710-8991-9437ea23888d"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|util|mesh join"
+  }
+}

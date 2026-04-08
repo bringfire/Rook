@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_b08aa81b",
+  "note_type": "component",
+  "name": "Atom Data",
+  "brief": "Atom Data | Inputs: A → P, E, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Atom Data. Inputs: A (Atom). Outputs: P (Point), E (Text), C (Text), R (Text), e (Integer), O (Number), T (Number), AN (Integer), SN (Integer), RN (Integer).",
+  "keywords": [
+    "atom data",
+    "atom",
+    "data",
+    "input_params"
+  ],
+  "category": "input_params",
+  "tags": [
+    "input_params"
+  ],
+  "trigger_intents": [
+    "atom data",
+    "atom",
+    "data"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Atom Data"
+  ],
+  "solution_principle": "Get detailed information for an atom",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_fab85179",
+    "comp_b4f8e5de",
+    "comp_ed53587c",
+    "comp_8ab6343c",
+    "comp_b0f5c835"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7b371d04-53e3-47d8-b3dd-7b113c48bc59",
+    "category": "input_params",
+    "inputs": {
+      "A": "Atom"
+    },
+    "outputs": {
+      "P": "Point",
+      "E": "Text",
+      "C": "Text",
+      "R": "Text",
+      "e": "Integer",
+      "O": "Number",
+      "T": "Number",
+      "AN": "Integer",
+      "SN": "Integer",
+      "RN": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|input|atom data"
+  }
+}

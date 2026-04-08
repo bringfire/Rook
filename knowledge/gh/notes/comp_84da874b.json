@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_84da874b",
+  "note_type": "component",
+  "name": "Query Model Layers",
+  "brief": "Query Model Layers | Inputs: N → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Query Model Layers. Inputs: N (Text Pattern). Outputs: L (Model Layer).",
+  "keywords": [
+    "query model layers",
+    "query",
+    "model",
+    "layers",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "query model layers",
+    "query",
+    "model",
+    "layers"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Layers"
+  ],
+  "solution_principle": "Query a Rhino document for all available layers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b4164a54",
+    "comp_ad796399",
+    "comp_2d8cfb46",
+    "comp_4b17fa39",
+    "comp_ae5e70e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1778f81a-dbab-422c-9d84-98a5f6d260fb",
+    "category": "rhino_model",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "L": "Model Layer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "960a32ab-3e64-4075-855d-df701ee924e7",
+      "9ee31ba5-81a6-4f94-b256-7383f66a33ab"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|model|query model layers"
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "note_id": "teaching_d9d15b6e",
+  "note_type": "teaching",
+  "name": "U02 - Surface Evaluation 2",
+  "brief": "Teaching: Surface Evaluation 2",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "9- Surface Evaluation 2:\r\n\r\nThe \"Evaluate Surface\" component has two interesting OUTPUTS that we will discover now.\r\n\r\n1- \"P\", the resultant Point.\r\n2- \"N\", the normal at that resultant Point.\r\n\r\n- Use the definition that contains the MD Slider,\r\nand use the right combination of the following components to make a line normal to the surface at the resultant point:\r\n- \"Move\"\r\n- \"Amplitude\"\r\n- \"Number slider\"\r\n- \"Line\"\r\n\r\n\r\n- Now if you change the MD Slider, you will see that the line normal to the",
+  "keywords": [
+    "surface",
+    "evaluation",
+    "move",
+    "amplitude",
+    "numberslider",
+    "line",
+    "vector display",
+    "evaluate surface",
+    "unit 02 class",
+    "manipulate",
+    "moving",
+    "one",
+    "point",
+    "along",
+    "its",
+    "normal",
+    "away",
+    "from",
+    "offset",
+    "srf",
+    "solid",
+    "notice",
+    "that",
+    "the",
+    "evaluated",
+    "won",
+    "because",
+    "dimentional",
+    "geometry"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "unit-02",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "multi-group",
+    "surface to manipulate",
+    "offset srf solid",
+    "surface-evaluation",
+    "surface-operations",
+    "parametric-editing",
+    "surface-fundamentals"
+  ],
+  "trigger_intents": [
+    "surface evaluation 2",
+    "how to use surface evaluation 2",
+    "how to use surface",
+    "how to use move",
+    "how to use amplitude",
+    "how to use line",
+    "how to use vector display",
+    "how to use evaluate surface",
+    "evaluate surface",
+    "use the definition that contains the md slider,",
+    "amplitude",
+    "number slider",
+    "changes and also its respective",
+    "plane normal",
+    "to edit the display size of the plane, go to:"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Move",
+    "Amplitude",
+    "NumberSlider",
+    "Line",
+    "Vector Display",
+    "Evaluate Surface"
+  ],
+  "solution_principle": "9- Surface Evaluation 2:\r\n\r\nThe \"Evaluate Surface\" component has two interesting OUTPUTS that we will discover now.\r\n\r\n1- \"P\", the resultant Point.\r\n2- \"N\", the normal at that resultant Point.\r\n\r\n- Use the definition that contains the MD Slider,\r\nand use the right combination of the following components to make a line normal to the surface at the resultant point:\r\n- \"Move\"\r\n- \"Amplitude\"\r\n- \"Number slider\"\r\n- \"Line\"\r\n\r\n\r\n- Now if you change the MD Slider, you will see that the line normal to the surface changes as well. It moves on the surface and stays always normal to the surface.\r\n- This is possible because every time you change the MD Slider, the resultant \"P\" changes and also its respective \"N\", and therefore the Line formed by these resultants changes accordingly.\r\n\r\n\r\n- An interesting component that shows the local XY Plane at the Point Normal to the Surface is the \"Plane Normal\".\r\n- Use it in order to show the Plane Normal at the Point evaluated onto the surface. Then change the MD Slider and see how the Plane Normal also changes simultaneously with the Point and the Normal Line.\r\n- To edit the display size of the Plane, go to:\r\nDisplay > Preview Plane Size",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_2fe96b89",
+    "teaching_b85f762f",
+    "teaching_26b87a73",
+    "teaching_567ea1e1",
+    "teaching_21c34834",
+    "teaching_f59f973f",
+    "tutorial_c11f2ab4"
+  ],
+  "times_used": 80,
+  "times_succeeded": 80,
+  "retrieval_count": 0,
+  "last_accessed": "2026-04-06T19:47:37.124995Z",
+  "last_verified": "2026-04-06T19:47:37.124995Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": 9,
+    "section_index": 10,
+    "x_range": [
+      11209.4,
+      12840.2
+    ],
+    "full_teaching_text": "9- Surface Evaluation 2:\r\n\r\nThe \"Evaluate Surface\" component has two interesting OUTPUTS that we will discover now.\r\n\r\n1- \"P\", the resultant Point.\r\n2- \"N\", the normal at that resultant Point.\r\n\r\n- Use the definition that contains the MD Slider,\r\nand use the right combination of the following components to make a line normal to the surface at the resultant point:\r\n- \"Move\"\r\n- \"Amplitude\"\r\n- \"Number slider\"\r\n- \"Line\"\r\n\r\n\r\n- Now if you change the MD Slider, you will see that the line normal to the surface changes as well. It moves on the surface and stays always normal to the surface.\r\n- This is possible because every time you change the MD Slider, the resultant \"P\" changes and also its respective \"N\", and therefore the Line formed by these resultants changes accordingly.\r\n\r\n\r\n- An interesting component that shows the local XY Plane at the Point Normal to the Surface is the \"Plane Normal\".\r\n- Use it in order to show the Plane Normal at the Point evaluated onto the surface. Then change the MD Slider and see how the Plane Normal also changes simultaneously with the Point and the Normal Line.\r\n- To edit the display size of the Plane, go to:\r\nDisplay > Preview Plane Size",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C87",
+      "C88",
+      "C117",
+      "C118",
+      "C119",
+      "C121",
+      "C347",
+      "C348",
+      "C361",
+      "C363",
+      "C435",
+      "C461",
+      "C350"
+    ],
+    "intra_section_flows": [
+      "C118.O0>C117.I1",
+      "C119.O0>C118.I1",
+      "C117.O0>C121.I1",
+      "C348.O0>C347.I1",
+      "C350.O0>C348.I1"
+    ],
+    "groups": [
+      {
+        "group_id": "G63",
+        "name": "Surface to Manipulate",
+        "colour": "#47B3FF37"
+      },
+      {
+        "group_id": "G40",
+        "name": "Moving ONE point along its Normal away from Surface",
+        "colour": "#FFFF8549"
+      },
+      {
+        "group_id": "G43",
+        "name": "",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G44",
+        "name": "",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G88",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G42",
+        "name": "",
+        "colour": "#33AAFF"
+      },
+      {
+        "group_id": "G6",
+        "name": "Offset Srf Solid",
+        "colour": "#0E00CC75"
+      },
+      {
+        "group_id": "G11",
+        "name": "Notice that the evaluated Point won't go away from the Surface because the Surface is a 2-dimentional geometry",
+        "colour": "#FF000085"
+      }
+    ],
+    "components_demonstrated": {
+      "Surface": 3,
+      "Move": 1,
+      "Amplitude": 2,
+      "NumberSlider": 3,
+      "Line": 1,
+      "Vector Display": 2,
+      "Evaluate Surface": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 13,
+      "sub_labels": 0,
+      "connected_panels": 0,
+      "flows": 5,
+      "groups": 8
+    }
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

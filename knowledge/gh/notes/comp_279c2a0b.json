@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_279c2a0b",
+  "note_type": "component",
+  "name": "Brep | Brep",
+  "brief": "Brep | Brep | Inputs: A, B → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Brep | Brep. Inputs: A (Brep), B (Brep). Outputs: C (Curve), P (Point).",
+  "keywords": [
+    "brep | brep",
+    "brep",
+    "|",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "brep | brep",
+    "brep"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep | Brep"
+  ],
+  "solution_principle": "Solve intersection events for two Breps.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_df6a8c9a",
+    "comp_4e3057cb",
+    "comp_1f874e01",
+    "comp_1e6eaedf",
+    "comp_f3f53a23",
+    "comp_22d23745",
+    "comp_e8b825f1",
+    "comp_e70cf995",
+    "comp_1ed6f03d",
+    "comp_1db25892"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "904e4b56-484a-4814-b35f-aa4baf362117",
+    "category": "intersection_physical",
+    "inputs": {
+      "A": "Brep",
+      "B": "Brep"
+    },
+    "outputs": {
+      "C": "Curve",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|brep | brep"
+  }
+}

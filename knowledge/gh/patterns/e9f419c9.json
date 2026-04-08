@@ -1,0 +1,401 @@
+{
+  "pattern_id": "e9f419c9",
+  "name": "9-5",
+  "version": "1.0",
+  "created": "2026-02-22T14:23:40.760890Z",
+  "solution": {
+    "brief": "Recipe from FILES\\9\\9-5.gh (22 components)",
+    "principle": "",
+    "components_needed": [
+      "OcTree",
+      "Center Box",
+      "slider",
+      "Populate Geometry",
+      "slider",
+      "slider",
+      "slider",
+      "Random Reduce",
+      "slider",
+      "Area",
+      "Scale",
+      "slider",
+      "Solid Union",
+      "Mesh Brep",
+      "Weaverbird's Join Meshes and Weld",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Contour",
+      "slider",
+      "Boundary Surfaces",
+      "Extrude",
+      "Unit Z"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "9 5"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "b199ac1c",
+    "ef492b06"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "boolean",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R6",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": -10,
+          "max": 10,
+          "value": -3
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.4
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/9/9-5.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_OcTree",
+          "nick": "OcT",
+          "name": "OcTree",
+          "pos": [
+            518,
+            192
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_CenterBox",
+          "nick": "Box",
+          "name": "Center Box",
+          "pos": [
+            284,
+            142
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            35.6,
+            154.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R4",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            406,
+            172
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            155.2,
+            189.6
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "pos": [
+            157.7,
+            215.4
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 120
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            275.6,
+            245.6
+          ],
+          "min": -10,
+          "max": 10,
+          "value": -3
+        },
+        {
+          "id": "R8",
+          "type": "Component_RandomReduce",
+          "nick": "Reduce",
+          "name": "Random Reduce",
+          "pos": [
+            616,
+            197
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            369.9,
+            277.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R10",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            768,
+            174
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            871,
+            235
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            640.5,
+            248.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.4
+        },
+        {
+          "id": "R13",
+          "type": "Component_BooleanUnion",
+          "nick": "SUnion",
+          "name": "Solid Union",
+          "pos": [
+            974,
+            220
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            1083,
+            228
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "JoinComponent",
+          "nick": "wbJoin",
+          "name": "Weaverbird's Join Meshes and Weld",
+          "pos": [
+            1207,
+            228
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1323,
+            238
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            1083,
+            259.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R18",
+          "type": "Component_Contour1",
+          "name": "Contour",
+          "pos": [
+            1461,
+            268
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            1183.8,
+            297.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R20",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            1562,
+            268
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1668,
+            278
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1561,
+            351
+          ]
+        }
+      ],
+      "flows": [
+        "R4.O0>R1.I0",
+        "R7.O0>R1.I2",
+        "R3.O0>R2.I1",
+        "R3.O0>R2.I2",
+        "R3.O0>R2.I3",
+        "R2.O0>R4.I0",
+        "R5.O0>R4.I1",
+        "R6.O0>R4.I2",
+        "R1.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R8.O0>R10.I0",
+        "R8.O0>R11.I0",
+        "R10.O1>R11.I1",
+        "R12.O0>R11.I2",
+        "R14.O0>R15.I0",
+        "R15.O0>R16.I0",
+        "R17.O0>R16.I1",
+        "R16.O0>R18.I0",
+        "R19.O0>R18.I3",
+        "R18.O0>R20.I0",
+        "R20.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R19.O0>R22.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

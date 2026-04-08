@@ -1,0 +1,80 @@
+{
+  "note_id": "comp_0337df47",
+  "note_type": "component",
+  "name": "Merge 10",
+  "brief": "Merge 10 | Inputs: A, B, C, D \u2192 S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Merge 10. Inputs: A (Generic Data), B (Generic Data), C (Generic Data), D (Generic Data), E (Generic Data), F (Generic Data), G (Generic Data), H (Generic Data), I (Generic Data), J (Generic Data). Outputs: S (Generic Data).",
+  "keywords": [
+    "merge 10",
+    "merge",
+    "10",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "merge 10",
+    "merge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge 10"
+  ],
+  "solution_principle": "Merge ten streams into one.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_930cd728",
+    "comp_d92445a4",
+    "comp_5f78a545",
+    "comp_e163e947",
+    "comp_9390569c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "22f66ff6-d281-453c-bd8c-36ed24026783",
+    "category": "tree_operations",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data",
+      "C": "Generic Data",
+      "D": "Generic Data",
+      "E": "Generic Data",
+      "F": "Generic Data",
+      "G": "Generic Data",
+      "H": "Generic Data",
+      "I": "Generic Data",
+      "J": "Generic Data"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "481f0339-1299-43ba-b15c-c07891a8f822",
+      "3cadddef-1e2b-4c09-9390-0e8f78f7609f",
+      "c9785b8e-2f30-4f90-8ee3-cca710f82402"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|merge 10",
+    "family": "tree_operations"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

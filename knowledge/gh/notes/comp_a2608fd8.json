@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_a2608fd8",
+  "note_type": "component",
+  "name": "Weaverbird's Dual graph",
+  "brief": "Weaverbird's Dual graph | Inputs: M → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.463899Z",
+  "context": "Grasshopper component: Weaverbird's Dual graph. Inputs: M (DualModeEnum). Outputs: O (Geometry).",
+  "keywords": [
+    "weaverbird's dual graph",
+    "weaverbird's",
+    "dual",
+    "graph",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's dual graph",
+    "weaverbird's",
+    "dual",
+    "graph"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Dual graph"
+  ],
+  "solution_principle": "This component computes the weak dual of the mesh.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e3259f10",
+    "comp_0e69e087",
+    "comp_80deaa79",
+    "comp_b56590cd",
+    "comp_3756d5bc",
+    "comp_fd4acea1",
+    "comp_249dabb0",
+    "comp_093bbf10",
+    "comp_63fecbcb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "10ab6323-ee62-4d7e-a243-baac2ffa084b",
+    "category": "wb_extract",
+    "inputs": {
+      "M": "DualModeEnum"
+    },
+    "outputs": {
+      "O": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's dual graph"
+  }
+}

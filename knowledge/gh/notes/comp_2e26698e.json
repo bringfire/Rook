@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_2e26698e",
+  "note_type": "component",
+  "name": "Interpolate (t)",
+  "brief": "Interpolate (t) | Inputs: V, Ts, Te, K → C, L, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Interpolate (t). Inputs: V (Point), Ts (Vector), Te (Vector), K (Integer). Outputs: C (Curve), L (Number), D (Domain).",
+  "keywords": [
+    "interpolate (t)",
+    "interpolate",
+    "(t)",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "interpolate (t)",
+    "interpolate",
+    "(t)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Interpolate (t)"
+  ],
+  "solution_principle": "Create an interpolated curve through a set of points with tangents.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a4ce095c",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75eb156d-d023-42f9-a85e-2f2456b8bcce",
+    "category": "curves",
+    "inputs": {
+      "V": "Point",
+      "Ts": "Vector",
+      "Te": "Vector",
+      "K": "Integer"
+    },
+    "outputs": {
+      "C": "Curve",
+      "L": "Number",
+      "D": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6f0993e8-5f2f-4fc0-bd73-b84bc240e78e",
+      "7159ef59-e4ef-44b8-8cb2-91231e278292"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|spline|interpolate (t)"
+  }
+}

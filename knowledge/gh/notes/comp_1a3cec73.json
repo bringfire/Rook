@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_1a3cec73",
+  "note_type": "component",
+  "name": "Read CSV",
+  "brief": "Read CSV | Inputs: CSV, Delimit → Headers, Values",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Read CSV. Inputs: CSV (Text), Delimit (Text). Outputs: Headers (Generic Data), Values (Generic Data).",
+  "keywords": [
+    "read csv",
+    "read",
+    "csv",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "read csv",
+    "read"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Read CSV"
+  ],
+  "solution_principle": "Read a CSV string. (Comma Separated Value)",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9e8f42f8-8688-4718-a498-522d2263bf37",
+    "category": "lunchbox_data",
+    "inputs": {
+      "CSV": "Text",
+      "Delimit": "Text"
+    },
+    "outputs": {
+      "Headers": "Generic Data",
+      "Values": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "894ce9f3-45c4-41b4-9301-501bef0a84fa"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|read csv"
+  }
+}

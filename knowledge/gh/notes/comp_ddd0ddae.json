@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_ddd0ddae",
+  "note_type": "component",
+  "name": "Reverse List",
+  "brief": "Reverse List | Inputs: L → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Reverse List. Inputs: L (Generic Data). Outputs: L (Generic Data).",
+  "keywords": [
+    "reverse list",
+    "reverse",
+    "list",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "reverse list",
+    "reverse",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Reverse List"
+  ],
+  "solution_principle": "Reverse the order of a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_b573a316",
+    "comp_19ec081c",
+    "comp_c633e36d",
+    "comp_535c0613",
+    "comp_90238233",
+    "comp_8b8f3b4f",
+    "comp_04660496",
+    "comp_5eb04c57",
+    "comp_23d957e3",
+    "comp_b83b3d7e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6ec97ea8-c559-47a2-8d0f-ce80c794d1f4",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|list|reverse list"
+  }
+}

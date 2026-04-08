@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_0e13055a",
+  "note_type": "component",
+  "name": "View",
+  "brief": "View | Inputs: none \u2192 output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: View.",
+  "keywords": [
+    "view",
+    "geometry_params"
+  ],
+  "category": "geometry_params",
+  "tags": [
+    "geometry_params"
+  ],
+  "trigger_intents": [
+    "view"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "View"
+  ],
+  "solution_principle": "Contains a collection of view frames",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6da45012",
+    "comp_c98d2517",
+    "comp_5db06631",
+    "comp_46e1edc0",
+    "comp_4a4d2518"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7069208c-c471-4b82-bae6-e938f16dacb0",
+    "category": "geometry_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "3175e3eb-1ae0-4d0b-9395-53fd3e8f8a28"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|geometry|view",
+    "family": "geometry_params"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

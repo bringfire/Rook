@@ -1,0 +1,857 @@
+{
+  "pattern_id": "4ca65145",
+  "name": "3-2",
+  "version": "1.0",
+  "created": "2026-02-22T14:11:58.025946Z",
+  "solution": {
+    "brief": "Recipe from FILES\\3\\3-2.gh (54 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Plane Surface",
+      "XZ Plane",
+      "slider",
+      "slider",
+      "Triangular Panels A",
+      "Deconstruct Brep",
+      "Rotate Axis",
+      "List Item",
+      "Evaluate Surface",
+      "MD Slider",
+      "MD Slider",
+      "Area",
+      "Closest Point",
+      "Remap+",
+      "Graph Mapper",
+      "Remap+",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Square",
+      "slider",
+      "Area",
+      "Curve Closest Point",
+      "Scale",
+      "Remap+",
+      "slider",
+      "slider",
+      "Orient Direction",
+      "Unit X",
+      "Vector 2Pt",
+      "Circle",
+      "slider",
+      "Perp Frames",
+      "slider",
+      "Polygon",
+      "slider",
+      "slider",
+      "Rotate",
+      "Series",
+      "slider",
+      "Explode",
+      "List Item",
+      "Interpolate",
+      "Interpolate",
+      "Interpolate",
+      "Interpolate",
+      "Sphere",
+      "slider",
+      "Pipe",
+      "slider",
+      "Pipe",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "3 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "7b1c3e85",
+    "fdbc67df",
+    "91aa15f3"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "recipe",
+    "mid-complexity",
+    "54-components",
+    "surface-creation",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 21
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 85
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.71
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12.5
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3.81
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.11
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "surface",
+    "source_definition": "FILES/3/3-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            22,
+            28
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            379,
+            224
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_XZPlane",
+          "nick": "XZ",
+          "name": "XZ Plane",
+          "pos": [
+            278,
+            217
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            110,
+            234.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 21
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            110.4,
+            253.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R6",
+          "type": "TriA",
+          "nick": "TriA",
+          "name": "Triangular Panels A",
+          "pos": [
+            467,
+            127
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            1114,
+            149
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_RotateAxis",
+          "nick": "RotAx",
+          "name": "Rotate Axis",
+          "pos": [
+            1433,
+            149
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1255,
+            169
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            501,
+            356
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            115.8,
+            308.7
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            230,
+            308.4
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            630,
+            197
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            770,
+            257
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            899,
+            299
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            998.5,
+            195
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            1272,
+            299
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            945.9,
+            358.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 0
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            945.6,
+            392
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 85
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            104.7,
+            118.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            105,
+            138
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 11
+        },
+        {
+          "id": "R22",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            389,
+            502
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            104.7,
+            522.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R24",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            511,
+            520
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            643,
+            583
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            943,
+            491
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            795,
+            638
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            476,
+            648.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            475.5,
+            622.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.71
+        },
+        {
+          "id": "R30",
+          "type": "Component_OrientDir",
+          "nick": "Orient",
+          "name": "Orient Direction",
+          "pos": [
+            1231,
+            526
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            1040,
+            577
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            1042,
+            627
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            350,
+            737
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            95.2,
+            737.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12.5
+        },
+        {
+          "id": "R35",
+          "type": "Component_CurvePerpFrames",
+          "nick": "PFrames",
+          "name": "Perp Frames",
+          "pos": [
+            466,
+            762
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            97.3,
+            770.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R37",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            621,
+            842
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            349.7,
+            851.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            353.6,
+            821.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.81
+        },
+        {
+          "id": "R40",
+          "type": "Component_Rotate",
+          "name": "Rotate",
+          "pos": [
+            780,
+            848
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            574,
+            949
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            321.1,
+            939.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R43",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            898,
+            864
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            998,
+            936
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1254,
+            942
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1254,
+            1028
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1254,
+            1114
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1254,
+            1201
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            1354,
+            816
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            1097.3,
+            816.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.75
+        },
+        {
+          "id": "R51",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1604,
+            936
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "slider",
+          "pos": [
+            1350.8,
+            927.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.25
+        },
+        {
+          "id": "R53",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            1265,
+            1310
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "pos": [
+            999.5,
+            1301.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.11
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R4.O0>R2.I1",
+        "R5.O0>R2.I2",
+        "R2.O0>R6.I0",
+        "R20.O0>R6.I1",
+        "R21.O0>R6.I2",
+        "R6.O0>R7.I0",
+        "R7.O0>R8.I0",
+        "R17.O0>R8.I1",
+        "R9.O1>R8.I2",
+        "R7.O1>R9.I0",
+        "R2.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R12.O0>R10.I1",
+        "R6.O0>R13.I0",
+        "R13.O1>R14.I0",
+        "R10.O0>R14.I1",
+        "R14.O2>R15.I0",
+        "R16.O0>R17.I0",
+        "R18.O0>R17.I1",
+        "R19.O0>R17.I2",
+        "R23.O0>R22.I2",
+        "R23.O0>R22.I3",
+        "R22.O0>R24.I0",
+        "R24.O1>R25.I0",
+        "R22.O0>R26.I0",
+        "R24.O1>R26.I1",
+        "R27.O0>R26.I2",
+        "R25.O2>R27.I0",
+        "R29.O0>R27.I1",
+        "R28.O0>R27.I2",
+        "R26.O0>R30.I0",
+        "R24.O1>R30.I1",
+        "R31.O0>R30.I2",
+        "R24.O1>R30.I3",
+        "R32.O0>R30.I4",
+        "R24.O1>R32.I0",
+        "R25.O0>R32.I1",
+        "R34.O0>R33.I1",
+        "R33.O0>R35.I0",
+        "R36.O0>R35.I1",
+        "R35.O0>R37.I0",
+        "R39.O0>R37.I1",
+        "R38.O0>R37.I2",
+        "R37.O0>R40.I0",
+        "R41.O0>R40.I1",
+        "R35.O0>R40.I2",
+        "R42.O0>R41.I1",
+        "R36.O0>R41.I2",
+        "R40.O0>R43.I0",
+        "R43.O1>R44.I0",
+        "R44.O0>R45.I0",
+        "R44.O1>R46.I0",
+        "R44.O2>R47.I0",
+        "R44.O3>R48.I0",
+        "R43.O1>R49.I0",
+        "R50.O0>R49.I1",
+        "R45.O0>R51.I0",
+        "R46.O0>R51.I0",
+        "R47.O0>R51.I0",
+        "R48.O0>R51.I0",
+        "R52.O0>R51.I1",
+        "R40.O0>R53.I0",
+        "R54.O0>R53.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

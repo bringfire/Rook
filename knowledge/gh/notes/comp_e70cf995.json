@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_e70cf995",
+  "note_type": "component",
+  "name": "Collision Many|Many",
+  "brief": "Collision Many|Many | Inputs: C → C, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Collision Many|Many. Inputs: C (Geometry). Outputs: C (Boolean), I (Integer).",
+  "keywords": [
+    "collision many|many",
+    "collision",
+    "many|many",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "collision many|many",
+    "collision",
+    "many|",
+    "many"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Collision Many|Many"
+  ],
+  "solution_principle": "Test for many|many collision between objects",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_df6a8c9a",
+    "comp_4e3057cb",
+    "comp_1f874e01",
+    "comp_279c2a0b",
+    "comp_22d23745"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2168853c-acd8-4a63-9c9b-ecde9e239eae",
+    "category": "intersection_physical",
+    "inputs": {
+      "C": "Geometry"
+    },
+    "outputs": {
+      "C": "Boolean",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|collision many|many"
+  }
+}

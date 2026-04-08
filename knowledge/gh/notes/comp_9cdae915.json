@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_9cdae915",
+  "note_type": "component",
+  "name": "Mesh WeldVertices",
+  "brief": "Mesh WeldVertices | Inputs: Mesh, tolerance → RuntimeMessage, Mesh",
+  "version": "1.0",
+  "created": "2026-03-19T18:15:05.760528Z",
+  "context": "Grasshopper component: Mesh WeldVertices. ",
+  "keywords": [
+    "mesh weldvertices",
+    "unknown",
+    "mesh",
+    "weldvertices"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "mesh weldvertices",
+    "mesh",
+    "weld",
+    "vertices",
+    "weldvertices"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh WeldVertices"
+  ],
+  "solution_principle": "Mesh WeldVertices | Inputs: Mesh, tolerance → RuntimeMessage, Mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "f1f51397-fc4b-44cf-b4b0-0ab80a80a6e1",
+    "category": "unknown",
+    "inputs": {
+      "Mesh": "Mesh",
+      "tolerance": "tolerance"
+    },
+    "outputs": {
+      "RuntimeMessage": "RuntimeMessage",
+      "Mesh": "Mesh"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|util|mesh weldvertices"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

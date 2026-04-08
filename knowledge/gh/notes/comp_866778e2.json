@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_866778e2",
+  "note_type": "component",
+  "name": "Length Parameter",
+  "brief": "Length Parameter | Inputs: C, t → L-, L+",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Length Parameter. Inputs: C (Curve), t (Number). Outputs: L- (Number), L+ (Number).",
+  "keywords": [
+    "length parameter",
+    "length",
+    "parameter",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "length parameter",
+    "length",
+    "parameter"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Length Parameter"
+  ],
+  "solution_principle": "Measure the length of a curve to and from a parameter.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b59df947",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a1c16251-74f0-400f-9e7c-5e379d739963",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "t": "Number"
+    },
+    "outputs": {
+      "L-": "Number",
+      "L+": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6b2a5853-07aa-4329-ba84-0a5d46b51dbd"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|length parameter"
+  }
+}

@@ -1,0 +1,997 @@
+{
+  "pattern_id": "ef483dc2",
+  "name": "12-7",
+  "version": "1.0",
+  "created": "2026-02-22T13:58:33.635656Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\12-7.gh (70 components)",
+    "principle": "\n\nRelated insight: Part of extended 12-series recipes (confirmed through 12-8), with 70 components fitting into broader complexity pattern of specialized approaches.\n\nRelated insight: Cross-series insight: S18 series (episode-style naming like S18E06) contrasts with numbered 12-series, indicating different organizational approaches for recipe collections.",
+    "components_needed": [
+      "Bifocals",
+      "Circle",
+      "Extrude",
+      "slider",
+      "Unit Z",
+      "Mesh Surface",
+      "EdgeLengths",
+      "slider",
+      "NakedVertices",
+      "Anchor",
+      "BouncySolver",
+      "Show",
+      "Button",
+      "List Item",
+      "Weld Mesh",
+      "Area",
+      "Text Tag 3D",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Expression",
+      "Multiplication",
+      "Toggle",
+      "SoapFilm",
+      "TangentialSmooth",
+      "Circle",
+      "Extrude",
+      "slider",
+      "Unit Z",
+      "Mesh Surface",
+      "Weld Mesh",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Expression",
+      "Multiplication",
+      "BouncySolver",
+      "NakedVertices",
+      "Anchor",
+      "Show",
+      "Triangulate",
+      "List Item",
+      "Area",
+      "Text Tag 3D",
+      "Toggle",
+      "Curve",
+      "Boundary Surfaces",
+      "Mesh Brep",
+      "Settings (Custom)",
+      "slider",
+      "Mesh Edges",
+      "Join Curves",
+      "Explode",
+      "End Points",
+      "List Item",
+      "Curve Closest Point",
+      "Sort List",
+      "List Item",
+      "Move",
+      "Gene Pool",
+      "Unit Z",
+      "OnCurve",
+      "LiveSoap",
+      "Button",
+      "BouncySolver",
+      "Show",
+      "Toggle",
+      "List Item",
+      "Vector XYZ",
+      "Gene Pool"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "12 7"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "0486b272",
+    "36b862a1",
+    "81915ce5",
+    "6482148e",
+    "fdc3f209",
+    "64ff9dee"
+  ],
+  "tags": [
+    "curves",
+    "cross-series",
+    "surface-creation",
+    "parametric",
+    "workflow",
+    "series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:08:18.916664",
+    "evolved_by": [
+      "fdc3f209",
+      "64ff9dee"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T08:59:23.861706",
+        "trigger": "New pattern: fdc3f209",
+        "changes": "12-7 is now confirmed as part of larger series extending to at least 12-8"
+      },
+      {
+        "date": "2026-02-22T09:08:18.916664",
+        "trigger": "New pattern: 64ff9dee",
+        "changes": "Adding cross-series perspective enhances understanding of recipe organization patterns"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/12/12-7.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            44,
+            19
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            284,
+            175
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            375,
+            186
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            21,
+            241.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R5",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            284,
+            216
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            527,
+            262
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            1007,
+            288
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            573.2,
+            176.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R9",
+          "type": "NakedVertices",
+          "nick": "NV",
+          "name": "NakedVertices",
+          "pos": [
+            804,
+            342
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            1011,
+            356
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1260,
+            342
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            992,
+            222
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            940,
+            408
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1401,
+            424
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_MeshWeld",
+          "nick": "Weld",
+          "name": "Weld Mesh",
+          "pos": [
+            622,
+            277
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            1485,
+            424
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "TextTag3DComponent",
+          "nick": "Tag",
+          "name": "Text Tag 3D",
+          "pos": [
+            1632,
+            456
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            20.2,
+            175.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R19",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            362,
+            285
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "slider",
+          "pos": [
+            109.8,
+            285
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R21",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            203,
+            410
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            361,
+            392
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            941,
+            436
+          ],
+          "value": false
+        },
+        {
+          "id": "R24",
+          "type": "SoapFilmMeshComponent",
+          "nick": "SG",
+          "name": "SoapFilm",
+          "pos": [
+            913,
+            744
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "TangentialSmoothComponent",
+          "nick": "TSmooth",
+          "name": "TangentialSmooth",
+          "pos": [
+            911,
+            827
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            355,
+            666
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            446,
+            677
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            92.8,
+            732.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R29",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            355,
+            707
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_MeshSurfaceUV",
+          "nick": "Mesh UV",
+          "name": "Mesh Surface",
+          "pos": [
+            598,
+            753
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_MeshWeld",
+          "nick": "Weld",
+          "name": "Weld Mesh",
+          "pos": [
+            684,
+            755
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "pos": [
+            92,
+            666.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R33",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            433,
+            776
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            181.6,
+            776.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R35",
+          "type": "Component_Expression",
+          "name": "Expression",
+          "pos": [
+            274,
+            901
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            432,
+            883
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1160,
+            804
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "NakedVertices",
+          "nick": "NV",
+          "name": "NakedVertices",
+          "pos": [
+            761,
+            908
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            957,
+            925
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            902,
+            671
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_MeshTriangulate",
+          "nick": "Tri",
+          "name": "Triangulate",
+          "pos": [
+            760,
+            647
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1296,
+            892
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            1379,
+            892
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "TextTag3DComponent",
+          "nick": "Tag",
+          "name": "Text Tag 3D",
+          "pos": [
+            1476,
+            921
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            922,
+            990
+          ],
+          "value": false
+        },
+        {
+          "id": "R46",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            306.4,
+            1151.3
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            385,
+            1150
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            502,
+            1160
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_MeshSettingsCustom",
+          "nick": "Custom Mesh Settings",
+          "name": "Settings (Custom)",
+          "pos": [
+            386,
+            1324
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "pos": [
+            99.7,
+            1391.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R51",
+          "type": "Component_MeshEdges",
+          "nick": "MEdges",
+          "name": "Mesh Edges",
+          "pos": [
+            594,
+            1160
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_JoinCurves",
+          "nick": "Join",
+          "name": "Join Curves",
+          "pos": [
+            696,
+            1125
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            781,
+            1135
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            899,
+            1101
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            996,
+            1111
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1119,
+            1184
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            1235,
+            1214
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1346,
+            1239
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1475,
+            1310
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            999.3,
+            1326.7
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1300,
+            1347
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "OnCurveComponent",
+          "name": "OnCurve",
+          "pos": [
+            1778,
+            1381
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "LiveSoapComponent",
+          "nick": "LS",
+          "name": "LiveSoap",
+          "pos": [
+            1763,
+            1272
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            1492,
+            1422
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1942,
+            1364
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            1759,
+            1192
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1709,
+            1450
+          ],
+          "value": false
+        },
+        {
+          "id": "R68",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2073,
+            1429
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_ConstructVector",
+          "nick": "Vec",
+          "name": "Vector XYZ",
+          "pos": [
+            1318,
+            1435
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            997.6,
+            1450.4
+          ]
+        }
+      ],
+      "flows": [
+        "R18.O0>R2.I1",
+        "R2.O0>R3.I0",
+        "R5.O0>R3.I1",
+        "R4.O0>R5.I0",
+        "R3.O0>R6.I0",
+        "R19.O0>R6.I1",
+        "R22.O0>R6.I2",
+        "R15.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R15.O0>R9.I0",
+        "R9.O3>R10.I0",
+        "R10.O0>R11.I0",
+        "R7.O0>R11.I0",
+        "R12.O0>R11.I0",
+        "R13.O0>R11.I1",
+        "R23.O0>R11.I6",
+        "R15.O0>R12.I0",
+        "R11.O2>R14.I0",
+        "R6.O0>R15.I0",
+        "R14.O0>R16.I0",
+        "R16.O1>R17.I0",
+        "R16.O0>R17.I1",
+        "R4.O0>R19.I0",
+        "R20.O0>R19.I1",
+        "R18.O0>R21.I0",
+        "R21.O0>R22.I0",
+        "R20.O0>R22.I1",
+        "R41.O0>R24.I0",
+        "R31.O0>R25.I0",
+        "R41.O0>R25.I0",
+        "R32.O0>R26.I1",
+        "R26.O0>R27.I0",
+        "R29.O0>R27.I1",
+        "R28.O0>R29.I0",
+        "R27.O0>R30.I0",
+        "R33.O0>R30.I1",
+        "R36.O0>R30.I2",
+        "R30.O0>R31.I0",
+        "R28.O0>R33.I0",
+        "R34.O0>R33.I1",
+        "R32.O0>R35.I0",
+        "R35.O0>R36.I0",
+        "R34.O0>R36.I1",
+        "R24.O0>R37.I0",
+        "R25.O0>R37.I0",
+        "R39.O0>R37.I0",
+        "R40.O0>R37.I0",
+        "R45.O0>R37.I6",
+        "R31.O0>R38.I0",
+        "R41.O0>R38.I0",
+        "R38.O3>R39.I0",
+        "R41.O0>R40.I0",
+        "R31.O0>R41.I0",
+        "R37.O2>R42.I0",
+        "R42.O0>R43.I0",
+        "R43.O1>R44.I0",
+        "R43.O0>R44.I1",
+        "R46.O0>R47.I0",
+        "R47.O0>R48.I0",
+        "R49.O0>R48.I1",
+        "R50.O0>R49.I8",
+        "R50.O0>R49.I9",
+        "R48.O0>R51.I0",
+        "R51.O0>R52.I0",
+        "R52.O0>R53.I0",
+        "R53.O0>R54.I0",
+        "R54.O0>R55.I0",
+        "R55.O0>R56.I0",
+        "R46.O0>R56.I1",
+        "R56.O2>R57.I0",
+        "R46.O0>R57.I1",
+        "R57.O1>R58.I0",
+        "R58.O0>R59.I0",
+        "R69.O0>R59.I1",
+        "R60.O0>R61.I0",
+        "R54.O0>R62.I0",
+        "R59.O0>R62.I1",
+        "R48.O0>R63.I0",
+        "R64.O0>R63.I4",
+        "R63.O0>R65.I0",
+        "R62.O0>R65.I0",
+        "R66.O0>R65.I0",
+        "R64.O0>R65.I1",
+        "R67.O0>R65.I6",
+        "R48.O0>R66.I0",
+        "R65.O2>R68.I0",
+        "R60.O0>R69.I0",
+        "R70.O0>R69.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

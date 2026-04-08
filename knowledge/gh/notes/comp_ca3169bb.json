@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_ca3169bb",
+  "note_type": "component",
+  "name": "Rectangle 2Pt",
+  "brief": "Rectangle 2Pt | Inputs: P, A, B, R → R, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Rectangle 2Pt. Inputs: P (Plane), A (Point), B (Point), R (Number). Outputs: R (Generic Data), L (Number).",
+  "keywords": [
+    "rectangle 2pt",
+    "rectangle",
+    "2pt",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "rectangle 2pt",
+    "rectangle"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangle 2Pt"
+  ],
+  "solution_principle": "Create a rectangle from a base plane and two points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_27b035b4",
+    "comp_255e74fc",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "575660b1-8c79-4b8d-9222-7ab4a6ddb359",
+    "category": "curves",
+    "inputs": {
+      "P": "Plane",
+      "A": "Point",
+      "B": "Point",
+      "R": "Number"
+    },
+    "outputs": {
+      "R": "Generic Data",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3edc4fbd-24c6-43de-aaa8-5bdf0704373d"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|rectangle 2pt"
+  }
+}

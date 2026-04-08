@@ -1,0 +1,77 @@
+{
+  "pattern_id": "6b309c91",
+  "name": "wasp_29_teaching_Part-indedependent_a",
+  "version": "1.0",
+  "created": "2026-03-19T18:38:26.420408Z",
+  "solution": {
+    "brief": "Part-indedependent adjacency constraint\r\nWhen PN is not defined, the adjacency/exclusions will \r\nbe checked against all parts in the aggregation",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Curve",
+      "Toggle",
+      "Point",
+      "Wasp_Adjacency Exclusion Constraint",
+      "Wasp_Connection From Direction"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "constraint",
+      "parts",
+      "will",
+      "checked",
+      "adjacency",
+      "adjacency/exclusions",
+      "when",
+      "part-indedependent",
+      "defined,",
+      "against"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

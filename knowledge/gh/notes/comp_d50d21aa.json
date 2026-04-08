@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_d50d21aa",
+  "note_type": "component",
+  "name": "Construct Domain",
+  "brief": "Construct Domain | Inputs: A, B â†’ I",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Construct Domain. Inputs: A (Number), B (Number). Outputs: I (Domain).",
+  "keywords": [
+    "construct domain",
+    "construct",
+    "domain"
+  ],
+  "category": "domain_ops",
+  "tags": [
+    "domain-construction",
+    "grasshopper-component",
+    "parameter-control",
+    "value-remapping",
+    "range-definition",
+    "fundamental-operation",
+    "prerequisite-component"
+  ],
+  "trigger_intents": [
+    "construct domain",
+    "construct",
+    "domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Domain"
+  ],
+  "solution_principle": "Create a numeric domain from two numeric extremes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_d7542586",
+    "teaching_e8ddc722",
+    "recipe_1c4628ff",
+    "teaching_e26477b2",
+    "recipe_29a07f2a"
+  ],
+  "times_used": 1,
+  "times_succeeded": 1,
+  "retrieval_count": 0,
+  "last_accessed": "2026-02-21T03:06:19.398073Z",
+  "last_verified": "2026-02-21T03:06:19.398073Z",
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d1a28e95-cf96-4936-bf34-8bf142d731bf",
+    "category": "domain_ops",
+    "inputs": {
+      "A": "Number",
+      "B": "Number"
+    },
+    "outputs": {
+      "I": "Domain"
+    },
+    "typical_wiring": [],
+    "usage_count": 193,
+    "stable_key": "maths|domain|construct domain"
+  }
+}

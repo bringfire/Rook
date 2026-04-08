@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_90238233",
+  "note_type": "component",
+  "name": "Replace Items",
+  "brief": "Replace Items | Inputs: L, I, i, W → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Replace Items. Inputs: L (Generic Data), I (Generic Data), i (Integer), W (Boolean). Outputs: L (Generic Data).",
+  "keywords": [
+    "replace items",
+    "replace",
+    "items",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "replace items",
+    "replace",
+    "items"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Replace Items"
+  ],
+  "solution_principle": "Replace certain items in a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_535c0613",
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_b573a316"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7a218bfb-b93d-4c1f-83d3-5a0b909dd60b",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "I": "Generic Data",
+      "i": "Integer",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "e2039b07-d3f3-40f8-af88-d74fed238727"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|replace items"
+  }
+}

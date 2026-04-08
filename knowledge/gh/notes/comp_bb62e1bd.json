@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_bb62e1bd",
+  "note_type": "component",
+  "name": "SoapFilm",
+  "brief": "SoapFilm | Inputs: M, Strength → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: SoapFilm. Inputs: M (Mesh), Strength (Number). Outputs: S (Generic Data).",
+  "keywords": [
+    "soapfilm",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "soapfilm",
+    "soap",
+    "film"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SoapFilm"
+  ],
+  "solution_principle": "For generating zero mean curvature meshes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "76ab889c-8593-4892-861d-a80b5311a981",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0c68b153-3c88-4e62-9827-f3793c013f88",
+      "0b7b2ba2-7ecd-4f33-b138-883f6e96d08c"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|soapfilm"
+  },
+  "deprecated": true,
+  "deprecated_by": "0c68b153-3c88-4e62-9827-f3793c013f88"
+}

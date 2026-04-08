@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_07cd32cc",
+  "note_type": "component",
+  "name": "Curve Proximity",
+  "brief": "Curve Proximity | Inputs: A, B \u2192 A, B, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Curve Proximity. Inputs: A (Curve), B (Curve). Outputs: A (Point), B (Point), D (Number).",
+  "keywords": [
+    "curve proximity",
+    "curve",
+    "proximity",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "curve proximity",
+    "curve",
+    "proximity"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Proximity"
+  ],
+  "solution_principle": "Find the pair of closest points between two curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_262f1d29",
+    "comp_3ab80c58",
+    "comp_fb45532b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6b7ba278-5c9d-42f1-a61d-6209cbd44907",
+    "category": "curve_analysis",
+    "inputs": {
+      "A": "Curve",
+      "B": "Curve"
+    },
+    "outputs": {
+      "A": "Point",
+      "B": "Point",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0b04e8b9-00d7-47a7-95c3-0d51e654fe88"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|curve proximity",
+    "family": "curve_analysis"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

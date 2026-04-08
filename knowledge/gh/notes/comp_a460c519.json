@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_a460c519",
+  "note_type": "component",
+  "name": "Floor",
+  "brief": "Floor | Inputs: Strength → H",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.563383Z",
+  "context": "Grasshopper component: Floor. Inputs: Strength (Number). Outputs: H (Generic Data).",
+  "keywords": [
+    "floor",
+    "kangaroo2_goals-pt"
+  ],
+  "category": "kangaroo2_goals-pt",
+  "tags": [
+    "kangaroo2_goals-pt"
+  ],
+  "trigger_intents": [
+    "floor"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Floor"
+  ],
+  "solution_principle": "Floor",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_cef0c009",
+    "comp_5874a133",
+    "comp_98d40a95",
+    "comp_c16cc698",
+    "comp_8fb563da",
+    "comp_4962e3fe",
+    "comp_7c19522b",
+    "comp_6d7d7f4d",
+    "comp_f1055a35"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "14ac13f4-c22d-487c-be01-c6daf952f1be",
+    "category": "kangaroo2_goals-pt",
+    "inputs": {
+      "Strength": "Number"
+    },
+    "outputs": {
+      "H": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "780a08f2-c42d-4b8e-b8c9-8b3e09c318d0"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-pt|floor"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_6d34b2c0",
+  "note_type": "component",
+  "name": "Plane Surface",
+  "brief": "Plane Surface | Inputs: P, X, Y → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Plane Surface. Inputs: P (Plane), X (Domain), Y (Domain). Outputs: P (Surface).",
+  "keywords": [
+    "plane surface",
+    "plane",
+    "surface",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "plane surface",
+    "plane",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Surface"
+  ],
+  "solution_principle": "Create a plane surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_28632a9a",
+    "comp_7d5c54d0",
+    "comp_e3e04d00",
+    "comp_696c094f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "439a55a5-2f9e-4f66-9de2-32f24fec2ef5",
+    "category": "primitives",
+    "inputs": {
+      "P": "Plane",
+      "X": "Domain",
+      "Y": "Domain"
+    },
+    "outputs": {
+      "P": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|plane surface"
+  }
+}

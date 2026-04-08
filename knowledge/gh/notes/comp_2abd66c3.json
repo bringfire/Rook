@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_2abd66c3",
+  "note_type": "component",
+  "name": "Rebuild Curve",
+  "brief": "Rebuild Curve | Inputs: C, D, N, T → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Rebuild Curve. Inputs: C (Curve), D (Integer), N (Integer), T (Boolean). Outputs: C (Curve).",
+  "keywords": [
+    "rebuild curve",
+    "rebuild",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "rebuild curve",
+    "rebuild",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rebuild Curve"
+  ],
+  "solution_principle": "Rebuild a curve with a specific number of control-points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_97771130",
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9333c5b3-11f9-423c-bbb5-7e5156430219",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "D": "Integer",
+      "N": "Integer",
+      "T": "Boolean"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a3f9f19e-3e6c-4ac7-97c3-946de32c3e8e"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|rebuild curve"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_aae57ed7",
+  "note_type": "component",
+  "name": "Divide Surface",
+  "brief": "Divide Surface | Inputs: S, U, V → P, N, uv",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Divide Surface. Inputs: S (Surface), U (Integer), V (Integer). Outputs: P (Point), N (Vector), uv (Point).",
+  "keywords": [
+    "divide surface",
+    "divide",
+    "surface",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "divide surface",
+    "divide",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Divide Surface"
+  ],
+  "solution_principle": "Generate a grid of {uv} points on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_46c625c1",
+    "comp_025306a9",
+    "comp_3b7aeb69",
+    "teaching_26b87a73",
+    "teaching_2fe96b89"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5106bafc-d5d4-4983-83e7-7be3ed07f502",
+    "category": "surface_utilities",
+    "inputs": {
+      "S": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "P": "Point",
+      "N": "Vector",
+      "uv": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "332378f4-acb2-43fe-8593-ed22bfeb2721"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|util|divide surface"
+  }
+}

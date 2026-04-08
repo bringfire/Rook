@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_39fd9cac",
+  "note_type": "component",
+  "name": "Radians",
+  "brief": "Radians | Inputs: D â†’ R",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Radians. Inputs: D (Number). Outputs: R (Number).",
+  "keywords": [
+    "radians",
+    "radians"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "component",
+    "mathematical-functions",
+    "trigonometric",
+    "angle-conversion",
+    "foundational",
+    "unit-conversion",
+    "grasshopper-basics"
+  ],
+  "trigger_intents": [
+    "radians"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Radians"
+  ],
+  "solution_principle": "Convert an angle specified in degrees to radians",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "recipe_bb37312d",
+    "recipe_57a3d532",
+    "recipe_c4ebd406",
+    "recipe_c98fc353",
+    "comp_51b11a9e",
+    "comp_669615fc"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a4cd2751-414d-42ec-8916-476ebf62d7fe",
+    "category": "trigonometry",
+    "inputs": {
+      "D": "Number"
+    },
+    "outputs": {
+      "R": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 62,
+    "stable_key": "maths|trig|radians"
+  }
+}

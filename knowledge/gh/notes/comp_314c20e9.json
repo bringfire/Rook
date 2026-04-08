@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_314c20e9",
+  "note_type": "component",
+  "name": "Beam",
+  "brief": "Beam | Inputs: StartFrame, EndFrame, StartNode, EndNode → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Beam. Inputs: StartFrame (Plane), EndFrame (Plane), StartNode (Plane), EndNode (Plane), E (Number), A (Number), Ix (Number), Iy (Number), GJ (Number). Outputs: B (Generic Data).",
+  "keywords": [
+    "beam",
+    "kangaroo2_goals-6dof"
+  ],
+  "category": "kangaroo2_goals-6dof",
+  "tags": [
+    "kangaroo2_goals-6dof"
+  ],
+  "trigger_intents": [
+    "beam"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Beam"
+  ],
+  "solution_principle": "Beam resisting bending and torsion",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3f8b0f83-6e8e-4a9d-b0ff-9474cc9eb89b",
+    "category": "kangaroo2_goals-6dof",
+    "inputs": {
+      "StartFrame": "Plane",
+      "EndFrame": "Plane",
+      "StartNode": "Plane",
+      "EndNode": "Plane",
+      "E": "Number",
+      "A": "Number",
+      "Ix": "Number",
+      "Iy": "Number",
+      "GJ": "Number"
+    },
+    "outputs": {
+      "B": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0b3b7956-f88b-4ca3-99f6-b6508a8dac3f"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-6dof|beam"
+  }
+}

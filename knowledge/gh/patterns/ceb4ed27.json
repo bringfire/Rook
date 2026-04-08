@@ -1,0 +1,65 @@
+{
+  "pattern_id": "ceb4ed27",
+  "name": "wasp_21_teaching_CREATING_BASE_POINT",
+  "version": "1.0",
+  "created": "2026-03-19T18:17:00.620069Z",
+  "solution": {
+    "brief": "CREATING BASE POINT GRID",
+    "principle": "",
+    "components_needed": [
+      "Bounding Box"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "grid",
+      "creating",
+      "point",
+      "base"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

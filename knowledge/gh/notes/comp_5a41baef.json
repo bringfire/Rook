@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_5a41baef",
+  "note_type": "component",
+  "name": "Pull Curve",
+  "brief": "Pull Curve | Inputs: C, S → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Pull Curve. Inputs: C (Curve), S (Surface). Outputs: C (Curve).",
+  "keywords": [
+    "pull curve",
+    "pull",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "pull curve",
+    "pull",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Pull Curve"
+  ],
+  "solution_principle": "Pull a curve onto a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_f3ac6697",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_7d656ef6",
+    "comp_f452b4cc",
+    "comp_6760e68b",
+    "comp_2a5cdc00",
+    "comp_08fb1f1c",
+    "comp_5cd2c908",
+    "comp_53d02a24",
+    "comp_2abd66c3",
+    "comp_c51e4d42"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8db16e9c-2816-4c95-939d-8fecdc30906f",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "S": "Surface"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d7ee52ff-89b8-4d1a-8662-3e0dd391d0af"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|pull curve"
+  }
+}

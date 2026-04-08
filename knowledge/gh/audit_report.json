@@ -1,0 +1,2672 @@
+{
+  "summary": {
+    "gh_total": 3630,
+    "gh_obsolete": 529,
+    "gh_hidden": 0,
+    "catalog_total": 922,
+    "catalog_deprecated": 2,
+    "catalog_missing_from_gh": 0,
+    "catalog_healthy": 920,
+    "deprecated_not_in_catalog": 527
+  },
+  "deprecated_in_catalog": [
+    {
+      "name": "Area",
+      "guid": "2e205f24-9279-47b2-b414-d06dcd0b21a7",
+      "obsolete": true,
+      "exposure": 0,
+      "exposure_label": "unknown",
+      "category": "Surface",
+      "replacement_guid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5",
+      "replacement_name": "Area"
+    },
+    {
+      "name": "Multiplication",
+      "guid": "b8963bb1-aa57-476e-a20e-ed6cf635a49c",
+      "obsolete": true,
+      "exposure": 0,
+      "exposure_label": "unknown",
+      "category": "Maths",
+      "replacement_guid": "ce46b74e-00c9-43c4-805a-193b69ea4a11",
+      "replacement_name": "Multiplication"
+    }
+  ],
+  "missing_from_gh": [],
+  "deprecated_not_in_catalog": [
+    {
+      "name": "Access Layout UserText",
+      "guid": "0224137f-3de8-411c-815a-69554f5e8b15",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Addition",
+      "guid": "cae37d1c-8146-4e0b-9cf1-14cb3e337b94",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Addition",
+      "guid": "d18db32b-7099-4eea-85c4-8ba675ee8ec3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Addition",
+      "guid": "58669268-a825-4688-8072-7d3508fcf91c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Addition",
+      "guid": "60327ca4-c548-40e6-a11f-3c6759582f13",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Align Curve Seams",
+      "guid": "dff4a6cf-7e15-4e68-a5be-97b8b55a9885",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Align Curve Seams",
+      "guid": "7b3415a2-06be-417f-9909-163236c5dfce",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Angle",
+      "guid": "152a264e-fc74-40e5-88cc-d1a681cd09c3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Arc 3Pt [OBSOLETE]",
+      "guid": "32c57b97-b653-47dd-b78f-121e89fdd01c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Arc SED [OBSOLETE]",
+      "guid": "f17c37ae-b44a-481a-bd65-b4398be55ec8",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Arc [OBSOLETE]",
+      "guid": "fd9fe288-a188-4e9b-a464-1148876d18ed",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcCosine",
+      "guid": "cfc280bb-332a-4828-bb4e-aca6d88859aa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcCosine",
+      "guid": "8640c519-9bf6-4e9a-a108-75f9d89b2c58",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcSine",
+      "guid": "22bba82d-32e8-448c-a59c-f054c8843ee3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcSine",
+      "guid": "f18091e9-3264-4dd4-9ba6-32c77fca0ac0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcTangent",
+      "guid": "4e8aad42-9111-470c-9acd-7ae365d8bba4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "ArcTangent",
+      "guid": "7b312903-4782-438f-aa37-ba43f5083460",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Area Moments",
+      "guid": "c98c1666-5f29-4bb8-aafd-bb5a708e8a95",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Curve",
+      "guid": "6c1ca2b4-cea9-4f22-b098-cfcd07818f1e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Curve",
+      "guid": "5dfde112-f7e0-4b98-a16e-fd93077d9bf1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Mesh",
+      "guid": "dc95ca3b-3d99-41f4-9886-b4447d8b742c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Mesh",
+      "guid": "31cc40f2-8cd2-49de-95d2-b6b309cffa5e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Plane",
+      "guid": "cc8859f0-dcb8-4190-881d-bbb309c142c6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Surface",
+      "guid": "e5f34c16-ec7b-4b97-8a1a-b75bba08c04a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Average Twisted Box",
+      "guid": "312aefb7-267e-4b42-b72b-b58888db837a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Bake Geometry",
+      "guid": "ebf1ed47-70c4-4d5b-af5d-55956eb1dffc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Boolean Toggle",
+      "guid": "ad483f40-dc72-40dc-844d-c9e462c7d19f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Bounding Box",
+      "guid": "6aa8da2e-6f25-4585-8b37-aa44609beb46",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Bounding Box",
+      "guid": "87df35c8-6e1d-4e2a-821a-7c1066714409",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Bounding Box [OBSOLETE]",
+      "guid": "9d375779-649d-49f1-baaf-04560a51cd3d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Bounding Rectangle",
+      "guid": "a361126c-3cc6-4772-8da5-30ac59e4ee53",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Box 2Pt [OBSOLETE]",
+      "guid": "9aef6eb4-98c3-4b0e-b875-1a7cb1bb1038",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep Area",
+      "guid": "ab766b01-a3f5-4257-831a-fc84d7b288b4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep Area Moments",
+      "guid": "5d2fb801-2905-4a55-9d48-bbb22c73ad13",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep Closest Point",
+      "guid": "cdd5d441-3bad-4f19-a370-6cf180b6f0fa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep Volume",
+      "guid": "c72d0184-bb99-4af4-a629-4662e1c3d428",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep Volume Moments",
+      "guid": "ffdfcfc5-3933-4c38-b680-8bb530e243ff",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Brep | Line",
+      "guid": "ff880808-6daf-4f6c-88c1-058120ad6ba9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "C# Script",
+      "guid": "a9a8ebd2-fff5-4c44-a8f5-739736d129ba",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "C# Script (Legacy)",
+      "guid": "f5e3456b-dcfc-4faa-ac4e-7804cb75ee6d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Camera Obscura",
+      "guid": "7ee33ede-4ce1-482c-ab1a-eb7f9151fbc5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Center",
+      "guid": "afff17ed-5975-460b-9883-525ae0677088",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Circle Fit [OBSOLETE]",
+      "guid": "0a80e903-e15b-4992-9675-19b2c488e853",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Clean Tree",
+      "guid": "70ce4230-da08-4fce-b29d-63dc42a88585",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Close Curve",
+      "guid": "1ec7074a-ba8a-426c-98e9-3cc608811eb2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Close Mesh",
+      "guid": "b0ac23e6-9bce-4c8d-906d-b78786b88ca4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Close Mesh",
+      "guid": "9996f571-8b60-4a08-af8b-c662b6f2834d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Closed [OBSOLETE]",
+      "guid": "f2030fa9-db3f-437e-9b50-5607db6daf87",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cluster",
+      "guid": "865c8275-d9db-4b9a-92d4-883ef3b00b4a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "CoTangent",
+      "guid": "39461433-ac44-4298-94a9-988f983e347c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Concatenate",
+      "guid": "01cbd6e3-ccbe-4c24-baeb-46e10553e18b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cone [OBSOLETE]",
+      "guid": "22e61c07-c02f-4c53-b567-c821a164fd92",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Construct Point",
+      "guid": "8a5aae11-8775-4ee5-b4fc-db3a1bd89c2f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Construct Twisted Box",
+      "guid": "c84bef10-f82a-468e-9818-9d3dd1368637",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Containment",
+      "guid": "c076845a-1a09-4a95-bdcb-cb31c0936c99",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Control Points",
+      "guid": "d7df7658-e02d-4a48-a345-2195a68db4ef",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Copy Layout",
+      "guid": "f1d0ba78-7f55-4bed-a60d-eb46b5770c9e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cosecant",
+      "guid": "99197a17-d5c7-419b-acde-eca2737f3c58",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cosine",
+      "guid": "7874f26c-6f76-4da8-b527-2d567184b2bd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cosine",
+      "guid": "12278a4b-c131-4735-a3ee-bcb783083856",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Create New Layout",
+      "guid": "2c185d1a-6fd1-4f2f-bb08-1807247dd10c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Create Set",
+      "guid": "2cb4bf85-a282-464c-b42c-8e735d2a0a74",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "CreateAttributes",
+      "guid": "73f1d7e2-8ca0-4c1e-9c78-ad5620f52342",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "CreateAttributes",
+      "guid": "84c6bfad-5984-4391-a389-bef0cc995022",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "CreateHatch",
+      "guid": "433dcc98-b623-4010-8538-ff5ecb732f57",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Cull Index",
+      "guid": "6568e019-f59c-4984-84d6-96bd5bfbe9e7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Curve Domain",
+      "guid": "15ac45a8-b190-420a-bd66-e78ed6bcfaa4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Curve Edit Points",
+      "guid": "763065db-0fe1-4d1c-99fe-a37a67f57b3d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Curve | Line",
+      "guid": "9396be03-8159-43bf-b3e7-2c86c8d04fc0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Curve | Line [OBSOLETE]",
+      "guid": "ddaea1a9-d6bd-4a18-ac11-8a4993954a03",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Deconstruct Attributes",
+      "guid": "6a5e213c-37bb-4dc2-83bd-9ccc72d9b135",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Deconstruct Detail",
+      "guid": "fad8f376-259b-4dfe-9f98-2cbfd9286ae3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Deconstruct Layout",
+      "guid": "cf90e7c1-5c2b-43e1-a8ad-a97118a74f78",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Deconstruct Point",
+      "guid": "670fcdba-da07-4eb4-b1c1-bfa0729d767d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Deconstruct Twisted Box",
+      "guid": "1d298bfa-aff0-4a77-ac94-c01774bbe015",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Define Layer",
+      "guid": "b243e218-53d0-406b-a787-cbeb312c5aca",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Define Object Attributes",
+      "guid": "20a21525-f49d-4457-b791-86f7cdb13ee6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Delete Layout",
+      "guid": "35517242-df57-47c6-a1e8-d1e72452be65",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Derivatives",
+      "guid": "c2e16ca3-9508-4fa4-aeb3-0b1f0ebb72e3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Divide Surface [OBSOLETE]",
+      "guid": "082976f0-c741-4df8-a1d4-89891bf8619f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Divide curve [OBSOLETE]",
+      "guid": "93b1066f-060e-440d-a638-aae8cbe7acb7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Division",
+      "guid": "cb4ec4a1-f48e-4685-b58c-72ed27b53681",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Division",
+      "guid": "ec875825-61e4-4c1c-a343-0e0cee0b321b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Domain²",
+      "guid": "fa36c19d-b108-440c-b33d-a0a4642b45cc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Duplicate data [OBSOLETE]",
+      "guid": "e6e344aa-f45b-43d5-a2d9-9cf8e8e608dc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Edge Unsplit Surface",
+      "guid": "e79833d3-72c7-443a-bc26-d35d2c87597b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Edit Details",
+      "guid": "fbc48c30-816b-11ee-836d-9198bca92de7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Edit Details",
+      "guid": "95ff5c32-54c5-44c3-8f0e-ed0db7f1b702",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Edit Layout",
+      "guid": "30e64e87-8fd5-45a5-8f28-07e46821fc81",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "EleFront Layer",
+      "guid": "5d34755c-b027-4171-864c-7e244ce3ec28",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Equality Within Tolerance",
+      "guid": "5a115d7d-9e9e-494e-8eae-790ab25b6aa5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Eval [OBSOLETE]",
+      "guid": "579c9f8c-6fb6-419b-8086-523a2dc99e8a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Evaluate Curve",
+      "guid": "164d0429-e5f5-4292-aa80-3f88d43cdac2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Evaluate Curve",
+      "guid": "fdf09135-fae5-4e5f-b427-b1f384ca3009",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Evaluate Expression [OBSOLETE]",
+      "guid": "655c5f2f-1e40-42b8-a93a-f05032794449",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Evaluate Surface",
+      "guid": "aa1dc107-70de-473e-9636-836030160fc3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Explode Blocks",
+      "guid": "23964f01-1f8e-44b5-be0b-044e12c1eb26",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Explode Tree",
+      "guid": "8a470a35-d673-4779-a65e-ba95765e59e4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Exponential",
+      "guid": "582f96c6-ed0c-4710-9b5e-a05addba9f42",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Export Generic",
+      "guid": "b24e3cb2-1c7a-457b-9c44-9f70da8ced0d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Extrude Unsplit Surface",
+      "guid": "eb8379ab-8df2-4a27-ac6e-9eb52e5ee485",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Extrude Unsplit Surface",
+      "guid": "263c70cf-d09f-46bc-8e37-964fda85c153",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F(a,b,c,d) [OBSOLETE]",
+      "guid": "0f3a13d4-5bb7-499e-9b57-56bb6dce93fd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F(x) [OBSOLETE]",
+      "guid": "d3e721b4-f5ea-4e40-85fc-b68616939e47",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F(x,y) [OBSOLETE]",
+      "guid": "d2b10b82-f612-4763-91ca-0cbdbe276171",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F(x,y,z) [OBSOLETE]",
+      "guid": "e1c4bccc-4ecf-4f18-885d-dfd8983e572a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F1",
+      "guid": "0b7d1129-7b88-4322-aad3-56fd1036a8f6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F2",
+      "guid": "00ec9ecd-4e1d-45ba-a8fc-dff716dbd9e4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F3",
+      "guid": "2f77b45b-034d-4053-8872-f38d87cbc676",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F4",
+      "guid": "07efd5e1-d7f4-4205-ab99-83e68175564e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F5",
+      "guid": "322f0e6e-d434-4d07-9f8d-f214bb248cb1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F6",
+      "guid": "4783b96f-6197-4058-a688-b4ba04c00962",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F7",
+      "guid": "e9628b21-49d6-4e56-900e-49f4bd4adc85",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "F8",
+      "guid": "f2a97ac6-4f11-4c81-834d-50ecd782675c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Face Boundaries",
+      "guid": "08d45f16-c708-4ede-8fd3-b70a0a7abd8f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Factorial",
+      "guid": "80da90e3-3ea9-4cfe-b7cc-2b6019f850e3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Fit Surface",
+      "guid": "2c81c593-71ac-42ee-be64-be7933ad5850",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Fit Surface",
+      "guid": "b68be650-f29c-4876-a0a1-23335430db37",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Flatten Tree",
+      "guid": "a13fcd5d-81af-4337-a32e-28dd7e23ae4c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Format",
+      "guid": "c8203c3c-6bcd-4f8c-a906-befd92ebf0cb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Freeform Cloud",
+      "guid": "f08233f1-9772-4514-8965-bde4948503df",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Gate And",
+      "guid": "28f35e12-cd50-4bce-b036-695c2a3d04da",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Gate And Ternary",
+      "guid": "c1364962-87dd-4a6d-901a-e5b170e5ef9e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Gate Or",
+      "guid": "eb3c8610-85b9-4593-a366-52550e8305b7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Gate Or Ternary",
+      "guid": "55104772-8096-4ffc-a78a-30e36191ace2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Get Layout Index",
+      "guid": "8dc334f6-2c09-4a37-98c0-0945d58438de",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Get Layout Names",
+      "guid": "ef05781d-49c7-47d9-ae7e-e0048005f887",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "GhPython Script",
+      "guid": "410755b1-224a-4c1e-a407-bf32fb45ea7e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "GhPython Script (Legacy)",
+      "guid": "ceab6e56-ceec-a646-84d5-363c57440969",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Graft Tree",
+      "guid": "10a8674b-f4bb-4fdf-a56e-94dc606ecf33",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Grid Hexagonal [OBSOLETE]",
+      "guid": "8ce6a747-6d36-4bd4-8af0-9a1081df417d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Grid Rectangular [OBSOLETE]",
+      "guid": "99f1e47c-978d-468f-bb3d-a3df44552a8e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Hide Model Objects In Detail",
+      "guid": "d70b1317-3a82-45fd-845e-dcc90796c208",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "HideLayerInDetail",
+      "guid": "4506ca3d-e2f9-446a-a488-f60968c8b57e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Highest & Lowest Numbers",
+      "guid": "f176ee11-3d52-40a2-8161-7f487836140e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Import 3DM [OBSOLETE]",
+      "guid": "f055c5d7-5d97-4964-90c7-8e9eee9a8a39",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Interpolate",
+      "guid": "f5ea9d41-f062-487e-8dbf-7666ca53fbcd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Interpolate (t)",
+      "guid": "e8e00fbb-9710-4cfa-a60f-2aae50b79d06",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Interpolate (t)",
+      "guid": "50870118-be51-4872-ab3c-410d79f2356e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Invert Color",
+      "guid": "1057b0b9-a3d7-485b-bfc7-8fb4543c1795",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Is Surface Singular",
+      "guid": "d67acec6-d4b0-4c15-9285-9c1498826463",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Iso Curve",
+      "guid": "21ca41ee-bc18-4ac8-ba20-713e7edf541e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "IsoVist",
+      "guid": "c08ac8f7-cf90-4cdb-9862-2ba66b8408ef",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "IsoVist Ray",
+      "guid": "769f5b35-1780-4823-b593-118ecc3560e0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Item Index List",
+      "guid": "427a8dda-492c-468f-a575-6f1dce54bcb4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Last Index",
+      "guid": "10f18afd-1d05-406b-bdeb-acf75fabf50b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Last Index Range",
+      "guid": "9be1ba5e-8908-4560-b51d-b7bff823d082",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Layout By Bounds",
+      "guid": "6410ed9f-d25e-425e-88be-0633cd00456d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Layout Sort Tabs",
+      "guid": "64769836-5b94-4aa0-80c3-542a6c6a5b45",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "List Item",
+      "guid": "285ddd8a-5398-4a3e-b3c2-361025711a51",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "List Length Range",
+      "guid": "71038fcb-b89c-4290-8a5e-8d1643d25671",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "List item [OBSOLETE]",
+      "guid": "6e2ba21a-2252-42f4-8d3f-f5e0f49cc4ef",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Loft Unsplit Surface",
+      "guid": "da372107-3350-40b6-8382-9685b321ba76",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Logarithm",
+      "guid": "bc4a27fc-cbb9-4802-bd4a-17ab33ad1826",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Logarithm",
+      "guid": "d0787f37-d976-48c9-a4b0-29d6c4059cf3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Make Page Active",
+      "guid": "bb2e2a26-f6e8-45a3-a31a-f20af37a727b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mass Addition",
+      "guid": "63f79e72-36c0-4489-a0c2-9ded0b9ca41f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mass Addition",
+      "guid": "b7f1178f-4222-47fd-9766-5d06e869362b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mass Addition",
+      "guid": "bb64b2fb-f87a-432f-86f8-393f4ee21310",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mass Addition",
+      "guid": "74d95062-0bec-4a4e-9026-5141fca954a6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mass Multiplication",
+      "guid": "921775f7-bf22-4cfc-a4db-c415a56069c4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Maximum",
+      "guid": "e9b807a3-dd48-4c2c-bada-e4f8e0edbbdb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mean",
+      "guid": "0bb7682f-333c-4bb7-b6fe-91ed2c886100",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mesh Boolean Twisted Boxes",
+      "guid": "2724b87f-4be7-4712-9f09-32f3ed63dde1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mesh Plane",
+      "guid": "dd8d834f-40f1-4a84-8e4b-9fa8efe7be41",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Minimum",
+      "guid": "532b722d-9368-42ee-b99d-64a4732ee99a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror",
+      "guid": "a70bdac1-1ed2-40d3-b687-3437bc150af0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Combine Colors",
+      "guid": "03b83d6c-d193-4ace-85b6-d2c29982a68c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Combine Colors",
+      "guid": "45040ebf-8ce5-443e-bf26-05d71d8c4f45",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Curve",
+      "guid": "f8452dc8-aea6-4654-a72f-c0fd62626d36",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Colors",
+      "guid": "e1b1344a-44b7-42d7-bfde-1f5d2f815be1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Colors",
+      "guid": "1d244c0c-4278-44bb-aac0-9e28cdf13d24",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Mesh",
+      "guid": "53da07f3-6107-4601-8e04-4a6a8afd4585",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Mesh",
+      "guid": "54a8ac91-8aa8-40f4-9161-954fe0a5a5f1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Mesh",
+      "guid": "f709dd8c-ddcf-4f77-a498-b47b3e6d6367",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Mesh",
+      "guid": "8b168f22-6c6d-4227-a24e-6c290017abed",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Cut Surface",
+      "guid": "571b6cd1-965e-4fb4-bd39-321d181e778c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Mirror Surface",
+      "guid": "3431f5c6-7578-4d26-a2b6-dfc064a9c65e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Modify Text",
+      "guid": "50eb7d93-793f-4cdc-86f0-565fe24ccdde",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Modify Viewport",
+      "guid": "245d2d8c-e3cb-4a54-9e37-8c1ad69d4115",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Modify eleFront Attributes",
+      "guid": "c62673e4-31c6-4db0-9bf1-a183d7bff935",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Modulus",
+      "guid": "481e1f0d-a945-4662-809d-f49d1a8f40bd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Modulus",
+      "guid": "9ebccbb4-f3e3-4ee1-af31-2f301f2516f0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Move",
+      "guid": "b40f28a2-ba30-4ac2-afe5-a6ece7f985fc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Move 2Pt",
+      "guid": "26aed7ee-a649-4888-9ec4-e39c3e415e0d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Multiplication",
+      "guid": "3e6383e9-af39-427b-801a-19ca916160fa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Multiplication",
+      "guid": "035bf8a7-b9e0-4e37-b031-4567bc60d047",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Multiplication",
+      "guid": "2f643ab6-b9a4-4923-b3da-f9d52b0cba14",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Natural logarithm",
+      "guid": "8b62751f-6fb4-4d03-a238-11ad6db7483e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "New Detail",
+      "guid": "9d650600-81a3-11ee-8815-c54601ffc14f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "New Detail",
+      "guid": "92c1c7ab-9640-452a-bafe-a7bd4bcbf323",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Null Check",
+      "guid": "e6859d1e-2b3d-4704-93ea-32714acae176",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Null Item",
+      "guid": "66fbaae1-0fcf-4dbf-bcba-4395d8f6a3e6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Object Attributes",
+      "guid": "2a88b4a8-9a14-4a19-ba89-ebf721304b1d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Object Attributes",
+      "guid": "144bf37f-7a0e-48b5-a4fc-1e112477cbff",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Curve",
+      "guid": "7fb45305-d6dd-4c2a-9b5d-71bcc7aaa790",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Curve",
+      "guid": "072eb206-8ec5-46c3-9373-295b50adb9ac",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Curve From Surface",
+      "guid": "56c83b2e-32d6-437e-849b-8b81894e8ea1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Mesh",
+      "guid": "d17bdb58-7504-45f1-92af-bf718839b29a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Mesh",
+      "guid": "d4ea698f-255f-4667-851f-5e3fbee155d4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Plane",
+      "guid": "b7da9415-6527-46f0-b82d-4c4d4b206a2b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Surface",
+      "guid": "33878f84-7d5d-43e1-9be0-6f8755565bf4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Offset Surface",
+      "guid": "0becd621-2b46-4017-bd26-e5ba599a7df2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Open Curve",
+      "guid": "72f5bf67-50e8-45b9-b6f5-112c45973f6e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Orient",
+      "guid": "a35811bc-1034-4491-acb8-608a8cfa27b1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Orient Direction",
+      "guid": "4041be93-6746-4cdb-aa95-929bff544fb0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "PDF Layout",
+      "guid": "9cc1fc76-ddd4-467d-846f-3206f1165ad5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Parameter Grid On Surface",
+      "guid": "95ee2d9c-100b-49d3-8240-fd9aba9088ba",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Parameter Rectangle Mesh",
+      "guid": "42988c31-caf8-4284-96cf-adf2a5ea4008",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Parameter Rectangular Grid",
+      "guid": "440d4e41-8da2-41c1-a9ab-ed927d2dacbd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Parameter Surface Mesh",
+      "guid": "4eeeab7e-2999-4052-a557-e5a19342fab7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Perp Frames [OBSOLETE]",
+      "guid": "6da4b70c-ce98-4d52-a2bb-2fadccf39da0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pick'n'Choose",
+      "guid": "4356ef8f-0ca1-4632-9c39-9e6dcd2b9496",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pinch'n'Spread",
+      "guid": "3316ab32-5d03-4abf-acd4-9b0ee27ba3d0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pinch'n'Spread",
+      "guid": "7fbb5527-bee8-432f-a566-57d9260fc174",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pinch'n'Spread",
+      "guid": "bf152132-f91e-4636-9ced-fdb248f9ad88",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pipe",
+      "guid": "c277f778-6fdf-4890-8f78-347efb23c406",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pipe Variable",
+      "guid": "888f9c3c-f1e1-4344-94b0-5ee6a45aee11",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Plane Through Box",
+      "guid": "f565fd67-5a98-4b48-9ea9-2e184a9ef0e6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Point Divide Curve Target Length",
+      "guid": "e1b89505-ed21-4042-898b-dbf18243b7da",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Point Mesh Side",
+      "guid": "8a08e210-6bca-4f71-8ec7-89959bb490bb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Poly Arc",
+      "guid": "a5e4f966-417e-465d-afa9-f6607afea056",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Polygon Center",
+      "guid": "7bd7b551-ca79-4f01-b95a-7e9ab876f24d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Polygon Center",
+      "guid": "87e7f480-14dc-4478-b1e6-2b8b035d9edc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Polyline To Mesh",
+      "guid": "3118b481-e1a0-4128-ad2f-3ce6324f96ef",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Polyline To Mesh",
+      "guid": "c9b925de-13aa-4b55-8470-977ac9567c68",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Polysurface Boolean Twisted Boxes",
+      "guid": "55389e7f-e846-41f0-bc50-e9f7039bf4aa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Power",
+      "guid": "2d6cb24f-da89-4fab-be0f-e5d439e0217a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Power",
+      "guid": "96c8c5f2-5f8e-4bb3-b19f-eb61d9cefa46",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Power of 10",
+      "guid": "ed766861-662d-4462-90f6-29f87f8529cf",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Power of 2",
+      "guid": "a8bc9c24-1bce-4b92-b7ba-abced2457c22",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Power of E",
+      "guid": "5f212b16-82a0-4699-be4c-11529a9810ae",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Project",
+      "guid": "24e913c9-7530-436d-b81d-bc3aa27296a4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Project",
+      "guid": "9025f4ca-159f-4c54-958b-0aad379dae77",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pull Curve",
+      "guid": "6b5812f5-bb36-4d74-97fc-5a1f2f77452d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Pull Point",
+      "guid": "cf3a0865-4882-46bd-91a1-d512acf95be4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Quad Remesh Settings",
+      "guid": "f562505b-4c49-49d1-932d-c8804b3fcec6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Radial",
+      "guid": "773183d0-8c00-4fe4-a38c-f8d2408b7415",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Random",
+      "guid": "b7e4e0ef-a01d-48c4-93be-2a12d4417e22",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Curve",
+      "guid": "11150941-3f0d-4106-bdc5-e9615e72a95e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Mesh",
+      "guid": "f033b613-f1fb-4951-9ce9-796fe2f86c01",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Mesh",
+      "guid": "21456230-43df-434d-afa3-38970341cb1e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Mesh",
+      "guid": "90b69fa0-6591-40d7-bd06-f391b2b5898d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Mesh",
+      "guid": "e9f33935-7296-428c-9d73-17d717fa55e0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Surface",
+      "guid": "b38cd3a8-aaae-4b01-93b7-df8a316106e2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rebuild Surface",
+      "guid": "e74d9272-e991-431b-a3d6-c27793a4f679",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rectangle",
+      "guid": "0ca0a214-396c-44ea-b22f-d3a1757c32d6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rectangle 3Pt",
+      "guid": "34493ef6-3dfb-47c0-b149-691d02a93588",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rectangle Fit",
+      "guid": "d5866ce7-3b2e-4a02-a603-63e6d638f968",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rectangular",
+      "guid": "fdedcd0a-ad40-4307-959d-d2891e2f533e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Recursive Morph Mesh",
+      "guid": "6f0d4e82-1384-4321-8233-7731bd862a21",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Recursive Transform",
+      "guid": "a8330b3c-31f0-427e-9fc9-142243e5250e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reduce Mesh By Faces",
+      "guid": "6b0107ea-3977-4079-84fa-5860e7400207",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reduce Mesh By Faces",
+      "guid": "e277a580-15d9-48ac-b0bd-8167648d5606",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Remap Numbers",
+      "guid": "9624aeeb-f2a1-49da-b1c7-8789db217177",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Remap Numbers",
+      "guid": "fa314286-867b-41fa-a7f6-3f474197bb81",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Render Mesh to Screen",
+      "guid": "5c402e76-ef8b-4234-9fdb-d7e5c6f4b6c1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reparameterize Curve",
+      "guid": "3682a272-5c4f-4699-9d31-eef64e3516bb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reparameterize Numbers",
+      "guid": "35e3e310-91c9-44cc-989d-848afa94aaa5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reparameterize Points",
+      "guid": "b2be0143-cfbf-43bd-a035-2117e70db496",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reparameterize Surface",
+      "guid": "32081ea3-7862-4f4a-810b-1321f6b10d9f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Reparameterized Range",
+      "guid": "bf39f8e3-e25a-4fd3-9d13-904930046a03",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Revolve Unsplit Surface",
+      "guid": "8e603807-8ea0-438a-ac2c-d94fb1f2f2b3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate",
+      "guid": "b661519d-43fd-4e5a-b244-d54d9fae2bde",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate 3D",
+      "guid": "955d887b-c83b-4c61-bf35-df5d4c4abd9b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate Axis",
+      "guid": "55959599-0b44-4333-8427-a73564ea7ffb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate Axis [OBSOLETE]",
+      "guid": "bef50d22-e6b3-45fd-b7be-1c501502186b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate Plane Euler",
+      "guid": "28772f41-06a2-4f35-a0b0-5cd409200448",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Rotate Plane XYZ",
+      "guid": "2e4333cd-70bf-494a-854a-942908fe8887",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Round To Decimal Place",
+      "guid": "f637fbf4-7b53-4424-9d03-c3f829a64f2a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Round To Factor",
+      "guid": "135e0e17-1725-4c42-a3bc-a5b31610f1a9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Round To Nearest",
+      "guid": "fc10b477-c61d-4381-9d8c-a8a3e59cd3ff",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Round To Nearest",
+      "guid": "3ae86564-a1f3-4b82-85ed-7f1993355a3d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Scale",
+      "guid": "4f0dfac8-6c61-40ef-ad41-aad84533f382",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Scale NU",
+      "guid": "7753fb03-c1f1-4dbe-8557-f01e23aa3b20",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Scale To Area",
+      "guid": "a02ecad4-51a8-41fe-b257-0e14e2641434",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Scale To Length",
+      "guid": "c112fdc5-7e5e-444a-a4d5-e4bb0c7af852",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Scale To Volume",
+      "guid": "d8695ac3-1b6b-4cb8-9c25-f6edcfcec203",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Screen-Oriented Mesh",
+      "guid": "4e9a14dc-34b8-4d3c-a761-6480e1e34cb5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Seam To Curve Corner",
+      "guid": "702ba2d8-079b-4ac4-b749-7c4a37696db4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Secant",
+      "guid": "d879e74c-6fe3-4cbf-b3fa-60a7c48b73e7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Separate List [OBSOLETE]",
+      "guid": "1d55b516-ceec-4bf1-8864-08c895ab2a70",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Set Intersection",
+      "guid": "8a55f680-cf53-4634-a486-b828de92b71d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Set Union",
+      "guid": "ab34845d-4ab9-4ff4-8870-eedd0c5594cb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Shear",
+      "guid": "3ae3a462-38fb-4d49-9f86-7558dfed7c3e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Shear Angle",
+      "guid": "77bfb6a1-0305-4645-b309-cd6dbf1205d7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Shrink Trimmed Surface",
+      "guid": "49b14468-2ac7-4410-800d-2c7496a1cd1e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Simplify Tree",
+      "guid": "06b3086c-1e9d-41c2-bcfc-bb843156196e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sinc",
+      "guid": "da4be42b-ba75-4249-a685-69ce78b6ee44",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sine",
+      "guid": "c53932eb-7c8c-4825-ae98-e36bba97232d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sine",
+      "guid": "ecee923b-1b93-4cf2-acd6-680835503437",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Slide Curve Along Curve",
+      "guid": "33fd05c9-89fe-4b09-8f17-2978674bab15",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Slide Curve Along Curve",
+      "guid": "201b7fe0-bab8-4d7e-b589-2580a8589f60",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Slide Curve Along Curve",
+      "guid": "fbd1aa3b-660f-426d-843a-0ba683ed6f33",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sort List",
+      "guid": "cacb2c64-61b5-46db-825d-c61d5d09cc08",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sort List",
+      "guid": "2b2628ea-3f43-4ce9-8435-9a045d54b5c6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sort Text",
+      "guid": "1ff80a00-1b1d-4fb3-926a-0c246261fc55",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Spherical Cloud",
+      "guid": "fd68754e-6c60-44b2-9927-0a58146e0250",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Split Kinky Surface",
+      "guid": "57cce790-28c7-466b-9593-d10720fe9471",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Split [OBSOLETE]",
+      "guid": "fbcf0d42-c9a5-4ca5-8d5b-567fb54abc43",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Square",
+      "guid": "40efea60-1902-4c28-8020-27abbb7a1449",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Square",
+      "guid": "0b0f1203-2ea8-4250-a45a-cca7ad2e5b76",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Square Root",
+      "guid": "5a22dc1a-907c-4e2f-b8da-0e496c4e25bb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Stream Filter",
+      "guid": "3e5582a1-901a-4f7c-b58d-f5d7e3166124",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Stream Gate",
+      "guid": "d6313940-216b-487f-b511-6c8a5b87eae7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "SubD Vertices",
+      "guid": "cd9efa8f-0084-4d52-ab13-ad88ff22dc46",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Subdivide Twisted Box",
+      "guid": "87962fbe-eddc-4beb-b2dc-f57ff585627d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Subtraction",
+      "guid": "0c80d9c0-d8b3-4817-b8e1-6214d443704b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Subtraction",
+      "guid": "2c56ab33-c7cc-4129-886c-d5856b714010",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Subtraction",
+      "guid": "babecca6-9813-4146-b150-cd72f743e47c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Subtraction",
+      "guid": "f4a20a34-97e6-4ff5-9b26-7f7ed7a1e333",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Superimpose Surface",
+      "guid": "62b1ce04-920e-4276-be1f-faa49f96169f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Surface Edit Points",
+      "guid": "4c65ab43-8f27-47bd-939b-1181d68689eb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Surface Frames [OBSOLETE]",
+      "guid": "59143f40-32f3-47c1-b9ae-1a09eb9c926b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Surface | Line",
+      "guid": "c2c73357-bfd2-45af-89ff-40ca02a3442f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Swap Surface Directions",
+      "guid": "d63f61c1-1efe-4737-a13d-c4b01ec07c4f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Sweep Unsplit Surface",
+      "guid": "f30e18c6-31a7-4b1c-bedf-ac61c92f1800",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tangent",
+      "guid": "002b2feb-5d1b-41ea-913f-9f203c615792",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tangent",
+      "guid": "0bc93049-e1a7-44b5-8068-c7ddc85a9f46",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Text Case",
+      "guid": "bdd2a14a-1302-4152-a484-7198716d1a11",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Text Tag",
+      "guid": "4b3d38d3-0620-42e5-9ae8-0d4d9ad914cd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Text Tag 3D",
+      "guid": "18564c36-5652-4c63-bb6f-f0e1273666dd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Text Tag 3D",
+      "guid": "ebf4d987-09b9-4825-a735-cac3d4770c19",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Thicken Twisted Box",
+      "guid": "6ceee200-3f14-4c6a-888b-8d8d8bf2b80c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Transform Twisted Box",
+      "guid": "8940b8b9-24da-46e5-a1fd-0c1de133f7be",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Curve With Plane",
+      "guid": "70f8310a-40da-4980-bb83-1dd246f87fcb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Curve With Points",
+      "guid": "92689a03-a722-4ba3-ac18-42bb2d70c77b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Curve With Points",
+      "guid": "aeccbf8f-a50a-4b6c-be73-53b26d0bcd42",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Mesh With Plane",
+      "guid": "16603176-71a5-4bf9-a085-14e969f6c657",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Planes With Plane",
+      "guid": "0f66af77-152b-4f94-aa72-4ed505cf9369",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Points With Plane",
+      "guid": "72ac32fc-9845-42a8-910d-f0d33629b18c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Trim Surface With Plane",
+      "guid": "ba85d0f3-8a55-428a-9f2b-f8d70ce15b71",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Truncate",
+      "guid": "a8de2000-073d-412d-a0b2-3a4894ba71f8",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Colors",
+      "guid": "6f255502-022a-4f8b-83ea-b1b4c143f69b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Colors",
+      "guid": "3351cf6f-32d6-42c3-b017-797ce7558a30",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves",
+      "guid": "1cfc4933-5932-4485-b7fb-4acb2eb28569",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves",
+      "guid": "8aa6ee9e-b83d-45ce-9856-5fd4c63992cf",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves",
+      "guid": "e3bd97f3-bffd-426c-8f5b-d14bb6c6b636",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves Along Curve",
+      "guid": "53493ecf-5863-4495-b40e-7c171a83480b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves Along Curve",
+      "guid": "20093f3d-6ac6-4ee7-91b5-3d6ce3d9dbd3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves Along Curve",
+      "guid": "6f2f3047-98b9-4d77-ada0-63c57086fac0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves On Surface",
+      "guid": "b306eac4-424a-431b-b70f-35093ba6e304",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves On Surface",
+      "guid": "04130186-94b8-46d4-a970-f2bee23b4d08",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Curves On Surface",
+      "guid": "8b27cb42-4b8d-4b15-9163-028aa41d2051",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Domains",
+      "guid": "f835ddea-34ab-4241-b7e5-f04ed36dabe1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Domains²",
+      "guid": "89b31f5d-7cbe-40ff-810c-9d162f58282e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Meshes",
+      "guid": "e150693c-279b-4812-9662-9135975f3328",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Meshes",
+      "guid": "b1aed7e3-338e-4006-b412-71da29b5966d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Meshes",
+      "guid": "47984e90-4e7b-47f7-834c-99109a138a10",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Numbers",
+      "guid": "e2b7375f-2e02-47ae-ae6d-663e65559582",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Numbers",
+      "guid": "c87ba179-27d8-49fc-b7bb-693935492f8f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Numbers",
+      "guid": "c1cd17c6-400a-4d35-926a-b4b529b33510",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Planes",
+      "guid": "e7258444-7be5-4f9c-84a4-42fe7a3d2621",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Planes",
+      "guid": "056e4f24-f714-4b71-a152-37e8646d2569",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Planes On Curve",
+      "guid": "2b79a941-7337-4772-9bac-702f542d83b2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Planes On Surface",
+      "guid": "20e91fe9-12c1-4377-afd1-5a2cade842c7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Planes On Surface",
+      "guid": "63e62489-3e10-4a2f-9df8-cd509bafcb93",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Points",
+      "guid": "3df33506-c352-4f0f-b1e1-a67fd2c32d9f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Points",
+      "guid": "215da3c1-ea6a-4f3f-9bf0-16e7ea9b7f7b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Points On Curve",
+      "guid": "4b40c48d-ee3f-45ab-963d-57e3c963924a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Points On Surface",
+      "guid": "7d2a7ec5-21c7-49fc-98f6-c40e949e7495",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Points On Surface",
+      "guid": "c7bd5af3-a982-491a-b073-fbe2a30aaf0a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Surfaces",
+      "guid": "ff14ce67-4657-4eed-868b-52d7be6e82b4",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Surfaces",
+      "guid": "615e819a-95f9-4b35-a082-51f8027300a9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Surfaces",
+      "guid": "63d7e62a-fed6-4f56-be44-65e0f54caaba",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Surfaces",
+      "guid": "78bee965-10b9-4532-b195-b604f24996b6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Transforms",
+      "guid": "160576ae-b909-4c09-8d00-b38a3d793a7f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Twisted Boxes",
+      "guid": "2c79b4c5-3d96-4afe-997f-c442c7bd9a60",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Twisted Boxes",
+      "guid": "e5145bb1-1d6a-452e-9251-ad6187da552f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Vectors",
+      "guid": "fc86d14d-c8be-4182-aaa4-526f2fa3a258",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Consecutive Vectors",
+      "guid": "01c76c9e-39b8-4056-a7b2-82b9cb5bb6ca",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Colors",
+      "guid": "70b0fef5-c29f-455c-93f2-6dc396fff166",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Colors",
+      "guid": "5a196ca8-87a7-4ce8-9bf8-798dbcbe9c65",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Colors",
+      "guid": "8b68f584-1a9f-446c-9add-dc0f471426e8",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Colors",
+      "guid": "f01e4251-6273-41fd-89e2-45f9ecb0ce17",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves",
+      "guid": "4ade81dd-2da4-46ed-86c0-6415c5960b73",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves",
+      "guid": "4ff5b06a-06ef-4f91-8171-8ce0b1ef9f7e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves",
+      "guid": "a68b7cd2-7da3-4c31-bb21-b43f28308d30",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves",
+      "guid": "0855a8ae-0660-48dc-a366-aba22dccd364",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves",
+      "guid": "1e7ea799-b9e8-4a9c-8ba5-9e0cb0ce682e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "6977d550-fb9d-4a5a-8687-55c978429012",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "bd3fa7df-5076-4194-984f-5dd200c11f3c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "107c5df0-248d-4f94-b6e9-dc93e78afc6e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "62836aa1-957e-44dc-9e22-42adf91312a2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "765223bd-7bea-4866-8e32-9512d56f8d7f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves Along Curve",
+      "guid": "3b45ea8d-2d0f-42e8-a82d-05871425f842",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves On Surface",
+      "guid": "0bcc35aa-2b49-4ce8-b832-44197a9b172f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves On Surface",
+      "guid": "7cefb80f-034b-4a7f-9af6-a55741ef9bc7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves On Surface",
+      "guid": "12f9b845-322b-4e84-b591-a4283886d8ca",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves On Surface",
+      "guid": "f7faea7e-9d94-4fd7-a77e-8a99f69010bb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Curves On Surface",
+      "guid": "42b26462-4748-4b68-bcd1-5e3929f85a92",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Domains",
+      "guid": "a97269f8-da64-4be4-bfb3-8a6d9f96c761",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Domains²",
+      "guid": "3b49bf08-a41d-4b05-89b4-00dc3fc8f0ab",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Meshes",
+      "guid": "97f49794-ea5f-42be-9497-7547b58b5876",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Meshes",
+      "guid": "10e0b463-e23d-43b9-a9dd-a63d3174fbd9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Meshes",
+      "guid": "221ee6f6-1f1d-4734-9c21-1ebdb5608531",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Meshes",
+      "guid": "ff858bb6-0b02-43ce-b5e5-5da0fa14f6ef",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Meshes",
+      "guid": "d1a408d8-13f7-4fca-ac0e-a3644da11808",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Numbers",
+      "guid": "c1b9f8da-e601-4c7f-a740-4b5a07a00dd1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Numbers",
+      "guid": "3c81de9c-b61f-4a01-8f54-6aa39da05491",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Numbers",
+      "guid": "a256dbd7-e48c-4929-b92c-a0a222eee37b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Numbers",
+      "guid": "b00a27fe-b221-4d33-bef9-aae78b26dda0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes",
+      "guid": "030cbdab-1744-4e2d-88d7-94933998e156",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes",
+      "guid": "74aff2bc-47ba-4f4d-8c03-561595379b12",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes",
+      "guid": "bf1f1bf9-7959-4c4e-ad0b-20e8e66f9900",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes",
+      "guid": "e8f52457-1d3c-4f1a-8f84-88a6bea1c10d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Curve",
+      "guid": "275ea4db-f365-4d4a-808c-ad6db68a9700",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Curve",
+      "guid": "f42a1e78-511a-4f50-a3d8-3384138d0b07",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Curve",
+      "guid": "346d6500-aed1-4b87-b05d-d49fef463d09",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Curve",
+      "guid": "020f4809-16cf-43d9-9152-d07847479d94",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Surface",
+      "guid": "14e4e22e-f665-4eec-9d0d-551dedcd5a16",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Surface",
+      "guid": "4b565e8f-c702-48db-b640-03c4c3a3c94c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Surface",
+      "guid": "21fc96bc-379f-42c3-9e56-84e46e734dfc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Planes On Surface",
+      "guid": "0ac3a325-d10f-4fdb-8dec-a448dc3c3880",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points",
+      "guid": "53fb7447-ddf1-434c-b140-e7712b1be71b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points",
+      "guid": "73fc935c-7197-4bd4-8038-390811ab4c64",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points",
+      "guid": "7c5fa96f-8fd6-450e-92d5-77be7ae64450",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points",
+      "guid": "cf2a0d98-ac67-42e7-8bd1-eacd71bc01a3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Curve",
+      "guid": "6c4e779b-9293-4ab2-9db9-fdd6d0908084",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Curve",
+      "guid": "805bc89c-bc88-4e3a-a566-123c90433938",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Curve",
+      "guid": "c78a6105-c356-4f5d-b3bb-b490ead044e9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Curve",
+      "guid": "8fdd9c39-781d-4768-a2cf-249e9debd6f2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Surface",
+      "guid": "d4368061-dfca-4635-8817-42238f874813",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Surface",
+      "guid": "82a86a9c-9879-4789-b4fd-2e68f3b08d93",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Surface",
+      "guid": "8088bfb7-c77f-454a-a811-0d3969ef0992",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Points On Surface",
+      "guid": "394d9769-5223-4720-b59b-d7423880ad28",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Surfaces",
+      "guid": "a9142b90-1379-47f8-9931-c7ca26669bcd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Surfaces",
+      "guid": "b620faab-06cb-4520-9e37-e743d532418b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Surfaces",
+      "guid": "05549ae1-edd8-4e81-a5b5-8615d8d1d839",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Surfaces",
+      "guid": "b38aaaca-0ce1-4e89-94ab-6708e5ff0a9c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Surfaces",
+      "guid": "d7253ee9-8412-44d3-8526-8892a82f4716",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Transforms",
+      "guid": "a70426b8-dace-4b3c-9510-d34742c04cd3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Twisted Boxes",
+      "guid": "6397b130-2508-417d-93c7-9462e0c90eac",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Twisted Boxes",
+      "guid": "53ba0e35-4d6a-4323-9962-47322236b6dc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Twisted Boxes",
+      "guid": "914b5a2f-875e-4eca-95e2-eb389fd6908b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Twisted Boxes",
+      "guid": "8e794a80-08ac-41db-aec8-bced9565d7b9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Vectors",
+      "guid": "0bc8529a-18c3-42d3-a058-c394cf9e2b49",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Vectors",
+      "guid": "5f8a2219-1372-4ded-9265-e8d2cd64d863",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Vectors",
+      "guid": "a94b16a0-d9c1-41eb-98a2-7302371b84a8",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Through Vectors",
+      "guid": "cd6874fd-060c-41c6-9d9b-b77beb63b67a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Colors",
+      "guid": "6f81fb6e-5239-4ed5-9445-720a9fc26bbf",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Curves",
+      "guid": "63fc3490-b067-4da0-bf28-660235bf0779",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Curves Along Curve",
+      "guid": "8eeaa582-04f4-430e-88c7-d4b01a7327bf",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Curves Along Curve",
+      "guid": "5882bfe4-cb24-4d06-9bdd-65cb65da8890",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Curves On Surface",
+      "guid": "a7703b07-7d74-48fe-bd3e-34014b717fe3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Meshes",
+      "guid": "8998626a-4d9d-481b-a7b6-83bb59095544",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Numbers",
+      "guid": "99a25c39-a757-41a1-a455-b69402bde134",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Numbers",
+      "guid": "65b2631c-5cc4-4dd1-a870-37644c6612fa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Planes On Curve",
+      "guid": "3fde5dda-c1ed-4c0d-8c86-2492c14c7f42",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Points On Curve",
+      "guid": "7a35b545-340a-4a60-86e3-50149a146526",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Tween Two Surfaces",
+      "guid": "8ff45024-d05b-4011-b6ab-f3d6e24a2bfd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Array",
+      "guid": "2178cfc3-cba4-413f-80bb-7ccbb743c4e9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Array",
+      "guid": "5710ca58-385c-4ecb-a3b5-f20236ac4936",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Consecutive Curves",
+      "guid": "550b3515-25da-468b-b64d-d55e89f41b4d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Consecutive Meshes",
+      "guid": "ced3d2bf-2c36-48a0-b651-8eb3cdc2484c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Consecutive Surfaces",
+      "guid": "682bbf44-045a-4c8f-8492-f208379763fb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Consecutive Surfaces",
+      "guid": "4946f05d-56e0-442c-8937-8c353cc3faca",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve",
+      "guid": "4f4242f9-4918-4c6b-b81d-6255ef53c736",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve",
+      "guid": "55c45ce3-5026-4ecc-adc4-9aa6301d9b8e",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve",
+      "guid": "fa5a4059-9714-442d-8791-799945e840bc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve Variable",
+      "guid": "2ac4587b-006a-47d0-8a69-e8cf2591af42",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve Variable",
+      "guid": "abbed346-b8bb-4acd-b452-56da613e8231",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Curve Variable",
+      "guid": "666d1381-234d-4b8a-9fbb-f5a8008787a2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Extrude",
+      "guid": "f49ee534-d2f1-461f-8944-39c193419c74",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Extrude",
+      "guid": "cf8657ef-6c26-4ba1-abca-be52eb9f228c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Loft",
+      "guid": "9b4a1cb1-b5f6-4de6-916d-44b91edc1d33",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Mesh",
+      "guid": "8d6c89be-b132-4dcd-a7c2-d7016ee0f286",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Pipe",
+      "guid": "77532644-fab0-40d2-bc5e-f013751408e1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Pipe",
+      "guid": "103db157-da48-4633-b101-691c35a275f3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Pipe Variable",
+      "guid": "32c01958-c9a1-4e6d-b1df-f4e62c12145b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Pipe Variable",
+      "guid": "48ef9c45-c7d7-4fff-b7bd-685de0eaba9f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strip",
+      "guid": "c3af4baf-efa9-4941-94de-c7f3e2fcf76b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strip",
+      "guid": "7bfd7897-6e94-4644-bc69-7fd24ea184d7",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strip Variable",
+      "guid": "a0897edc-92c6-4051-8c9a-825b0d4d9dd1",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strip Variable",
+      "guid": "29f81864-e68d-4111-b8f2-78b24dc82d83",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strips",
+      "guid": "3fe92bb5-bf9e-419a-a633-6ddc67080379",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Strips",
+      "guid": "f5dc53c1-023a-4c59-bf51-a83d6e003987",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Surface",
+      "guid": "20387e35-f6f5-4a50-9af9-4af02825d834",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Surface",
+      "guid": "352693ee-62d8-4cd6-9487-b70ae98afd5b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Sweep",
+      "guid": "28e1348d-3391-46fe-bbd4-dfc34a869896",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Sweep",
+      "guid": "e2a62e76-ef2b-401d-9c10-c6f7c45bbe03",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Sweep Variable",
+      "guid": "97be8deb-c0cb-4968-8b12-4664e253dc8c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Curves",
+      "guid": "f2df6866-684b-48d8-a1fc-d76f2448fbfc",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Meshes",
+      "guid": "dc99a415-e884-4160-96c4-c2fc912a891f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Meshes",
+      "guid": "41f0ddc6-0f12-4ea1-b7fd-e58ef8ce8bbb",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Meshes",
+      "guid": "2f25d50b-4cc8-4097-bc93-461663cf9567",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Surfaces",
+      "guid": "2feec13b-9054-4f19-812b-5aa0b9a781fa",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Surfaces",
+      "guid": "96224659-36ac-4d6c-8704-620fc64e194c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Surfaces",
+      "guid": "70514fbe-433b-46b1-b115-744514b250b0",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Surfaces",
+      "guid": "055d32e3-65ad-4fa6-94ea-917c29b5a64a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Through Surfaces",
+      "guid": "1fb4b7ac-d767-4d2a-8767-51c3500eb29f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube",
+      "guid": "5825c436-9eaa-4ec4-80b5-570f3cd82d93",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube",
+      "guid": "c778a02c-507d-4bed-986a-10cc1be5964a",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube",
+      "guid": "427a0ac1-13f6-4d94-b3fc-14aa540484a9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube",
+      "guid": "aeb3a603-7ba0-4382-b8f7-5538face60ce",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube Variable",
+      "guid": "49bab2ef-8b76-4c09-bad7-b87c681930b3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube Variable",
+      "guid": "e7234f2e-c225-499c-9300-9e3cf109f553",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube Variable",
+      "guid": "8f4a067c-3b8c-4597-8130-fd3ce9d793be",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Tube Variable",
+      "guid": "7e252273-4e2a-48a7-9ca9-d045c2d8a854",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Two Meshes",
+      "guid": "3bdf4cd1-1faa-4c75-933a-c08f27362ca6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Two Surfaces",
+      "guid": "51ec52e7-bc7b-4ffb-a509-860ef78e035b",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Twisted Box Two Surfaces",
+      "guid": "2722bdbe-c8d1-4b5d-b4d5-730e31478364",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Two Way Domain",
+      "guid": "fce70bc5-deec-4d89-a5b7-bcbe26d7354c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Unroll Polysurface",
+      "guid": "0c3cbf72-7e08-4f4a-9fe3-8bce3c5878e5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Unsplit Sweep Surface",
+      "guid": "6a60caea-d68c-4c8c-a929-46ebc523b1cd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "VB Script (Legacy)",
+      "guid": "1e9e08fc-c31e-49eb-a36c-90de5e62e5f5",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Variable Expression",
+      "guid": "ef4ead41-6762-4adf-8a20-12b973bdf008",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Vector Star",
+      "guid": "c8a9ea98-8608-4dfb-8602-2b64a67a51d2",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Viewport Overrides",
+      "guid": "fbfb5053-dc87-4b5e-a1bd-26c71b9eda55",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Viewport Properties",
+      "guid": "841b868b-0d16-41c5-8253-b95d88a5dd7c",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Volume",
+      "guid": "224f7648-5956-4b26-80d9-8d771f3dfd5d",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Volume Moments",
+      "guid": "4b5f79e1-c2b3-4b9c-b97d-470145a3ca74",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Voronoi",
+      "guid": "ee9261ab-75a4-478f-b483-a50b755b07fd",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Voronoi Groups",
+      "guid": "ab454a50-debf-46d1-9bd1-82648416a802",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weave",
+      "guid": "160c1df2-e2e8-48e5-b538-f2d6981007e3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weaverbird's Constant Quads Subdivision",
+      "guid": "4098ec72-899a-4cbd-9eee-8a835d4e21c6",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weaverbird's Extract Faces",
+      "guid": "a0b0150d-c3c0-418c-2e1c-9332c03690a9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weaverbird's Join Meshes (Obsolete)",
+      "guid": "40981c7a-819a-4cfd-9ccc-86036dac21a3",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Curve",
+      "guid": "395fda9d-306a-4437-82db-d03543d9f137",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Curve",
+      "guid": "cf4004c5-73cc-45f9-a5ec-fac0c3d449e9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Mesh",
+      "guid": "2cd34278-cfac-4155-b336-0e1d5a77d135",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Mesh",
+      "guid": "02ca767a-3c31-489a-928a-6e914375000f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Plane",
+      "guid": "f11b9823-09be-4164-a5b8-09b3f2e0ffd9",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Surface",
+      "guid": "f1f7058b-ed91-4af8-90b6-896ce468c52f",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "Weighted Average Twisted Box",
+      "guid": "32dfd8cf-6ddd-4178-8f10-0c302d88d316",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "X Minus One",
+      "guid": "26539ca7-3a83-46cd-86dc-6f51b6dfb4ff",
+      "exposure_label": "unknown"
+    },
+    {
+      "name": "X Plus One",
+      "guid": "30336667-548f-420e-bc15-2e221f6ee713",
+      "exposure_label": "unknown"
+    }
+  ]
+}

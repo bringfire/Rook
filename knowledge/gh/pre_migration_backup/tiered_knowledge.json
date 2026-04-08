@@ -1,0 +1,4977 @@
+{
+  "version": "1.1",
+  "created": "2026-01-25",
+  "description": "Tiered GH component knowledge - token-aware density layers",
+  "token_targets": {
+    "quick": 20,
+    "context": 50,
+    "errors": 30,
+    "raw": 300
+  },
+  "input_providers": {
+    "_description": "Components that generate test data for each input type. Used by gh_explore_deep for automatic wiring.",
+    "point": {
+      "component": "Construct Point",
+      "guid": "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+      "output": "Pt",
+      "notes": "Creates point from X/Y/Z sliders"
+    },
+    "plane": {
+      "component": "XY Plane",
+      "guid": "17b7152b-d30d-4d50-b9ef-c9fe25576fc2",
+      "output": "P",
+      "notes": "World XY plane at origin"
+    },
+    "vector": {
+      "component": "Unit Z",
+      "guid": "9103c240-a6a9-4223-9b42-dbd19bf38e2b",
+      "output": "V",
+      "notes": "Unit Z vector with factor slider"
+    },
+    "domain": {
+      "component": "Construct Domain",
+      "guid": "d1a28e95-cf96-4936-bf34-8bf142d731bf",
+      "output": "I",
+      "notes": "Domain from A/B sliders (0-10 default)"
+    },
+    "number": {
+      "component": "Number Slider",
+      "guid": null,
+      "output": null,
+      "notes": "Created via /gh/create-slider endpoint"
+    },
+    "integer": {
+      "component": "Number Slider",
+      "guid": null,
+      "output": null,
+      "notes": "Created via /gh/create-slider with integer=true"
+    },
+    "boolean": {
+      "component": "Boolean Toggle",
+      "guid": "2e78987b-9dfb-42a2-8b76-3923ac8bd91a",
+      "output": null,
+      "notes": "Simple true/false toggle"
+    },
+    "curve": {
+      "component": "Circle",
+      "guid": "807b86e3-be8d-4970-92b5-f8cdcb45b06b",
+      "output": "C",
+      "notes": "Circle at origin, radius 1"
+    },
+    "surface": {
+      "component": "Sphere",
+      "guid": "dabc854d-f50e-408a-b001-d043c7de151d",
+      "output": "S",
+      "notes": "Sphere at origin"
+    },
+    "brep": {
+      "component": "Quad Sphere",
+      "guid": "361790d6-9d66-4808-8c5a-8de9c218c227",
+      "output": "S",
+      "notes": "Closed brep sphere"
+    },
+    "geometry": {
+      "component": "Circle",
+      "guid": "807b86e3-be8d-4970-92b5-f8cdcb45b06b",
+      "output": "C",
+      "notes": "Generic geometry accepts curves"
+    }
+  },
+  "components": {
+    "dabc854d-f50e-408a-b001-d043c7de151d": {
+      "name": "Sphere",
+      "family": "primitives",
+      "quick": "Sphere | B, R \u2192 S",
+      "params": {
+        "inputs": {
+          "B": "Plane",
+          "R": "Number"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: S: single"
+      },
+      "similar_to": [
+        "361790d6-9d66-4808-8c5a-8de9c218c227",
+        "0373008a-80ee-45be-887d-ab5a244afc29",
+        "2a43ef96-8f87-4892-8b94-237a47e8d3cf"
+      ]
+    },
+    "0373008a-80ee-45be-887d-ab5a244afc29": {
+      "name": "Cylinder",
+      "family": "primitives",
+      "quick": "Cylinder | B, R, L \u2192 C",
+      "params": {
+        "inputs": {
+          "B": "Plane",
+          "R": "Number",
+          "L": "Number"
+        },
+        "outputs": {
+          "C": "Surface"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: C: single"
+      },
+      "similar_to": [
+        "dabc854d-f50e-408a-b001-d043c7de151d",
+        "2a43ef96-8f87-4892-8b94-237a47e8d3cf"
+      ]
+    },
+    "2a43ef96-8f87-4892-8b94-237a47e8d3cf": {
+      "name": "Box 2Pt",
+      "family": "primitives",
+      "quick": "Box 2Pt | A, B, P \u2192 B",
+      "params": {
+        "inputs": {
+          "A": "Point",
+          "B": "Point",
+          "P": "Plane"
+        },
+        "outputs": {
+          "B": "Box"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: B: single"
+      },
+      "similar_to": [
+        "28061aae-04fb-4cb5-ac45-16f3b66bc0a4",
+        "0bb3d234-9097-45db-9998-621639c87d3b",
+        "dabc854d-f50e-408a-b001-d043c7de151d",
+        "0373008a-80ee-45be-887d-ab5a244afc29"
+      ]
+    },
+    "28061aae-04fb-4cb5-ac45-16f3b66bc0a4": {
+      "name": "Center Box",
+      "family": "primitives",
+      "quick": "Center Box | B, X, Y \u2192 B",
+      "params": {
+        "inputs": {
+          "B": "Plane",
+          "X": "Number",
+          "Y": "Number",
+          "Z": "Number"
+        },
+        "outputs": {
+          "B": "Box"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: B: single"
+      },
+      "similar_to": [
+        "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+        "0bb3d234-9097-45db-9998-621639c87d3b"
+      ]
+    },
+    "a0d62394-a118-422d-abb3-6af115c75b25": {
+      "name": "Addition",
+      "family": "math",
+      "quick": "Add two numbers | A+B output",
+      "contexts": {
+        "lists": "If A has multiple values, broadcasts operation across list. Supports data tree grafting."
+      },
+      "errors": "OBSOLETE version exists! Create by name returns wrong component. ALWAYS use this GUID.",
+      "params": {
+        "inputs": {
+          "A": "First operand",
+          "B": "Second operand"
+        },
+        "outputs": {
+          "R": "Result A+B"
+        }
+      },
+      "similar_to": [
+        "ce46b74e-00c9-43c4-805a-193b69ea4a11"
+      ]
+    },
+    "ce46b74e-00c9-43c4-805a-193b69ea4a11": {
+      "name": "Multiplication",
+      "family": "math",
+      "quick": "Multiply two numbers | A*B output",
+      "contexts": {
+        "vector_scaling": "For vector-scalar multiplication, use VMul (63fff845) component instead.",
+        "lists": "Broadcasts across lists. Use Mass Multiplication (e44c1bd7) for product of entire list."
+      },
+      "errors": "Two Multiplication components exist. This is scalar math. VMul is for vectors.",
+      "params": {
+        "inputs": {
+          "A": "First operand",
+          "B": "Second operand"
+        },
+        "outputs": {
+          "R": "Result A*B"
+        }
+      },
+      "similar_to": [
+        "a0d62394-a118-422d-abb3-6af115c75b25"
+      ]
+    },
+    "57da07bd-ecab-415d-9d86-af36d7073abc": {
+      "name": "Number Slider",
+      "family": "input",
+      "quick": "Numeric input with visual slider | Double-click to edit range",
+      "contexts": {
+        "parametric": "Primary input for parametric control. Wire to component inputs. Set nickname for clarity.",
+        "range": "Default 0-10. Double-click slider to edit min/max/precision."
+      },
+      "errors": "No Params property (unlike components). Use gh_get_value/gh_set_value for programmatic access.",
+      "params": {
+        "inputs": {},
+        "outputs": {
+          "value": "Current slider value"
+        }
+      },
+      "similar_to": [
+        "2e78987b-9dfb-42a2-8b76-3923ac8bd91a",
+        "bc984576-7aa6-491f-a91d-e444c33675a7"
+      ]
+    },
+    "59e0b89a-e487-49f8-bab8-b5bab16be14c": {
+      "name": "Panel",
+      "family": "input",
+      "quick": "Text input/output display | Multi-line content",
+      "contexts": {
+        "input": "Wire to component inputs for text/number input. Content parsed as values.",
+        "output": "Wire from outputs to display results. Shows data tree structure."
+      },
+      "errors": "For single number input, prefer Number Slider for better UX.",
+      "params": {
+        "inputs": {
+          "content": "Text content"
+        },
+        "outputs": {
+          "content": "Text content"
+        }
+      }
+    },
+    "2e78987b-9dfb-42a2-8b76-3923ac8bd91a": {
+      "name": "Boolean Toggle",
+      "family": "input",
+      "quick": "True/false toggle switch | Click to flip",
+      "contexts": {
+        "conditional": "Wire to conditional logic (Dispatch, Stream Filter) for branching workflows."
+      },
+      "errors": "Default is false. Click toggle to set true.",
+      "params": {
+        "inputs": {},
+        "outputs": {
+          "B": "Boolean value"
+        }
+      },
+      "similar_to": [
+        "57da07bd-ecab-415d-9d86-af36d7073abc"
+      ]
+    },
+    "4c4e56eb-2f04-43f9-95a3-cc46a14f495a": {
+      "name": "Line",
+      "family": "curves",
+      "quick": "Line | Inputs: A, B \u2192 L",
+      "params": {
+        "inputs": {
+          "A": "Point",
+          "B": "Point"
+        },
+        "outputs": {
+          "L": "Line"
+        }
+      }
+    },
+    "962034e9-cc27-4394-afc4-5c16e3447cf9": {
+      "name": "Extrude",
+      "family": "surface_ops",
+      "quick": "Extrude | Inputs: B, D \u2192 E",
+      "params": {
+        "inputs": {
+          "B": "Geometry",
+          "D": "Vector"
+        },
+        "outputs": {
+          "E": "Geometry"
+        }
+      }
+    },
+    "75164624-395a-4d24-b60b-6bf91cab0194": {
+      "name": "Sweep2",
+      "family": "surface_ops",
+      "quick": "Sweep profile along two rails | Inputs R1, R2, S (sections)",
+      "contexts": {
+        "variable_width": "Use two parallel rails with profile curves between them.",
+        "lofted_sweep": "Multiple sections S creates transitioning sweep."
+      },
+      "errors": "Profile curves must intersect or touch rails. Order matters for surface direction.",
+      "params": {
+        "inputs": {
+          "R1": "First rail",
+          "R2": "Second rail",
+          "S": "Section curves"
+        },
+        "outputs": {
+          "S": "Swept surface"
+        }
+      },
+      "similar_to": [
+        "bb6666e7-d0f4-41ec-a257-df2371619f13",
+        "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850",
+        "962034e9-cc27-4394-afc4-5c16e3447cf9"
+      ]
+    },
+    "e64c5fb1-845c-4ab1-8911-5f338516ba67": {
+      "name": "Series",
+      "family": "sequence",
+      "quick": "Generate number sequence | Start + Step * Count",
+      "contexts": {
+        "data_generation": "Creates list of N numbers. Default: 0,1,2...9. Wire sliders to control range.",
+        "data_structure": "Output is LIST structure - single branch {0;0} with N items."
+      },
+      "errors": "Count input is integer. Decimal values truncated.",
+      "params": {
+        "inputs": {
+          "S": "Start value",
+          "N": "Step size",
+          "C": "Count (integer)"
+        },
+        "outputs": {
+          "S": "Series of numbers"
+        }
+      },
+      "similar_to": [
+        "9445ca40-cc73-4861-a455-146308676855"
+      ]
+    },
+    "87e1d9ef-088b-4d30-9dda-8a7448a17329": {
+      "name": "Graft Tree",
+      "family": "tree_operations",
+      "quick": "Add branch level | Each item gets own path",
+      "contexts": {
+        "data_structure": "Converts list {0;0}[10 items] to tree {0;0;0}...{0;0;9}[1 item each]. Isolates items.",
+        "pattern_use": "Use before operations that need item isolation (per-item transforms, individual geometry)."
+      },
+      "errors": "Increases tree complexity. Use Simplify or Flatten to reduce branches afterward.",
+      "params": {
+        "inputs": {
+          "T": "Tree to graft"
+        },
+        "outputs": {
+          "T": "Grafted tree"
+        }
+      },
+      "similar_to": [
+        "f80cfe18-9510-4b89-8301-8e58faf423bb",
+        "1303da7b-e339-4e65-a051-82c4dce8224d"
+      ]
+    },
+    "f80cfe18-9510-4b89-8301-8e58faf423bb": {
+      "name": "Flatten Tree",
+      "family": "tree_operations",
+      "quick": "Remove ALL branches | Collapse to single list",
+      "contexts": {
+        "data_structure": "Converts any tree to list with path {0}. All items merged into one branch.",
+        "pattern_use": "Use to combine results from parallel operations. Loses branch origin info."
+      },
+      "errors": "Destroys tree structure completely. Use Path param P to partially flatten instead.",
+      "params": {
+        "inputs": {
+          "T": "Tree to flatten",
+          "P": "Path (optional partial flatten)"
+        },
+        "outputs": {
+          "T": "Flattened tree"
+        }
+      },
+      "similar_to": [
+        "87e1d9ef-088b-4d30-9dda-8a7448a17329",
+        "1303da7b-e339-4e65-a051-82c4dce8224d"
+      ]
+    },
+    "9445ca40-cc73-4861-a455-146308676855": {
+      "name": "Range",
+      "family": "sequence",
+      "quick": "Create range of numbers | Domain divided into steps",
+      "contexts": {
+        "parametric": "Wire domain (0 to 1) and step count N. Gets N+1 evenly spaced values.",
+        "data_structure": "Output is LIST - single branch with N+1 items."
+      },
+      "errors": "Returns N+1 values, not N. Range(0-10, 5) returns 6 values: 0,2,4,6,8,10.",
+      "params": {
+        "inputs": {
+          "D": "Domain (range)",
+          "N": "Step count"
+        },
+        "outputs": {
+          "R": "Range of numbers"
+        }
+      },
+      "similar_to": [
+        "e64c5fb1-845c-4ab1-8911-5f338516ba67"
+      ]
+    },
+    "47886835-e3ff-4516-a3ed-1b419f055464": {
+      "name": "Circle 3Pt",
+      "family": "curves",
+      "quick": "Circle 3Pt | A, B, C \u2192 C, P",
+      "params": {
+        "inputs": {
+          "A": "Point",
+          "B": "Point",
+          "C": "Point"
+        },
+        "outputs": {
+          "C": "Circle",
+          "P": "Plane",
+          "R": "Number"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: C: single, P: single, R: single"
+      },
+      "similar_to": [
+        "9d2583dd-6cf5-497c-8c40-c9a290598396"
+      ]
+    },
+    "1a38d325-98de-455c-93f1-bca431bc1243": {
+      "name": "Offset Curve",
+      "family": "curves",
+      "quick": "Offset Curve | C, D, P \u2192 C",
+      "params": {
+        "inputs": {
+          "C": "Integer",
+          "D": "Number",
+          "P": "Plane"
+        },
+        "outputs": {
+          "C": "Curve"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: C: tree"
+      },
+      "errors": "ERROR: Data conversion failed from Number to Curve"
+    },
+    "03e331ed-c4d1-4a23-afa2-f57b87d2043c": {
+      "name": "Cone",
+      "family": "primitives",
+      "quick": "Cone | B, R, L \u2192 C, T",
+      "params": {
+        "inputs": {
+          "B": "Plane",
+          "R": "Number",
+          "L": "Number"
+        },
+        "outputs": {
+          "C": "Surface",
+          "T": "Point"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: C: single, T: single"
+      },
+      "similar_to": [
+        "0373008a-80ee-45be-887d-ab5a-244afc29"
+      ]
+    },
+    "361790d6-9d66-4808-8c5a-8de9c218c227": {
+      "name": "Quad Sphere",
+      "family": "primitives",
+      "quick": "Quad Sphere | B, R \u2192 S",
+      "params": {
+        "inputs": {
+          "B": "Plane",
+          "R": "Number"
+        },
+        "outputs": {
+          "S": "Brep"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: S: single"
+      },
+      "similar_to": [
+        "dabc854d-f50e-408a-b001-d043c7de151d"
+      ]
+    },
+    "0bb3d234-9097-45db-9998-621639c87d3b": {
+      "name": "Bounding Box",
+      "family": "primitives",
+      "quick": "Bounding Box | C, P \u2192 B",
+      "params": {
+        "inputs": {
+          "C": "Geometry",
+          "P": "Plane"
+        },
+        "outputs": {
+          "B": "Box"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: B: empty"
+      },
+      "similar_to": [
+        "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+        "28061aae-04fb-4cb5-ac45-16f3b66bc0a4"
+      ]
+    },
+    "4c619bc9-39fd-4717-82a6-1e07ea237bbe": {
+      "name": "Line SDL",
+      "family": "curves",
+      "quick": "Line SDL | S, D, L \u2192 L",
+      "params": {
+        "inputs": {
+          "S": "Point",
+          "D": "Vector",
+          "L": "Number"
+        },
+        "outputs": {
+          "L": "Line"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: L: single"
+      },
+      "similar_to": [
+        "4c4e56eb-2f04-43f9-95a3-cc46a14f495a"
+      ]
+    },
+    "807b86e3-be8d-4970-92b5-f8cdcb45b06b": {
+      "name": "Circle",
+      "family": "curves",
+      "quick": "Circle | P, R \u2192 C",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "R": "Number"
+        },
+        "outputs": {
+          "C": "Circle"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: C: single"
+      },
+      "similar_to": [
+        "46b5564d-d3eb-4bf1-ae16-15ed132cfd88",
+        "845527a6-5cea-4ae9-a667-96ae1667a4e8"
+      ]
+    },
+    "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850": {
+      "name": "Loft",
+      "family": "surface_ops",
+      "quick": "Loft | C, O \u2192 L",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "O": "Loft Options"
+        },
+        "outputs": {
+          "L": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: L: single"
+      },
+      "errors": "ERROR: Loft could not be constructed.",
+      "similar_to": [
+        "bb6666e7-d0f4-41ec-a257-df2371619f13",
+        "75164624-395a-4d24-b60b-6bf91cab0194"
+      ]
+    },
+    "46b5564d-d3eb-4bf1-ae16-15ed132cfd88": {
+      "name": "Ellipse",
+      "family": "curves",
+      "quick": "Ellipse | P, R1, R2 \u2192 E, F1",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "R1": "Number",
+          "R2": "Number"
+        },
+        "outputs": {
+          "E": "Curve",
+          "F1": "Point",
+          "F2": "Point"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: E: single, F1: single, F2: single"
+      },
+      "similar_to": [
+        "807b86e3-be8d-4970-92b5-f8cdcb45b06b"
+      ]
+    },
+    "845527a6-5cea-4ae9-a667-96ae1667a4e8": {
+      "name": "Polygon",
+      "family": "curves",
+      "quick": "Polygon | P, R, S \u2192 P, L",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "R": "Number",
+          "S": "Integer",
+          "Rf": "Number"
+        },
+        "outputs": {
+          "P": "Curve",
+          "L": "Number"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: P: single, L: single"
+      },
+      "similar_to": [
+        "807b86e3-be8d-4970-92b5-f8cdcb45b06b"
+      ]
+    },
+    "9d2583dd-6cf5-497c-8c40-c9a290598396": {
+      "name": "Arc SED",
+      "family": "curves",
+      "quick": "Arc SED | S, E, D \u2192 A, P",
+      "params": {
+        "inputs": {
+          "S": "Point",
+          "E": "Point",
+          "D": "Vector"
+        },
+        "outputs": {
+          "A": "Geometry",
+          "P": "Plane",
+          "R": "Number"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: A: single, P: single, R: single"
+      },
+      "similar_to": [
+        "47886835-e3ff-4516-a3ed-1b419f055464"
+      ]
+    },
+    "75f4b0fd-9721-47b1-99e7-9c098b342e67": {
+      "name": "BiArc",
+      "family": "curves",
+      "quick": "BiArc | S, Ts, E \u2192 A1, A2",
+      "params": {
+        "inputs": {
+          "S": "Point",
+          "Ts": "Vector",
+          "E": "Point",
+          "Te": "Vector",
+          "R": "Number"
+        },
+        "outputs": {
+          "A1": "Arc",
+          "A2": "Arc",
+          "B": "Curve"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: A1: single, A2: single, B: single"
+      }
+    },
+    "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b": {
+      "name": "Move",
+      "family": "unknown",
+      "quick": "Move | Inputs: G, T \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "T": "Vector"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      }
+    },
+    "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703": {
+      "name": "Scale",
+      "family": "transforms",
+      "quick": "Scale | G, C, F \u2192 G, X",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "C": "Point",
+          "F": "Number"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: G: single, X: single"
+      },
+      "errors": "ERROR: Cannot scale with factor zero",
+      "similar_to": [
+        "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+        "b7798b74-037e-4f0c-8ac7-dc1043d093e0",
+        "f12daa2f-4fd5-48c1-8ac3-5dea476912ca"
+      ]
+    },
+    "b7798b74-037e-4f0c-8ac7-dc1043d093e0": {
+      "name": "Rotate",
+      "family": "transforms",
+      "quick": "Rotate | G, A, P \u2192 G, X",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "A": "Number",
+          "P": "Plane"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: G: single, X: single"
+      },
+      "similar_to": [
+        "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+        "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703",
+        "f12daa2f-4fd5-48c1-8ac3-5dea476912ca"
+      ]
+    },
+    "f12daa2f-4fd5-48c1-8ac3-5dea476912ca": {
+      "name": "Mirror",
+      "family": "transforms",
+      "quick": "Mirror | G, P \u2192 G, X",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "P": "Plane"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: G: single, X: single"
+      },
+      "similar_to": [
+        "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+        "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703",
+        "b7798b74-037e-4f0c-8ac7-dc1043d093e0"
+      ]
+    },
+    "2f407944-81c3-4062-a485-276454ec4b8c": {
+      "name": "Fillet",
+      "family": "solid_generation",
+      "quick": "Fillet | C, R \u2192 C",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "R": "Number"
+        },
+        "outputs": {
+          "C": "Curve"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: C: empty"
+      },
+      "errors": "WARNING: Input parameter C failed to collect data"
+    },
+    "8073a420-6bec-49e3-9b18-367f6fd76ac3": {
+      "name": "Join Curves",
+      "family": "curves",
+      "quick": "Join Curves | C, P \u2192 C",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "P": "Boolean"
+        },
+        "outputs": {
+          "C": "Curve"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: C: single"
+      },
+      "similar_to": [
+        "afb96615-c59a-45c9-9cac-e27acb1c7ca0"
+      ]
+    },
+    "afb96615-c59a-45c9-9cac-e27acb1c7ca0": {
+      "name": "Explode",
+      "family": "curves",
+      "quick": "Explode | Inputs: C, R \u2192 S",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "R": "Boolean"
+        },
+        "outputs": {
+          "S": "Curve",
+          "V": "Point"
+        }
+      },
+      "similar_to": [
+        "8073a420-6bec-49e3-9b18-367f6fd76ac3"
+      ]
+    },
+    "2162e72e-72fc-4bf8-9459-d4d82fa8aa14": {
+      "name": "Divide Curve",
+      "family": "curves",
+      "quick": "Divide Curve | C, N, K \u2192 P, T",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "N": "Integer",
+          "K": "Boolean"
+        },
+        "outputs": {
+          "P": "Point",
+          "T": "Vector",
+          "t": "Number"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: P: list, T: list, t: list"
+      },
+      "similar_to": [
+        "1e531c08-9c80-46d6-8850-1b50d1dae69f"
+      ]
+    },
+    "1e531c08-9c80-46d6-8850-1b50d1dae69f": {
+      "name": "Divide Distance",
+      "family": "curves",
+      "quick": "Divide Distance | C, D \u2192 P, T",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "D": "Number"
+        },
+        "outputs": {
+          "P": "Point",
+          "T": "Vector",
+          "t": "Number"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: P: empty, T: empty, t: empty"
+      },
+      "errors": "WARNING: Input parameter C failed to collect data",
+      "similar_to": [
+        "2162e72e-72fc-4bf8-9459-d4d82fa8aa14"
+      ]
+    },
+    "922dc7e5-0f0e-4c21-ae4b-f6a8654e63f6": {
+      "name": "Simplify Curve",
+      "family": "curves",
+      "quick": "Simplify Curve | C, t, a \u2192 C, S",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "t": "Number",
+          "a": "Number"
+        },
+        "outputs": {
+          "C": "Curve",
+          "S": "Boolean"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: C: single, S: single"
+      },
+      "similar_to": [
+        "2ad2a4d4-3de1-42f6-a4b8-f71835f35710"
+      ]
+    },
+    "2ad2a4d4-3de1-42f6-a4b8-f71835f35710": {
+      "name": "Shatter",
+      "family": "curves",
+      "quick": "Shatter | C, t \u2192 S",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "t": "Number"
+        },
+        "outputs": {
+          "S": "Curve"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: S: single"
+      },
+      "similar_to": [
+        "922dc7e5-0f0e-4c21-ae4b-f6a8654e63f6"
+      ]
+    },
+    "b25c5762-f90e-4839-9fc5-74b74ab42b1e": {
+      "name": "Offset Surface",
+      "family": "surface_analysis",
+      "quick": "Offset Surface | S, D, T \u2192 S",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "D": "Number",
+          "T": "Boolean"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      },
+      "contexts": {
+        "data_flow": "Broadcasts: single input \u2192 single output, list input \u2192 list output",
+        "output_structure": "Default output: S: single"
+      }
+    },
+    "0148a65d-6f42-414a-9db7-9a9b2eb78437": {
+      "name": "Brep Edges",
+      "family": "surface_analysis",
+      "quick": "Brep Edges | B \u2192 En, Ei",
+      "params": {
+        "inputs": {
+          "B": "Brep"
+        },
+        "outputs": {
+          "En": "Curve",
+          "Ei": "Curve",
+          "Em": "Curve"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: En: list, Ei: list, Em: list"
+      },
+      "similar_to": [
+        "b648d933-ddea-4e75-834c-8f6f3793e311"
+      ]
+    },
+    "b648d933-ddea-4e75-834c-8f6f3793e311": {
+      "name": "Cap Holes",
+      "family": "surface_analysis",
+      "quick": "Cap Holes | B \u2192 B",
+      "params": {
+        "inputs": {
+          "B": "Brep"
+        },
+        "outputs": {
+          "B": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: B: single"
+      },
+      "similar_to": [
+        "0148a65d-6f42-414a-9db7-9a9b2eb78437"
+      ]
+    },
+    "bb6666e7-d0f4-41ec-a257-df2371619f13": {
+      "name": "Sweep1",
+      "family": "surface_ops",
+      "quick": "Sweep1 | R, S, M \u2192 S | M (miter type) must be 0, 1, or 2",
+      "params": {
+        "inputs": {
+          "R": "Curve",
+          "S": "Curve",
+          "M": "Integer"
+        },
+        "outputs": {
+          "S": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: S: single"
+      },
+      "errors": "WARNING: Invalid miter type",
+      "investigations": [
+        "gh_obs_5cd4f73e395f",
+        "gh_obs_2e56c290e631",
+        "gh_obs_86d3d0047c5b",
+        "gh_obs_a2a8791cf329",
+        "gh_obs_c6c4f7e0047f"
+      ],
+      "working_configs": [
+        {
+          "id": "sweep1_miter_types",
+          "description": "Valid miter types for Sweep1",
+          "config": {
+            "M": {
+              "enum": [
+                0,
+                1,
+                2
+              ]
+            }
+          },
+          "verified": "2026-01-25",
+          "observation_ids": [
+            "gh_obs_5cd4f73e395f",
+            "gh_obs_2e56c290e631",
+            "gh_obs_86d3d0047c5b",
+            "gh_obs_a2a8791cf329",
+            "gh_obs_c6c4f7e0047f"
+          ]
+        }
+      ],
+      "gotchas": [
+        {
+          "id": "gotcha_1",
+          "text": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+          "source": "investigation",
+          "discovered": "2026-01-25",
+          "observation_ids": [
+            "gh_obs_5cd4f73e395f",
+            "gh_obs_2e56c290e631",
+            "gh_obs_86d3d0047c5b",
+            "gh_obs_a2a8791cf329",
+            "gh_obs_c6c4f7e0047f"
+          ]
+        }
+      ],
+      "similar_to": [
+        "75164624-395a-4d24-b60b-6bf91cab0194",
+        "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850",
+        "962034e9-cc27-4394-afc4-5c16e3447cf9"
+      ]
+    },
+    "adeadd58-4e28-46ed-853a-b590507d892e": {
+      "name": "Pipe",
+      "family": "unknown",
+      "quick": "Pipe | Inputs: C, R, E \u2192 P",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "R": "Number",
+          "E": "Integer",
+          "Fr": "Boolean"
+        },
+        "outputs": {
+          "P": "Brep"
+        }
+      }
+    },
+    "10434a15-da85-4281-bb64-a2b3a995b9c6": {
+      "name": "Solid Union",
+      "family": "boolean",
+      "quick": "Solid Union | B \u2192 R",
+      "params": {
+        "inputs": {
+          "B": "Brep"
+        },
+        "outputs": {
+          "R": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: R: single"
+      },
+      "similar_to": [
+        "fab11c30-2d9c-4d15-ab3c-2289f1ae5c21"
+      ]
+    },
+    "fab11c30-2d9c-4d15-ab3c-2289f1ae5c21": {
+      "name": "Solid Difference",
+      "family": "boolean",
+      "quick": "Solid Difference | A, B \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Brep",
+          "B": "Brep"
+        },
+        "outputs": {
+          "R": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: R: single"
+      },
+      "similar_to": [
+        "10434a15-da85-4281-bb64-a2b3a995b9c6"
+      ]
+    },
+    "cdee962f-4202-456b-a1b4-f3ed9aa0dc29": {
+      "name": "Revolution",
+      "family": "solid_generation",
+      "quick": "Revolution | P, A, D \u2192 S",
+      "params": {
+        "inputs": {
+          "P": "Curve",
+          "A": "Line",
+          "D": "Domain"
+        },
+        "outputs": {
+          "S": "Brep"
+        }
+      },
+      "contexts": {
+        "output_structure": "Default output: S: empty"
+      },
+      "errors": "WARNING: Input parameter A failed to collect data",
+      "similar_to": [
+        "adeadd58-4e28-46ed-853a-b590507d892e"
+      ]
+    },
+    "3581f42a-9592-4549-bd6b-1c0fc39d067b": {
+      "name": "Construct Point",
+      "family": "geometry_primitives",
+      "quick": "Construct Point | Inputs: X, Y, Z \u2192 Pt",
+      "params": {
+        "inputs": {
+          "X": "Number",
+          "Y": "Number",
+          "Z": "Number"
+        },
+        "outputs": {
+          "Pt": "Point"
+        }
+      },
+      "similar_to": [
+        "9abae6b7-fa1d-448c-9209-4a8155345841"
+      ]
+    },
+    "9abae6b7-fa1d-448c-9209-4a8155345841": {
+      "name": "Deconstruct",
+      "family": "geometry_primitives",
+      "quick": "Deconstruct | Inputs: P \u2192 X",
+      "params": {
+        "inputs": {
+          "P": "Point"
+        },
+        "outputs": {
+          "X": "Number",
+          "Y": "Number",
+          "Z": "Number"
+        }
+      },
+      "similar_to": [
+        "3581f42a-9592-4549-bd6b-1c0fc39d067b"
+      ]
+    },
+    "7f6a9d34-0470-4bb7-aadd-07496bcbe572": {
+      "name": "Point On Curve",
+      "family": "curves",
+      "quick": "Point On Curve | Inputs: no inputs \u2192 output",
+      "params": {
+        "inputs": {},
+        "outputs": {}
+      }
+    },
+    "fc6979e4-7e91-4508-8e05-37c680779751": {
+      "name": "Evaluate Curve",
+      "family": "curves",
+      "quick": "Evaluate Curve | Inputs: C, t \u2192 P",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "t": "Number"
+        },
+        "outputs": {
+          "P": "Point",
+          "T": "Vector",
+          "A": "Number"
+        }
+      }
+    },
+    "17b7152b-d30d-4d50-b9ef-c9fe25576fc2": {
+      "name": "XY Plane",
+      "family": "plane_operations",
+      "quick": "XY Plane | Inputs: O \u2192 P",
+      "params": {
+        "inputs": {
+          "O": "Point"
+        },
+        "outputs": {
+          "P": "Plane"
+        }
+      },
+      "similar_to": [
+        "8cc3a196-f6a0-49ea-9ed9-0cb343a3ae64",
+        "fad344bc-09b1-4855-a2e6-437ef5715fe3"
+      ]
+    },
+    "8cc3a196-f6a0-49ea-9ed9-0cb343a3ae64": {
+      "name": "XZ Plane",
+      "family": "plane_operations",
+      "quick": "XZ Plane | Inputs: O \u2192 P",
+      "params": {
+        "inputs": {
+          "O": "Point"
+        },
+        "outputs": {
+          "P": "Plane"
+        }
+      },
+      "similar_to": [
+        "17b7152b-d30d-4d50-b9ef-c9fe25576fc2",
+        "fad344bc-09b1-4855-a2e6-437ef5715fe3"
+      ]
+    },
+    "fad344bc-09b1-4855-a2e6-437ef5715fe3": {
+      "name": "YZ Plane",
+      "family": "plane_operations",
+      "quick": "YZ Plane | Inputs: O \u2192 P",
+      "params": {
+        "inputs": {
+          "O": "Point"
+        },
+        "outputs": {
+          "P": "Plane"
+        }
+      },
+      "similar_to": [
+        "17b7152b-d30d-4d50-b9ef-c9fe25576fc2",
+        "8cc3a196-f6a0-49ea-9ed9-0cb343a3ae64"
+      ]
+    },
+    "bc3e379e-7206-4e7b-b63a-ff61f4b38a3e": {
+      "name": "Construct Plane",
+      "family": "plane_operations",
+      "quick": "Construct Plane | Inputs: O, X, Y \u2192 Pl",
+      "params": {
+        "inputs": {
+          "O": "Point",
+          "X": "Vector",
+          "Y": "Vector"
+        },
+        "outputs": {
+          "Pl": "Plane"
+        }
+      },
+      "similar_to": [
+        "3cd2949b-4ea8-4ffb-a70c-5c380f9f46ea"
+      ]
+    },
+    "3cd2949b-4ea8-4ffb-a70c-5c380f9f46ea": {
+      "name": "Deconstruct Plane",
+      "family": "plane_operations",
+      "quick": "Deconstruct Plane | Inputs: P \u2192 O",
+      "params": {
+        "inputs": {
+          "P": "Plane"
+        },
+        "outputs": {
+          "O": "Point",
+          "X": "Vector",
+          "Y": "Vector",
+          "Z": "Vector"
+        }
+      },
+      "similar_to": [
+        "bc3e379e-7206-4e7b-b63a-ff61f4b38a3e"
+      ]
+    },
+    "e76040ec-3b91-41e1-8e00-c74c23b89391": {
+      "name": "Align Plane",
+      "family": "plane_operations",
+      "quick": "Align Plane | Inputs: P, D \u2192 P",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "D": "Vector"
+        },
+        "outputs": {
+          "P": "Plane",
+          "A": "Number"
+        }
+      },
+      "similar_to": [
+        "2318aee8-01fe-4ea8-9524-6966023fc622"
+      ]
+    },
+    "2318aee8-01fe-4ea8-9524-6966023fc622": {
+      "name": "Align Planes",
+      "family": "plane_operations",
+      "quick": "Align Planes | Inputs: P, M \u2192 P",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "M": "Plane"
+        },
+        "outputs": {
+          "P": "Plane"
+        }
+      },
+      "similar_to": [
+        "e76040ec-3b91-41e1-8e00-c74c23b89391"
+      ]
+    },
+    "79f9fbb3-8f1d-4d9a-88a9-f7961b1012cd": {
+      "name": "Unit X",
+      "family": "vector_operations",
+      "quick": "Unit X | Inputs: F \u2192 V",
+      "params": {
+        "inputs": {
+          "F": "Number"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      },
+      "similar_to": [
+        "d3d195ea-2d59-4ffa-90b1-8b7ff3369f69",
+        "9103c240-a6a9-4223-9b42-dbd19bf38e2b"
+      ]
+    },
+    "d3d195ea-2d59-4ffa-90b1-8b7ff3369f69": {
+      "name": "Unit Y",
+      "family": "vector_operations",
+      "quick": "Unit Y | Inputs: F \u2192 V",
+      "params": {
+        "inputs": {
+          "F": "Number"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      },
+      "similar_to": [
+        "79f9fbb3-8f1d-4d9a-88a9-f7961b1012cd",
+        "9103c240-a6a9-4223-9b42-dbd19bf38e2b"
+      ]
+    },
+    "9103c240-a6a9-4223-9b42-dbd19bf38e2b": {
+      "name": "Unit Z",
+      "family": "unknown",
+      "quick": "Unit Z | Inputs: F \u2192 V",
+      "params": {
+        "inputs": {
+          "F": "Number"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      }
+    },
+    "934ede4a-924a-4973-bb05-0dc4b36fae75": {
+      "name": "Vector 2Pt",
+      "family": "vector_operations",
+      "quick": "Vector 2Pt | Inputs: A, B, U \u2192 V",
+      "params": {
+        "inputs": {
+          "A": "Point",
+          "B": "Point",
+          "U": "Boolean"
+        },
+        "outputs": {
+          "V": "Vector",
+          "L": "Number"
+        }
+      },
+      "similar_to": [
+        "2a5cfb31-028a-4b34-b4e1-9b20ae15312e",
+        "43b9ea8f-f772-40f2-9880-011a9c3cbbb0"
+      ]
+    },
+    "6ec39468-dae7-4ffa-a766-f2ab22a2c62e": {
+      "name": "Amplitude",
+      "family": "vector_operations",
+      "quick": "Amplitude | Inputs: V, A \u2192 V",
+      "params": {
+        "inputs": {
+          "V": "Vector",
+          "A": "Number"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      },
+      "similar_to": [
+        "d2da1306-259a-4994-85a4-672d8a4c7805",
+        "d5788074-d75d-4021-b1a3-0bf992928584"
+      ]
+    },
+    "d2da1306-259a-4994-85a4-672d8a4c7805": {
+      "name": "Unit Vector",
+      "family": "vector_operations",
+      "quick": "Unit Vector | Inputs: V \u2192 V",
+      "params": {
+        "inputs": {
+          "V": "Vector"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      },
+      "similar_to": [
+        "d5788074-d75d-4021-b1a3-0bf992928584",
+        "6ec39468-dae7-4ffa-a766-f2ab22a2c62e"
+      ]
+    },
+    "2a5cfb31-028a-4b34-b4e1-9b20ae15312e": {
+      "name": "Cross Product",
+      "family": "vector_operations",
+      "quick": "Cross Product | Inputs: A, B, U \u2192 V",
+      "params": {
+        "inputs": {
+          "A": "Vector",
+          "B": "Vector",
+          "U": "Boolean"
+        },
+        "outputs": {
+          "V": "Vector",
+          "L": "Number"
+        }
+      },
+      "similar_to": [
+        "934ede4a-924a-4973-bb05-0dc4b36fae75",
+        "43b9ea8f-f772-40f2-9880-011a9c3cbbb0"
+      ]
+    },
+    "43b9ea8f-f772-40f2-9880-011a9c3cbbb0": {
+      "name": "Dot Product",
+      "family": "vector_operations",
+      "quick": "Dot Product | Inputs: A, B, U \u2192 D",
+      "params": {
+        "inputs": {
+          "A": "Vector",
+          "B": "Vector",
+          "U": "Boolean"
+        },
+        "outputs": {
+          "D": "Number"
+        }
+      },
+      "similar_to": [
+        "934ede4a-924a-4973-bb05-0dc4b36fae75",
+        "2a5cfb31-028a-4b34-b4e1-9b20ae15312e"
+      ]
+    },
+    "d5788074-d75d-4021-b1a3-0bf992928584": {
+      "name": "Reverse",
+      "family": "vector_operations",
+      "quick": "Reverse | Inputs: V \u2192 V",
+      "params": {
+        "inputs": {
+          "V": "Vector"
+        },
+        "outputs": {
+          "V": "Vector"
+        }
+      },
+      "similar_to": [
+        "d2da1306-259a-4994-85a4-672d8a4c7805",
+        "6ec39468-dae7-4ffa-a766-f2ab22a2c62e"
+      ]
+    },
+    "675e31bf-1775-48d7-bb8d-76b77786dd53": {
+      "name": "Vector Length",
+      "family": "vector_operations",
+      "quick": "Vector Length | Inputs: V \u2192 L",
+      "params": {
+        "inputs": {
+          "V": "Vector"
+        },
+        "outputs": {
+          "L": "Number"
+        }
+      }
+    },
+    "d1a28e95-cf96-4936-bf34-8bf142d731bf": {
+      "name": "Construct Domain",
+      "family": "domain_operations",
+      "quick": "Construct Domain | Inputs: A, B \u2192 I",
+      "params": {
+        "inputs": {
+          "A": "Number",
+          "B": "Number"
+        },
+        "outputs": {
+          "I": "Domain"
+        }
+      },
+      "similar_to": [
+        "825ea536-aebb-41e9-af32-8baeb2ecb590",
+        "f44b92b0-3b5b-493a-86f4-fd7408c3daf3"
+      ]
+    },
+    "825ea536-aebb-41e9-af32-8baeb2ecb590": {
+      "name": "Deconstruct Domain",
+      "family": "domain_operations",
+      "quick": "Deconstruct Domain | Inputs: I \u2192 S",
+      "params": {
+        "inputs": {
+          "I": "Domain"
+        },
+        "outputs": {
+          "S": "Number",
+          "E": "Number"
+        }
+      },
+      "similar_to": [
+        "d1a28e95-cf96-4936-bf34-8bf142d731bf"
+      ]
+    },
+    "2fcc2743-8339-4cdf-a046-a1f17439191d": {
+      "name": "Remap Numbers",
+      "family": "domain_operations",
+      "quick": "Remap Numbers | Inputs: V, S, T \u2192 R",
+      "params": {
+        "inputs": {
+          "V": "Number",
+          "S": "Domain",
+          "T": "Domain"
+        },
+        "outputs": {
+          "R": "Number",
+          "C": "Number"
+        }
+      },
+      "similar_to": [
+        "75ef4190-91a2-42d9-a245-32a7162b0384"
+      ]
+    },
+    "f44b92b0-3b5b-493a-86f4-fd7408c3daf3": {
+      "name": "Bounds",
+      "family": "domain_operations",
+      "quick": "Bounds | Inputs: N \u2192 I",
+      "params": {
+        "inputs": {
+          "N": "Number"
+        },
+        "outputs": {
+          "I": "Domain"
+        }
+      },
+      "similar_to": [
+        "d1a28e95-cf96-4936-bf34-8bf142d731bf"
+      ]
+    },
+    "75ef4190-91a2-42d9-a245-32a7162b0384": {
+      "name": "Divide Domain",
+      "family": "domain_operations",
+      "quick": "Divide Domain | Inputs: I, C \u2192 S",
+      "params": {
+        "inputs": {
+          "I": "Domain",
+          "C": "Integer"
+        },
+        "outputs": {
+          "S": "Domain"
+        }
+      },
+      "similar_to": [
+        "2fcc2743-8339-4cdf-a046-a1f17439191d"
+      ]
+    },
+    "59daf374-bc21-4a5e-8282-5504fb7ae9ae": {
+      "name": "List Item",
+      "family": "list_operations",
+      "quick": "List Item | Inputs: L, i, W \u2192 i",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "i": "Integer",
+          "W": "Boolean"
+        },
+        "outputs": {
+          "i": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "501aecbb-c191-4d13-83d6-7ee32445ac50",
+        "4fdfe351-6c07-47ce-9fb9-be027fb62186"
+      ]
+    },
+    "1817fd29-20ae-4503-b542-f0fb651e67d7": {
+      "name": "List Length",
+      "family": "list_operations",
+      "quick": "List Length | Inputs: L \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data"
+        },
+        "outputs": {
+          "L": "Integer"
+        }
+      }
+    },
+    "6ec97ea8-c559-47a2-8d0f-ce80c794d1f4": {
+      "name": "Reverse List",
+      "family": "list_operations",
+      "quick": "Reverse List | Inputs: L \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data"
+        },
+        "outputs": {
+          "L": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "6f93d366-919f-4dda-a35e-ba03dd62799b"
+      ]
+    },
+    "6f93d366-919f-4dda-a35e-ba03dd62799b": {
+      "name": "Sort List",
+      "family": "list_operations",
+      "quick": "Sort List | Inputs: K, A \u2192 K",
+      "params": {
+        "inputs": {
+          "K": "Number",
+          "A": "Generic Data"
+        },
+        "outputs": {
+          "K": "Number",
+          "A": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "6ec97ea8-c559-47a2-8d0f-ce80c794d1f4"
+      ]
+    },
+    "4fdfe351-6c07-47ce-9fb9-be027fb62186": {
+      "name": "Shift List",
+      "family": "list_operations",
+      "quick": "Shift List | Inputs: L, S, W \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "S": "Integer",
+          "W": "Boolean"
+        },
+        "outputs": {
+          "L": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "59daf374-bc21-4a5e-8282-5504fb7ae9ae"
+      ]
+    },
+    "008e9a6f-478a-4813-8c8a-546273bc3a6b": {
+      "name": "Cull Pattern",
+      "family": "list_operations",
+      "quick": "Cull Pattern | Inputs: L, P \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "P": "Boolean"
+        },
+        "outputs": {
+          "L": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "501aecbb-c191-4d13-83d6-7ee32445ac50"
+      ]
+    },
+    "501aecbb-c191-4d13-83d6-7ee32445ac50": {
+      "name": "Cull Index",
+      "family": "list_operations",
+      "quick": "Cull Index | Inputs: L, I, W \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "I": "Integer",
+          "W": "Boolean"
+        },
+        "outputs": {
+          "L": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "008e9a6f-478a-4813-8c8a-546273bc3a6b",
+        "59daf374-bc21-4a5e-8282-5504fb7ae9ae"
+      ]
+    },
+    "e2039b07-d3f3-40f8-af88-d74fed238727": {
+      "name": "Insert Items",
+      "family": "list_operations",
+      "quick": "Insert Items | Inputs: L, I, i \u2192 L",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "I": "Generic Data",
+          "i": "Integer",
+          "W": "Boolean"
+        },
+        "outputs": {
+          "L": "Generic Data"
+        }
+      }
+    },
+    "5a93246d-2595-4c28-bc2d-90657634f92a": {
+      "name": "Partition List",
+      "family": "list_operations",
+      "quick": "Partition List | Inputs: L, S \u2192 C",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "S": "Integer"
+        },
+        "outputs": {
+          "C": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "9ab93e1a-ebdf-4090-9296-b000cff7b202"
+      ]
+    },
+    "9ab93e1a-ebdf-4090-9296-b000cff7b202": {
+      "name": "Split List",
+      "family": "list_operations",
+      "quick": "Split List | Inputs: L, i \u2192 A",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "i": "Integer"
+        },
+        "outputs": {
+          "A": "Generic Data",
+          "B": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "5a93246d-2595-4c28-bc2d-90657634f92a"
+      ]
+    },
+    "84627490-0fb2-4498-8138-ad134ee4cb36": {
+      "name": "Curve | Curve",
+      "family": "curves",
+      "quick": "Curve | Curve | Inputs: A, B \u2192 P",
+      "params": {
+        "inputs": {
+          "A": "Curve",
+          "B": "Curve"
+        },
+        "outputs": {
+          "P": "Point",
+          "tA": "Number",
+          "tB": "Number"
+        }
+      },
+      "similar_to": [
+        "931e6030-ccb3-4a7b-a89a-99dcce8770cd"
+      ]
+    },
+    "68546dd0-aa82-471c-87e9-81cb16ac50ed": {
+      "name": "Surface | Curve",
+      "family": "curves",
+      "quick": "Surface | Curve | Inputs: S, C \u2192 C",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "C": "Curve"
+        },
+        "outputs": {
+          "C": "Curve",
+          "P": "Point",
+          "uv": "Point",
+          "N": "Vector",
+          "t": "Number",
+          "T": "Vector"
+        }
+      },
+      "similar_to": [
+        "20ef81e8-df15-4a0c-acf1-993a7607cafb"
+      ]
+    },
+    "20ef81e8-df15-4a0c-acf1-993a7607cafb": {
+      "name": "Brep | Curve",
+      "family": "curves",
+      "quick": "Brep | Curve | Inputs: B, C \u2192 C",
+      "params": {
+        "inputs": {
+          "B": "Brep",
+          "C": "Curve"
+        },
+        "outputs": {
+          "C": "Curve",
+          "P": "Point"
+        }
+      },
+      "similar_to": [
+        "68546dd0-aa82-471c-87e9-81cb16ac50ed"
+      ]
+    },
+    "904e4b56-484a-4814-b35f-aa4baf362117": {
+      "name": "Brep | Brep",
+      "family": "solid_operations",
+      "quick": "Brep | Brep | Inputs: A, B \u2192 C",
+      "params": {
+        "inputs": {
+          "A": "Brep",
+          "B": "Brep"
+        },
+        "outputs": {
+          "C": "Curve",
+          "P": "Point"
+        }
+      },
+      "similar_to": [
+        "ef6b26f4-f820-48d6-b0c5-85898ef8888b",
+        "f0b70e8e-7337-4ce4-a7bb-317fc971f918"
+      ]
+    },
+    "931e6030-ccb3-4a7b-a89a-99dcce8770cd": {
+      "name": "Multiple Curves",
+      "family": "curves",
+      "quick": "Multiple Curves | Inputs: C \u2192 P",
+      "params": {
+        "inputs": {
+          "C": "Curve"
+        },
+        "outputs": {
+          "P": "Point",
+          "iA": "Integer",
+          "iB": "Integer",
+          "tA": "Number",
+          "tB": "Number"
+        }
+      },
+      "similar_to": [
+        "84627490-0fb2-4498-8138-ad134ee4cb36"
+      ]
+    },
+    "477c2e7b-c5e5-421e-b8b2-ba60cdf5398b": {
+      "name": "Region Intersection",
+      "family": "curves",
+      "quick": "Region Intersection | Inputs: A, B, P \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Curve",
+          "B": "Curve",
+          "P": "Plane"
+        },
+        "outputs": {
+          "R": "Curve"
+        }
+      },
+      "similar_to": [
+        "1222394f-0d33-4f31-9101-7281bde89fe5"
+      ]
+    },
+    "1222394f-0d33-4f31-9101-7281bde89fe5": {
+      "name": "Region Union",
+      "family": "curves",
+      "quick": "Region Union | Inputs: C, P \u2192 R",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "P": "Plane"
+        },
+        "outputs": {
+          "R": "Curve"
+        }
+      },
+      "similar_to": [
+        "477c2e7b-c5e5-421e-b8b2-ba60cdf5398b"
+      ]
+    },
+    "2696bd14-3fb5-4750-827f-86df6c31d664": {
+      "name": "Mesh Box",
+      "family": "primitives",
+      "quick": "Mesh Box | Inputs: B, X, Y \u2192 M",
+      "params": {
+        "inputs": {
+          "B": "Box",
+          "X": "Integer",
+          "Y": "Integer",
+          "Z": "Integer"
+        },
+        "outputs": {
+          "M": "Mesh"
+        }
+      }
+    },
+    "8adbf481-7589-4a40-b490-006531ea001d": {
+      "name": "Mesh Plane",
+      "family": "mesh_operations",
+      "quick": "Mesh Plane | Inputs: B, W, H \u2192 M",
+      "params": {
+        "inputs": {
+          "B": "Rectangle",
+          "W": "Integer",
+          "H": "Integer"
+        },
+        "outputs": {
+          "M": "Mesh",
+          "A": "Number"
+        }
+      },
+      "similar_to": [
+        "58cf422f-19f7-42f7-9619-fc198c51c657",
+        "60e7defa-8b21-4ee1-99aa-a9223d6134ff"
+      ]
+    },
+    "58cf422f-19f7-42f7-9619-fc198c51c657": {
+      "name": "Mesh Surface",
+      "family": "mesh_operations",
+      "quick": "Mesh Surface | Inputs: S, U, V \u2192 M",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "U": "Integer",
+          "V": "Integer",
+          "H": "Boolean",
+          "Q": "Boolean"
+        },
+        "outputs": {
+          "M": "Mesh"
+        }
+      },
+      "similar_to": [
+        "8adbf481-7589-4a40-b490-006531ea001d",
+        "60e7defa-8b21-4ee1-99aa-a9223d6134ff"
+      ]
+    },
+    "60e7defa-8b21-4ee1-99aa-a9223d6134ff": {
+      "name": "Mesh Brep",
+      "family": "mesh_operations",
+      "quick": "Mesh Brep | Inputs: B, S \u2192 M",
+      "params": {
+        "inputs": {
+          "B": "Brep",
+          "S": "MeshParameters"
+        },
+        "outputs": {
+          "M": "Mesh"
+        }
+      },
+      "similar_to": [
+        "8adbf481-7589-4a40-b490-006531ea001d",
+        "58cf422f-19f7-42f7-9619-fc198c51c657"
+      ]
+    },
+    "4bc9dbbf-fec8-4348-a3af-e33e7edc8e7b": {
+      "name": "Mesh Join",
+      "family": "mesh_operations",
+      "quick": "Mesh Join | Inputs: M \u2192 M",
+      "params": {
+        "inputs": {
+          "M": "Mesh"
+        },
+        "outputs": {
+          "M": "Mesh"
+        }
+      }
+    },
+    "2b9bf01d-5fe5-464c-b0b3-b469eb5f2efb": {
+      "name": "Mesh Edges",
+      "family": "mesh_operations",
+      "quick": "Mesh Edges | Inputs: M \u2192 E1",
+      "params": {
+        "inputs": {
+          "M": "Mesh"
+        },
+        "outputs": {
+          "E1": "Line",
+          "E2": "Line",
+          "E3": "Line"
+        }
+      },
+      "similar_to": [
+        "cb4ca22c-3419-4962-a078-ad4ff7f1f929"
+      ]
+    },
+    "ba2d8f57-0738-42b4-b5a5-fe4d853517eb": {
+      "name": "Deconstruct Mesh",
+      "family": "mesh_operations",
+      "quick": "Deconstruct Mesh | Inputs: M \u2192 V",
+      "params": {
+        "inputs": {
+          "M": "Mesh"
+        },
+        "outputs": {
+          "V": "Point",
+          "F": "Mesh face",
+          "C": "Colour",
+          "N": "Vector"
+        }
+      },
+      "similar_to": [
+        "e2c0f9db-a862-4bd9-810c-ef2610e7a56f"
+      ]
+    },
+    "e2c0f9db-a862-4bd9-810c-ef2610e7a56f": {
+      "name": "Construct Mesh",
+      "family": "mesh_operations",
+      "quick": "Construct Mesh | Inputs: V, F, C \u2192 M",
+      "params": {
+        "inputs": {
+          "V": "Point",
+          "F": "Mesh face",
+          "C": "Colour"
+        },
+        "outputs": {
+          "M": "Mesh"
+        }
+      },
+      "similar_to": [
+        "ba2d8f57-0738-42b4-b5a5-fe4d853517eb"
+      ]
+    },
+    "cb4ca22c-3419-4962-a078-ad4ff7f1f929": {
+      "name": "Face Normals",
+      "family": "mesh_operations",
+      "quick": "Face Normals | Inputs: M \u2192 C",
+      "params": {
+        "inputs": {
+          "M": "Mesh"
+        },
+        "outputs": {
+          "C": "Point",
+          "N": "Vector"
+        }
+      },
+      "similar_to": [
+        "2b9bf01d-5fe5-464c-b0b3-b469eb5f2efb"
+      ]
+    },
+    "d8d68c35-f869-486d-adf3-69ee3cc2d501": {
+      "name": "Rail Revolution",
+      "family": "advanced_surface",
+      "quick": "Rail Revolution | Inputs: P, R, A \u2192 S",
+      "params": {
+        "inputs": {
+          "P": "Curve",
+          "R": "Curve",
+          "A": "Line",
+          "S": "Boolean"
+        },
+        "outputs": {
+          "S": "Brep"
+        }
+      },
+      "similar_to": [
+        "d51e9b65-aa4e-4fd6-976c-cef35d421d05",
+        "4b04a1e1-cddf-405d-a7db-335aaa940541"
+      ]
+    },
+    "d51e9b65-aa4e-4fd6-976c-cef35d421d05": {
+      "name": "Boundary Surfaces",
+      "family": "advanced_surface",
+      "quick": "Boundary Surfaces | Inputs: E \u2192 S",
+      "params": {
+        "inputs": {
+          "E": "Curve"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      },
+      "similar_to": [
+        "4b04a1e1-cddf-405d-a7db-335aaa940541",
+        "d8d68c35-f869-486d-adf3-69ee3cc2d501"
+      ]
+    },
+    "4b04a1e1-cddf-405d-a7db-335aaa940541": {
+      "name": "Surface From Points",
+      "family": "advanced_surface",
+      "quick": "Surface From Points | Inputs: P, U, I \u2192 S",
+      "params": {
+        "inputs": {
+          "P": "Point",
+          "U": "Integer",
+          "I": "Boolean"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      },
+      "similar_to": [
+        "d51e9b65-aa4e-4fd6-976c-cef35d421d05",
+        "d8d68c35-f869-486d-adf3-69ee3cc2d501"
+      ]
+    },
+    "6a9ccaab-1b03-484e-bbda-be9c81584a66": {
+      "name": "Isotrim",
+      "family": "advanced_surface",
+      "quick": "Isotrim | Inputs: S, D \u2192 S",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "D": "Domain\u00b2"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      }
+    },
+    "7db14002-c09c-4d7b-9f80-e4e2b00dfa1d": {
+      "name": "Surface Split",
+      "family": "curves",
+      "quick": "Surface Split | Inputs: S, C \u2192 F",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "C": "Curve"
+        },
+        "outputs": {
+          "F": "Surface"
+        }
+      },
+      "similar_to": [
+        "3092caf0-7cf9-4885-bcc0-e635d878832a"
+      ]
+    },
+    "3092caf0-7cf9-4885-bcc0-e635d878832a": {
+      "name": "Trim with Region",
+      "family": "curves",
+      "quick": "Trim with Region | Inputs: C, R, P \u2192 Ci",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "R": "Curve",
+          "P": "Plane"
+        },
+        "outputs": {
+          "Ci": "Curve",
+          "Co": "Curve"
+        }
+      },
+      "similar_to": [
+        "7db14002-c09c-4d7b-9f80-e4e2b00dfa1d"
+      ]
+    },
+    "d7ee52ff-89b8-4d1a-8662-3e0dd391d0af": {
+      "name": "Project Curve",
+      "family": "curves",
+      "quick": "Project Curve | Inputs: C, B, D \u2192 C",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "B": "Brep",
+          "D": "Vector"
+        },
+        "outputs": {
+          "C": "Curve"
+        }
+      },
+      "similar_to": [
+        "8db16e9c-2816-4c95-939d-8fecdc30906f"
+      ]
+    },
+    "8db16e9c-2816-4c95-939d-8fecdc30906f": {
+      "name": "Pull Curve",
+      "family": "curves",
+      "quick": "Pull Curve | Inputs: C, S \u2192 C",
+      "params": {
+        "inputs": {
+          "C": "Curve",
+          "S": "Surface"
+        },
+        "outputs": {
+          "C": "Curve"
+        }
+      },
+      "similar_to": [
+        "d7ee52ff-89b8-4d1a-8662-3e0dd391d0af"
+      ]
+    },
+    "ef6b26f4-f820-48d6-b0c5-85898ef8888b": {
+      "name": "Split Brep",
+      "family": "solid_operations",
+      "quick": "Split Brep | Inputs: B, C \u2192 R",
+      "params": {
+        "inputs": {
+          "B": "Brep",
+          "C": "Brep"
+        },
+        "outputs": {
+          "R": "Brep"
+        }
+      },
+      "similar_to": [
+        "f0b70e8e-7337-4ce4-a7bb-317fc971f918",
+        "904e4b56-484a-4814-b35f-aa4baf362117"
+      ]
+    },
+    "f0b70e8e-7337-4ce4-a7bb-317fc971f918": {
+      "name": "Trim Solid",
+      "family": "solid_operations",
+      "quick": "Trim Solid | Inputs: S, T \u2192 R",
+      "params": {
+        "inputs": {
+          "S": "Brep",
+          "T": "Brep"
+        },
+        "outputs": {
+          "R": "Brep"
+        }
+      },
+      "similar_to": [
+        "ef6b26f4-f820-48d6-b0c5-85898ef8888b",
+        "904e4b56-484a-4814-b35f-aa4baf362117"
+      ]
+    },
+    "ffe2dbed-9b5d-4f91-8fe3-10c8961ac2f8": {
+      "name": "Curve On Surface",
+      "family": "curves",
+      "quick": "Curve On Surface | Inputs: S, uv, C \u2192 C",
+      "params": {
+        "inputs": {
+          "S": "Surface",
+          "uv": "Point",
+          "C": "Boolean"
+        },
+        "outputs": {
+          "C": "Curve",
+          "L": "Number",
+          "D": "Domain"
+        }
+      }
+    },
+    "7663efbb-d9b8-4c6a-a0da-c3750a7bbe77": {
+      "name": "Sine",
+      "family": "math",
+      "quick": "Sine | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "d2d2a900-780c-4d58-9a35-1f9d8d35df6f",
+        "0f31784f-7177-4104-8500-1f4f4a306df4"
+      ]
+    },
+    "d2d2a900-780c-4d58-9a35-1f9d8d35df6f": {
+      "name": "Cosine",
+      "family": "math",
+      "quick": "Cosine | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "7663efbb-d9b8-4c6a-a0da-c3750a7bbe77",
+        "0f31784f-7177-4104-8500-1f4f4a306df4"
+      ]
+    },
+    "0f31784f-7177-4104-8500-1f4f4a306df4": {
+      "name": "Tangent",
+      "family": "math",
+      "quick": "Tangent | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "7663efbb-d9b8-4c6a-a0da-c3750a7bbe77",
+        "d2d2a900-780c-4d58-9a35-1f9d8d35df6f"
+      ]
+    },
+    "cc15ba56-fae7-4f05-b599-cb7c43b60e11": {
+      "name": "ArcSine",
+      "family": "math",
+      "quick": "ArcSine | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "49584390-d541-41f7-b5f6-1f9515ac0f73",
+        "b4647919-d041-419e-99f5-fa0dc0ddb8b6"
+      ]
+    },
+    "49584390-d541-41f7-b5f6-1f9515ac0f73": {
+      "name": "ArcCosine",
+      "family": "math",
+      "quick": "ArcCosine | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "cc15ba56-fae7-4f05-b599-cb7c43b60e11",
+        "b4647919-d041-419e-99f5-fa0dc0ddb8b6"
+      ]
+    },
+    "b4647919-d041-419e-99f5-fa0dc0ddb8b6": {
+      "name": "ArcTangent",
+      "family": "math",
+      "quick": "ArcTangent | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "cc15ba56-fae7-4f05-b599-cb7c43b60e11",
+        "49584390-d541-41f7-b5f6-1f9515ac0f73"
+      ]
+    },
+    "ad476cb7-b6d1-41c8-986b-0df243a64146": {
+      "name": "Square Root",
+      "family": "math",
+      "quick": "Square Root | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "27d6f724-a701-4585-992f-3897488abf08",
+        "c717f26f-e4a0-475c-8e1c-b8f77af1bc99"
+      ]
+    },
+    "27d6f724-a701-4585-992f-3897488abf08": {
+      "name": "Logarithm",
+      "family": "math",
+      "quick": "Logarithm | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "ad476cb7-b6d1-41c8-986b-0df243a64146",
+        "c717f26f-e4a0-475c-8e1c-b8f77af1bc99"
+      ]
+    },
+    "c717f26f-e4a0-475c-8e1c-b8f77af1bc99": {
+      "name": "Power of E",
+      "family": "math",
+      "quick": "Power of E | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "ad476cb7-b6d1-41c8-986b-0df243a64146",
+        "27d6f724-a701-4585-992f-3897488abf08"
+      ]
+    },
+    "0d2ccfb3-9d41-4759-9452-da6a522c3eaa": {
+      "name": "Pi",
+      "family": "math",
+      "quick": "Pi | Inputs: N \u2192 y",
+      "params": {
+        "inputs": {
+          "N": "Number"
+        },
+        "outputs": {
+          "y": "Number"
+        }
+      }
+    },
+    "0d1e2027-f153-460d-84c0-f9af431b08cb": {
+      "name": "Maximum",
+      "family": "math",
+      "quick": "Maximum | Inputs: A, B \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Generic Data",
+          "B": "Generic Data"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "57308b30-772d-4919-ac67-e86c18f3a996"
+      ]
+    },
+    "57308b30-772d-4919-ac67-e86c18f3a996": {
+      "name": "Minimum",
+      "family": "math",
+      "quick": "Minimum | Inputs: A, B \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Generic Data",
+          "B": "Generic Data"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "0d1e2027-f153-460d-84c0-f9af431b08cb"
+      ]
+    },
+    "338666eb-14c5-4d9b-82e2-2b5be60655df": {
+      "name": "Weighted Average",
+      "family": "math",
+      "quick": "Weighted Average | Inputs: I, W \u2192 AM",
+      "params": {
+        "inputs": {
+          "I": "Generic Data",
+          "W": "Number"
+        },
+        "outputs": {
+          "AM": "Generic Data"
+        }
+      }
+    },
+    "9df5e896-552d-4c8c-b9ca-4fc147ffa022": {
+      "name": "Expression",
+      "family": "script",
+      "quick": "Expression | Inputs: x, y \u2192 R",
+      "params": {
+        "inputs": {
+          "x": "Expression Variant",
+          "y": "Expression Variant"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "cc2b626f-6eff-4d08-9829-2877560693f4"
+      ]
+    },
+    "cc2b626f-6eff-4d08-9829-2877560693f4": {
+      "name": "Evaluate",
+      "family": "script",
+      "quick": "Evaluate | Inputs: E, x, y \u2192 R",
+      "params": {
+        "inputs": {
+          "E": "Expression",
+          "x": "Expression Variant",
+          "y": "Expression Variant"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "9df5e896-552d-4c8c-b9ca-4fc147ffa022"
+      ]
+    },
+    "bc984576-7aa6-491f-a91d-e444c33675a7": {
+      "name": "Graph Mapper",
+      "family": "input",
+      "quick": "Graph Mapper | Inputs: no inputs \u2192 output",
+      "params": {
+        "inputs": {},
+        "outputs": {}
+      },
+      "similar_to": [
+        "9c53bac0-ba66-40bd-8154-ce9829b9db1a",
+        "57da07bd-ecab-415d-9d86-af36d7073abc"
+      ]
+    },
+    "cb2c7d3c-41b4-4c6d-a6bd-9235bd2851bb": {
+      "name": "Gate Not",
+      "family": "logic",
+      "quick": "Gate Not | Inputs: A \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Boolean"
+        },
+        "outputs": {
+          "R": "Boolean"
+        }
+      },
+      "similar_to": [
+        "de4a0d86-2709-4564-935a-88bf4d40af89"
+      ]
+    },
+    "de4a0d86-2709-4564-935a-88bf4d40af89": {
+      "name": "Gate Xor",
+      "family": "logic",
+      "quick": "Gate Xor | Inputs: A, B \u2192 R",
+      "params": {
+        "inputs": {
+          "A": "Boolean",
+          "B": "Boolean"
+        },
+        "outputs": {
+          "R": "Boolean"
+        }
+      },
+      "similar_to": [
+        "cb2c7d3c-41b4-4c6d-a6bd-9235bd2851bb"
+      ]
+    },
+    "d8332545-21b2-4716-96e3-8559a9876e17": {
+      "name": "Dispatch",
+      "family": "logic",
+      "quick": "Dispatch | Inputs: L, P \u2192 A",
+      "params": {
+        "inputs": {
+          "L": "Generic Data",
+          "P": "Boolean"
+        },
+        "outputs": {
+          "A": "Generic Data",
+          "B": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "eeafc956-268e-461d-8e73-ee05c6f72c01",
+        "71fcc052-6add-4d70-8d97-cfb37ea9d169"
+      ]
+    },
+    "eeafc956-268e-461d-8e73-ee05c6f72c01": {
+      "name": "Stream Filter",
+      "family": "logic",
+      "quick": "Stream Filter | Inputs: G, 0, 1 \u2192 S(0)",
+      "params": {
+        "inputs": {
+          "G": "Integer",
+          "0": "Generic Data",
+          "1": "Generic Data"
+        },
+        "outputs": {
+          "S(0)": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "d8332545-21b2-4716-96e3-8559a9876e17",
+        "71fcc052-6add-4d70-8d97-cfb37ea9d169"
+      ]
+    },
+    "71fcc052-6add-4d70-8d97-cfb37ea9d169": {
+      "name": "Stream Gate",
+      "family": "logic",
+      "quick": "Stream Gate | Inputs: S, G \u2192 0",
+      "params": {
+        "inputs": {
+          "S": "Generic Data",
+          "G": "Integer"
+        },
+        "outputs": {
+          "0": "Generic Data",
+          "1": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "d8332545-21b2-4716-96e3-8559a9876e17",
+        "eeafc956-268e-461d-8e73-ee05c6f72c01"
+      ]
+    },
+    "23afc7aa-2d2f-4ae7-b876-bf366246b826": {
+      "name": "Natural logarithm",
+      "family": "math",
+      "quick": "Natural logarithm | Inputs: x \u2192 y",
+      "params": {
+        "inputs": {
+          "x": "Generic Data"
+        },
+        "outputs": {
+          "y": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "bd96f893-d57b-4f04-90d0-dca0d72ff2f9"
+      ]
+    },
+    "bd96f893-d57b-4f04-90d0-dca0d72ff2f9": {
+      "name": "Truncate",
+      "family": "math",
+      "quick": "Truncate | Inputs: I, t \u2192 T",
+      "params": {
+        "inputs": {
+          "I": "Generic Data",
+          "t": "Number"
+        },
+        "outputs": {
+          "T": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "23afc7aa-2d2f-4ae7-b876-bf366246b826"
+      ]
+    },
+    "3cadddef-1e2b-4c09-9390-0e8f78f7609f": {
+      "name": "Merge",
+      "family": "tree_operations",
+      "quick": "Merge | Inputs: D1, D2 \u2192 R",
+      "params": {
+        "inputs": {
+          "D1": "Generic Data",
+          "D2": "Generic Data"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "c9785b8e-2f30-4f90-8ee3-cca710f82402"
+      ]
+    },
+    "c9785b8e-2f30-4f90-8ee3-cca710f82402": {
+      "name": "Entwine",
+      "family": "tree_operations",
+      "quick": "Entwine | Inputs: {0;0}, {0;1}, {0;2} \u2192 R",
+      "params": {
+        "inputs": {
+          "{0;0}": "Generic Data",
+          "{0;1}": "Generic Data",
+          "{0;2}": "Generic Data"
+        },
+        "outputs": {
+          "R": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "3cadddef-1e2b-4c09-9390-0e8f78f7609f"
+      ]
+    },
+    "1303da7b-e339-4e65-a051-82c4dce8224d": {
+      "name": "Simplify Tree",
+      "family": "tree_operations",
+      "quick": "Simplify Tree | Inputs: T, F \u2192 T",
+      "params": {
+        "inputs": {
+          "T": "Generic Data",
+          "F": "Boolean"
+        },
+        "outputs": {
+          "T": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "87e1d9ef-088b-4d30-9dda-8a7448a17329",
+        "f80cfe18-9510-4b89-8301-8e58faf423bb"
+      ]
+    },
+    "41aa4112-9c9b-42f4-847e-503b9d90e4c7": {
+      "name": "Flip Matrix",
+      "family": "tree_operations",
+      "quick": "Flip Matrix | Inputs: D \u2192 D",
+      "params": {
+        "inputs": {
+          "D": "Generic Data"
+        },
+        "outputs": {
+          "D": "Generic Data"
+        }
+      }
+    },
+    "f9b89a46-bc5d-4f7a-9a6f-134f93ac3af9": {
+      "name": "Path Mapper",
+      "family": "tree_operations",
+      "quick": "Path Mapper | Inputs: no inputs \u2192 output",
+      "params": {
+        "inputs": {},
+        "outputs": {}
+      }
+    },
+    "3a710c1e-1809-4e19-8c15-82adce31cd62": {
+      "name": "Tree Branch",
+      "family": "tree_operations",
+      "quick": "Tree Branch | Inputs: T, P \u2192 B",
+      "params": {
+        "inputs": {
+          "T": "Generic Data",
+          "P": "Path"
+        },
+        "outputs": {
+          "B": "Generic Data"
+        }
+      },
+      "similar_to": [
+        "99bee19d-588c-41a0-b9b9-1d00fb03ea1a"
+      ]
+    },
+    "99bee19d-588c-41a0-b9b9-1d00fb03ea1a": {
+      "name": "Tree Statistics",
+      "family": "tree_operations",
+      "quick": "Tree Statistics | Inputs: T \u2192 P",
+      "params": {
+        "inputs": {
+          "T": "Generic Data"
+        },
+        "outputs": {
+          "P": "Path",
+          "L": "Integer",
+          "C": "Integer"
+        }
+      },
+      "similar_to": [
+        "3a710c1e-1809-4e19-8c15-82adce31cd62"
+      ]
+    },
+    "537b0419-bbc2-4ff4-bf08-afe526367b2c": {
+      "name": "Custom Preview",
+      "family": "display",
+      "quick": "Custom Preview | Inputs: G, M \u2192 output",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "M": "Shader"
+        },
+        "outputs": {}
+      },
+      "similar_to": [
+        "3b220754-4114-4170-b6c3-b286b86ed524"
+      ]
+    },
+    "9c53bac0-ba66-40bd-8154-ce9829b9db1a": {
+      "name": "Colour Swatch",
+      "family": "input",
+      "quick": "Colour Swatch | Inputs: no inputs \u2192 output",
+      "params": {
+        "inputs": {},
+        "outputs": {}
+      },
+      "similar_to": [
+        "bc984576-7aa6-491f-a91d-e444c33675a7"
+      ]
+    },
+    "3b220754-4114-4170-b6c3-b286b86ed524": {
+      "name": "Text Tag",
+      "family": "display",
+      "quick": "Text Tag | Inputs: L, T, C \u2192 output",
+      "params": {
+        "inputs": {
+          "L": "Point",
+          "T": "Text",
+          "C": "Colour"
+        },
+        "outputs": {}
+      },
+      "similar_to": [
+        "537b0419-bbc2-4ff4-bf08-afe526367b2c"
+      ]
+    },
+    "0ad9f1ab-2204-45bb-b282-474469e2fa7b": {
+      "name": "Point Order",
+      "family": "display",
+      "quick": "Point Order | Inputs: P \u2192 output",
+      "params": {
+        "inputs": {
+          "P": "Point"
+        },
+        "outputs": {}
+      }
+    },
+    "e87db220-a0a0-4d67-a405-f97fd14b2d7a": {
+      "name": "Linear Array",
+      "family": "array",
+      "quick": "Linear Array | Inputs: G, D, N \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "D": "Vector",
+          "N": "Integer"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "c6f23658-617f-4ac8-916d-d0d9e7241b25",
+        "fca5ad7e-ecac-401d-a357-edda0a251cbc"
+      ]
+    },
+    "e521f7c8-92f4-481c-888b-eea109e3d6e9": {
+      "name": "Rectangular Array",
+      "family": "array",
+      "quick": "Rectangular Array | Inputs: G, C, X \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "C": "Rectangle",
+          "X": "Integer",
+          "Y": "Integer"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "9f6f954c-ba7b-4428-bf1e-1768cdff666c",
+        "fca5ad7e-ecac-401d-a357-edda0a251cbc"
+      ]
+    },
+    "fca5ad7e-ecac-401d-a357-edda0a251cbc": {
+      "name": "Polar Array",
+      "family": "array",
+      "quick": "Polar Array | Inputs: G, P, N \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "P": "Plane",
+          "N": "Integer",
+          "A": "Number"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "e87db220-a0a0-4d67-a405-f97fd14b2d7a",
+        "e521f7c8-92f4-481c-888b-eea109e3d6e9",
+        "c6f23658-617f-4ac8-916d-d0d9e7241b25"
+      ]
+    },
+    "9f6f954c-ba7b-4428-bf1e-1768cdff666c": {
+      "name": "Box Array",
+      "family": "array",
+      "quick": "Box Array | Inputs: G, C, X \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "C": "Box",
+          "X": "Integer",
+          "Y": "Integer",
+          "Z": "Integer"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "e521f7c8-92f4-481c-888b-eea109e3d6e9",
+        "c6f23658-617f-4ac8-916d-d0d9e7241b25"
+      ]
+    },
+    "c6f23658-617f-4ac8-916d-d0d9e7241b25": {
+      "name": "Curve Array",
+      "family": "array",
+      "quick": "Curve Array | Inputs: G, C, N \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "C": "Curve",
+          "N": "Integer"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "e87db220-a0a0-4d67-a405-f97fd14b2d7a",
+        "fca5ad7e-ecac-401d-a357-edda0a251cbc",
+        "9f6f954c-ba7b-4428-bf1e-1768cdff666c"
+      ]
+    },
+    "378d0690-9da0-4dd1-ab16-1d15246e7c22": {
+      "name": "Orient",
+      "family": "transforms",
+      "quick": "Orient | Inputs: G, A, B \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "A": "Plane",
+          "B": "Plane"
+        },
+        "outputs": {
+          "G": "Geometry",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+        "06d7bc4a-ba3e-4445-8ab5-079613b52f28"
+      ]
+    },
+    "06d7bc4a-ba3e-4445-8ab5-079613b52f28": {
+      "name": "Project Along",
+      "family": "transforms",
+      "quick": "Project Along | Inputs: G, P, D \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Generic Data",
+          "P": "Plane",
+          "D": "Vector"
+        },
+        "outputs": {
+          "G": "Generic Data",
+          "X": "Transform"
+        }
+      },
+      "similar_to": [
+        "378d0690-9da0-4dd1-ab16-1d15246e7c22"
+      ]
+    },
+    "5889b68f-fd88-4032-860f-869fb69654dd": {
+      "name": "Surface Morph",
+      "family": "morph",
+      "quick": "Surface Morph | Inputs: G, R, S \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "R": "Box",
+          "S": "Surface",
+          "U": "Domain",
+          "V": "Domain",
+          "W": "Domain"
+        },
+        "outputs": {
+          "G": "Geometry"
+        }
+      },
+      "similar_to": [
+        "d8940ff0-dd4a-4e74-9361-54df537b50db",
+        "539f5564-4fc0-4fc1-a7d3-b802fa2ef072"
+      ]
+    },
+    "d8940ff0-dd4a-4e74-9361-54df537b50db": {
+      "name": "Box Morph",
+      "family": "morph",
+      "quick": "Box Morph | Inputs: G, R, T \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "R": "Box",
+          "T": "Twisted Box"
+        },
+        "outputs": {
+          "G": "Geometry"
+        }
+      },
+      "similar_to": [
+        "5889b68f-fd88-4032-860f-869fb69654dd",
+        "539f5564-4fc0-4fc1-a7d3-b802fa2ef072"
+      ]
+    },
+    "539f5564-4fc0-4fc1-a7d3-b802fa2ef072": {
+      "name": "Bend Deform",
+      "family": "morph",
+      "quick": "Bend Deform | Inputs: G, B \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "B": "Arc"
+        },
+        "outputs": {
+          "G": "Geometry"
+        }
+      },
+      "similar_to": [
+        "5889b68f-fd88-4032-860f-869fb69654dd",
+        "d8940ff0-dd4a-4e74-9361-54df537b50db"
+      ]
+    },
+    "9509cb30-d24f-4f55-a5ac-bf0b12a06cfa": {
+      "name": "Twist",
+      "family": "morph",
+      "quick": "Twist | Inputs: G, X, A \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "X": "Line",
+          "A": "Number",
+          "I": "Boolean",
+          "R": "Boolean"
+        },
+        "outputs": {
+          "G": "Geometry"
+        }
+      },
+      "similar_to": [
+        "ad0ee51e-c86f-4668-8de5-b55b850f6001"
+      ]
+    },
+    "ad0ee51e-c86f-4668-8de5-b55b850f6001": {
+      "name": "Taper",
+      "family": "morph",
+      "quick": "Taper | Inputs: G, X, R0 \u2192 G",
+      "params": {
+        "inputs": {
+          "G": "Geometry",
+          "X": "Line",
+          "R0": "Number",
+          "R1": "Number",
+          "F": "Boolean",
+          "I": "Boolean",
+          "R": "Boolean"
+        },
+        "outputs": {
+          "G": "Geometry"
+        }
+      },
+      "similar_to": [
+        "9509cb30-d24f-4f55-a5ac-bf0b12a06cfa"
+      ]
+    },
+    "a4cd2751-414d-42ec-8916-476ebf62d7fe": {
+      "name": "Radians",
+      "family": "unknown",
+      "quick": "Radians | Inputs: D \u2192 R",
+      "params": {
+        "inputs": {
+          "D": "Number"
+        },
+        "outputs": {
+          "R": "Number"
+        }
+      }
+    },
+    "bb59bffc-f54c-4682-9778-f6c3fe74fce3": {
+      "name": "Arc",
+      "family": "unknown",
+      "quick": "Arc | Inputs: P, R, A \u2192 A",
+      "params": {
+        "inputs": {
+          "P": "Plane",
+          "R": "Number",
+          "A": "Domain"
+        },
+        "outputs": {
+          "A": "Arc",
+          "L": "Number"
+        }
+      }
+    },
+    "6e5de495-ba76-42d0-9985-a5c265e9aeca": {
+      "name": "Ruled Surface",
+      "family": "unknown",
+      "quick": "Ruled Surface | Inputs: A, B \u2192 S",
+      "params": {
+        "inputs": {
+          "A": "Curve",
+          "B": "Curve"
+        },
+        "outputs": {
+          "S": "Surface"
+        }
+      }
+    },
+    "11bbd48b-bb0a-4f1b-8167-fa297590390d": {
+      "name": "End Points",
+      "family": "unknown",
+      "quick": "End Points | Inputs: C \u2192 S",
+      "params": {
+        "inputs": {
+          "C": "Curve"
+        },
+        "outputs": {
+          "S": "Point",
+          "E": "Point"
+        }
+      }
+    },
+    "2b2a4145-3dff-41d4-a8de-1ea9d29eef33": {
+      "name": "Interpolate",
+      "family": "curves",
+      "quick": "Interpolate | Inputs: V, D, P \u2192 C",
+      "params": {
+        "inputs": {
+          "V": "Point",
+          "D": "Integer",
+          "P": "Boolean",
+          "K": "Integer"
+        },
+        "outputs": {
+          "C": "Curve",
+          "L": "Number",
+          "D": "Domain"
+        }
+      }
+    }
+  },
+  "wiring_patterns": {
+    "parametric_sphere": {
+      "description": "Slider-controlled sphere radius",
+      "pattern": "slider -> Sphere.R",
+      "components": [
+        "57da07bd-ecab-415d-9d86-af36d7073abc",
+        "dabc854d-f50e-408a-b001-d043c7de151d"
+      ],
+      "connections": [
+        {
+          "source": 0,
+          "sourceParam": "output",
+          "target": 1,
+          "targetParam": "R"
+        }
+      ]
+    },
+    "scaled_value": {
+      "description": "Multiply slider by factor",
+      "pattern": "slider -> Multiplication.A, factor -> Multiplication.B",
+      "components": [
+        "57da07bd-ecab-415d-9d86-af36d7073abc",
+        "ce46b74e-00c9-43c4-805a-193b69ea4a11"
+      ],
+      "connections": [
+        {
+          "source": 0,
+          "sourceParam": "output",
+          "target": 1,
+          "targetParam": "A"
+        }
+      ]
+    }
+  },
+  "global_gotchas": [
+    {
+      "id": "obsolete_by_name",
+      "text": "Create by name may return obsolete components. Always use GUID.",
+      "severity": "high",
+      "applies_to": [
+        "Addition",
+        "Multiplication"
+      ]
+    },
+    {
+      "id": "duplicate_names",
+      "text": "Many components share names (Sphere, Box, Integer). Check category or use GUID.",
+      "severity": "medium",
+      "applies_to": [
+        "Sphere",
+        "Box",
+        "Integer",
+        "Line"
+      ]
+    },
+    {
+      "id": "slider_no_params",
+      "text": "Sliders have no Params property. They act as simple output sources.",
+      "severity": "low",
+      "applies_to": [
+        "Number Slider",
+        "Boolean Toggle"
+      ]
+    },
+    {
+      "id": "data_structures",
+      "text": "Three data types: single (1 path, 1 item), list (1 path, N items), tree (N paths). Use gh_inspect_output to check.",
+      "severity": "medium",
+      "applies_to": [
+        "Graft Tree",
+        "Flatten Tree",
+        "Series",
+        "Range"
+      ]
+    },
+    {
+      "id": "graft_flatten_inverse",
+      "text": "Graft adds branch level (list\u2192tree). Flatten removes ALL branches (tree\u2192list). Not perfect inverses.",
+      "severity": "medium",
+      "applies_to": [
+        "Graft Tree",
+        "Flatten Tree"
+      ]
+    }
+  ],
+  "last_updated": "2026-01-25T20:50:35.515087Z",
+  "last_structure_update": "2026-01-29T23:48:41.339426Z",
+  "verified_guids": {
+    "Number Slider": {
+      "guid": "57da07bd-ecab-415d-9d86-af36d7073abc",
+      "usage_count": 4746,
+      "source": "GrasshopperHowtos"
+    },
+    "Panel": {
+      "guid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "usage_count": 2049,
+      "source": "GrasshopperHowtos"
+    },
+    "Merge": {
+      "guid": "3cadddef-1e2b-4c09-9390-0e8f78f7609f",
+      "usage_count": 392,
+      "source": "GrasshopperHowtos"
+    },
+    "Move": {
+      "guid": "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+      "usage_count": 771,
+      "source": "GrasshopperHowtos"
+    },
+    "Unit Z": {
+      "guid": "9103c240-a6a9-4223-9b42-dbd19bf38e2b",
+      "usage_count": 532,
+      "source": "GrasshopperHowtos"
+    },
+    "Remap Numbers": {
+      "guid": "2fcc2743-8339-4cdf-a046-a1f17439191d",
+      "usage_count": 347,
+      "source": "GrasshopperHowtos"
+    },
+    "Graft Tree": {
+      "guid": "87e1d9ef-088b-4d30-9dda-8a7448a17329",
+      "usage_count": 183,
+      "source": "GrasshopperHowtos"
+    },
+    "List Item": {
+      "guid": "59daf374-bc21-4a5e-8282-5504fb7ae9ae",
+      "usage_count": 244,
+      "source": "GrasshopperHowtos"
+    },
+    "Multiplication": {
+      "guid": "b8963bb1-aa57-476e-a20e-ed6cf635a49c",
+      "usage_count": 139,
+      "source": "GrasshopperHowtos"
+    },
+    "Custom Preview": {
+      "guid": "537b0419-bbc2-4ff4-bf08-afe526367b2c",
+      "usage_count": 729,
+      "source": "GrasshopperHowtos"
+    },
+    "Bounds": {
+      "guid": "f44b92b0-3b5b-493a-86f4-fd7408c3daf3",
+      "usage_count": 281,
+      "source": "GrasshopperHowtos"
+    },
+    "Negative": {
+      "guid": "a3371040-e552-4bc8-b0ff-10a840258e88",
+      "usage_count": 247,
+      "source": "GrasshopperHowtos"
+    },
+    "Construct Domain": {
+      "guid": "d1a28e95-cf96-4936-bf34-8bf142d731bf",
+      "usage_count": 193,
+      "source": "GrasshopperHowtos"
+    },
+    "Flatten Tree": {
+      "guid": "f80cfe18-9510-4b89-8301-8e58faf423bb",
+      "usage_count": 125,
+      "source": "GrasshopperHowtos"
+    },
+    "Area": {
+      "guid": "2e205f24-9279-47b2-b414-d06dcd0b21a7",
+      "usage_count": 174,
+      "source": "GrasshopperHowtos"
+    },
+    "Curve": {
+      "guid": "d5967b9f-e8ee-436b-a8ad-29fdcecf32d5",
+      "usage_count": 595,
+      "source": "GrasshopperHowtos"
+    },
+    "List Length": {
+      "guid": "1817fd29-20ae-4503-b542-f0fb651e67d7",
+      "usage_count": 297,
+      "source": "GrasshopperHowtos"
+    },
+    "Division": {
+      "guid": "9c85271f-89fa-4e9f-9f4a-d75802120ccc",
+      "usage_count": 187,
+      "source": "GrasshopperHowtos"
+    },
+    "Range": {
+      "guid": "9445ca40-cc73-4861-a455-146308676855",
+      "usage_count": 356,
+      "source": "GrasshopperHowtos"
+    },
+    "Construct Point": {
+      "guid": "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+      "usage_count": 270,
+      "source": "GrasshopperHowtos"
+    },
+    "Series": {
+      "guid": "e64c5fb1-845c-4ab1-8911-5f338516ba67",
+      "usage_count": 217,
+      "source": "GrasshopperHowtos"
+    },
+    "Dispatch": {
+      "guid": "d8332545-21b2-4716-96e3-8559a9876e17",
+      "usage_count": 180,
+      "source": "GrasshopperHowtos"
+    },
+    "Addition": {
+      "guid": "a0d62394-a118-422d-abb3-6af115c75b25",
+      "usage_count": 137,
+      "source": "GrasshopperHowtos"
+    },
+    "Group": {
+      "guid": "874eebe7-835b-4f4f-9811-97e031c41597",
+      "usage_count": 89,
+      "source": "GrasshopperHowtos"
+    },
+    "Number": {
+      "guid": "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312",
+      "usage_count": 849,
+      "source": "GrasshopperHowtos"
+    },
+    "End Points": {
+      "guid": "11bbd48b-bb0a-4f1b-8167-fa297590390d",
+      "usage_count": 114,
+      "source": "GrasshopperHowtos"
+    },
+    "Loft": {
+      "guid": "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850",
+      "usage_count": 163,
+      "source": "GrasshopperHowtos"
+    },
+    "Colour Swatch": {
+      "guid": "9c53bac0-ba66-40bd-8154-ce9829b9db1a",
+      "usage_count": 702,
+      "source": "GrasshopperHowtos"
+    },
+    "Shift Paths": {
+      "guid": "2d61f4e0-47c5-41d6-a41d-6afa96ee63af",
+      "usage_count": 77,
+      "source": "GrasshopperHowtos"
+    },
+    "Rotate": {
+      "guid": "b7798b74-037e-4f0c-8ac7-dc1043d093e0",
+      "usage_count": 205,
+      "source": "GrasshopperHowtos"
+    },
+    "Boundary Surfaces": {
+      "guid": "d51e9b65-aa4e-4fd6-976c-cef35d421d05",
+      "usage_count": 201,
+      "source": "GrasshopperHowtos"
+    },
+    "Ungroup": {
+      "guid": "a45f59c8-11c1-4ea7-9e10-847061b80d75",
+      "usage_count": 71,
+      "source": "GrasshopperHowtos"
+    },
+    "Gradient": {
+      "guid": "6da9f120-3ad0-4b6e-9fe0-f8cde3a649b7",
+      "usage_count": 200,
+      "source": "GrasshopperHowtos"
+    },
+    "Extrude": {
+      "guid": "962034e9-cc27-4394-afc4-5c16e3447cf9",
+      "usage_count": 210,
+      "source": "GrasshopperHowtos"
+    },
+    "Explode": {
+      "guid": "afb96615-c59a-45c9-9cac-e27acb1c7ca0",
+      "usage_count": 85,
+      "source": "GrasshopperHowtos"
+    },
+    "Scale": {
+      "guid": "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703",
+      "usage_count": 279,
+      "source": "GrasshopperHowtos"
+    },
+    "Unit Y": {
+      "guid": "d3d195ea-2d59-4ffa-90b1-8b7ff3369f69",
+      "usage_count": 172,
+      "source": "GrasshopperHowtos"
+    },
+    "Radians": {
+      "guid": "a4cd2751-414d-42ec-8916-476ebf62d7fe",
+      "usage_count": 62,
+      "source": "GrasshopperHowtos"
+    },
+    "Unit X": {
+      "guid": "79f9fbb3-8f1d-4d9a-88a9-f7961b1012cd",
+      "usage_count": 117,
+      "source": "GrasshopperHowtos"
+    },
+    "PolyLine": {
+      "guid": "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+      "usage_count": 91,
+      "source": "GrasshopperHowtos"
+    },
+    "Point": {
+      "guid": "fbac3e32-f100-4292-8692-77240a42fd1a",
+      "usage_count": 875,
+      "source": "GrasshopperHowtos"
+    },
+    "Divide Curve": {
+      "guid": "2162e72e-72fc-4bf8-9459-d4d82fa8aa14",
+      "usage_count": 100,
+      "source": "GrasshopperHowtos"
+    },
+    "Amplitude": {
+      "guid": "6ec39468-dae7-4ffa-a766-f2ab22a2c62e",
+      "usage_count": 78,
+      "source": "GrasshopperHowtos"
+    },
+    "Deconstruct": {
+      "guid": "9abae6b7-fa1d-448c-9209-4a8155345841",
+      "usage_count": 103,
+      "source": "GrasshopperHowtos"
+    },
+    "Join Curves": {
+      "guid": "8073a420-6bec-49e3-9b18-367f6fd76ac3",
+      "usage_count": 70,
+      "source": "GrasshopperHowtos"
+    },
+    "Line": {
+      "guid": "4c4e56eb-2f04-43f9-95a3-cc46a14f495a",
+      "usage_count": 115,
+      "source": "GrasshopperHowtos"
+    },
+    "Evaluate Length": {
+      "guid": "6b021f56-b194-4210-b9a1-6cef3b7d0848",
+      "usage_count": 57,
+      "source": "GrasshopperHowtos"
+    },
+    "Bounding Box": {
+      "guid": "0bb3d234-9097-45db-9998-621639c87d3b",
+      "usage_count": 74,
+      "source": "GrasshopperHowtos"
+    },
+    "Line SDL": {
+      "guid": "4c619bc9-39fd-4717-82a6-1e07ea237bbe",
+      "usage_count": 62,
+      "source": "GrasshopperHowtos"
+    },
+    "Pi": {
+      "guid": "0d2ccfb3-9d41-4759-9452-da6a522c3eaa",
+      "usage_count": 179,
+      "source": "GrasshopperHowtos"
+    }
+  },
+  "common_wiring": {
+    "Bounds": [
+      {
+        "target": "Remap Numbers",
+        "param": "Source",
+        "count": 137
+      }
+    ],
+    "Number Slider": [
+      {
+        "target": "Construct Domain",
+        "param": "Domain start",
+        "count": 91
+      },
+      {
+        "target": "Construct Domain",
+        "param": "Domain end",
+        "count": 89
+      },
+      {
+        "target": "Unit Z",
+        "param": "Factor",
+        "count": 61
+      },
+      {
+        "target": "Range",
+        "param": "Steps",
+        "count": 61
+      },
+      {
+        "target": "Multiplication",
+        "param": "B",
+        "count": 56
+      },
+      {
+        "target": "Negative",
+        "param": "Value",
+        "count": 53
+      },
+      {
+        "target": "Series",
+        "param": "Count",
+        "count": 48
+      },
+      {
+        "target": "Divide Curve",
+        "param": "Count",
+        "count": 37
+      },
+      {
+        "target": "Multiplication",
+        "param": "A",
+        "count": 33
+      },
+      {
+        "target": "Scale",
+        "param": "Factor",
+        "count": 30
+      },
+      {
+        "target": "Series",
+        "param": "Step",
+        "count": 29
+      },
+      {
+        "target": "Division",
+        "param": "B",
+        "count": 29
+      },
+      {
+        "target": "Line SDL",
+        "param": "Length",
+        "count": 28
+      },
+      {
+        "target": "Remap Numbers",
+        "param": "Target",
+        "count": 28
+      },
+      {
+        "target": "Random",
+        "param": "Seed",
+        "count": 25
+      },
+      {
+        "target": "Rectangle",
+        "param": "Y Size",
+        "count": 23
+      },
+      {
+        "target": "Rectangle",
+        "param": "X Size",
+        "count": 22
+      },
+      {
+        "target": "Circle",
+        "param": "Radius",
+        "count": 20
+      },
+      {
+        "target": "Weaverbird's Catmull-Clark Subdivision",
+        "param": "Level",
+        "count": 20
+      },
+      {
+        "target": "Radians",
+        "param": "Degrees",
+        "count": 20
+      },
+      {
+        "target": "Divide Surface",
+        "param": "U Count",
+        "count": 18
+      },
+      {
+        "target": "Divide Surface",
+        "param": "V Count",
+        "count": 18
+      },
+      {
+        "target": "Populate 2D",
+        "param": "Count",
+        "count": 17
+      },
+      {
+        "target": "Amplitude",
+        "param": "Amplitude",
+        "count": 17
+      },
+      {
+        "target": "Populate Geometry",
+        "param": "Count",
+        "count": 17
+      },
+      {
+        "target": "Range",
+        "param": "Domain",
+        "count": 16
+      },
+      {
+        "target": "Pi",
+        "param": "Factor",
+        "count": 16
+      },
+      {
+        "target": "Subtraction",
+        "param": "A",
+        "count": 15
+      },
+      {
+        "target": "Sphere",
+        "param": "Radius",
+        "count": 15
+      },
+      {
+        "target": "Random",
+        "param": "Number",
+        "count": 15
+      },
+      {
+        "target": "Subtraction",
+        "param": "B",
+        "count": 15
+      },
+      {
+        "target": "Polygon",
+        "param": "Radius",
+        "count": 13
+      },
+      {
+        "target": "Pipe",
+        "param": "Radius",
+        "count": 13
+      },
+      {
+        "target": "Division",
+        "param": "A",
+        "count": 38
+      },
+      {
+        "target": "Series",
+        "param": "Start",
+        "count": 38
+      },
+      {
+        "target": "Unit X",
+        "param": "Factor",
+        "count": 20
+      },
+      {
+        "target": "Unit Y",
+        "param": "Factor",
+        "count": 20
+      },
+      {
+        "target": "Construct Point",
+        "param": "Y coordinate",
+        "count": 17
+      },
+      {
+        "target": "Construct Point",
+        "param": "X coordinate",
+        "count": 16
+      },
+      {
+        "target": "Construct Point",
+        "param": "Z coordinate",
+        "count": 12
+      },
+      {
+        "target": "Rotate",
+        "param": "Angle",
+        "count": 11
+      },
+      {
+        "target": "Gradient",
+        "param": "Lower limit",
+        "count": 2
+      },
+      {
+        "target": "Gradient",
+        "param": "Upper limit",
+        "count": 1
+      }
+    ],
+    "Unit Z": [
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 83
+      },
+      {
+        "target": "Extrude",
+        "param": "Direction",
+        "count": 47
+      },
+      {
+        "target": "Rotate",
+        "param": "Axis",
+        "count": 25
+      },
+      {
+        "target": "Line SDL",
+        "param": "Direction",
+        "count": 14
+      }
+    ],
+    "Construct Domain": [
+      {
+        "target": "Remap Numbers",
+        "param": "Target",
+        "count": 77
+      },
+      {
+        "target": "Random",
+        "param": "Range",
+        "count": 20
+      }
+    ],
+    "Colour Swatch": [
+      {
+        "target": "Custom Preview",
+        "param": "Shader",
+        "count": 62
+      },
+      {
+        "target": "Custom Preview",
+        "param": "Material",
+        "count": 502
+      }
+    ],
+    "Unit X": [
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 42
+      }
+    ],
+    "Amplitude": [
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 41
+      }
+    ],
+    "List Length": [
+      {
+        "target": "Series",
+        "param": "Count",
+        "count": 40
+      },
+      {
+        "target": "Range",
+        "param": "Steps",
+        "count": 25
+      },
+      {
+        "target": "Random",
+        "param": "Number",
+        "count": 24
+      }
+    ],
+    "Remap Numbers": [
+      {
+        "target": "Gradient",
+        "param": "Parameter",
+        "count": 39
+      },
+      {
+        "target": "Unit Z",
+        "param": "Factor",
+        "count": 19
+      }
+    ],
+    "Graph Mapper": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 38
+      },
+      {
+        "target": "Bounds",
+        "param": "Numbers",
+        "count": 17
+      }
+    ],
+    "Panel": [
+      {
+        "target": "Evaluate Length",
+        "param": "Length",
+        "count": 38
+      },
+      {
+        "target": "Multiplication",
+        "param": "B",
+        "count": 33
+      },
+      {
+        "target": "Rotate",
+        "param": "Angle",
+        "count": 26
+      },
+      {
+        "target": "Division",
+        "param": "B",
+        "count": 22
+      },
+      {
+        "target": "Modulus",
+        "param": "B",
+        "count": 17
+      },
+      {
+        "target": "Pi",
+        "param": "Factor",
+        "count": 14
+      },
+      {
+        "target": "Negative",
+        "param": "Value",
+        "count": 14
+      },
+      {
+        "target": "Remap Numbers",
+        "param": "Target",
+        "count": 75
+      },
+      {
+        "target": "Range",
+        "param": "Steps",
+        "count": 69
+      },
+      {
+        "target": "Range",
+        "param": "Domain",
+        "count": 38
+      },
+      {
+        "target": "Scale",
+        "param": "Factor",
+        "count": 25
+      },
+      {
+        "target": "Unit Z",
+        "param": "Factor",
+        "count": 18
+      },
+      {
+        "target": "Line SDL",
+        "param": "Start",
+        "count": 11
+      },
+      {
+        "target": "Line",
+        "param": "Start Point",
+        "count": 7
+      },
+      {
+        "target": "Series",
+        "param": "Start",
+        "count": 6
+      },
+      {
+        "target": "Line",
+        "param": "End Point",
+        "count": 5
+      },
+      {
+        "target": "Series",
+        "param": "Step",
+        "count": 5
+      },
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 4
+      },
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 4
+      },
+      {
+        "target": "Division",
+        "param": "A",
+        "count": 3
+      },
+      {
+        "target": "PolyLine",
+        "param": "Closed",
+        "count": 3
+      },
+      {
+        "target": "Unit X",
+        "param": "Factor",
+        "count": 3
+      },
+      {
+        "target": "Dispatch",
+        "param": "Dispatch pattern",
+        "count": 3
+      },
+      {
+        "target": "Construct Domain",
+        "param": "Domain start",
+        "count": 3
+      },
+      {
+        "target": "Construct Domain",
+        "param": "Domain end",
+        "count": 3
+      },
+      {
+        "target": "Construct Point",
+        "param": "X coordinate",
+        "count": 2
+      },
+      {
+        "target": "Construct Point",
+        "param": "Y coordinate",
+        "count": 2
+      },
+      {
+        "target": "Construct Point",
+        "param": "Z coordinate",
+        "count": 2
+      },
+      {
+        "target": "Line SDL",
+        "param": "Direction",
+        "count": 1
+      },
+      {
+        "target": "Divide Curve",
+        "param": "Count",
+        "count": 1
+      }
+    ],
+    "Gradient": [
+      {
+        "target": "Custom Preview",
+        "param": "Shader",
+        "count": 37
+      },
+      {
+        "target": "Mesh Colours",
+        "param": "Colours",
+        "count": 14
+      }
+    ],
+    "Boundary Surfaces": [
+      {
+        "target": "Extrude",
+        "param": "Base",
+        "count": 28
+      }
+    ],
+    "Deconstruct": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 27
+      },
+      {
+        "target": "Bounds",
+        "param": "Numbers",
+        "count": 25
+      }
+    ],
+    "Unit Y": [
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 27
+      }
+    ],
+    "Radians": [
+      {
+        "target": "Rotate",
+        "param": "Angle",
+        "count": 26
+      }
+    ],
+    "Bounding Box": [
+      {
+        "target": "Area",
+        "param": "Geometry",
+        "count": 24
+      },
+      {
+        "target": "Deconstruct Brep",
+        "param": "Brep",
+        "count": 14
+      }
+    ],
+    "Construct Point": [
+      {
+        "target": "Line SDL",
+        "param": "Start",
+        "count": 24
+      }
+    ],
+    "Area": [
+      {
+        "target": "Scale",
+        "param": "Center",
+        "count": 23
+      },
+      {
+        "target": "Scale NU",
+        "param": "Plane",
+        "count": 19
+      },
+      {
+        "target": "Deconstruct",
+        "param": "Point",
+        "count": 19
+      }
+    ],
+    "Divide Curve": [
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 23
+      }
+    ],
+    "Multiplication": [
+      {
+        "target": "Series",
+        "param": "Step",
+        "count": 23
+      }
+    ],
+    "Range": [
+      {
+        "target": "Gradient",
+        "param": "Parameter",
+        "count": 21
+      }
+    ],
+    "Pi": [
+      {
+        "target": "Range",
+        "param": "Domain",
+        "count": 21
+      }
+    ],
+    "Negative": [
+      {
+        "target": "Construct Domain",
+        "param": "Domain start",
+        "count": 19
+      },
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 17
+      }
+    ],
+    "End Points": [
+      {
+        "target": "Line",
+        "param": "Start Point",
+        "count": 19
+      },
+      {
+        "target": "Line",
+        "param": "End Point",
+        "count": 16
+      }
+    ],
+    "Number": [
+      {
+        "target": "Multiplication",
+        "param": "A",
+        "count": 19
+      },
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 39
+      },
+      {
+        "target": "Bounds",
+        "param": "Numbers",
+        "count": 37
+      },
+      {
+        "target": "Gradient",
+        "param": "Parameter",
+        "count": 19
+      },
+      {
+        "target": "Scale",
+        "param": "Factor",
+        "count": 10
+      },
+      {
+        "target": "Range",
+        "param": "Steps",
+        "count": 9
+      },
+      {
+        "target": "Series",
+        "param": "Count",
+        "count": 8
+      },
+      {
+        "target": "Construct Point",
+        "param": "Z coordinate",
+        "count": 8
+      },
+      {
+        "target": "Negative",
+        "param": "Value",
+        "count": 7
+      },
+      {
+        "target": "Unit Z",
+        "param": "Factor",
+        "count": 7
+      },
+      {
+        "target": "Construct Point",
+        "param": "X coordinate",
+        "count": 7
+      },
+      {
+        "target": "Construct Point",
+        "param": "Y coordinate",
+        "count": 7
+      },
+      {
+        "target": "Division",
+        "param": "A",
+        "count": 6
+      },
+      {
+        "target": "Unit Y",
+        "param": "Factor",
+        "count": 2
+      },
+      {
+        "target": "Gradient",
+        "param": "Lower limit",
+        "count": 2
+      },
+      {
+        "target": "Remap Numbers",
+        "param": "Target",
+        "count": 1
+      },
+      {
+        "target": "Series",
+        "param": "Step",
+        "count": 1
+      }
+    ],
+    "Rotate": [
+      {
+        "target": "Amplitude",
+        "param": "Vector",
+        "count": 18
+      }
+    ],
+    "Move": [
+      {
+        "target": "Interpolate",
+        "param": "Vertices",
+        "count": 17
+      },
+      {
+        "target": "Graft Tree",
+        "param": "Tree",
+        "count": 17
+      },
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 16
+      },
+      {
+        "target": "Nurbs Curve",
+        "param": "Vertices",
+        "count": 14
+      },
+      {
+        "target": "Ungroup",
+        "param": "Group",
+        "count": 13
+      },
+      {
+        "target": "Flatten Tree",
+        "param": "Tree",
+        "count": 13
+      }
+    ],
+    "Explode": [
+      {
+        "target": "Evaluate Length",
+        "param": "Curve",
+        "count": 17
+      }
+    ],
+    "Group": [
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 16
+      }
+    ],
+    "Series": [
+      {
+        "target": "Unit X",
+        "param": "Factor",
+        "count": 16
+      },
+      {
+        "target": "Unit Y",
+        "param": "Factor",
+        "count": 15
+      }
+    ],
+    "Extrude": [
+      {
+        "target": "Custom Preview",
+        "param": "Geometry",
+        "count": 15
+      },
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 14
+      }
+    ],
+    "Surface": [
+      {
+        "target": "Evaluate Surface",
+        "param": "Surface",
+        "count": 15
+      }
+    ],
+    "MD Slider": [
+      {
+        "target": "Evaluate Surface",
+        "param": "Point",
+        "count": 15
+      }
+    ],
+    "Distance": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 15
+      },
+      {
+        "target": "Bounds",
+        "param": "Numbers",
+        "count": 14
+      }
+    ],
+    "Box Corners": [
+      {
+        "target": "Distance",
+        "param": "Point A",
+        "count": 15
+      },
+      {
+        "target": "Distance",
+        "param": "Point B",
+        "count": 15
+      }
+    ],
+    "Surface Closest Point": [
+      {
+        "target": "Evaluate Surface",
+        "param": "Point",
+        "count": 14
+      }
+    ],
+    "Sine": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 13
+      }
+    ],
+    "Curve": [
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 50
+      },
+      {
+        "target": "Scale",
+        "param": "Geometry",
+        "count": 34
+      },
+      {
+        "target": "Boundary Surfaces",
+        "param": "Edges",
+        "count": 17
+      },
+      {
+        "target": "List Length",
+        "param": "List",
+        "count": 13
+      },
+      {
+        "target": "Area",
+        "param": "Geometry",
+        "count": 8
+      },
+      {
+        "target": "Bounding Box",
+        "param": "Content",
+        "count": 6
+      },
+      {
+        "target": "Dispatch",
+        "param": "List",
+        "count": 4
+      },
+      {
+        "target": "Loft",
+        "param": "Curves",
+        "count": 3
+      },
+      {
+        "target": "Custom Preview",
+        "param": "Geometry",
+        "count": 3
+      },
+      {
+        "target": "End Points",
+        "param": "Curve",
+        "count": 3
+      },
+      {
+        "target": "Extrude",
+        "param": "Base",
+        "count": 2
+      },
+      {
+        "target": "Join Curves",
+        "param": "Curves",
+        "count": 2
+      },
+      {
+        "target": "Explode",
+        "param": "Curve",
+        "count": 2
+      },
+      {
+        "target": "Rotate",
+        "param": "Geometry",
+        "count": 2
+      }
+    ],
+    "Point": [
+      {
+        "target": "Move",
+        "param": "Geometry",
+        "count": 40
+      },
+      {
+        "target": "List Length",
+        "param": "List",
+        "count": 32
+      },
+      {
+        "target": "Scale",
+        "param": "Center",
+        "count": 24
+      },
+      {
+        "target": "Rotate",
+        "param": "Plane",
+        "count": 13
+      },
+      {
+        "target": "Deconstruct",
+        "param": "Point",
+        "count": 11
+      },
+      {
+        "target": "Line",
+        "param": "Start Point",
+        "count": 10
+      },
+      {
+        "target": "PolyLine",
+        "param": "Vertices",
+        "count": 10
+      },
+      {
+        "target": "Line",
+        "param": "End Point",
+        "count": 9
+      },
+      {
+        "target": "Dispatch",
+        "param": "List",
+        "count": 5
+      },
+      {
+        "target": "Move",
+        "param": "Motion",
+        "count": 4
+      },
+      {
+        "target": "Rotate",
+        "param": "Geometry",
+        "count": 2
+      },
+      {
+        "target": "Scale",
+        "param": "Geometry",
+        "count": 1
+      }
+    ]
+  },
+  "slider_defaults": {
+    "Rectangular.Size X": {
+      "typical_min": 0.0,
+      "typical_max": 670.0,
+      "typical_value": 539.35,
+      "sample_count": 3
+    },
+    "Rectangular.Size Y": {
+      "typical_min": 0.0,
+      "typical_max": 670.0,
+      "typical_value": 218.67,
+      "sample_count": 3
+    },
+    "Series.Step": {
+      "typical_min": 0.0,
+      "typical_max": 57.71,
+      "typical_value": 33.12,
+      "sample_count": 20
+    },
+    "Series.Count": {
+      "typical_min": 0.0,
+      "typical_max": 64.44,
+      "typical_value": 28.61,
+      "sample_count": 36
+    },
+    "Construct Domain.Domain end": {
+      "typical_min": -2.34,
+      "typical_max": 212.24,
+      "typical_value": 104.48,
+      "sample_count": 87
+    },
+    "Construct Domain.Domain start": {
+      "typical_min": -0.06,
+      "typical_max": 86.47,
+      "typical_value": 35.74,
+      "sample_count": 88
+    },
+    "Hexagonal.Extent X": {
+      "typical_min": 0.0,
+      "typical_max": 43.5,
+      "typical_value": 11.83,
+      "sample_count": 6
+    },
+    "Negative.Value": {
+      "typical_min": 0.0,
+      "typical_max": 313.63,
+      "typical_value": 245.56,
+      "sample_count": 44
+    },
+    "Range.Domain": {
+      "typical_min": 0.01,
+      "typical_max": 204.18,
+      "typical_value": 56.35,
+      "sample_count": 11
+    },
+    "Line SDL.Length": {
+      "typical_min": 0.0,
+      "typical_max": 681.74,
+      "typical_value": 630.59,
+      "sample_count": 23
+    },
+    "Modulus.A": {
+      "typical_min": 0.0,
+      "typical_max": 93.75,
+      "typical_value": 64.62,
+      "sample_count": 8
+    },
+    "Evaluate Length.Length": {
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.46,
+      "sample_count": 8
+    },
+    "Random.Range": {
+      "typical_min": 0.0,
+      "typical_max": 30031.43,
+      "typical_value": 20359.71,
+      "sample_count": 7
+    },
+    "Random.Seed": {
+      "typical_min": 0.0,
+      "typical_max": 1180.0,
+      "typical_value": 345.65,
+      "sample_count": 20
+    },
+    "Divide Curve.Count": {
+      "typical_min": 0.0,
+      "typical_max": 107.14,
+      "typical_value": 44.25,
+      "sample_count": 28
+    },
+    "Plane Surface.X Size": {
+      "typical_min": 0.0,
+      "typical_max": 11190.0,
+      "typical_value": 5634.44,
+      "sample_count": 9
+    },
+    "Divide Surface.U Count": {
+      "typical_min": 0.0,
+      "typical_max": 142.22,
+      "typical_value": 74.06,
+      "sample_count": 18
+    },
+    "Polygon.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 210.77,
+      "typical_value": 132.62,
+      "sample_count": 13
+    },
+    "Shift List.Shift": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.0,
+      "sample_count": 2
+    },
+    "Pi.Factor": {
+      "typical_min": 0.0,
+      "typical_max": 8.62,
+      "typical_value": 4.16,
+      "sample_count": 16
+    },
+    "Circle.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 127.95,
+      "typical_value": 74.39,
+      "sample_count": 19
+    },
+    "Remap Numbers.Target": {
+      "typical_min": 0.0,
+      "typical_max": 134.24,
+      "typical_value": 51.85,
+      "sample_count": 25
+    },
+    "Sphere.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 151.43,
+      "typical_value": 90.93,
+      "sample_count": 14
+    },
+    "Unit Z.Factor": {
+      "typical_min": 0.0,
+      "typical_max": 818.7,
+      "typical_value": 272.99,
+      "sample_count": 53
+    },
+    "Length(Line).Strength": {
+      "typical_min": 0.0,
+      "typical_max": 275.5,
+      "typical_value": 252.75,
+      "sample_count": 4
+    },
+    "Smooth Mesh.Iterations": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.33,
+      "sample_count": 3
+    },
+    "Scale NU.Scale Z": {
+      "typical_min": 0.0,
+      "typical_max": 7.33,
+      "typical_value": 1.67,
+      "sample_count": 3
+    },
+    "Scale.Factor": {
+      "typical_min": 0.0,
+      "typical_max": 3.52,
+      "typical_value": 1.23,
+      "sample_count": 29
+    },
+    "Equality.Second Number": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.0,
+      "sample_count": 2
+    },
+    "standalone": {
+      "typical_min": -0.0,
+      "typical_max": 156.41,
+      "typical_value": 82.99,
+      "sample_count": 75
+    },
+    "Random.Number": {
+      "typical_min": 0.0,
+      "typical_max": 262.0,
+      "typical_value": 77.6,
+      "sample_count": 5
+    },
+    "Smaller Than.Second Number": {
+      "typical_min": 0.0,
+      "typical_max": 14.58,
+      "typical_value": 10.88,
+      "sample_count": 7
+    },
+    "tsPipe.DefaultRadius": {
+      "typical_min": 0.0,
+      "typical_max": 7.67,
+      "typical_value": 2.17,
+      "sample_count": 3
+    },
+    "tsPipe.CurveSegments": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 3.33,
+      "sample_count": 3
+    },
+    "Weaverbird's Catmull-Clark Subdivision.Level": {
+      "typical_min": 0.0,
+      "typical_max": 9.06,
+      "typical_value": 2.41,
+      "sample_count": 17
+    },
+    "Rectangle.X Size": {
+      "typical_min": 0.0,
+      "typical_max": 750.5,
+      "typical_value": 235.5,
+      "sample_count": 20
+    },
+    "Populate 2D.Count": {
+      "typical_min": 0.0,
+      "typical_max": 872.94,
+      "typical_value": 706.53,
+      "sample_count": 17
+    },
+    "Populate 2D.Seed": {
+      "typical_min": 0.0,
+      "typical_max": 1000.0,
+      "typical_value": 271.25,
+      "sample_count": 4
+    },
+    "Rebuild Curve.Degree": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.8,
+      "sample_count": 5
+    },
+    "Range.Steps": {
+      "typical_min": 0.0,
+      "typical_max": 57.14,
+      "typical_value": 29.6,
+      "sample_count": 35
+    },
+    "Pipe.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 25.33,
+      "typical_value": 10.13,
+      "sample_count": 12
+    },
+    "Scale NU.Scale X": {
+      "typical_min": 0.0,
+      "typical_max": 2.75,
+      "typical_value": 0.88,
+      "sample_count": 6
+    },
+    "MeshMachine.Iterations": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 4.2,
+      "sample_count": 5
+    },
+    "MeshMachine.Length": {
+      "typical_min": 0.0,
+      "typical_max": 5.75,
+      "typical_value": 3.81,
+      "sample_count": 4
+    },
+    "Extend Curve.Start": {
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 66.67,
+      "sample_count": 3
+    },
+    "Larger Than.Second Number": {
+      "typical_min": 0.0,
+      "typical_max": 500.0,
+      "typical_value": 250.0,
+      "sample_count": 2
+    },
+    "Hexagonal.Extent Y": {
+      "typical_min": 0.0,
+      "typical_max": 76.67,
+      "typical_value": 15.0,
+      "sample_count": 3
+    },
+    "Hexagonal.Size": {
+      "typical_min": 0.0,
+      "typical_max": 23.5,
+      "typical_value": 22.05,
+      "sample_count": 6
+    },
+    "Minimum.B": {
+      "typical_min": 0.0,
+      "typical_max": 9237.55,
+      "typical_value": 1915.73,
+      "sample_count": 11
+    },
+    "Divide Surface.V Count": {
+      "typical_min": 0.0,
+      "typical_max": 60.0,
+      "typical_value": 17.67,
+      "sample_count": 6
+    },
+    "Colour HSL.Saturation": {
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.83,
+      "sample_count": 2
+    },
+    "Square.Extent X": {
+      "typical_min": 0.0,
+      "typical_max": 40.57,
+      "typical_value": 24.43,
+      "sample_count": 7
+    },
+    "Amplitude.Amplitude": {
+      "typical_min": -0.07,
+      "typical_max": 72.73,
+      "typical_value": 33.15,
+      "sample_count": 15
+    },
+    "Polygon.Segments": {
+      "typical_min": 0.5,
+      "typical_max": 9.33,
+      "typical_value": 4.0,
+      "sample_count": 6
+    },
+    "Multiplication.B": {
+      "typical_min": -0.07,
+      "typical_max": 49.44,
+      "typical_value": 16.43,
+      "sample_count": 45
+    },
+    "Split List.Index": {
+      "typical_min": 0.0,
+      "typical_max": 33.88,
+      "typical_value": 8.88,
+      "sample_count": 8
+    },
+    "Unit X.Factor": {
+      "typical_min": 0.0,
+      "typical_max": 1870.0,
+      "typical_value": 447.17,
+      "sample_count": 6
+    },
+    "Division.B": {
+      "typical_min": 0.05,
+      "typical_max": 70.55,
+      "typical_value": 8.77,
+      "sample_count": 20
+    },
+    "OnCurve.Strength": {
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 50.5,
+      "sample_count": 2
+    },
+    "Offset.Distance": {
+      "typical_min": 0.0,
+      "typical_max": 52.75,
+      "typical_value": 9.59,
+      "sample_count": 4
+    },
+    "Settings (Custom).Min Edge": {
+      "typical_min": 0.0,
+      "typical_max": 12.0,
+      "typical_value": 7.16,
+      "sample_count": 5
+    },
+    "Radians.Degrees": {
+      "typical_min": -6.75,
+      "typical_max": 86.25,
+      "typical_value": 32.96,
+      "sample_count": 20
+    },
+    "Subtraction.B": {
+      "typical_min": 0.0,
+      "typical_max": 33.68,
+      "typical_value": 10.1,
+      "sample_count": 6
+    },
+    "Square.Size": {
+      "typical_min": 0.0,
+      "typical_max": 10.25,
+      "typical_value": 10.25,
+      "sample_count": 4
+    },
+    "PerlinNoise.Scale": {
+      "typical_min": 0.0,
+      "typical_max": 0.82,
+      "typical_value": 0.28,
+      "sample_count": 5
+    },
+    "Populate Geometry.Count": {
+      "typical_min": 0.0,
+      "typical_max": 721.25,
+      "typical_value": 340.25,
+      "sample_count": 16
+    },
+    "Rectangle.Y Size": {
+      "typical_min": 0.0,
+      "typical_max": 375.0,
+      "typical_value": 171.0,
+      "sample_count": 4
+    },
+    "Center Box.X": {
+      "typical_min": 0.0,
+      "typical_max": 80.0,
+      "typical_value": 77.5,
+      "sample_count": 4
+    },
+    "Populate 3D.Count": {
+      "typical_min": 0.0,
+      "typical_max": 55.0,
+      "typical_value": 8.0,
+      "sample_count": 2
+    },
+    "Multiplication.A": {
+      "typical_min": 0.0,
+      "typical_max": 8.71,
+      "typical_value": 4.59,
+      "sample_count": 7
+    },
+    "Rebuild Curve.Count": {
+      "typical_min": 0.0,
+      "typical_max": 85.0,
+      "typical_value": 61.33,
+      "sample_count": 6
+    },
+    "Arc.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 215.71,
+      "typical_value": 109.29,
+      "sample_count": 7
+    },
+    "Vector XYZ.X component": {
+      "typical_min": -0.25,
+      "typical_max": 25.75,
+      "typical_value": 7.54,
+      "sample_count": 8
+    },
+    "Vector XYZ.Y component": {
+      "typical_min": -0.5,
+      "typical_max": 1.0,
+      "typical_value": 0.36,
+      "sample_count": 4
+    },
+    "Weaverbird's Picture Frame.Distance": {
+      "typical_min": 0.0,
+      "typical_max": 46.67,
+      "typical_value": 18.91,
+      "sample_count": 3
+    },
+    "Division.A": {
+      "typical_min": 0.0,
+      "typical_max": 683.33,
+      "typical_value": 240.3,
+      "sample_count": 3
+    },
+    "Mesh Sphere.U Count": {
+      "typical_min": 0.0,
+      "typical_max": 55.0,
+      "typical_value": 30.0,
+      "sample_count": 2
+    },
+    "PerlinNoise.Time": {
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.5,
+      "sample_count": 2
+    },
+    "Sequence.Frames": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 5.67,
+      "sample_count": 3
+    },
+    "Series.Start": {
+      "typical_min": 0.03,
+      "typical_max": 176.67,
+      "typical_value": 122.61,
+      "sample_count": 6
+    },
+    "Subtraction.A": {
+      "typical_min": 0.0,
+      "typical_max": 820.0,
+      "typical_value": 680.0,
+      "sample_count": 5
+    },
+    "Weaverbird's Mesh Thicken.Distance": {
+      "typical_min": 0.0,
+      "typical_max": 7.67,
+      "typical_value": 4.67,
+      "sample_count": 3
+    },
+    "Scale NU.Scale Y": {
+      "typical_min": 0.0,
+      "typical_max": 4.0,
+      "typical_value": 0.85,
+      "sample_count": 3
+    },
+    "Unit Y.Factor": {
+      "typical_min": 0.0,
+      "typical_max": 257.5,
+      "typical_value": 80.5,
+      "sample_count": 4
+    },
+    "Populate Geometry.Seed": {
+      "typical_min": 0.0,
+      "typical_max": 550.0,
+      "typical_value": 230.0,
+      "sample_count": 4
+    },
+    "Vector XYZ.Z component": {
+      "typical_min": -0.5,
+      "typical_max": 1.0,
+      "typical_value": 0.16,
+      "sample_count": 4
+    },
+    "Fillet.Radius": {
+      "typical_min": 0.0,
+      "typical_max": 327.5,
+      "typical_value": 71.75,
+      "sample_count": 4
+    },
+    "Contour.Distance": {
+      "typical_min": 0.0,
+      "typical_max": 177.5,
+      "typical_value": 133.0,
+      "sample_count": 4
+    },
+    "Sub List.Domain": {
+      "typical_min": 0.0,
+      "typical_max": 16.67,
+      "typical_value": 7.67,
+      "sample_count": 3
+    },
+    "Partition List.Size": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.33,
+      "sample_count": 3
+    },
+    "Blur Mesh.Iterations": {
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 4.5,
+      "sample_count": 2
+    },
+    "Maximum.B": {
+      "typical_min": 0.0,
+      "typical_max": 5.5,
+      "typical_value": 0.5,
+      "sample_count": 2
+    },
+    "Mesh Plane.Width count": {
+      "typical_min": 0.0,
+      "typical_max": 133.33,
+      "typical_value": 70.0,
+      "sample_count": 3
+    },
+    "Remap TSet.Target": {
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.89,
+      "sample_count": 2
+    },
+    "Text Tag 3D.Size": {
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 83.0,
+      "sample_count": 2
+    }
+  },
+  "training_metadata": {
+    "source": "GrasshopperHowtos by jhorikawa",
+    "definitions_analyzed": 122,
+    "total_component_instances": 21424,
+    "unique_components": 326
+  }
+}

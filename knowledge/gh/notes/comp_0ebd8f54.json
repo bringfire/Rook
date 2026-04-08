@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_0ebd8f54",
+  "note_type": "component",
+  "name": "Adjust Plane",
+  "brief": "Adjust Plane | Inputs: P, N \u2192 P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Adjust Plane. Inputs: P (Plane), N (Vector). Outputs: P (Plane).",
+  "keywords": [
+    "adjust plane",
+    "adjust",
+    "plane",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "adjust plane",
+    "adjust",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Adjust Plane"
+  ],
+  "solution_principle": "Adjust a plane to match a new normal direction",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9ce34996-d8c6-40d3-b442-1a7c8c093614",
+    "category": "plane_ops",
+    "inputs": {
+      "P": "Plane",
+      "N": "Vector"
+    },
+    "outputs": {
+      "P": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "e76040ec-3b91-41e1-8e00-c74c23b89391",
+      "2318aee8-01fe-4ea8-9524-6966023fc622",
+      "75eec078-a905-47a1-b0d2-0934182b1e3d"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|adjust plane",
+    "family": "plane_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_368899bd",
+  "note_type": "component",
+  "name": "Point Cloud Contour",
+  "brief": "Point Cloud Contour | Inputs: Pc, S, N, D → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Point Cloud Contour. Inputs: Pc (Point Cloud), S (Point), N (Vector), D (Number), L (Boolean). Outputs: C (Curve).",
+  "keywords": [
+    "point cloud contour",
+    "point",
+    "cloud",
+    "contour",
+    "intersection_math"
+  ],
+  "category": "intersection_math",
+  "tags": [
+    "intersection_math"
+  ],
+  "trigger_intents": [
+    "point cloud contour",
+    "point",
+    "cloud",
+    "contour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Cloud Contour"
+  ],
+  "solution_principle": "Create a series of planar curves by intersecting planes with a cloud of points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_60b57767",
+    "comp_a8a23ec6",
+    "comp_337d7af3",
+    "comp_146ffa0d",
+    "comp_93b9512b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a45e648e-a4f5-4408-a222-9b67f64a8622",
+    "category": "intersection_math",
+    "inputs": {
+      "Pc": "Point Cloud",
+      "S": "Point",
+      "N": "Vector",
+      "D": "Number",
+      "L": "Boolean"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3b112fb6-3eba-42d2-ba75-0f903c18faab"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|mathematical|point cloud contour"
+  }
+}

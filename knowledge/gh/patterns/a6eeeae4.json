@@ -1,0 +1,72 @@
+{
+  "pattern_id": "a6eeeae4",
+  "name": "wasp_13_teaching_RULE_GENERATOR_#03",
+  "version": "1.0",
+  "created": "2026-03-19T17:53:42.275847Z",
+  "solution": {
+    "brief": "RULE GENERATOR #03\r\nIn default mode, the Rules Generator creates rules between\r\nconnections of the same Type (or between all connections,\r\nwhen Type is not set).\r\nBy defining custom grammars in the GR input, in the form \r\n\"ConnectionType>ConnectionType\", it is possible to generate\r\nrules between different connection types, and hence generate widely\r\ndifferentiated aggregations without need to edit all rules. As example,\r\ndifferent connection grammars are defined in different panels for testing.\r\n\r\nNB: for the Connection Grammars to work, the TYP input has to either\r\nbe left empty or set to False.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Rules Generator",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "mode,",
+      "generator",
+      "creates",
+      "default",
+      "rule",
+      "connections",
+      "rules",
+      "between"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "rules",
+    "rule-generator",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

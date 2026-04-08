@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_e1a4027d",
+  "note_type": "component",
+  "name": "Merge Faces",
+  "brief": "Merge Faces | Inputs: Brep → Breps, Before, After",
+  "version": "1.0",
+  "created": "2026-03-19T19:30:42.236279Z",
+  "context": "Grasshopper component: Merge Faces. ",
+  "keywords": [
+    "merge faces",
+    "unknown",
+    "merge",
+    "faces"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "merge faces",
+    "merge",
+    "faces",
+    "fmerge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge Faces"
+  ],
+  "solution_principle": "Merge Faces | Inputs: Brep → Breps, Before, After",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "d6b43673-55dd-4e2f-95c4-6c69a14513a6",
+    "category": "unknown",
+    "inputs": {
+      "Brep": "Brep"
+    },
+    "outputs": {
+      "Breps": "Breps",
+      "Before": "Before",
+      "After": "After"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|util|merge faces"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

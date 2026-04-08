@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_ae5e70e3",
+  "note_type": "component",
+  "name": "Hide Model Layer",
+  "brief": "Hide Model Layer | Inputs: L, M, D → L, M, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Hide Model Layer. Inputs: L (Model Layer), M (Boolean), D (Boolean). Outputs: L (Model Layer), M (Boolean), D (Boolean).",
+  "keywords": [
+    "hide model layer",
+    "hide",
+    "model",
+    "layer",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "hide model layer",
+    "hide",
+    "model",
+    "layer"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Hide Model Layer"
+  ],
+  "solution_principle": "Defines layer visibility for model viewports and new details.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_84da874b",
+    "comp_2d8cfb46",
+    "comp_4b17fa39",
+    "comp_b4164a54",
+    "comp_ad796399"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9ee31ba5-81a6-4f94-b256-7383f66a33ab",
+    "category": "rhino_model",
+    "inputs": {
+      "L": "Model Layer",
+      "M": "Boolean",
+      "D": "Boolean"
+    },
+    "outputs": {
+      "L": "Model Layer",
+      "M": "Boolean",
+      "D": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1778f81a-dbab-422c-9d84-98a5f6d260fb"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|model|hide model layer"
+  }
+}

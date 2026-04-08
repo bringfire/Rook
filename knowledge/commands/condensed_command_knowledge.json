@@ -1,0 +1,3320 @@
+{
+  "version": "1.0",
+  "created": "2026-01-18T22:53:42.794484",
+  "command_count": 196,
+  "total_token_estimate": 24851,
+  "original_token_estimate": 78400,
+  "reduction_percent": 68.3,
+  "commands": {
+    "-Box": {
+      "command": "-Box",
+      "family": "primitives",
+      "quick": "_-Box <corner1> <corner2> <height> | Third input is height, not Z-coordinate",
+      "contexts": {
+        "default": "_-Box 0,0,0 10,10,0 5 - Base rectangle corners + height value. Height is perpendicular to construction plane, not Z-axis.",
+        "center": "_-Box _Center 5,5,0 10 8 5 - Center point + width/length/height. Must specify all three dimensions separately, no single cube dimension.",
+        "diagonal": "_-Box _Diagonal 0,0,0 10,10,10 - Two 3D corners. Box aligns with world axes, not diagonal direction."
+      },
+      "errors": "Height as coordinate fails. _Enter for height uses base width. Missing dimensions in center mode.",
+      "similar_commands": [
+        "-Sphere"
+      ],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 89,
+        "errors": 24
+      }
+    },
+    "-Sphere": {
+      "command": "-Sphere",
+      "family": "primitives",
+      "quick": "_-Sphere <center> <radius> | Use _Diameter/_3Point/_4Point/_FitPoints for alternatives | Points must not be coplanar",
+      "contexts": {
+        "default": "_-Sphere 0,0,0 5 creates sphere at origin with radius 5. Most direct method for known center and size.",
+        "diameter": "_-Sphere _Diameter <pt1> <pt2> defines sphere using two endpoints as diameter. Useful when you know sphere boundary points.",
+        "3point": "_-Sphere _3Point requires three non-coplanar points. Creates unique sphere passing through all three points.",
+        "4point": "_-Sphere _4Point uses four points on sphere surface. Points must not be coplanar for valid sphere definition.",
+        "fitpoints": "_-Sphere _FitPoints _SelPrev _Enter creates best-fit sphere through pre-selected point objects. Select points first."
+      },
+      "errors": "Fails without parameters. 3Point/4Point fail with coplanar points. FitPoints requires pre-selected point objects.",
+      "similar_commands": [
+        "-Ellipsoid",
+        "-Box"
+      ],
+      "token_estimate": {
+        "quick": 29,
+        "contexts": 138,
+        "errors": 28
+      }
+    },
+    "-Cylinder": {
+      "command": "-Cylinder",
+      "family": "primitives",
+      "quick": "_-Cylinder center radius height | Height must be non-zero",
+      "contexts": {
+        "diameter": "Use _Diameter to specify by center + diameter point instead of radius",
+        "3point": "Use _3Point for base defined by three non-collinear points + height",
+        "vertical": "Use _Vertical to constrain cylinder axis to be vertical",
+        "precision": "Default mode most efficient for precise radius values"
+      },
+      "errors": "Zero height fails | Collinear 3points fail | Same center/diameter point fails",
+      "similar_commands": [
+        "-Cone"
+      ],
+      "token_estimate": {
+        "quick": 14,
+        "contexts": 59,
+        "errors": 19
+      }
+    },
+    "-Cone": {
+      "command": "-Cone",
+      "family": "primitives",
+      "quick": "_-Cone center radius height | Use DirectionConstraint=None for free axis",
+      "contexts": {
+        "default": "_-Cone 0,0,0 5 10 creates vertical cone. Height can be value or apex point coordinate.",
+        "vertical": "_-Cone _Vertical forces vertical axis regardless of CPlane orientation.",
+        "diameter": "_-Cone _Diameter 0,0,0 10,0,0 10 uses diameter endpoint instead of radius value.",
+        "2point": "_-Cone _2Point defines axis direction with two points, then specify radius for base.",
+        "3point": "_-Cone _3Point 0,0,0 10,0,0 5,10,0 12 creates base from three non-collinear points.",
+        "directionconstraint": "_DirectionConstraint=None allows arbitrary axis orientation, overriding CPlane constraints."
+      },
+      "errors": "Height mixing numeric/coordinate fails. 2Point confusion with diameter. Collinear 3Point fails.",
+      "similar_commands": [
+        "-Cylinder"
+      ],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 121,
+        "errors": 23
+      }
+    },
+    "-Torus": {
+      "command": "-Torus",
+      "family": "primitives",
+      "quick": "_-Torus <center> <major_radius> <minor_radius> | Minor must be < major",
+      "contexts": {
+        "default": "_-Torus 0,0,0 10 3 creates horizontal donut. Major radius = center to tube center, minor = tube thickness. Default XY plane orientation.",
+        "2point": "_-Torus _2Point <pt1> <pt2> <minor_radius> defines major diameter with two points. Points set diameter, not radius of major circle.",
+        "vertical": "Use _Vertical option for vertical orientation instead of default horizontal (XY plane). Useful for standing torus shapes.",
+        "around_curve": "_AroundCurve option creates torus following selected curve path instead of simple circular major radius."
+      },
+      "errors": "Minor radius \u2265 major radius = invalid torus. Very small minor radius creates thin ring with poor display quality.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 122,
+        "errors": 28
+      }
+    },
+    "-Line": {
+      "command": "-Line",
+      "family": "curves",
+      "quick": "_-Line <start> <end> | Modes: _Vertical, _Normal, _Angled, _Perpendicular, _Bisector, _FourPoint | Vertical needs aligned coords",
+      "contexts": {
+        "default": "Basic two-point line creation. Start/end points define geometry.",
+        "vertical": "Creates Z-axis parallel line. End point Z must differ from start, X/Y must match exactly.",
+        "normal": "Surface normal line. Requires valid surface at point, may fail on edges/gaps.",
+        "angled": "Angle measured from positive X-axis in current construction plane.",
+        "perpendicular": "Requires curve selection first (or _SelPrev). Point determines perpendicular location.",
+        "fourpoint": "Creates line between midpoints of two implied lines, not connecting input points.",
+        "bisector": "Angle bisector between two lines defined by three points. Length extends from vertex."
+      },
+      "errors": "Normal fails without surface. Perpendicular needs curve selection. Vertical requires exact X/Y alignment. Short lengths may be invisible.",
+      "similar_commands": [
+        "-Polyline"
+      ],
+      "token_estimate": {
+        "quick": 32,
+        "contexts": 135,
+        "errors": 34
+      }
+    },
+    "-Circle": {
+      "command": "-Circle",
+      "family": "curves",
+      "quick": "_-Circle <center> <radius> | Use _Diameter, _3Point, _Tangent, _AroundCurve for alternatives | Tangent needs existing objects",
+      "contexts": {
+        "default": "Center-radius is fastest for known dimensions. Use world coordinates or object snaps for precision.",
+        "diameter": "Useful when you know diameter endpoints rather than center. Creates circle with diameter between points.",
+        "3point": "Perfect for fitting circles to existing geometry. Fails if points are collinear - spread them out.",
+        "tangent": "Requires two existing objects first. Use _SelPrev for recently created geometry or _SelId for specific objects.",
+        "aroundcurve": "Only works with closed curves like rectangles or polygons. Open curves will be rejected."
+      },
+      "errors": "Tangent mode fails without existing geometry. 3Point fails with collinear points. AroundCurve rejects open curves. _SelPrev fails if no previous object exists.",
+      "similar_commands": [
+        "-Ellipse"
+      ],
+      "token_estimate": {
+        "quick": 31,
+        "contexts": 123,
+        "errors": 39
+      }
+    },
+    "-Rectangle": {
+      "command": "-Rectangle",
+      "family": "curves",
+      "quick": "_-Rectangle 0,0,0 10,10,0 | Creates closed curve, not surface",
+      "contexts": {
+        "default": "_-Rectangle <corner1> <corner2> - Two opposite corners define rectangle",
+        "center": "_-Rectangle _Center <center> <corner> - Center point plus one corner",
+        "3point": "_-Rectangle _3Point <p1> <p2> <p3> - Three points define orientation and shape",
+        "mixed_input": "Accepts '10 5' for width/height or full coordinates depending on view"
+      },
+      "errors": "3Point mode fails if points don't form valid rectangle geometry",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 70,
+        "errors": 15
+      }
+    },
+    "-Polyline": {
+      "command": "-Polyline",
+      "family": "curves",
+      "quick": "_-Polyline {point1} {point2} ... _Enter | Must Enter to finish, not empty click",
+      "contexts": {
+        "precision": "Use exact coordinates (0,0,0 10,0,0) for alignment. Close option connects to start.",
+        "interactive": "Click points sequentially. Undo removes last point. Length/Angle constrain next segment.",
+        "modeling": "Creates single connected object, not separate lines. Use Explode to break into segments."
+      },
+      "errors": "Clicking empty space adds unwanted points instead of finishing polyline",
+      "similar_commands": [
+        "-Line"
+      ],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 64,
+        "errors": 17
+      }
+    },
+    "-Arc": {
+      "command": "-Arc",
+      "family": "curves",
+      "quick": "Creates arcs via 3 points (default), center/radius/angles, or start/direction/end. Avoid collinear points.",
+      "contexts": {
+        "default": "Three-point mode: specify start, end, then point on arc. Points must not be collinear or creation fails.",
+        "center": "Center mode: specify center point, radius, start angle, end angle. Angles measured from positive X-axis in current CPlane.",
+        "startpoint": "Start/direction mode: specify start point, tangent direction vector (unnormalized OK), then endpoint."
+      },
+      "errors": "Fails with collinear points in 3-point mode. Center mode requires valid angle range. Direction vector cannot be zero.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 81,
+        "errors": 29
+      }
+    },
+    "-Ellipse": {
+      "command": "-Ellipse",
+      "family": "curves",
+      "quick": "_-Ellipse <center> <radius1> <radius2> | Use _Diameter/_Corner/_FromFoci for alternate methods",
+      "contexts": {
+        "center": "Default mode: center point + two radius points define ellipse axes",
+        "diameter": "_Diameter mode: major axis endpoints + minor axis radius",
+        "corner": "_Corner mode: ellipse inscribed in rectangle from opposite corners",
+        "fromfoci": "_FromFoci mode: two focus points + any point on ellipse perimeter"
+      },
+      "errors": "_Center needs 3 points not center+radii | _Corner fits within rectangle not through corners",
+      "similar_commands": [
+        "-Circle"
+      ],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 62,
+        "errors": 22
+      }
+    },
+    "-ExtrudeCrv": {
+      "command": "-ExtrudeCrv",
+      "family": "surfaces",
+      "quick": "_-ExtrudeCrv _Pause [distance] | Solid option only works with closed curves",
+      "contexts": {
+        "default": "Extrudes curves as surfaces. Use _Pause for pre-selection, specify direction vector (e.g., 0,0,10) or distance. Open curves create surfaces only.",
+        "solid": "Set _Solid=_Yes for closed curves only. Creates 3D solids instead of surfaces. Requires closed planar curves as input for proper solid generation.",
+        "solid=_yes": "Direct solid extrusion mode with pre-selected curves. Automatically applies solid option, requires distance parameter and closed curve input."
+      },
+      "errors": "Fails without curve selection. Solid mode fails on open curves. Missing direction/distance causes prompts that break automation.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 107,
+        "errors": 32
+      }
+    },
+    "-Loft": {
+      "command": "-Loft",
+      "family": "surfaces",
+      "quick": "_-Loft curves _Enter | Style/Type control smoothness | Need 2+ curves",
+      "contexts": {
+        "default": "_-Loft prompts for curve selection, then creates surface with default normal style",
+        "style_preset": "_-Loft _Style=_Tight sets smoothness before selection - _Normal balanced, _Loose flexible, _Tight constrained",
+        "type_runtime": "_-Loft _SelPrev _Type=Normal _Enter sets smoothness after selection with pre-selected curves",
+        "with_preselection": "Pre-select curves then _-Loft _SelPrev _Enter for streamlined workflow"
+      },
+      "errors": "Fails with <2 curves, incompatible curve orientations, or unsuitable curve geometry for surface creation",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 87,
+        "errors": 26
+      }
+    },
+    "-PlanarSrf": {
+      "command": "-PlanarSrf",
+      "family": "surfaces",
+      "quick": "_-PlanarSrf _Pause | Curves must be closed and coplanar",
+      "contexts": {
+        "default": "Select closed planar curves to fill with surface. Use DeleteInput to remove originals, Holes option for nested curves creating voids. All curves must lie in same plane."
+      },
+      "errors": "Open curves rejected. Non-planar curves fail. Self-intersecting curves give unexpected results.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 13,
+        "contexts": 42,
+        "errors": 23
+      }
+    },
+    "-Move": {
+      "command": "-Move",
+      "family": "transforms",
+      "quick": "_-Move [selection] base_point target_point | Fails silently without selection",
+      "contexts": {
+        "default": "Non-interactive move requiring explicit object selection first. Use _SelId or selection commands before calling. Movement vector defined by base to target points.",
+        "scripting": "Essential for automated workflows. Chain with selection commands like _SelId. No user prompts make it ideal for batch operations and macros.",
+        "precision": "Coordinates in current coordinate system. Use precise numeric values for exact positioning. Base/target points define exact movement vector for predictable results."
+      },
+      "errors": "Silent failure without selection. Invalid coordinates cause command abort. Missing base/target points halt execution.",
+      "similar_commands": [
+        "-Copy"
+      ],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 116,
+        "errors": 29
+      }
+    },
+    "-Copy": {
+      "command": "-Copy",
+      "family": "transforms",
+      "quick": "_-Copy [objects] _Enter [base_point] [target_point(s)] _Enter | Two Enters required",
+      "contexts": {
+        "single_copy": "Select objects, Enter, pick base point, pick one target point, Enter to finish",
+        "multiple_copies": "After base point, specify multiple target points before final Enter - creates copies at each location",
+        "precise_placement": "Use coordinates for exact positioning: base point 0,0,0 then target 10,0,0 for 10-unit X offset"
+      },
+      "errors": "Forgetting second Enter leaves command hanging | Wrong base point changes copy positioning unexpectedly",
+      "similar_commands": [
+        "-Move"
+      ],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 67,
+        "errors": 25
+      }
+    },
+    "-Rotate": {
+      "command": "-Rotate",
+      "family": "transforms",
+      "quick": "Syntax: _-Rotate [selection] [center_point] [angle] | Must select objects first, angle in degrees",
+      "contexts": {
+        "scripting": "Non-interactive rotation ideal for automation. All parameters required upfront: selection, center point (x,y,z), and angle in degrees. No prompts or user interaction.",
+        "precision": "Specify exact center point coordinates even for object-centered rotations. Angle follows right-hand rule around Z-axis (positive = counterclockwise from above).",
+        "batch_operations": "Efficient for rotating multiple objects with same parameters. Can use object IDs for selection, then specify single center and angle for all selected geometry."
+      },
+      "errors": "Fails without object selection. Requires explicit center point coordinates. Angle must be numeric (degrees not radians).",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 120,
+        "errors": 30
+      }
+    },
+    "-Scale": {
+      "command": "-Scale",
+      "family": "transforms",
+      "quick": "_-Scale [selection] [base_point] [scale_factor] | Base point affects scaling direction",
+      "contexts": {
+        "scripting": "No prompts - must provide all parameters in order. Use _Pause for pre-selection or specify objects directly.",
+        "automation": "Perfect for batch operations. Scale factor 2=double, 0.5=half, negative values mirror+scale.",
+        "precision": "Base point critical - objects scale away from this point. Use 0,0,0 for origin-based scaling."
+      },
+      "errors": "Scale factor 0 collapses to point. Missing parameters fail silently. Wrong base point gives unexpected results.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 73,
+        "errors": 27
+      }
+    },
+    "-Mirror": {
+      "command": "-Mirror",
+      "family": "transforms",
+      "quick": "_-Mirror [selection] [point1] [point2] | Must select objects first, then define mirror line with 2 points",
+      "contexts": {
+        "modeling": "Mirror geometry across construction lines or centerlines. Use world coordinates or object snaps for precise mirror planes. Common for creating symmetric parts.",
+        "drafting": "Mirror 2D elements across axes or reference lines. Useful for architectural plans, mechanical drawings. Mirror plane extends infinitely beyond the two defining points.",
+        "scripting": "Requires pre-selection or _SelId. Use _Pause for interactive point picking or exact coordinates. Consider Copy=Yes option to retain originals in automated workflows."
+      },
+      "errors": "Fails without object selection. Invalid with single point or coincident points. Non-geometric objects may not mirror properly.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 121,
+        "errors": 31
+      }
+    },
+    "-BooleanUnion": {
+      "command": "-BooleanUnion",
+      "family": "booleans",
+      "quick": "-BooleanUnion: Combines solids into one. Requires valid closed solids/surfaces.",
+      "contexts": {
+        "default": "Select multiple solid objects, press Enter. Result is single unified solid. Non-overlapping objects become joined parts of one object."
+      },
+      "errors": "Fails with open surfaces, invalid solids, or tiny gaps between objects. Complex intersections may create invalid results.",
+      "similar_commands": [
+        "-Join"
+      ],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 33,
+        "errors": 30
+      }
+    },
+    "-BooleanDifference": {
+      "command": "-BooleanDifference",
+      "family": "booleans",
+      "quick": "Subtracts solids: select objects to subtract FROM, then objects to subtract",
+      "contexts": {
+        "default": "Interactive selection in two phases - first select target objects (what you want to keep modified), then select cutting objects (what removes material). Both must be closed solids/surfaces that actually intersect."
+      },
+      "errors": "Fails if objects aren't closed solids, don't intersect, or selection order is wrong",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 53,
+        "errors": 20
+      }
+    },
+    "-BooleanIntersection": {
+      "command": "-BooleanIntersection",
+      "family": "booleans",
+      "quick": "_-BooleanIntersection _SelAll _Enter _Enter | Requires actual overlapping volume",
+      "contexts": {
+        "modeling": "Creates new solid from intersection volume of closed solids. Original objects deleted by default. Use for finding common volumes between parts.",
+        "troubleshooting": "Check objects actually intersect with overlapping volume. Ensure all inputs are closed solids, not surfaces. Try SimplifyCrv on complex geometry first."
+      },
+      "errors": "Fails if no intersection volume exists, open surfaces selected, or geometry too complex",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 72,
+        "errors": 21
+      }
+    },
+    "-Join": {
+      "command": "-Join",
+      "family": "booleans",
+      "quick": "_-Join _Pause | Objects must touch to join",
+      "contexts": {
+        "curves": "Joins curves at endpoints only. Open curves need touching endpoints. Closed curves won't join to each other.",
+        "surfaces": "Joins surfaces along shared edges. Surfaces must have coincident or very close boundaries to merge successfully.",
+        "polysurfaces": "Combines polysurfaces into single object. All faces must form valid closed volume or connected surface network.",
+        "mixed_objects": "Cannot join curves to surfaces or different object types. Use separate operations for different geometry types."
+      },
+      "errors": "Fails silently if objects don't touch, wrong types selected, or tolerance too tight",
+      "similar_commands": [
+        "-BooleanUnion"
+      ],
+      "token_estimate": {
+        "quick": 10,
+        "contexts": 109,
+        "errors": 20
+      }
+    },
+    "-Explode": {
+      "command": "-Explode",
+      "family": "editing",
+      "quick": "-Explode: Breaks complex objects into components. Not all objects explodable.",
+      "contexts": {
+        "polysurfaces": "Explodes into individual surfaces - may lose solid properties. Use Join to recombine if needed.",
+        "blocks": "Destroys block definition relationship permanently. Use BlockEdit to modify block definition instead.",
+        "groups": "Separates grouped objects. Similar to Ungroup but works on more object types.",
+        "hatches": "Breaks hatch into boundary curves and fill pattern elements.",
+        "text_dimensions": "Creates many small curve segments - often undesirable for editing."
+      },
+      "errors": "Fails silently on unexplodable objects (curves, points, simple surfaces). No error message given.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 98,
+        "errors": 24
+      }
+    },
+    "-Offset": {
+      "command": "-Offset",
+      "family": "editing",
+      "quick": "_-Offset _Pause [distance] | Direction depends on curve orientation",
+      "contexts": {
+        "curves": "Creates parallel curves at specified distance. Use _Pause for interactive distance input or direct numeric value. Watch curve direction for offset side.",
+        "surfaces": "Offsets surfaces inward/outward by distance. Complex surfaces may fail. Self-intersecting results possible with large distances.",
+        "scripting": "Use _-Offset _Pause [distance] for interactive or _-Offset [numeric_distance] for direct input. Requires pre-selected objects."
+      },
+      "errors": "Complex geometry fails to offset, self-intersections create invalid results, direction opposite to expected",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 101,
+        "errors": 26
+      }
+    },
+    "-Intersect": {
+      "command": "-Intersect",
+      "family": "booleans",
+      "quick": "-Intersect: Creates curves at intersection points between two sets of objects. Requires two separate selections.",
+      "contexts": {
+        "default": "-Intersect selects first set, then second set. Creates intersection curves with document tolerance.",
+        "tolerance": "-Intersect _Tolerance [value] sets custom tolerance before selection. Affects intersection detection sensitivity.",
+        "deleteinput": "-Intersect _DeleteInput removes original objects after creating intersection curves. Useful for cleanup.",
+        "keepinput": "-Intersect _KeepInput preserves original objects. Default behavior for maintaining source geometry.",
+        "all": "-Intersect _All intersects all document objects with selected set. Efficient for comprehensive intersections.",
+        "group": "-Intersect _Group creates grouped intersection curves. Helps organize complex intersection results."
+      },
+      "errors": "No curves created if objects don't intersect in 3D. Wrong tolerance misses intersections or creates false positives.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 153,
+        "errors": 29
+      }
+    },
+    "-IntersectSelf": {
+      "command": "-IntersectSelf",
+      "family": "Unknown",
+      "quick": "-IntersectSelf: finds self-intersection points on curves | dash bypasses dialogs",
+      "contexts": {
+        "curve_analysis": "Analyzes selected curves for self-intersections, creating point objects at intersection locations. Useful for quality control of complex curves or identifying problematic geometry.",
+        "batch_processing": "Command-line version ideal for scripts and batch operations since it bypasses dialog boxes. Ensure proper curve selection before running to avoid unexpected results.",
+        "cleanup_workflow": "Often used with SelSelfIntersectingCrv to first identify then analyze problematic curves. Consider point cleanup after analysis to avoid model clutter."
+      },
+      "errors": "Produces no output on simple curves without self-intersections; creates clutter with many intersection points",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 123,
+        "errors": 27
+      }
+    },
+    "-IntersectTwoSets": {
+      "command": "-IntersectTwoSets",
+      "family": "Unknown",
+      "quick": "_-IntersectTwoSets _SelLast _SelPrev | Needs two separate curve selections in history",
+      "contexts": {
+        "default": "Uses selection history to define curve sets. Select first group, then second group, then run command. _SelLast gets most recent selection, _SelPrev gets previous one. Only works with curves."
+      },
+      "errors": "Fails if only one selection exists, wrong object types (surfaces/solids), or selection history is unclear",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 47,
+        "errors": 26
+      }
+    },
+    "-Ellipsoid": {
+      "command": "-Ellipsoid",
+      "family": "primitives",
+      "quick": "-Ellipsoid <center> <radius1> <radius2> <radius3> | Use _Diameter/_3Point/_2Point/_Vertical/_FitPoints for different construction methods",
+      "contexts": {
+        "default": "Center point then three radii or axis endpoints. Can mix radii values with coordinate points but syntax differs.",
+        "diameter": "Define one axis with two points, then specify remaining two radii as length values.",
+        "3point": "Three points define axis directions - ellipsoid orientation determined by point positions.",
+        "2point": "Two points define one axis, remaining axes specified as radius lengths perpendicular to first axis.",
+        "vertical": "Creates upright ellipsoid - center point, two horizontal radii, then vertical height.",
+        "fitpoints": "Select existing points first, then run command. Ellipsoid fits through selected point cloud."
+      },
+      "errors": "Invalid radius combinations fail silently. FitPoints requires pre-selected points or fails. Coordinate format x,y,z strict - spaces around commas cause failure.",
+      "similar_commands": [
+        "-Sphere"
+      ],
+      "token_estimate": {
+        "quick": 34,
+        "contexts": 138,
+        "errors": 40
+      }
+    },
+    "-Plane": {
+      "command": "-Plane",
+      "family": "primitives",
+      "quick": "Creates planar surfaces. Default: corner-to-corner rectangle. _3Point for arbitrary orientation. _Vertical for upright planes.",
+      "contexts": {
+        "default": "Two corner points define rectangular plane aligned to current construction plane. Good for basic floor/wall surfaces.",
+        "3point": "Three non-collinear points define plane orientation. Essential for angled surfaces or when construction plane alignment inadequate.",
+        "vertical": "Base point + direction + height creates upright plane. Useful for walls, partitions, or vertical reference surfaces."
+      },
+      "errors": "Collinear points in 3Point mode fail. Vertical height of zero creates invisible plane. Check model scale for appropriate dimensions.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 31,
+        "contexts": 90,
+        "errors": 33
+      }
+    },
+    "-Polygon": {
+      "command": "-Polygon",
+      "family": "primitives",
+      "quick": "_-Polygon _NumSides [number] [center] [radius] | Min 3 sides, dash skips dialog",
+      "contexts": {
+        "numsides": "Standard mode: specify sides count, center point, then radius. Use _Circumscribed/_Inscribed for circle relationship, _Edge for edge length input instead of radius",
+        "scripting": "Dash prefix essential for automation. Sequence: NumSides option, number value, center coordinates, radius value. No dialog interruptions",
+        "modeling": "Creates in current CPlane. Consider using Circumscribed for polygons around existing circles, Inscribed for polygons within circles"
+      },
+      "errors": "Fails with <3 sides. Wrong parameter sequence breaks command. Missing dash shows dialog in scripts",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 106,
+        "errors": 24
+      }
+    },
+    "-Pyramid": {
+      "command": "-Pyramid",
+      "family": "primitives",
+      "quick": "-Pyramid <center> <corner> <height> | Base corner sets both size and orientation",
+      "contexts": {
+        "default": "Creates square-based pyramid from center point, corner point defining base dimensions, and height value. Base corner determines both size and rotation of the square base."
+      },
+      "errors": "Negative height creates downward pyramid; base is always square regardless of corner position",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 42,
+        "errors": 23
+      }
+    },
+    "-Tube": {
+      "command": "-Tube",
+      "family": "primitives",
+      "quick": "_-Tube <center> <radius> <thickness> <height> | thickness < radius",
+      "contexts": {
+        "modeling": "Creates hollow cylinders for pipes, sleeves, bushings. Wall thickness defines material depth, not inner dimension.",
+        "architectural": "Useful for columns, ducts, structural tubes. Height extends upward from base center point.",
+        "mechanical": "Perfect for flanges, spacers, cylindrical housings. Inner radius = outer radius minus thickness."
+      },
+      "errors": "Fails if thickness \u2265 radius (no hollow space) or negative values",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 74,
+        "errors": 16
+      }
+    },
+    "-RectangularLight": {
+      "command": "-RectangularLight",
+      "family": "lights",
+      "quick": "Creates rectangular area light: _-RectangularLight <center> <width> <height> | Must provide complete 3D coordinates",
+      "contexts": {
+        "default": "Center point + dimensions mode: specify center point, then width and height values. Both dimensions required.",
+        "target": "Directional lighting: _Target option sets light direction first, then center point and dimensions follow.",
+        "three_point": "Corner definition mode: specify three corner points to define rectangle shape and orientation in 3D space."
+      },
+      "errors": "Incomplete coordinates fail | Missing width/height fails | Creates render lights, not viewport geometry",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 79,
+        "errors": 25
+      }
+    },
+    "-ArcBlend": {
+      "command": "-ArcBlend",
+      "family": "Unknown",
+      "quick": "_-ArcBlend curve1 curve2 _Enter | Fails if curves too far apart or parallel",
+      "contexts": {
+        "automation": "Use _SelId for precise curve selection. Check geometry compatibility before execution to avoid failures.",
+        "interactive": "Visual feedback shows potential blend. Adjust curve positions if blend preview doesn't appear.",
+        "precision": "Radius option controls blend tightness. Trim/Join options affect final geometry structure."
+      },
+      "errors": "Fails: parallel curves, excessive distance, coincident curves. No arc created if geometrically impossible.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 71,
+        "errors": 26
+      }
+    },
+    "-BlendCrv": {
+      "command": "-BlendCrv",
+      "family": "Unknown",
+      "quick": "Creates smooth blend curve between two curves. Syntax: -BlendCrv. May fail if curves too far apart.",
+      "contexts": {
+        "curve_connection": "Automatically matches tangency at blend points. Use continuity options for position/tangency/curvature control. Bulge parameter shapes the blend.",
+        "troubleshooting": "If blend fails: check curve proximity, try Reverse option for better end matching, verify curves aren't self-intersecting or degenerate.",
+        "workflow_integration": "Often used after Trim/Split operations. Consider FilletCurves for corner blending, Connect for simple joining, Loft for multi-curve blending."
+      },
+      "errors": "Fails when curves too distant, poor end orientations, or incompatible geometries. No visual feedback until completion.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 105,
+        "errors": 29
+      }
+    },
+    "-CloseCrv": {
+      "command": "-CloseCrv",
+      "family": "editing",
+      "quick": "Closes open curves with straight line between endpoints. Only works on open curves.",
+      "contexts": {
+        "default": "Interactive selection of open curves to close. Creates straight line segment connecting endpoints, not smooth connection."
+      },
+      "errors": "Fails silently on closed curves. May create self-intersecting geometry if endpoints are distant or curve loops back.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 30,
+        "errors": 29
+      }
+    },
+    "-Conic": {
+      "command": "-Conic",
+      "family": "curves",
+      "quick": "Creates conic sections. Syntax: focus1 focus2 point_on_curve rho_value. Rho: 0-1=ellipse, 1=parabola, >1=hyperbola",
+      "contexts": {
+        "ellipse_creation": "Use rho between 0-1. Lower values create more circular ellipses, higher values more elongated. Focus points define major axis direction.",
+        "parabola_creation": "Set rho exactly to 1.0. Focus points define parabola orientation. Point on curve determines opening direction and size.",
+        "hyperbola_creation": "Use rho > 1. Higher values create more open hyperbolas. Only one branch is created through the specified point.",
+        "precision_work": "Focus points cannot be coincident. Point on curve must not be collinear with foci or command fails silently."
+      },
+      "errors": "Fails if focus points coincident or point collinear with foci. Invalid rho values may create unexpected shapes or fail.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 117,
+        "errors": 29
+      }
+    },
+    "-Catenary": {
+      "command": "-Catenary",
+      "family": "curves",
+      "quick": "-Catenary <start> <end> <sag> | Sag must be positive",
+      "contexts": {
+        "architectural": "Perfect for cable structures, suspension elements, chain modeling - natural hanging curve physics",
+        "engineering": "Structural cables, power lines, bridge design - mathematically accurate catenary physics",
+        "artistic": "Organic flowing curves, fabric draping simulation, natural suspension forms"
+      },
+      "errors": "Negative sag fails; extreme sag creates unusable curves; requires valid point pair",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 13,
+        "contexts": 64,
+        "errors": 20
+      }
+    },
+    "-CrvEnd": {
+      "command": "-CrvEnd",
+      "family": "curves",
+      "quick": "_-CrvEnd | Creates point at curve end parameter (may not be visually obvious for closed curves)",
+      "contexts": {
+        "default": "Select curve \u2192 Enter. Creates point object at curve's end parameter. Only uses first curve if multiple selected. Works only with curve objects, not surfaces."
+      },
+      "errors": "Fails on non-curve geometry. Closed curves: end point location may be unexpected based on parameterization.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 39,
+        "errors": 26
+      }
+    },
+    "-CrvStart": {
+      "command": "-CrvStart",
+      "family": "curves",
+      "quick": "_-CrvStart creates point at curve start parameter | Start depends on parameterization, not visual direction",
+      "contexts": {
+        "point_extraction": "Creates actual point object at curve start parameter. Use when you need persistent geometry marking curve beginning for further operations or reference.",
+        "curve_analysis": "Reveals curve parameterization direction - start parameter may be opposite to expected visual direction. Useful for understanding curve orientation before operations.",
+        "automation": "Requires curve selection via _SelId or interactive picking. Point created inherits current layer/properties. Combine with -CrvEnd for full curve endpoints."
+      },
+      "errors": "Fails on surfaces/non-curve geometry | Creates object, doesn't just locate | Start may be visually unexpected end",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 117,
+        "errors": 28
+      }
+    },
+    "-CrvSeam": {
+      "command": "-CrvSeam",
+      "family": "Unknown",
+      "quick": "Moves seam point on closed curves. Only works on closed curves, point must lie on curve path.",
+      "contexts": {
+        "default": "Select closed curve first, then specify new seam location with coordinates. Point should be on or very close to the curve path for best results."
+      },
+      "errors": "Fails on open curves (no seam exists). Point far from curve may give unexpected results or fail.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 36,
+        "errors": 24
+      }
+    },
+    "-CrvDeviation": {
+      "command": "-CrvDeviation",
+      "family": "points_and_clouds",
+      "quick": "-CrvDeviation: Select two curves to measure deviation distance. Requires exactly two valid curve objects.",
+      "contexts": {
+        "quality_control": "Essential for verifying curve accuracy after operations like fitting, simplifying, or importing. Compare original vs processed curves to ensure acceptable deviation tolerances.",
+        "surface_analysis": "Use before surface creation to ensure input curves meet deviation requirements. Critical for Class-A surfacing where curve continuity affects surface quality.",
+        "import_validation": "Verify imported curves against reference geometry. Different CAD systems may introduce slight deviations during translation that need quantification."
+      },
+      "errors": "Fails with insufficient selections, non-curve objects, or invalid geometry. Complex curves may cause performance issues during detailed analysis.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 120,
+        "errors": 36
+      }
+    },
+    "-ContinueCurve": {
+      "command": "-ContinueCurve",
+      "family": "Unknown",
+      "quick": "Extends existing curve from endpoint. Syntax: _-ContinueCurve _SelId {id} _Enter",
+      "contexts": {
+        "default": "Interactive mode prompts for curve selection, then continuation parameters. Use _SelId for programmatic selection of specific curve by ID."
+      },
+      "errors": "Fails without existing curve. Must select endpoint, not middle. Some curve types non-continuable.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 34,
+        "errors": 24
+      }
+    },
+    "-ContinueInterpCrv": {
+      "command": "-ContinueInterpCrv",
+      "family": "Unknown",
+      "quick": "Extends interpolated curves by adding points. Syntax: _-ContinueInterpCrv _SelLast _Enter. Only works on InterpCrv objects, extends from end only.",
+      "contexts": {
+        "curve_modeling": "Essential for building complex interpolated curves incrementally. Use after InterpCrv to add more control points without starting over. Maintains curve continuity.",
+        "automation": "_SelLast automates curve selection for recently created objects. Useful in scripts where you know the target curve is the last created interpolated curve.",
+        "interactive_design": "Allows iterative curve building - create initial curve with InterpCrv, then use ContinueInterpCrv to refine and extend based on visual feedback."
+      },
+      "errors": "Fails if selected object isn't an interpolated curve. _SelLast fails if no recent objects or wrong type. Cannot extend from curve start, only end.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 36,
+        "contexts": 114,
+        "errors": 36
+      }
+    },
+    "-ApplyCrv": {
+      "command": "-ApplyCrv",
+      "family": "Unknown",
+      "quick": "_-ApplyCrv _SelLast _Enter _SelPrev _Enter | Order matters: curve first, then surface",
+      "contexts": {
+        "default": "Select curve to apply, then target surface. Uses _SelLast for curve, _SelPrev for surface. Requires both objects to be geometrically compatible for successful application."
+      },
+      "errors": "Fails if no curve/surface available, wrong selection order, or geometric incompatibility between objects",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 42,
+        "errors": 26
+      }
+    },
+    "-ArrayCrv": {
+      "command": "-ArrayCrv",
+      "family": "Unknown",
+      "quick": "-ArrayCrv [objects] [curve] | Objects must fit curve length",
+      "contexts": {
+        "default": "Select objects first, then curve path. Control copies count, spacing method (equal/distance), and orientation relative to curve direction. Works with any valid curve geometry."
+      },
+      "errors": "Fails if curve too short for object size, invalid curve selection, or complex curves causing orientation issues",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 14,
+        "contexts": 43,
+        "errors": 27
+      }
+    },
+    "-CreateUVCrv": {
+      "command": "-CreateUVCrv",
+      "family": "Unknown",
+      "quick": "Creates UV parameter curves on surface | Only works on surfaces, not polysurfaces",
+      "contexts": {
+        "surface_analysis": "Visualizes parametric structure of surfaces for understanding UV flow and surface construction quality",
+        "modeling_workflow": "Useful for checking surface parameterization before texturing or further operations requiring good UV layout",
+        "troubleshooting": "Helps diagnose surface issues by revealing parameter direction problems or irregular UV distribution"
+      },
+      "errors": "Fails on polysurfaces/meshes | Complex surfaces create viewport clutter | UV directions may not match visual expectations",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 77,
+        "errors": 30
+      }
+    },
+    "-Array": {
+      "command": "-Array",
+      "family": "transforms",
+      "quick": "Creates multiple copies in rectangular/polar patterns. Must select objects first.",
+      "contexts": {
+        "rectangular": "Grid pattern: _-Array _Rectangular [rows] [columns] [levels] [x_spacing] [y_spacing] [z_spacing]. Negative spacing reverses direction.",
+        "polar": "Circular pattern: _-Array _Polar [center_point] [number_of_items] [angle_to_fill]. Use 360 for full circle.",
+        "default": "Interactive mode prompts for array type then parameters. Good for exploring options."
+      },
+      "errors": "Fails without object selection. Zero spacing stacks objects. Large arrays slow performance.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 80,
+        "errors": 22
+      }
+    },
+    "-Helix": {
+      "command": "-Helix",
+      "family": "curves",
+      "quick": "_-Helix {center} {radius} {axis_end} {turns} | Use _Vertical for height instead of axis end point",
+      "contexts": {
+        "default": "Standard helix: center point, radius, axis end point, turn count. Axis end point defines both direction and height of helix.",
+        "vertical": "Vertical helix using height parameter instead of axis end point. More intuitive for straight vertical helixes with known height.",
+        "aroundcurve": "Wraps helix around existing curve path. Must select curve first, then helix follows curve's shape and direction."
+      },
+      "errors": "Negative radius causes unexpected results. AroundCurve fails without curve selection. Confusing axis end point vs height parameters.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 91,
+        "errors": 33
+      }
+    },
+    "-Spiral": {
+      "command": "-Spiral",
+      "family": "curves",
+      "quick": "_-Spiral <center> <radius> <axis> <turns> <pitch> | Use _Vertical or _Flat for specific orientations",
+      "contexts": {
+        "default": "_-Spiral creates 3D spiral around custom axis vector. Requires center point, radius, axis direction (use unit vectors), turns count, and pitch distance.",
+        "vertical": "_-Spiral _Vertical creates vertical spiral with total height parameter instead of axis vector. Good for consistent vertical helixes.",
+        "flat": "_-Spiral _Flat creates planar spiral in current CPlane. No axis/height needed - only center, radius, turns, and pitch spacing."
+      },
+      "errors": "Wrong parameter count for mode fails. Non-unit axis vectors create unpredictable results. Set CPlane before _Flat mode.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 102,
+        "errors": 29
+      }
+    },
+    "-InterpCrv": {
+      "command": "-InterpCrv",
+      "family": "curves",
+      "quick": "_-InterpCrv point1 point2 ... | Need 2+ points, degree \u2264 points-1",
+      "contexts": {
+        "default": "_-InterpCrv 0,0,0 5,5,0 10,0,0 - auto degree based on point count",
+        "degree_specified": "_-InterpCrv _Degree=5 point1 point2... - explicit degree (1-11)",
+        "knot_parameterization": "_-InterpCrv _Knots=Chord point1 point2... - controls curve shape"
+      },
+      "errors": "Fails with <2 points or degree > point_count-1",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 47,
+        "errors": 11
+      }
+    },
+    "-Parabola": {
+      "command": "-Parabola",
+      "family": "curves",
+      "quick": "_-Parabola <pt1> <pt2> <pt3> | _Vertex/_Focus modes available | Three points must not be collinear",
+      "contexts": {
+        "default": "Creates parabola through three points. Points define start, end, and curve position. Non-collinear points required for unique definition.",
+        "vertex": "Define by vertex point, axis direction, and focal parameter. Focal parameter controls parabola width - larger values = wider curves.",
+        "focus": "Define by focus point, axis direction, and focal parameter. Focus is the geometric focal point of the parabolic curve."
+      },
+      "errors": "Collinear points in default mode fail. Invalid focal parameters cause errors. Axis direction cannot be zero vector.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 96,
+        "errors": 28
+      }
+    },
+    "-Pipe": {
+      "command": "-Pipe",
+      "family": "Unknown",
+      "quick": "_-Pipe: Creates pipe surface around curves. Requires curve selection first.",
+      "contexts": {
+        "modeling": "Use for creating tubular geometry like handrails, conduits, or structural elements. Set appropriate radius for curve tightness to avoid geometry failures.",
+        "parametric": "Point option allows variable radius along curve length. Thick option creates hollow pipes with wall thickness for realistic modeling.",
+        "finishing": "Cap options (Flat/Round/None) control pipe end treatment. Multiple curves create separate objects - use Join if single pipe needed."
+      },
+      "errors": "Fails silently without curve selection. Small radius on tight curves causes self-intersection failures.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 103,
+        "errors": 25
+      }
+    },
+    "-Hyperbola": {
+      "command": "-Hyperbola",
+      "family": "curves",
+      "quick": "Creates hyperbolic curve. Default: 3 points. _Foci: 2 foci + point on curve. Points can't be collinear.",
+      "contexts": {
+        "default": "Uses start point, end point, and control point on curve. Points define hyperbola shape through geometric relationship. Avoid collinear points which prevent construction.",
+        "foci": "Mathematical definition using two focus points and point on curve. Point placement determines hyperbola branch and eccentricity. Distance difference to foci must be constant."
+      },
+      "errors": "Collinear points fail construction. Points too close create degenerate shapes. Invalid foci-point relationships produce unexpected curves.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 85,
+        "errors": 34
+      }
+    },
+    "-Sweep1": {
+      "command": "-Sweep1",
+      "family": "surfaces",
+      "quick": "-Sweep1 [rail_curve] [profile_curve] | Rail first, profile second - no Enter between",
+      "contexts": {
+        "default": "-Sweep1 selects rail curve first, then profile curve. Order is critical - rail defines path, profile defines cross-section. Don't press Enter after rail selection, proceed directly to profile."
+      },
+      "errors": "Fails with self-intersecting curves or invalid geometry. Selection order matters - rail must come first.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 48,
+        "errors": 26
+      }
+    },
+    "-Sweep2": {
+      "command": "-Sweep2",
+      "family": "surfaces",
+      "quick": "_-Sweep2 [rail1] [rail2] [profile] | Rails must not intersect except at endpoints",
+      "contexts": {
+        "roadlike": "Use Roadlike=Yes to keep cross-section perpendicular to rails, essential for architectural sweeps like handrails or moldings",
+        "complex_geometry": "For twisted rails, ensure similar parameterization and position profile near rail start. Use SimpleSweep=Yes if standard algorithm fails",
+        "closed_surfaces": "Set Closed=Yes for continuous loops. Profile curve position relative to rail endpoints affects surface orientation"
+      },
+      "errors": "Fails when rails intersect mid-span, profile too far from rails, or incompatible rail curvature",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 93,
+        "errors": 23
+      }
+    },
+    "-Curve": {
+      "command": "-Curve",
+      "family": "Unknown",
+      "quick": "_-Curve {pt1} {pt2} {pt3}... | Control points don't lie ON curve except endpoints",
+      "contexts": {
+        "default": "Creates NURBS curve with automatic degree based on point count. Enter points sequentially, press Enter to finish. Curve passes through endpoints only.",
+        "degree=5": "Explicit degree setting requires minimum 6 points (degree+1). Higher degrees create smoother curves with broader control point influence zones.",
+        "coordinate_input": "Accepts 3D coordinates as x,y,z or 2D as x,y (z=0). Mix coordinate formats within same command for varied elevation control."
+      },
+      "errors": "Insufficient points for degree fails silently. High degree with few points creates unexpected shapes. Missing coordinate separators.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 103,
+        "errors": 33
+      }
+    },
+    "-Revolve": {
+      "command": "-Revolve",
+      "family": "surfaces",
+      "quick": "Revolves objects around axis. Syntax: _-Revolve [selection] start_point end_point. Closed curves\u2192solids, open\u2192surfaces.",
+      "contexts": {
+        "default": "Prompts for start/end angles. Objects must not intersect axis unless intentional. Axis direction affects result orientation.",
+        "fullcircle": "Use _FullCircle option for 360\u00b0 revolution. Skips angle prompts. Most common for creating complete rotational forms."
+      },
+      "errors": "Fails if axis points identical or objects unsuitable for revolution. Self-intersecting results from poor object positioning.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 29,
+        "contexts": 60,
+        "errors": 31
+      }
+    },
+    "-NetworkSrf": {
+      "command": "-NetworkSrf",
+      "family": "surfaces",
+      "quick": "-NetworkSrf: Creates surface from intersecting curve network | Curves must intersect properly",
+      "contexts": {
+        "default": "Interactive mode prompts for curve selection. Use for visual feedback when building complex surface networks.",
+        "command_line": "Non-interactive scripting mode. Combine with selection commands like _SelAll for automated workflows.",
+        "EdgeContinuity": "Controls how surface meets edge curves - Position for basic fit, Tangency/Curvature for smooth blending.",
+        "InteriorContinuity": "Sets smoothness at curve intersections - critical for avoiding surface kinks at network nodes.",
+        "Tolerance": "Balance between accuracy and surface complexity - tight tolerance may fail, loose creates poor fit.",
+        "TrimAndSplit": "Automatically processes surface at intersections - useful for creating multiple surface patches."
+      },
+      "errors": "Fails with isolated curves or improper networks. Complex intersections cause surface generation failure.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 149,
+        "errors": 26
+      }
+    },
+    "-Patch": {
+      "command": "-Patch",
+      "family": "surfaces",
+      "quick": "-Patch: Creates patch surface from curves/points via command-line. Requires selection first.",
+      "contexts": {
+        "modeling": "Use for filling gaps between curve networks. Better control than NetworkSrf for simple patches. Consider curve continuity for smooth results.",
+        "repair": "Excellent for patching holes in surfaces. Select boundary curves carefully - gaps or overlaps cause failures. Preview before accepting.",
+        "automation": "Command-line mode bypasses dialog for scripting. Parameters must be input sequentially through prompts. Test interactively first."
+      },
+      "errors": "Fails without curves/points selected. Poor curve arrangement creates twisted patches. Discontinuous curves produce rough surfaces.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 100,
+        "errors": 32
+      }
+    },
+    "-FilletEdge": {
+      "command": "-FilletEdge",
+      "family": "editing",
+      "quick": "_-FilletEdge _NextRadius [value] [selection] | Radius must be < smallest face dimension",
+      "contexts": {
+        "default": "_-FilletEdge [selection] uses current radius. Select edges individually for precise control over which edges get filleted.",
+        "nextradius": "_-FilletEdge _NextRadius [value] sets new radius first. Use _AllEdges for all edges or select specific edges for partial filleting.",
+        "batch": "_AllEdges applies to entire object - may create unexpected results on complex geometry. Test with smaller radius first.",
+        "troubleshooting": "If filleting fails, try smaller radius values. Complex intersections and thin walls are common failure points."
+      },
+      "errors": "Radius too large for geometry, complex intersections fail, _AllEdges on intricate objects creates topology issues",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 118,
+        "errors": 28
+      }
+    },
+    "-Point": {
+      "command": "-Point",
+      "family": "points_and_clouds",
+      "quick": "_-Point x,y,z | Use _Multiple for sequence | Enter/Esc to exit multiple mode",
+      "contexts": {
+        "default": "Creates single point at coordinate. Format: _-Point 0,0,0. Point becomes selectable object in model.",
+        "multiple": "Continuous point placement with _-Point _Multiple. Each click/coordinate creates point. Must manually exit with Enter/Esc."
+      },
+      "errors": "Missing commas in coordinates fails. Points invisible at small zoom. Forgetting exit in multiple mode continues command.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 55,
+        "errors": 30
+      }
+    },
+    "-Points": {
+      "command": "-Points",
+      "family": "points_and_clouds",
+      "quick": "_-Points x,y,z x,y,z ... | No spaces in coordinates | Dash required",
+      "contexts": {
+        "coordinate_list": "Provide space-separated coordinate triplets like 0,0,0 5,5,0 10,0,0. Each triplet must be comma-separated with no internal spaces. Command executes immediately without prompts."
+      },
+      "errors": "Fails on spaces within coordinates (0, 0, 0), missing dash prefix, or malformed triplets",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 44,
+        "errors": 22
+      }
+    },
+    "-Text": {
+      "command": "-Text",
+      "family": "annotations",
+      "quick": "_-Text \"text content\" x,y,z | Quote spaces, dash bypasses dialogs",
+      "contexts": {
+        "scripting": "Use quotes for multi-word text. Coordinates required as x,y,z format. May prompt for height/font if not preset in document.",
+        "automation": "Dash version skips some UI dialogs. Text height inherits from current settings or prompts. Position must be explicit coordinates.",
+        "batch_creation": "Consistent syntax with quoted strings. Each text object needs separate command call. Font settings apply to all until changed."
+      },
+      "errors": "Unquoted spaces split text into parameters. Missing coordinates cause position prompts. Invalid coordinate format fails silently.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 93,
+        "errors": 32
+      }
+    },
+    "-TextObject": {
+      "command": "-TextObject",
+      "family": "annotations",
+      "quick": "_-TextObject _Height=5 Hello 0,0,0 | Height before text, no spaces in coords",
+      "contexts": {
+        "height_specified": "Pre-set height with _Height={value}, then text content, then x,y,z coordinates. Minimal dialogue when height specified upfront.",
+        "scripting": "Use underscores for non-interactive mode. Text with spaces may need quotes or special handling in automated workflows.",
+        "coordinate_placement": "Coordinates as comma-separated x,y,z without spaces. Text placed at exact 3D location with specified height in current units."
+      },
+      "errors": "Height must precede text content or command fails. Spaces in coordinates cause parsing errors. Text with spaces may break command parsing.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 91,
+        "errors": 34
+      }
+    },
+    "-PointCloud": {
+      "command": "-PointCloud",
+      "family": "points_and_clouds",
+      "quick": "_-PointCloud x1,y1,z1 x2,y2,z2 | Exact comma format, press Enter to complete",
+      "contexts": {
+        "coordinate_input": "Input multiple points as x,y,z coordinates separated by spaces. Each coordinate must use exact comma format with no spaces within. Press Enter when done adding points.",
+        "default": "Creates point cloud from specified coordinates. Minimum input needed but more points create better cloud representation. Command completes when input sequence finished."
+      },
+      "errors": "Fails with incorrect coordinate format (spaces in x,y,z). May not create object if insufficient points or input not properly terminated.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 83,
+        "errors": 34
+      }
+    },
+    "-PlaneThroughPt": {
+      "command": "-PlaneThroughPt",
+      "family": "points_and_clouds",
+      "quick": "_-PlaneThroughPt <pt1> <pt2> [pt3] | Creates construction plane through points",
+      "contexts": {
+        "modeling": "Sets working plane for drawing/construction operations. Use 3 points for precise orientation when 2-point plane isn't aligned as expected.",
+        "drafting": "Establishes construction plane for 2D drafting operations in 3D space. Plane becomes active CPlane for subsequent commands.",
+        "scripting": "Automates CPlane setup for batch operations. Consider using SetCPlane afterward to make plane current for following commands."
+      },
+      "errors": "Fails with collinear points (need 3rd non-collinear). Creates infinite construction plane, not surface object.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 95,
+        "errors": 27
+      }
+    },
+    "-DupBorder": {
+      "command": "-DupBorder",
+      "family": "Unknown",
+      "quick": "-DupBorder | Duplicates borders of selected objects | Must select objects with actual borders first",
+      "contexts": {
+        "default": "-DupBorder after selecting objects with borders. Combine with _SelLast for recent selections. Check layer organization as duplicated borders appear on top of originals."
+      },
+      "errors": "Fails on objects without borders or incompatible geometry types. No selection = no action.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 42,
+        "errors": 22
+      }
+    },
+    "-ArrayPolar": {
+      "command": "-ArrayPolar",
+      "family": "transforms",
+      "quick": "-ArrayPolar center_point count angle | Count includes original object",
+      "contexts": {
+        "command_line": "Bypasses dialog for scripting. Syntax: -ArrayPolar [center] [count] [angle]. Essential for automation workflows.",
+        "default": "Interactive mode with dialog. Use _SelLast to array last selected objects. Good for manual design work with visual feedback."
+      },
+      "errors": "Overlapping objects with high count + 360\u00b0. Missing selection fails silently. Invalid center point coordinates.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 59,
+        "errors": 27
+      }
+    },
+    "-ArrayLinear": {
+      "command": "-ArrayLinear",
+      "family": "transforms",
+      "quick": "-ArrayLinear requires selection first | Vector mode: count then direction/distance | Two-point mode: count then two reference points",
+      "contexts": {
+        "vector_mode": "Use when you know exact direction and spacing. Vector magnitude determines distance between copies. Format: -ArrayLinear [count] [x,y,z]. Example: -ArrayLinear 5 10,0,0 creates 5 copies spaced 10 units apart in X direction.",
+        "two_point_mode": "Use when you want to define spacing visually with reference points. Distance between points becomes the spacing interval. Format: -ArrayLinear [count] [point1] [point2]. Useful for matching existing geometry spacing.",
+        "default": "Interactive mode prompts for all parameters step by step. Good for exploratory work where you want to see spacing before committing. Will ask for count, then direction method (vector or two points)."
+      },
+      "errors": "Fails if no objects selected beforehand | Invalid vector format causes parameter errors | Zero-length vectors or coincident points create no spacing",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 33,
+        "contexts": 158,
+        "errors": 37
+      }
+    },
+    "-Divide": {
+      "command": "-Divide",
+      "family": "points_and_clouds",
+      "quick": "-Divide [curve] [count] | Creates count-1 point objects at equal divisions",
+      "contexts": {
+        "parametric_modeling": "Use division points as reference for array patterns, construction geometry, or parametric relationships. Points become independent objects for downstream operations.",
+        "construction_lines": "Division points serve as snap targets for construction geometry. Combine with Point object snaps for precise geometric construction workflows.",
+        "curve_analysis": "Provides equal parameter spacing along curves for analysis or measurement. Useful for checking curve uniformity or creating measurement references."
+      },
+      "errors": "Fails on invalid curves, zero/negative divisions. Points may cluster on short curves or appear sparse on long ones.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 112,
+        "errors": 28
+      }
+    },
+    "-Split": {
+      "command": "-Split",
+      "family": "booleans",
+      "quick": "-Split: Breaks objects into components. Requires selection first.",
+      "contexts": {
+        "default": "Splits selected objects into separate parts using default parameters. Use _SelPrev to work with previously selected objects."
+      },
+      "errors": "Fails if no objects selected or geometry not splittable",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 31,
+        "errors": 13
+      }
+    },
+    "-Cap": {
+      "command": "-Cap",
+      "family": "editing",
+      "quick": "-Cap: Creates planar caps on open edges. Only works if edges are planar and within tolerance.",
+      "contexts": {
+        "modeling": "Essential for closing open surfaces/polysurfaces. Use after Boolean operations or surface trimming that leaves holes. Check edge planarity first - use PlanarSrf for complex openings.",
+        "mesh_repair": "Caps planar openings in meshes. Useful for 3D printing prep. May need to convert mesh to NURBS first for better results. Check mesh normals after capping.",
+        "surface_finishing": "Final step in surface modeling workflows. JoinResult=Yes creates single polysurface. DeleteInput=No preserves originals for comparison. Adjust tolerance for precision control."
+      },
+      "errors": "Fails on non-planar edges, misaligned vertices, or tolerance issues. 'Cannot cap' means opening isn't planar - use Patch or manual surface creation instead.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 126,
+        "errors": 39
+      }
+    },
+    "-OffsetSrf": {
+      "command": "-OffsetSrf",
+      "family": "surfaces",
+      "quick": "_-OffsetSrf surface distance | Direction follows surface normal - may go inward unexpectedly",
+      "contexts": {
+        "modeling": "Creates parallel surfaces at specified distance. Use 'solid' option for closed surfaces to create thickness. 'bothsides' creates offsets in both directions simultaneously.",
+        "fabrication": "Generates material thickness or clearance surfaces. Check offset direction carefully - positive/negative relative to surface normal, not visual expectation.",
+        "analysis": "Produces equidistant surfaces for clearance studies. Corner handling affects intersection behavior - Sharp/Round/Smooth options control edge treatment."
+      },
+      "errors": "Complex surfaces fail offset operations. Very small distances hit tolerance limits. Large offsets on curved surfaces create self-intersections.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 118,
+        "errors": 35
+      }
+    },
+    "-ExtrudeSrf": {
+      "command": "-ExtrudeSrf",
+      "family": "surfaces",
+      "quick": "_-ExtrudeSrf: Select surface \u2192 specify direction/distance. Open surfaces = extruded surface, closed = solid.",
+      "contexts": {
+        "solid_creation": "Use closed surfaces for solids. Open surfaces only create extruded surfaces. Check surface closure with What command first.",
+        "direction_control": "Direction can be vector, distance value, or BothSides option. Tapered option adds draft angle for manufacturing.",
+        "automation": "Requires surface selection first. Use _SelLast or pre-select. DeleteInput removes original surface automatically."
+      },
+      "errors": "Complex surfaces fail to extrude - simplify first. Tiny distances invisible. Missing direction prompts user input.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 27,
+        "contexts": 86,
+        "errors": 28
+      }
+    },
+    "-Extend": {
+      "command": "-Extend",
+      "family": "editing",
+      "quick": "_-Extend {distance} {selection} | Type= affects extension shape",
+      "contexts": {
+        "type=line": "_-Extend _SelPrev _Type=Line 10 - creates straight extensions regardless of curve type",
+        "default": "_-Extend 5 _SelLast - extends by distance with default smooth continuation",
+        "type_specified": "_-Extend _SelPrev _Type={Line|Arc|Smooth} {distance} - control extension method explicitly",
+        "to_surface": "_-Extend {selection} _ToSurface - extends curve until it intersects target surface",
+        "both_ends": "_-Extend {selection} _BothEnds _Type={type} {distance} - extends both curve ends simultaneously"
+      },
+      "errors": "Non-extendable curves fail silently | Negative distance trims | ToSurface fails if no intersection possible",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 104,
+        "errors": 26
+      }
+    },
+    "-SimplifyCrv": {
+      "command": "-SimplifyCrv",
+      "family": "editing",
+      "quick": "-SimplifyCrv: Reduces curve control points within tolerance. Critical: backup originals, check tolerance carefully.",
+      "contexts": {
+        "cleanup": "Use after importing curves with excessive control points. Start with loose tolerance, tighten gradually until acceptable quality.",
+        "optimization": "Reduces file size and improves performance. Essential before manufacturing or when curves cause display lag.",
+        "preparation": "Apply before using curves for surfaces or solids. Simplified curves often work better with downstream operations."
+      },
+      "errors": "High tolerance destroys curve shape. Complex curves may not simplify if already optimal. Always verify against original.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 87,
+        "errors": 30
+      }
+    },
+    "-Dot": {
+      "command": "-Dot",
+      "family": "annotations",
+      "quick": "_-Dot [text] x,y,z - Creates text dot annotation. Parameter order matters: text first, then coordinates.",
+      "contexts": {
+        "modeling": "Quick point labeling during design. Use meaningful labels like 'corner1' or 'center'. Dots stay visible at all zoom levels.",
+        "documentation": "Mark key points for drawings. Text becomes part of annotation system. Consider label clarity for final output.",
+        "scripting": "Reliable coordinate placement. Always specify text before coordinates to ensure creation. Good for automated point marking."
+      },
+      "errors": "Wrong parameter order (coordinates first) may fail. Invalid coordinates cause placement errors. Empty text creates unlabeled dots.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 87,
+        "errors": 32
+      }
+    },
+    "-Leader": {
+      "command": "-Leader",
+      "family": "annotations",
+      "quick": "_-Leader <start> <end> <text> | Underscore prefix required for command-line execution",
+      "contexts": {
+        "annotation": "Creates leader lines pointing to features with text labels. Use for callouts, dimensions, and object identification in technical drawings.",
+        "scripting": "Command-line only with underscore prefix. Requires three parameters in sequence: start point, end point, then text string.",
+        "coordinate_input": "Accepts 3D coordinates in x,y,z format. Can use object snaps or direct coordinate entry for precise placement."
+      },
+      "errors": "Missing underscore prefix fails. Invalid coordinates cause prompts. Text parameter must be last.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 91,
+        "errors": 24
+      }
+    },
+    "-Dim": {
+      "command": "-Dim",
+      "family": "annotations",
+      "quick": "Creates linear dimensions with _-Dim <point1> <point2> <dimension_line_location>. Command-line version requires exact coordinates.",
+      "contexts": {
+        "default": "Specify two extension line origins, then dimension line position. Use exact coordinates like 0,0,0 10,0,0 0,5,0 for precise placement.",
+        "continuous": "Chain multiple dimensions by using 'continuous' option after first dimension is placed.",
+        "baseline": "Create multiple dimensions from common baseline using 'baseline' option for consistent reference.",
+        "aligned": "Use 'aligned' option to create dimensions that follow the angle of dimensioned objects.",
+        "rotated": "Apply 'rotated' option to create dimensions at specific angles regardless of object orientation."
+      },
+      "errors": "Fails with invalid coordinates or when dimension line location creates overlapping text. Dimension style must be set before command execution.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 32,
+        "contexts": 123,
+        "errors": 35
+      }
+    },
+    "-DimRadius": {
+      "command": "-DimRadius",
+      "family": "annotations",
+      "quick": "_-DimRadius [object] [placement] | Only works on circles/arcs",
+      "contexts": {
+        "default": "_-DimRadius _SelLast 10,0,0 - Select circular object, place dimension text. Fails silently on invalid geometry. Position text clearly away from other elements."
+      },
+      "errors": "Silent failure on non-circular objects. Poor placement makes dimensions unreadable.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 39,
+        "errors": 20
+      }
+    },
+    "-DimDiameter": {
+      "command": "-DimDiameter",
+      "family": "annotations",
+      "quick": "Creates diameter dimension for circles/arcs. Syntax: _-DimDiameter. Only works on circular geometry.",
+      "contexts": {
+        "modeling": "Dimensions circular features in technical drawings. Click circle/arc then placement point for dimension line position.",
+        "drafting": "Standard diameter annotation tool. Placement point controls both dimension line location and text position.",
+        "automation": "Use _SelLast to dimension most recently created circle/arc. Requires visible circular geometry to select."
+      },
+      "errors": "Fails on non-circular curves, ellipses, or splines. Selection must be valid circle or arc geometry.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 81,
+        "errors": 24
+      }
+    },
+    "-Zoom": {
+      "command": "-Zoom",
+      "family": "viewport_and_view",
+      "quick": "_-Zoom _Extents | _Selected requires selection first | _Factor <1 zooms out, >1 zooms in",
+      "contexts": {
+        "extents": "Use _Extents for all visible objects, _All includes hidden (may zoom to distant geometry making visible tiny)",
+        "selected": "Must select objects first or command has no effect. Good for focusing on specific geometry",
+        "target": "Centers view on specified point without changing zoom level. Useful for navigation",
+        "factor": "Multiplies current zoom: 0.5 halves view, 2 doubles it. More precise than In/Out",
+        "precision": "_1To1 sets actual size scale. Factor mode gives exact control over zoom level"
+      },
+      "errors": "_Selected with no selection does nothing. _All may zoom to hidden objects making scene appear empty",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 108,
+        "errors": 24
+      }
+    },
+    "-ViewportProperties": {
+      "command": "-ViewportProperties",
+      "family": "viewport_and_view",
+      "quick": "Sets viewport camera properties. Syntax: -ViewportProperties _Mode [params]. Camera/target must be different points.",
+      "contexts": {
+        "CameraTarget": "Sets camera position and target point. Use 3D coordinates like 50,50,30 0,0,0. Camera and target must be different locations to avoid errors.",
+        "Lens": "Sets focal length in millimeters for perspective views only. Range typically 10-200mm. Very small/large values create unusable views.",
+        "Projection": "Switches between Perspective (vanishing points) and Parallel (no distortion). Lens setting only affects perspective mode."
+      },
+      "errors": "Fails if camera equals target point. Lens changes ignored in parallel projection. Extreme focal lengths create distorted/unusable views.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 29,
+        "contexts": 98,
+        "errors": 34
+      }
+    },
+    "-NamedView": {
+      "command": "-NamedView",
+      "family": "viewport_and_view",
+      "quick": "_-NamedView _Save/_Restore/_List/_Delete <name> | Names case-sensitive, deletion permanent",
+      "contexts": {
+        "save": "Captures current viewport state including position, zoom, rotation. Name required, must be unique in document.",
+        "restore": "Applies saved view to active viewport. View must exist or command fails. Restores exact camera position.",
+        "list": "Shows all named views in current document. No parameters needed. Useful for checking existing view names.",
+        "delete": "Permanently removes named view. Requires _Yes confirmation. Cannot be undone once deleted."
+      },
+      "errors": "Fails if view name doesn't exist for restore/delete, name conflicts on save, invalid characters in names",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 101,
+        "errors": 26
+      }
+    },
+    "-SetView": {
+      "command": "-SetView",
+      "family": "viewport_and_view",
+      "quick": "_-SetView _World/_CPlane [direction] | Dash prefix bypasses dialogs",
+      "contexts": {
+        "world": "Sets view relative to world coordinates - consistent regardless of construction plane orientation",
+        "cplane": "Sets view relative to current construction plane - orientation depends on active CPlane setup"
+      },
+      "errors": "Missing dash shows dialogs; affects only active viewport in layouts",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 47,
+        "errors": 16
+      }
+    },
+    "-Pan": {
+      "command": "-Pan",
+      "family": "viewport_and_view",
+      "quick": "_-Pan x,y | _Left/_Right/_Up/_Down | No zoom change",
+      "contexts": {
+        "coordinate": "Pan to specific x,y coordinates relative to current view orientation. May behave unexpectedly in perspective views.",
+        "directional": "Use _Left, _Right, _Up, _Down for fixed increment movement. Consistent across all view types.",
+        "default": "Default 0,0 coordinate pan. Useful for centering view or resetting pan position."
+      },
+      "errors": "Won't zoom - use Zoom commands instead. Coordinates relative to view, not world space.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 12,
+        "contexts": 71,
+        "errors": 21
+      }
+    },
+    "-RotateView": {
+      "command": "-RotateView",
+      "family": "viewport_and_view",
+      "quick": "_-RotateView _Left|_Right|_Up|_Down or _Angle=<degrees> _Direction | Affects only active viewport",
+      "contexts": {
+        "directional": "Use _Left/_Right for horizontal rotation, _Up/_Down for vertical. Default angles vary by direction.",
+        "custom_angle": "Specify _Angle=<degrees> before direction for precise control. Example: _-RotateView _Angle=45 _Left",
+        "incremental": "Use small angles (15-30\u00b0) to avoid disorientation. Large rotations can cause confusing view changes.",
+        "multi_viewport": "Only rotates the currently active viewport. Switch viewports before rotating if needed."
+      },
+      "errors": "Rotation is relative to current view, not world coordinates. Large angles cause disorienting jumps.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 95,
+        "errors": 24
+      }
+    },
+    "-PointLight": {
+      "command": "-PointLight",
+      "family": "lights",
+      "quick": "Syntax: _-PointLight x,y,z | Creates invisible light object (objects_created=0)",
+      "contexts": {
+        "coordinate_input": "Direct coordinate specification in world space. Example: _-PointLight 0,0,10 places light 10 units above origin",
+        "default": "Standard point light creation at specified 3D location. Light affects rendering but creates no visible geometry"
+      },
+      "errors": "Invalid coordinates cause failure. Light invisible in wireframe views, only affects rendered output",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 54,
+        "errors": 24
+      }
+    },
+    "-SpotLight": {
+      "command": "-SpotLight",
+      "family": "lights",
+      "quick": "_-SpotLight <light_pos> <target_pos> [beam_angle] [field_angle] | beam < field angle",
+      "contexts": {
+        "default": "Creates spotlight from light position to target. Beam angle (inner cone) must be smaller than field angle (outer cone). Position order: light first, then target. Use for directional lighting effects in rendering."
+      },
+      "errors": "Fails if light and target positions are identical (no direction). Beam angle > field angle creates invalid cone geometry.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 53,
+        "errors": 30
+      }
+    },
+    "-DirectionalLight": {
+      "command": "-DirectionalLight",
+      "family": "lights",
+      "quick": "Creates parallel light rays from direction. Syntax: -DirectionalLight <vector> | Critical: Direction points FROM origin TO vector",
+      "contexts": {
+        "direction_vector": "Single vector mode: -DirectionalLight 0,0,-1 creates downward light. Use normalized vectors for predictable intensity and direction.",
+        "two_point": "Two-point mode: -DirectionalLight 0,0,10 0,0,0 creates light from high to low. More intuitive than vector mode for positioning.",
+        "default": "Default downward light: -DirectionalLight 0,0,-1. Good for general scene illumination simulating overhead lighting."
+      },
+      "errors": "Fails silently without rendering enabled. No visual feedback in wireframe views. Multiple lights cause overexposure.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 32,
+        "contexts": 92,
+        "errors": 29
+      }
+    },
+    "-LinearLight": {
+      "command": "-LinearLight",
+      "family": "lights",
+      "quick": "_-LinearLight <start_point> <end_point> | Won't show in standard viewports",
+      "contexts": {
+        "default": "Creates linear light between two points. Light direction flows from start to end point. Only visible in rendered viewports or during actual rendering."
+      },
+      "errors": "Light appears invisible in wireframe/shaded modes. Switch to rendered viewport to see effect.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 37,
+        "errors": 23
+      }
+    },
+    "-Mesh": {
+      "command": "-Mesh",
+      "family": "mesh",
+      "quick": "_-Mesh converts surfaces to polygonal mesh. High density = large files, low density = lost detail.",
+      "contexts": {
+        "default": "_-Mesh _SelPrev for basic conversion. Density 0.0-1.0 controls polygon count. Good for simple surfaces needing mesh format.",
+        "detailed_options": "_-Mesh _SelPrev _DetailedOptions for complex surfaces. Control angle tolerance, edge length. Essential for curved/organic geometry requiring quality mesh.",
+        "performance": "High density creates large files impacting performance. Start with lower density, increase only if detail loss unacceptable. Monitor file size growth."
+      },
+      "errors": "Fails without surface/solid selection. One-way conversion - no automatic NURBS recovery. Complex surfaces need DetailedOptions or poor quality results.",
+      "similar_commands": [
+        "-MeshSphere"
+      ],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 105,
+        "errors": 37
+      }
+    },
+    "-MeshBox": {
+      "command": "-MeshBox",
+      "family": "mesh",
+      "quick": "_-MeshBox 0,0,0 10,10,0 5 | Diagonal mode needs full 3D corners",
+      "contexts": {
+        "corner": "Default: two base corners + height. Height always goes in Z direction from base plane.",
+        "center": "Center point + corner for orientation + height. Corner defines box orientation, not just size.",
+        "diagonal": "Two opposite corners of complete 3D box. Don't use base corners - specify full volume endpoints."
+      },
+      "errors": "Diagonal mode fails with base corners only. Center mode needs orientation corner, not dimensions.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 68,
+        "errors": 24
+      }
+    },
+    "-MeshSphere": {
+      "command": "-MeshSphere",
+      "family": "mesh",
+      "quick": "_-MeshSphere 0,0,0 5 | Style affects topology",
+      "contexts": {
+        "default": "_-MeshSphere {center} {radius} - standard triangular mesh topology",
+        "2point": "_-MeshSphere _2Point {pt1} {pt2} - diameter mode, distance = sphere size",
+        "style=quadsphere": "_-MeshSphere _Style=QuadSphere {center} {radius} - quad-based mesh for better editing"
+      },
+      "errors": "Different from NURBS Sphere - limited editing options",
+      "similar_commands": [
+        "-Mesh"
+      ],
+      "token_estimate": {
+        "quick": 11,
+        "contexts": 55,
+        "errors": 13
+      }
+    },
+    "-MeshCylinder": {
+      "command": "-MeshCylinder",
+      "family": "mesh",
+      "quick": "_-MeshCylinder {center} {radius} {height} | Use _2Point for axis definition",
+      "contexts": {
+        "default": "Standard: center point, radius, height. Creates polygon mesh cylinder around Z-axis from base center.",
+        "2point": "Axis mode: first point, second point, radius. Cylinder height = distance between points, oriented along axis."
+      },
+      "errors": "Radius must be positive. Creates mesh not NURBS - no conversion to surfaces.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 52,
+        "errors": 19
+      }
+    },
+    "-MeshCone": {
+      "command": "-MeshCone",
+      "family": "mesh",
+      "quick": "-MeshCone base_center radius height|apex_point | DirectionConstraint=None for free orientation",
+      "contexts": {
+        "vertical": "Default mode: -MeshCone 0,0,0 5 10 creates vertical cone with height along Z-axis, base in XY plane",
+        "free_direction": "-MeshCone _DirectionConstraint=None 0,0,0 5 0,0,10 uses apex point for both height and orientation instead of vertical constraint",
+        "modeling": "Creates mesh primitive cone for quick geometry blocking, use Cone command for NURBS surfaces instead",
+        "scripting": "Third parameter changes meaning: height in default mode vs apex point with DirectionConstraint=None"
+      },
+      "errors": "Forgetting DirectionConstraint=None when wanting non-vertical cone, confusing height vs apex point parameters",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 105,
+        "errors": 27
+      }
+    },
+    "-MeshPlane": {
+      "command": "-MeshPlane",
+      "family": "mesh",
+      "quick": "_-MeshPlane 0,0,0 10,10,0 | 3Point mode needs non-collinear points",
+      "contexts": {
+        "corner": "Default mode: _-MeshPlane <corner1> <corner2> creates rectangular mesh aligned to axes",
+        "center": "_Center mode: center point then corner defines both size and orientation of mesh plane",
+        "3point": "_3Point mode: three non-collinear points define arbitrary orientation mesh plane"
+      },
+      "errors": "Collinear points in 3Point fail | Invalid coordinates reject | Missing corner point prompts",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 62,
+        "errors": 22
+      }
+    },
+    "-MeshTorus": {
+      "command": "-MeshTorus",
+      "family": "mesh",
+      "quick": "_-MeshTorus {center} {major_radius} {minor_radius} | major_radius > minor_radius",
+      "contexts": {
+        "default": "Creates horizontal torus mesh. Center point defines position, major radius is center-to-tube distance, minor radius is tube thickness. No vertical orientation option available."
+      },
+      "errors": "Major radius must exceed minor radius. Equal radii create sphere-like shape, very small minor radius creates thin ring.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 44,
+        "errors": 29
+      }
+    },
+    "-QuadRemesh": {
+      "command": "-QuadRemesh",
+      "family": "mesh",
+      "quick": "_-QuadRemesh mesh \u2192 quad-dominant topology | Loses original UV mapping",
+      "contexts": {
+        "default": "Interactive remeshing with target quad count and adaptive sizing options. Use _SelPrev for previously selected meshes. Consider mesh complexity vs processing time."
+      },
+      "errors": "Fails on NURBS/non-mesh objects. Large meshes cause long processing times. Unreasonable quad counts lose detail.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 40,
+        "errors": 28
+      }
+    },
+    "-Camera": {
+      "command": "-Camera",
+      "family": "viewport_and_view",
+      "quick": "-Camera Show displays viewport camera info | Must use dash prefix",
+      "contexts": {
+        "show": "Shows camera properties for active viewport including position, target, lens length, and field of view. Useful for documenting or troubleshooting view settings."
+      },
+      "errors": "May not work in orthographic views, only perspective | Info shown is viewport-specific",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 40,
+        "errors": 21
+      }
+    },
+    "-SetCamera": {
+      "command": "-SetCamera",
+      "family": "viewport_and_view",
+      "quick": "_-SetCamera | No prompts, uses defaults | May fail without established camera position",
+      "contexts": {
+        "scripting": "Perfect for automated camera positioning in scripts - no user interaction required, immediate execution",
+        "modeling": "Quick camera reset during modeling workflow - instant positioning without dialog interruption",
+        "presentation": "Rapid viewport changes for presentations - consistent camera positioning without manual input"
+      },
+      "errors": "Fails silently if no default camera exists | Immediate viewport change may disorient users | Cannot interactively adjust settings",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 71,
+        "errors": 32
+      }
+    },
+    "-Turntable": {
+      "command": "-Turntable",
+      "family": "viewport_and_view",
+      "quick": "_-Turntable starts continuous viewport rotation around view center. Press Esc to stop.",
+      "contexts": {
+        "presentation": "Ideal for showcasing 3D models - creates smooth 360\u00b0 rotation for client presentations or documentation",
+        "modeling": "Useful for inspecting geometry from all angles while working - helps spot issues or plan next steps",
+        "performance": "May slow down complex scenes - consider hiding unnecessary objects before starting animation"
+      },
+      "errors": "Runs indefinitely until stopped manually. Heavy scenes may stutter or lag during rotation.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 72,
+        "errors": 22
+      }
+    },
+    "-SelAll": {
+      "command": "-SelAll",
+      "family": "selection",
+      "quick": "-SelAll | Selects all visible objects, replaces current selection",
+      "contexts": {
+        "modeling": "Quick way to select entire model for operations like scale, move, or copy. Useful before grouping or applying materials to everything.",
+        "cleanup": "Essential for mass operations like purging unused materials, checking object properties, or preparing files for export.",
+        "layer_management": "Selects all objects on visible/unlocked layers only. Hidden or locked layer objects remain unselected regardless of visibility."
+      },
+      "errors": "Nothing selected if all objects are hidden/locked. Replaces existing selection without warning.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 93,
+        "errors": 23
+      }
+    },
+    "-SelNone": {
+      "command": "-SelNone",
+      "family": "selection",
+      "quick": "-SelNone | Clears all selections instantly. Cannot undo - must reselect manually.",
+      "contexts": {
+        "scripting": "Use before operations requiring no selection. Executes immediately without prompts.",
+        "modeling": "Quick way to start fresh when selection becomes complex or unwieldy.",
+        "cleanup": "Essential for clearing selections before automated workflows or batch operations."
+      },
+      "errors": "No typical errors - always executes. Risk: accidentally clearing complex selections that are hard to recreate.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 57,
+        "errors": 27
+      }
+    },
+    "-SelLast": {
+      "command": "-SelLast",
+      "family": "selection",
+      "quick": "Syntax: -SelLast | Selects most recently created object | Gotcha: Creation order, not modification order",
+      "contexts": {
+        "modeling": "Essential for selecting newly created geometry without knowing object names. Useful after complex operations to verify what was just made.",
+        "scripting": "Reliable way to capture the result of the last creation command. Combine with object queries to verify selection success.",
+        "import": "Imported objects follow file order - last imported object becomes selectable. Useful for processing batch imports sequentially."
+      },
+      "errors": "Fails silently if no objects exist. Arrays/groups may have unpredictable last selection behavior.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 95,
+        "errors": 24
+      }
+    },
+    "-SelPrev": {
+      "command": "-SelPrev",
+      "family": "selection",
+      "quick": "Restores previous selection state. Only works if there was a prior selection.",
+      "contexts": {
+        "default": "Immediately restores the selection that was active before current selection. No dialogue or options - executes instantly when called."
+      },
+      "errors": "Fails silently if no previous selection exists or if previously selected objects were deleted.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 33,
+        "errors": 23
+      }
+    },
+    "-Invert": {
+      "command": "-Invert",
+      "family": "selection",
+      "quick": "_-Invert | Flips selection: selected\u2192unselected, unselected\u2192selected | Hidden objects may become selected",
+      "contexts": {
+        "default": "_-Invert executes immediately with no dialogue. Affects all objects in document including hidden ones. Locked objects/layers remain unchanged. If nothing selected, everything becomes selected."
+      },
+      "errors": "No syntax errors possible. May unexpectedly select many hidden objects if large model with nothing initially selected.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 26,
+        "contexts": 48,
+        "errors": 29
+      }
+    },
+    "-SelCrv": {
+      "command": "-SelCrv",
+      "family": "selection",
+      "quick": "_-SelCrv | Selects ALL curves in model, replaces current selection",
+      "contexts": {
+        "scripting": "Use before operations needing all curves selected. No parameters needed, immediate execution.",
+        "cleanup": "Quick way to select all curves for deletion, modification, or layer changes.",
+        "filtering": "Combine with Invert to select everything except curves, or use SelAdd variants for additive selection."
+      },
+      "errors": "Silently selects nothing if no curves exist. Always replaces current selection.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 67,
+        "errors": 19
+      }
+    },
+    "-SelClosedCrv": {
+      "command": "-SelClosedCrv",
+      "family": "Unknown",
+      "quick": "_-SelClosedCrv | Selects ALL closed curves - no filter control",
+      "contexts": {
+        "default": "Auto-selects all closed curves (circles, ellipses, closed polylines/splines) in document. No user interaction. Check status bar for selection count."
+      },
+      "errors": "May select unwanted curves on all layers. No undo for selection itself.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 37,
+        "errors": 17
+      }
+    },
+    "-SelOpenCrv": {
+      "command": "-SelOpenCrv",
+      "family": "Unknown",
+      "quick": "_-SelOpenCrv | Selects ALL open curves instantly - no prompts, no filtering",
+      "contexts": {
+        "cleanup": "Use after importing/modeling to identify incomplete geometry. Pair with SelNone to clear first if needed.",
+        "validation": "Quick check for unclosed curves that might cause surface/solid creation failures.",
+        "filtering": "No type filtering - selects lines, polylines, splines equally. Use specific Sel commands for targeted selection."
+      },
+      "errors": "May select hundreds of curves unexpectedly. No undo for selection itself, but operations on selected curves are undoable.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 74,
+        "errors": 30
+      }
+    },
+    "-SelSrf": {
+      "command": "-SelSrf",
+      "family": "selection",
+      "quick": "_-SelSrf | Selects ALL surfaces (including hidden)",
+      "contexts": {
+        "scripting": "Use before surface operations to ensure all surfaces are selected. Clears previous selection automatically.",
+        "modeling": "Quick way to select all surfaces for global operations like hide, lock, or property changes.",
+        "cleanup": "Useful for identifying all surface geometry in complex models before conversion or analysis."
+      },
+      "errors": "No surfaces = empty selection. Hidden surfaces still selected.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 12,
+        "contexts": 72,
+        "errors": 15
+      }
+    },
+    "-SelPolysrf": {
+      "command": "-SelPolysrf",
+      "family": "Unknown",
+      "quick": "_-SelPolysrf | Selects all polysurfaces (not individual surfaces)",
+      "contexts": {
+        "default": "_-SelPolysrf executes immediately with no dialogue. Selects only polysurface objects, ignoring individual surfaces or other geometry types. Use after creating complex models to isolate multi-surface objects."
+      },
+      "errors": "Selects nothing if no polysurfaces exist. Won't select individual surfaces within polysurfaces.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 51,
+        "errors": 23
+      }
+    },
+    "-SelClosedPolysrf": {
+      "command": "-SelClosedPolysrf",
+      "family": "Unknown",
+      "quick": "_-SelClosedPolysrf | Selects all closed polysurfaces. Single surfaces won't be selected even if closed.",
+      "contexts": {
+        "modeling": "Use after boolean operations to verify which objects are properly closed volumes. Helpful for identifying watertight geometry.",
+        "preparation": "Essential before 3D printing or analysis - ensures only sealed objects are selected for export or further processing.",
+        "cleanup": "Quick way to isolate closed polysurfaces from mixed geometry when organizing models or separating solid from surface objects."
+      },
+      "errors": "May select nothing if no closed polysurfaces exist. Won't select single surfaces or polysurfaces with gaps/openings.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 91,
+        "errors": 29
+      }
+    },
+    "-SelLayer": {
+      "command": "-SelLayer",
+      "family": "selection",
+      "quick": "_-SelLayer LayerName | Case-sensitive names, clears previous selection",
+      "contexts": {
+        "batch_operations": "Select all objects on specific layers for bulk modifications like material assignment or property changes",
+        "layer_management": "Quickly isolate objects by layer for visibility control or organizational tasks",
+        "wildcard_selection": "Use * and ? patterns to select multiple layers at once (e.g., 'Wall*' selects Wall01, Wall02, etc.)"
+      },
+      "errors": "Case mismatch fails silently, hidden layers ignored, locked objects selected but unmodifiable",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 69,
+        "errors": 23
+      }
+    },
+    "-SelColor": {
+      "command": "-SelColor",
+      "family": "selection",
+      "quick": "-SelColor [R,G,B] | Exact RGB match only - materials affect results",
+      "contexts": {
+        "default": "Selects objects by exact RGB color match. Use 255,0,0 format or interactive picker. Material colors may differ from display colors."
+      },
+      "errors": "Fails on approximate colors, material vs object color confusion, layer color inheritance issues",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 32,
+        "errors": 23
+      }
+    },
+    "-SelName": {
+      "command": "-SelName",
+      "family": "selection",
+      "quick": "-SelName pattern | DESELECTS by name (not selects)",
+      "contexts": {
+        "cleanup": "Use -SelName * to deselect all objects, or -SelName temp* to remove temporary objects from selection",
+        "filtering": "Combine with other selection commands: select group, then -SelName unwanted* to refine selection",
+        "workflow": "Useful after SelAll when you want to exclude specific named objects from bulk operations"
+      },
+      "errors": "Wrong direction: adds instead of removes | No wildcards: exact match only",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 12,
+        "contexts": 71,
+        "errors": 18
+      }
+    },
+    "-SelDup": {
+      "command": "-SelDup",
+      "family": "Unknown",
+      "quick": "-SelDup | Selects geometric duplicates | May select more than expected with loose tolerance",
+      "contexts": {
+        "cleanup": "Essential for model cleanup - finds duplicate geometry for deletion. Check selection count before deleting to avoid removing too much.",
+        "analysis": "Useful for identifying redundant geometry in imported models or after array operations. Combine with properties panel to verify duplicates.",
+        "optimization": "Part of file size reduction workflow. Use before Purge command to remove unnecessary duplicate objects from model."
+      },
+      "errors": "Tolerance too loose selects similar objects | Misses duplicates with tiny differences | Properties differ but geometry same",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 95,
+        "errors": 30
+      }
+    },
+    "-SelSmall": {
+      "command": "-SelSmall",
+      "family": "Unknown",
+      "quick": "-SelSmall {tolerance} | Watch tolerance - too high selects wanted objects",
+      "contexts": {
+        "cleanup": "Use after importing/modeling to find tiny leftover geometry. Start with very small tolerance (0.001) and increase gradually until you see selections.",
+        "model_prep": "Before final output, check for micro-objects that could cause issues. Consider model units - what's 'small' in mm vs inches differs greatly.",
+        "troubleshooting": "If nothing selects, tolerance may be too small. If everything selects, tolerance is too large. Hidden/locked objects also get selected if they meet criteria."
+      },
+      "errors": "No selection with tiny tolerance | Everything selected with large tolerance | Accidentally selecting important small details",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 111,
+        "errors": 31
+      }
+    },
+    "-SelBadObjects": {
+      "command": "-SelBadObjects",
+      "family": "Unknown",
+      "quick": "-SelBadObjects | Selects invalid geometry automatically | Check selection count first",
+      "contexts": {
+        "model_cleanup": "Essential for identifying problematic geometry before export or analysis. Run after importing files or complex operations. Follow with Check command for details.",
+        "troubleshooting": "First step when experiencing display issues, crashes, or unexpected behavior. Bad objects often cause instability in downstream operations.",
+        "quality_control": "Use before finalizing models or sending to fabrication. Combine with SelDup, SelSmall for comprehensive geometry validation."
+      },
+      "errors": "May select hundreds of objects in corrupted files. Only identifies problems - doesn't fix them. Use repair commands like RebuildEdges afterward.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 105,
+        "errors": 36
+      }
+    },
+    "-SelBlockInstance": {
+      "command": "-SelBlockInstance",
+      "family": "Unknown",
+      "quick": "_-SelBlockInstance - selects ALL block instances in model (may be more than intended)",
+      "contexts": {
+        "default": "No dialogue, automatically selects all block instances. Nested blocks selected at top level only. Command completes with no selection if no blocks exist."
+      },
+      "errors": "May select more blocks than intended if many exist in model",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 38,
+        "errors": 14
+      }
+    },
+    "-SelGroup": {
+      "command": "-SelGroup",
+      "family": "Unknown",
+      "quick": "Deselects grouped objects from selection. Only affects objects in groups/blocks.",
+      "contexts": {
+        "cleanup": "Use after complex selections to isolate ungrouped geometry for individual operations while keeping grouped elements intact",
+        "modeling": "Helpful when working with mixed selections of individual objects and grouped assemblies - removes groups to focus on loose geometry",
+        "organization": "Part of selection refinement workflow when you need to separate grouped content from individual objects for different treatments"
+      },
+      "errors": "No effect if selection contains only ungrouped objects. Silent operation - no feedback when nothing changes.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 94,
+        "errors": 27
+      }
+    },
+    "-SelPt": {
+      "command": "-SelPt",
+      "family": "Unknown",
+      "quick": "-SelPt selects all visible point objects, clearing existing selection",
+      "contexts": {
+        "scripting": "Use -SelPt for immediate selection without dialog. Use SelPt (no hyphen) to add to existing selection instead of replacing it",
+        "modeling": "Quickly isolate all point objects for operations like moving, deleting, or changing properties. Points on hidden/locked layers won't be selected",
+        "cleanup": "Efficient way to find and select all point objects in complex models for deletion or organization"
+      },
+      "errors": "No points selected if all points are hidden or locked",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 91,
+        "errors": 13
+      }
+    },
+    "-SelText": {
+      "command": "-SelText",
+      "family": "Unknown",
+      "quick": "-SelText: filters current selection to text objects only",
+      "contexts": {
+        "filtering_workflow": "Use after selecting mixed objects to isolate text for editing or formatting operations",
+        "text_management": "Essential for bulk text operations - filter first, then apply changes to all selected text",
+        "cleanup_operations": "Combine with Delete or Hide to remove all text from selected geometry groups"
+      },
+      "errors": "No effect if no selection exists; deselects non-text annotation objects like dimensions",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 14,
+        "contexts": 62,
+        "errors": 21
+      }
+    },
+    "-SelDim": {
+      "command": "-SelDim",
+      "family": "Unknown",
+      "quick": "-SelDim | Selects all dimensions, clears existing selection",
+      "contexts": {
+        "drafting": "Essential for dimension management - quickly isolate all dimensions for editing, styling, or layer changes",
+        "cleanup": "Use before dimension operations like changing text height, moving to specific layers, or deleting outdated dimensions",
+        "inspection": "Fast way to verify dimension count and distribution across model before finalizing drawings"
+      },
+      "errors": "Empty selection if no dimensions exist; clears current selection without warning",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 14,
+        "contexts": 77,
+        "errors": 20
+      }
+    },
+    "-SelHatch": {
+      "command": "-SelHatch",
+      "family": "Unknown",
+      "quick": "_-SelHatch | Selects ALL hatches instantly, including locked/hidden layers",
+      "contexts": {
+        "default": "_-SelHatch executes immediately without dialog. Selects every hatch object in the model regardless of layer visibility or lock status. No options available."
+      },
+      "errors": "No hatches = empty selection but command succeeds. Cannot filter by layer or properties.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 39,
+        "errors": 22
+      }
+    },
+    "-SelLight": {
+      "command": "-SelLight",
+      "family": "Unknown",
+      "quick": "-SelLight | Selects all visible light objects, clears existing selection",
+      "contexts": {
+        "lighting_setup": "Use to quickly select all lights for bulk operations like moving, copying, or property changes. Combine with Show/Hide commands to control which lights are selectable.",
+        "scene_cleanup": "Efficient way to identify and manage all lighting in complex scenes. Follow with Delete or properties panel to modify multiple lights simultaneously.",
+        "rendering_prep": "Quick selection of all lights before render setup. Use with Layer commands to organize lights or Properties to adjust intensity/color in batch."
+      },
+      "errors": "Hidden lights ignored. Empty selection if no lights exist. Clears current selection first.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 113,
+        "errors": 22
+      }
+    },
+    "-SelOpenPolysrf": {
+      "command": "-SelOpenPolysrf",
+      "family": "Unknown",
+      "quick": "_-SelOpenPolysrf | Selects polysurfaces with naked edges | Clears existing selection first",
+      "contexts": {
+        "modeling_cleanup": "Essential for finding incomplete geometry during model validation. Use before joining operations to identify problem areas.",
+        "quality_control": "Part of geometry checking workflow. Combine with ShowEdges to visualize naked edges on selected open polysurfaces.",
+        "preparation_for_operations": "Select open polysurfaces before attempting joins or boolean operations that require closed geometry."
+      },
+      "errors": "Returns empty selection if no open polysurfaces exist. Won't select surfaces or meshes, only polysurfaces with naked edges.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 83,
+        "errors": 30
+      }
+    },
+    "-SelClosedSrf": {
+      "command": "-SelClosedSrf",
+      "family": "Unknown",
+      "quick": "_-SelClosedSrf | Selects all mathematically closed surfaces, clears existing selection",
+      "contexts": {
+        "modeling": "Essential for identifying watertight surfaces before boolean operations or analysis. Polysurfaces selected as units if closed overall.",
+        "quality_check": "Quick way to verify which surfaces form complete boundaries. Mathematical closure may differ from visual appearance.",
+        "selection_workflow": "Clears current selection first, then adds all closed surfaces. Use before operations requiring watertight geometry."
+      },
+      "errors": "Visually closed surfaces may not select if mathematically open due to tolerance gaps or trimming issues",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 90,
+        "errors": 25
+      }
+    },
+    "-SelOpenSrf": {
+      "command": "-SelOpenSrf",
+      "family": "Unknown",
+      "quick": "_-SelOpenSrf | Selects all open surfaces automatically. Clears existing selection first.",
+      "contexts": {
+        "modeling": "Use to identify incomplete surfaces needing closure. Helpful for quality checks before boolean operations or mesh creation.",
+        "cleanup": "Quick way to find surfaces with gaps or boundary edges that may cause downstream issues in manufacturing or analysis.",
+        "inspection": "Combine with ShowEdges to visualize which surfaces have open boundaries versus closed ones."
+      },
+      "errors": "Only selects individual surfaces, not polysurfaces. May select surfaces with tiny invisible gaps.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 81,
+        "errors": 24
+      }
+    },
+    "-SelPlanarCrv": {
+      "command": "-SelPlanarCrv",
+      "family": "Unknown",
+      "quick": "_-SelPlanarCrv | Auto-selects all mathematically planar curves | Replaces current selection",
+      "contexts": {
+        "cleanup": "Quickly isolate planar curves for 2D operations or to separate from 3D space curves",
+        "validation": "Check which curves in your model are truly planar vs slightly warped or 3D",
+        "workflow": "Use before operations that require planar curves like certain extrusions or boolean operations"
+      },
+      "errors": "Slightly warped curves won't select even if they look flat | No selection in empty models",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 61,
+        "errors": 22
+      }
+    },
+    "-SelLinearCrv": {
+      "command": "-SelLinearCrv",
+      "family": "Unknown",
+      "quick": "_-SelLinearCrv | Only true linear curves, not polylines",
+      "contexts": {
+        "default": "_-SelLinearCrv runs silently, adds to selection. Excludes polylines and slight curves even if visually linear."
+      },
+      "errors": "Polylines won't select despite linear segments; arcs with large radii excluded; adds to existing selection",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 13,
+        "contexts": 27,
+        "errors": 26
+      }
+    },
+    "-SelPolyline": {
+      "command": "-SelPolyline",
+      "family": "Unknown",
+      "quick": "_-SelPolyline | Adds to selection, ignores layers",
+      "contexts": {
+        "default": "Instantly selects all polylines without prompts. Adds to existing selection - use SelNone first for clean selection. Ignores layer visibility/lock status."
+      },
+      "errors": "No direct failures - always runs but may select nothing if no polylines exist",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 12,
+        "contexts": 38,
+        "errors": 19
+      }
+    },
+    "-SelClippingPlane": {
+      "command": "-SelClippingPlane",
+      "family": "Unknown",
+      "quick": "_-SelClippingPlane | Selects all clipping plane objects | Clears existing selection first",
+      "contexts": {
+        "modeling": "Use to quickly isolate clipping planes for editing properties or repositioning without affecting model geometry",
+        "documentation": "Select clipping planes to check their names, layers, or export them separately from main geometry",
+        "cleanup": "Identify all clipping planes in complex scenes for deletion or organization before finalizing models"
+      },
+      "errors": "Silent completion if no clipping planes exist; doesn't select clipped geometry, only the plane objects themselves",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 76,
+        "errors": 28
+      }
+    },
+    "-SelMesh": {
+      "command": "-SelMesh",
+      "family": "Unknown",
+      "quick": "-SelMesh | Selects all mesh objects, clears existing selection",
+      "contexts": {
+        "modeling": "Quick way to isolate mesh objects for operations like smoothing, subdivision, or conversion to NURBS",
+        "cleanup": "Essential for identifying imported mesh geometry that may need conversion or deletion",
+        "analysis": "Use before mesh analysis commands to work only with mesh objects in complex scenes"
+      },
+      "errors": "Empty selection if no meshes exist; clears current selection without warning",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 66,
+        "errors": 19
+      }
+    },
+    "-SelClosedMesh": {
+      "command": "-SelClosedMesh",
+      "family": "Unknown",
+      "quick": "Selects closed (watertight) mesh objects only. Requires no naked edges.",
+      "contexts": {
+        "mesh_analysis": "Use before operations requiring watertight meshes like 3D printing or boolean operations. Quickly identifies which meshes are solid.",
+        "quality_control": "Essential for validating mesh integrity in manufacturing workflows. Closed meshes indicate proper topology for downstream processes.",
+        "modeling_cleanup": "Helps isolate problematic open meshes that need repair. Use with SelOpenMesh to categorize all mesh objects by closure state."
+      },
+      "errors": "Ignores NURBS/polysurfaces entirely. Tiny gaps exclude meshes from selection even if visually closed.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 97,
+        "errors": 25
+      }
+    },
+    "-SelOpenMesh": {
+      "command": "-SelOpenMesh",
+      "family": "Unknown",
+      "quick": "_-SelOpenMesh | Selects all non-watertight mesh objects | Only meshes, not NURBS/polysurfs",
+      "contexts": {
+        "mesh_analysis": "Use before mesh repair workflows to identify problematic meshes. Combine with ShowEdges to visualize holes. Follow with MeshRepair for fixing.",
+        "quality_control": "Part of mesh validation pipeline. Helps identify manufacturing issues or modeling errors. Use SelClosedMesh for comparison of good vs bad meshes.",
+        "batch_processing": "Automates selection for mesh cleanup scripts. No user interaction required. Clear selection first if needed for accurate results."
+      },
+      "errors": "Won't select visually open NURBS surfaces. May miss meshes with micro-gaps that appear closed. Includes intentional openings you might want to keep.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 103,
+        "errors": 37
+      }
+    },
+    "-CurveBoolean": {
+      "command": "-CurveBoolean",
+      "family": "booleans",
+      "quick": "Creates regions from closed planar curves with boolean operations. Syntax: _-CurveBoolean [points] or _AllRegions",
+      "contexts": {
+        "allregions": "Use _AllRegions to automatically process all detected closed curve regions without manual point selection",
+        "default": "Click points inside closed curves to select specific regions. Points must be within valid closed curve boundaries",
+        "combineregions": "Use _CombineRegions with options like _None to control how overlapping regions are merged together"
+      },
+      "errors": "Fails with open curves, non-coplanar curves, or points outside closed regions. May create zero objects if no valid intersections",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 78,
+        "errors": 32
+      }
+    },
+    "-CurveThroughPt": {
+      "command": "-CurveThroughPt",
+      "family": "Unknown",
+      "quick": "_-CurveThroughPt point1 point2 [more_points...] | Needs multiple points to create curve",
+      "contexts": {
+        "default": "Creates interpolated curve through specified points. Enter points sequentially, press Enter to finish. Minimum 2 points required for curve generation.",
+        "interpolate": "Use _Interpolate option to specify interpolation method before entering points. Different methods (cubic, linear, etc.) create varying curve smoothness through same points."
+      },
+      "errors": "Single point fails - no curve created. Incomplete point entry leaves command hanging. Points too close may create degenerate curves.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 80,
+        "errors": 33
+      }
+    },
+    "-DeleteSubCrv": {
+      "command": "-DeleteSubCrv",
+      "family": "Unknown",
+      "quick": "_-DeleteSubCrv: Deletes curve portion between two points. Must select curve first, points must lie on curve.",
+      "contexts": {
+        "default": "Interactive selection: pick curve, then click start/end points on curve for deletion segment",
+        "with_coordinates": "Automated deletion: _-DeleteSubCrv 0,0,0 10,0,0 - coordinates must correspond to actual curve locations",
+        "precision_modeling": "Use object snaps or exact coordinates to ensure deletion points align with curve geometry",
+        "batch_operations": "Combine with selection filters to process multiple curves, verify each curve has valid deletion segment"
+      },
+      "errors": "Fails if points don't lie on curve, wrong selection type, or invalid coordinate format",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 27,
+        "contexts": 95,
+        "errors": 21
+      }
+    },
+    "-ExtractSubCrv": {
+      "command": "-ExtractSubCrv",
+      "family": "Unknown",
+      "quick": "Syntax: _-ExtractSubCrv [point1] [point2] | Must select curve first, points must lie on/near curve",
+      "contexts": {
+        "default": "Interactive mode: select curve, then specify start/end points via coordinates or picking. Extracted portion becomes new curve object while original remains unchanged."
+      },
+      "errors": "Fails silently with no curve selected. Points off curve cause extraction failure. Ensure curve selection before point specification.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 24,
+        "contexts": 41,
+        "errors": 33
+      }
+    },
+    "-ExtrudeCrvAlongCrv": {
+      "command": "-ExtrudeCrvAlongCrv",
+      "family": "Unknown",
+      "quick": "Extrudes profile curve along path curve. Profile/path must be separate curves.",
+      "contexts": {
+        "modeling": "Creates surfaces from curve profiles following complex paths. Useful for railings, moldings, pipes along routes.",
+        "architectural": "Generate trim profiles, handrails, or decorative elements that follow building contours or curved paths.",
+        "product_design": "Create swept features like handles, tubes, or complex extrusions that follow non-linear paths."
+      },
+      "errors": "Fails with same curve as profile/path, self-intersecting paths, or misaligned curve orientations.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 77,
+        "errors": 24
+      }
+    },
+    "-ExtrudeSrfAlongCrv": {
+      "command": "-ExtrudeSrfAlongCrv",
+      "family": "Unknown",
+      "quick": "Extrudes surface along curve path. Syntax: _-ExtrudeSrfAlongCrv. Critical: curve position/direction affects result.",
+      "contexts": {
+        "architectural": "Perfect for creating moldings, trim, handrails along curved paths. Use Cap=Flat for clean connections to walls.",
+        "mechanical": "Create complex housings, tubes, conduits following curved paths. CornerType=Sharp for precise mechanical fits.",
+        "product_design": "Generate organic forms, handles, decorative elements. Use Simplify=Yes to reduce surface complexity.",
+        "jewelry": "Form bands, settings, decorative elements along curved paths. Watch tolerances with small geometry."
+      },
+      "errors": "Fails with self-intersecting curves, misaligned surface/curve positioning, or extreme scale differences between inputs.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 103,
+        "errors": 29
+      }
+    },
+    "-FilletCorners": {
+      "command": "-FilletCorners",
+      "family": "editing",
+      "quick": "_-FilletCorners [radius] | Requires sharp vertices, fails if radius too large for segments",
+      "contexts": {
+        "polyline_editing": "Works on polyline corners with sharp angles. Use reasonable radius relative to segment lengths. Join option creates single continuous curve.",
+        "curve_modification": "Only affects sharp vertices, not smooth sections. Trim option controls how segments meet fillet. May fail on closed curves with problematic corner configurations.",
+        "precision_modeling": "Fillet radius must be positive and scaled appropriately to geometry. Large radii can exceed adjacent segment lengths causing command failure."
+      },
+      "errors": "Fails when radius exceeds segment length, no sharp corners exist, or closed curve geometry conflicts",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 110,
+        "errors": 25
+      }
+    },
+    "-FilletSrfCrv": {
+      "command": "-FilletSrfCrv",
+      "family": "Unknown",
+      "quick": "_-FilletSrfCrv surface curve radius | Check proximity & scale",
+      "contexts": {
+        "modeling": "Creates smooth transitions between surfaces and curves. Essential for organic forms and mechanical parts requiring rounded edges. Radius must match geometry scale.",
+        "precision": "Fillet radius critical - too large fails, too small creates tiny surfaces. Position curve near surface edge for best results. Check tangency requirements.",
+        "workflow": "Often used after surface creation to add detail. Trim=Yes removes original geometry, Join=Yes creates single object. Test radius on simple geometry first."
+      },
+      "errors": "Fails if curve too far from surface, radius too large for geometry, or complex intersections exist",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 116,
+        "errors": 24
+      }
+    },
+    "-FitCrv": {
+      "command": "-FitCrv",
+      "family": "Unknown",
+      "quick": "_-FitCrv [tolerance] | Select objects first | Balance tolerance: too small=complex, too large=poor fit",
+      "contexts": {
+        "point_fitting": "Best for fitting curves through scattered points or digitized data. Use moderate tolerance (0.01-0.1) to balance smoothness vs accuracy.",
+        "curve_simplification": "Reduces control points in existing curves. Start with larger tolerance and decrease until acceptable quality. Compare original vs fitted curve.",
+        "reverse_engineering": "Recreate curves from mesh edges or imported geometry. Very small tolerance needed for precision work, but may create heavy curves.",
+        "data_cleanup": "Remove noise from measured or scanned curve data. Tolerance should be slightly larger than expected measurement error."
+      },
+      "errors": "Fails with no selection or invalid geometry types. Extremely small tolerance crashes or hangs. Large tolerance may fail to converge.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 130,
+        "errors": 33
+      }
+    },
+    "-InsertLineIntoCrv": {
+      "command": "-InsertLineIntoCrv",
+      "family": "Unknown",
+      "quick": "Syntax: _-InsertLineIntoCrv | Critical: Insertion point must lie exactly on the selected curve",
+      "contexts": {
+        "curve_editing": "Modifies existing curve geometry by inserting line segment at specified point. Changes curve parameterization and may affect downstream operations that depend on original curve structure.",
+        "design_workflow": "Useful for adding linear segments to smooth curves for manufacturing constraints or design requirements. Consider using InsertKnot for maintaining curve type instead of geometric modification.",
+        "precision_modeling": "Insertion point precision is critical - use object snaps or curve analysis tools to ensure accurate placement. Line direction and length directly affect resulting curve quality and continuity."
+      },
+      "errors": "Fails if insertion point not on curve, invalid curve selection, or line parameters create self-intersecting geometry",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 142,
+        "errors": 29
+      }
+    },
+    "-SelSelfIntersectingCrv": {
+      "command": "-SelSelfIntersectingCrv",
+      "family": "Unknown",
+      "quick": "_-SelSelfIntersectingCrv | Clears selection, finds curves crossing themselves",
+      "contexts": {
+        "cleanup": "Essential for finding problematic curves before operations like lofting or sweeping that fail on self-intersecting geometry",
+        "validation": "Use after importing CAD files or creating complex curves to identify geometry issues that could cause downstream problems",
+        "troubleshooting": "When commands fail unexpectedly on curves, run this to check if self-intersections are the cause"
+      },
+      "errors": "Misses tiny intersections below tolerance; doesn't detect visual overlaps that aren't true intersections",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 84,
+        "errors": 26
+      }
+    },
+    "-SelShortCrv": {
+      "command": "-SelShortCrv",
+      "family": "Unknown",
+      "quick": "Selects curves shorter than specified length. Syntax: _-SelShortCrv {length}. Units must match document units.",
+      "contexts": {
+        "cleanup": "Remove tiny curve segments by selecting with very small threshold (0.001) then deleting selected objects.",
+        "filtering": "Use before operations that need curves above certain size - select short ones first to exclude them.",
+        "quality_control": "Check model for unintended micro-curves that could cause downstream issues in manufacturing."
+      },
+      "errors": "Threshold too small selects nothing, too large selects all curves. Only works on curve objects, ignores surfaces/solids.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 27,
+        "contexts": 74,
+        "errors": 30
+      }
+    },
+    "-SelSubDFriendlyCrv": {
+      "command": "-SelSubDFriendlyCrv",
+      "family": "Unknown",
+      "quick": "Selects curves compatible with SubD workflows. No options, operates on all visible curves.",
+      "contexts": {
+        "subd_modeling": "Essential for identifying which curves can be used as SubD cage edges or control curves. Helps prepare geometry for subdivision surface workflows.",
+        "curve_filtering": "Part of selection filtering workflow. Use before converting to SubD or when cleaning up geometry for subdivision modeling.",
+        "quality_control": "Identifies curves that meet SubD compatibility standards. Useful for validating imported geometry or checking curve quality."
+      },
+      "errors": "Returns empty selection if no SubD-compatible curves exist. Ignores hidden curves and locked layers.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 97,
+        "errors": 25
+      }
+    },
+    "-MergeCrv": {
+      "command": "-MergeCrv",
+      "family": "Unknown",
+      "quick": "_-MergeCrv _SelAll | Joins curve segments at coincident endpoints into continuous curves",
+      "contexts": {
+        "cleanup": "Essential for cleaning up imported CAD files with fragmented curves. Use after exploding complex geometry or importing from other formats.",
+        "modeling": "Prepare curves for operations like sweep, loft, or extrude that require continuous input curves. Critical before using curves as rails or profiles.",
+        "scripting": "Always use _SelAll or specific selection methods. Consider tolerance settings for precision work - default may be too loose for small geometry."
+      },
+      "errors": "Fails silently if endpoints exceed tolerance distance. Closed curves won't merge. Direction follows first selected curve, potentially reversing expected flow.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 105,
+        "errors": 39
+      }
+    },
+    "-SubCrv": {
+      "command": "-SubCrv",
+      "family": "Unknown",
+      "quick": "-SubCrv: Subtracts curves from objects. Curves must be closed, targets must be solid/surface.",
+      "contexts": {
+        "default": "Select target objects first, then curves to subtract. Use DeleteInput to remove original curves. ExtrudeCurves option available for 2D workflows."
+      },
+      "errors": "Fails with open curves, non-solid targets, or non-intersecting geometry. Check curve closure and positioning.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 36,
+        "errors": 27
+      }
+    },
+    "-TweenCurves": {
+      "command": "-TweenCurves",
+      "family": "Unknown",
+      "quick": "_-TweenCurves [number] | Requires exactly 2 curves, similar topology essential",
+      "contexts": {
+        "modeling": "Creates smooth transitions between profile curves for organic shapes. Use consistent curve directions and similar point counts for predictable results.",
+        "surface_prep": "Generates intermediate curves for lofting operations. Match parameterization option improves surface quality when curves have different structures.",
+        "animation": "Builds curve sequences for morphing animations. Keep curve complexity similar to avoid interpolation artifacts in downstream applications."
+      },
+      "errors": "Fails with dissimilar curve structures, opposite directions, or extreme parameter differences",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 107,
+        "errors": 23
+      }
+    },
+    "-SlopeCrv": {
+      "command": "-SlopeCrv",
+      "family": "Unknown",
+      "quick": "-SlopeCrv disables slope curve display. Use SlopeCrv (no dash) to enable.",
+      "contexts": {
+        "surface_analysis": "Turns off slope curve visualization on surfaces. Use when slope display interferes with other analysis or viewport performance.",
+        "modeling_cleanup": "Disables slope curve overlays to clean up viewport display. Helpful when working with complex surfaces where curves obstruct view.",
+        "performance": "Removes slope curve calculations and display to improve viewport refresh rates on complex models."
+      },
+      "errors": "No visible feedback when disabling. Won't work if slope curves weren't already enabled.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 87,
+        "errors": 21
+      }
+    },
+    "-OrientOnCrv": {
+      "command": "-OrientOnCrv",
+      "family": "Unknown",
+      "quick": "Orients objects to align with curve. Syntax: -OrientOnCrv [objects] [ref_point] [target_point] _Enter",
+      "contexts": {
+        "copy_mode": "Use Copy option to duplicate while orienting. Original stays in place, oriented copy placed on curve.",
+        "scaling_mode": "Scale option allows proportional adjustment during orientation to match curve characteristics.",
+        "precision_work": "Reference points must be exact for proper alignment. Use object snaps for accuracy on both source and target."
+      },
+      "errors": "Fails with complex/discontinuous curves. Requires pre-selected objects and existing target curve in model space.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 75,
+        "errors": 28
+      }
+    },
+    "-Align": {
+      "command": "-Align",
+      "family": "Unknown",
+      "quick": "-Align: Point-to-point alignment. Order matters - match source to target sequence.",
+      "contexts": {
+        "default": "Select objects, pick reference points on source, then corresponding target points. Use Copy option to preserve originals.",
+        "precision_work": "Ensure clear, accessible reference points. Consider using object snaps for accuracy. Scale option available for size matching.",
+        "batch_operations": "Use _SelLast for quick alignment of recently created objects. Consider grouping similar alignments together."
+      },
+      "errors": "Fails with unclear reference points or mismatched point sequences. Objects jump unexpectedly if point order is wrong.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 88,
+        "errors": 29
+      }
+    },
+    "-Bend": {
+      "command": "-Bend",
+      "family": "Unknown",
+      "quick": "-Bend removes bending from objects with bend history. Requires previous Bend command usage.",
+      "contexts": {
+        "default": "Interactive dialogue guides unbending process. Select objects previously modified with Bend command. Cannot fully automate due to required user interaction."
+      },
+      "errors": "Fails on objects without bend history. May not perfectly restore original geometry if multiple transforms applied post-bend.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 39,
+        "errors": 31
+      }
+    },
+    "-BoxEdit": {
+      "command": "-BoxEdit",
+      "family": "Unknown",
+      "quick": "_-BoxEdit disables box editing mode | Only works if mode is active",
+      "contexts": {
+        "modeling": "Use after BoxEdit to return objects to normal editing state. Essential for workflow cleanup when switching between box and point editing modes.",
+        "scripting": "Silent execution with no feedback. Check if BoxEdit mode was active before calling. Useful in automated workflows to ensure clean object states."
+      },
+      "errors": "No effect if box editing wasn't active. No error message or confirmation when executed.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 71,
+        "errors": 21
+      }
+    },
+    "-BringForward": {
+      "command": "-BringForward",
+      "family": "Unknown",
+      "quick": "Moves objects backward in display order (opposite of BringForward due to dash prefix)",
+      "contexts": {
+        "overlapping_objects": "Use when objects overlap and you need to change which appears on top. Effects only visible in shaded views, not wireframe.",
+        "layer_management": "Alternative to layer ordering for quick depth adjustments. Affects display order within the same layer.",
+        "with_sellast": "Use _SelLast option to immediately adjust newly created objects without manual selection."
+      },
+      "errors": "No visual change if objects don't overlap or in wireframe view. Requires object selection first.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 77,
+        "errors": 24
+      }
+    },
+    "-BringToFront": {
+      "command": "-BringToFront",
+      "family": "Unknown",
+      "quick": "-BringToFront | Moves objects to front of display order | Only affects visual appearance, not geometry hierarchy",
+      "contexts": {
+        "overlapping_objects": "Use when objects overlap and you need specific ones visible on top. Combine with selection filters like _SelLast for efficiency.",
+        "technical_drawings": "Essential for controlling line precedence in 2D drawings. May need to repeat after geometry changes.",
+        "presentation_views": "Arrange elements for clear visual hierarchy. Remember display order is viewport-specific."
+      },
+      "errors": "Fails silently if no objects selected. Changes invisible with identical colors/materials. Display order resets with some viewport operations.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 79,
+        "errors": 35
+      }
+    },
+    "-Cage": {
+      "command": "-Cage",
+      "family": "Unknown",
+      "quick": "Toggles cage control point display for objects with cage deformation applied",
+      "contexts": {
+        "modeling": "Use to show/hide cage control points when editing deformed objects. Essential for precise cage-based modeling workflows.",
+        "visualization": "Toggle cage display to reduce visual clutter when not actively editing cage deformations. Helps focus on object geometry.",
+        "editing": "Must have cage deformation already applied to objects. Use with CageEdit for active modification of cage control points."
+      },
+      "errors": "No visible effect if no caged objects exist. Cage points may be hard to see when overlapping geometry.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 90,
+        "errors": 25
+      }
+    },
+    "-CageEdit": {
+      "command": "-CageEdit",
+      "family": "Unknown",
+      "quick": "-CageEdit: Deforms objects using manipulable control cage. Modifies originals, not copies.",
+      "contexts": {
+        "modeling": "Essential for organic shape modification. Create cage around object, then manipulate cage points to deform geometry smoothly.",
+        "precision": "Use with restraint - aggressive cage manipulation causes unwanted distortion. Test on copies first.",
+        "workflow": "Command-line version bypasses UI dialogs. Select objects first, then cage appears for manipulation."
+      },
+      "errors": "Over-manipulation creates mesh distortion. Complex geometry may fail or produce unexpected results.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 79,
+        "errors": 24
+      }
+    },
+    "-Distribute": {
+      "command": "-Distribute",
+      "family": "Unknown",
+      "quick": "_-Distribute: Select objects first, then choose AlongCurve/Linear distribution method",
+      "contexts": {
+        "linear_spacing": "Use Linear with Distance option for precise spacing between two points. Number option divides the distance evenly among objects.",
+        "curve_distribution": "AlongCurve requires selecting a curve after objects. Objects are positioned at equal parameter intervals along the curve path.",
+        "copy_vs_move": "Default moves original objects to new positions. Use Copy=Yes to keep originals and create distributed copies instead.",
+        "object_orientation": "Objects maintain their original orientation during distribution. Use Orient command afterward if rotation is needed."
+      },
+      "errors": "Fails if no objects selected initially. AlongCurve fails without valid curve selection. Distance/Number conflicts require choosing one method.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 121,
+        "errors": 35
+      }
+    },
+    "-DragMode": {
+      "command": "-DragMode",
+      "family": "Unknown",
+      "quick": "_-DragMode UVN|World|CPlane|View - Sets global drag behavior, affects all future moves",
+      "contexts": {
+        "modeling": "Use CPlane for predictable local moves, World for global positioning. UVN useful for surface-relative adjustments",
+        "precision": "World mode gives consistent XYZ movement regardless of view angle. CPlane respects your working plane orientation",
+        "workflow": "Set once at session start or when switching between 2D/3D work. Affects Move, Gumball, and all drag operations"
+      },
+      "errors": "Unexpected movement directions when CPlane orientation differs from expectation. Mode persists globally until changed",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 83,
+        "errors": 29
+      }
+    },
+    "-DragStrength": {
+      "command": "-DragStrength",
+      "family": "Unknown",
+      "quick": "_-DragStrength <value> | Sets drag deformation intensity (0-100) | Persists until changed",
+      "contexts": {
+        "surface_editing": "Controls how much surfaces deform during drag operations - start with moderate values (20-50) for predictable results",
+        "mesh_modeling": "Higher values work better on dense meshes, lower values on simple surfaces - test incrementally to avoid extreme deformations",
+        "precision_work": "Use low values (5-15) for subtle adjustments, disable with 0 when precise positioning needed without deformation"
+      },
+      "errors": "Extreme values cause uncontrollable deformation | Zero disables drag effects | Setting persists globally",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 22,
+        "contexts": 88,
+        "errors": 26
+      }
+    },
+    "-Flow": {
+      "command": "-Flow",
+      "family": "Unknown",
+      "quick": "-Flow: Fluid dynamics simulation on geometry. Requires closed surfaces/solids for proper boundaries.",
+      "contexts": {
+        "cfd_analysis": "Use closed solids as flow boundaries. Set proper units first - affects Reynolds numbers. Complex geometry = longer computation time.",
+        "boundary_setup": "Select flow domain geometry with -Flow _SelLast. Ensure watertight surfaces to define inlet/outlet/wall boundaries correctly.",
+        "performance": "Simplify geometry before analysis to reduce computation time. Use _SelPrev to rerun with modified parameters on same geometry."
+      },
+      "errors": "Open surfaces fail boundary definition. Wrong units corrupt flow physics. Complex meshes timeout or crash.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 95,
+        "errors": 26
+      }
+    },
+    "-Gumball": {
+      "command": "-Gumball",
+      "family": "Unknown",
+      "quick": "-Gumball | Utility command with hyphen prefix - runs non-interactively",
+      "contexts": {
+        "default": "Single execution utility function. Hyphen prefix ensures non-interactive mode. May not produce visible geometric results - likely system/plugin related functionality."
+      },
+      "errors": "Omitting hyphen changes behavior. May fail if expected plugin/system components unavailable.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 41,
+        "errors": 23
+      }
+    },
+    "-Maelstrom": {
+      "command": "-Maelstrom",
+      "family": "Unknown",
+      "quick": "-Maelstrom | Requires selection | Interactive dialogue prompts",
+      "contexts": {
+        "default": "Applies maelstrom transformation through interactive dialogue. Use _SelLast to auto-select recent objects. Multiple prompts require manual input - not fully scriptable without parameters."
+      },
+      "errors": "Fails without selection. May destroy original geometry. Cannot automate without parameter specification.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 46,
+        "errors": 26
+      }
+    },
+    "-Orient": {
+      "command": "-Orient",
+      "family": "Unknown",
+      "quick": "-Orient: Transform objects via 3-point coordinate systems. Order matters: source 3 points, then target 3 points.",
+      "contexts": {
+        "precise_positioning": "Use object snaps for accurate point selection. Consider using construction geometry to establish clear reference points for complex orientations.",
+        "architectural": "Excellent for positioning building elements. Use grid intersections or known coordinates as reference points for consistent placement.",
+        "mechanical": "Perfect for aligning parts in assemblies. Establish datum points on both source and target to ensure proper fit and orientation."
+      },
+      "errors": "Objects vanish if oriented far from view. Wrong point order scrambles transformation. Missing snaps cause imprecise placement.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 101,
+        "errors": 31
+      }
+    },
+    "-Project": {
+      "command": "-Project",
+      "family": "Unknown",
+      "quick": "-Project: Projects objects onto plane/surface. Avoid parallel directions to object.",
+      "contexts": {
+        "cplane_projection": "Use construction plane option for quick flattening to current CPlane. Maintains object relationships.",
+        "surface_projection": "Select target surface first, then objects. Verify surface accessibility and normal orientation.",
+        "view_projection": "Projects in current view direction. Useful for creating 2D representations from 3D models.",
+        "direction_vector": "Specify exact direction with coordinates. Ensure vector is not parallel to projection plane."
+      },
+      "errors": "Fails with parallel projection directions, inaccessible targets, or degenerate geometry results.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 93,
+        "errors": 24
+      }
+    },
+    "-Pull": {
+      "command": "-Pull",
+      "family": "Unknown",
+      "quick": "-Pull: Move selected objects along direction/toward point | Must select objects first",
+      "contexts": {
+        "modeling": "Pull faces/edges to modify geometry. Direction vector controls uniform movement. Use with specific distance for precision.",
+        "transformation": "Non-dialog version of Pull for scripting. Requires pre-selection. Direction affects all objects identically.",
+        "scripting": "Batch pull operations without UI interruption. Combine with selection commands like _SelLast for automation."
+      },
+      "errors": "Fails without selection. Direction conflicts with object constraints cause failures.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 84,
+        "errors": 21
+      }
+    },
+    "-ReleaseFromCage": {
+      "command": "-ReleaseFromCage",
+      "family": "Unknown",
+      "quick": "Releases objects from cage deformation control. Objects must be currently caged.",
+      "contexts": {
+        "default": "Select caged objects to release from deformation control. The cage remains but objects return to uncaged state. No interactive options available."
+      },
+      "errors": "Fails if objects aren't under cage control. Released objects lose cage deformation permanently.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 36,
+        "errors": 23
+      }
+    },
+    "-SendBackward": {
+      "command": "-SendBackward",
+      "family": "Unknown",
+      "quick": "-SendBackward: Moves objects backward in display order. Requires selection, only visual effect.",
+      "contexts": {
+        "default": "Select objects first, then run command. Use _SelLast to automatically select most recent objects. Changes only affect visual layering when objects overlap in current view."
+      },
+      "errors": "No visible change if objects don't overlap in view or in wireframe mode. Command fails without selection.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 42,
+        "errors": 26
+      }
+    },
+    "-SendToBack": {
+      "command": "-SendToBack",
+      "family": "Unknown",
+      "quick": "_-SendToBack _SelLast | Moves selected objects behind others in display order",
+      "contexts": {
+        "overlapping_objects": "Changes visual layering when objects overlap in view - affects display order only, not 3D position",
+        "selection_workflow": "Requires pre-selected objects or use _SelLast to target most recent selection automatically",
+        "display_management": "Part of drawing order commands - use with SendToFront, BringForward, SendBackward for layer control"
+      },
+      "errors": "Fails silently if no objects selected. Effect invisible if objects don't overlap in current view",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 70,
+        "errors": 24
+      }
+    },
+    "-SetPt": {
+      "command": "-SetPt",
+      "family": "Unknown",
+      "quick": "-SetPt: Move objects by base\u2192target points | Needs selection first",
+      "contexts": {
+        "precision_modeling": "Use for exact point-to-point positioning when coordinates matter more than visual alignment",
+        "copy_operations": "Add Copy option to duplicate at new location while keeping original in place",
+        "multiple_targets": "Use Multiple option to place copies at several locations from same base point",
+        "object_alignment": "Alternative to Move when you need precise point reference rather than distance/direction"
+      },
+      "errors": "Fails without selection | Movement happens immediately after target point",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 82,
+        "errors": 18
+      }
+    },
+    "-Shear": {
+      "command": "-Shear",
+      "family": "Unknown",
+      "quick": "-Shear: select objects > origin point > direction > angle/ratio. Origin placement critical for result.",
+      "contexts": {
+        "modeling": "Use Copy option to preserve originals when experimenting. Choose origin carefully - it's the anchor point that doesn't move during shear.",
+        "parametric": "Shear transformations can break parametric relationships. Consider if maintaining history is important before applying.",
+        "precision": "Use Ratio option for exact mathematical shearing. Angle mode uses degrees and may be more intuitive for visual adjustments."
+      },
+      "errors": "Fails if shear direction equals shear axis. Complex curves may distort unexpectedly. Requires valid geometry selection.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 93,
+        "errors": 29
+      }
+    },
+    "-Smash": {
+      "command": "-Smash",
+      "family": "Unknown",
+      "quick": "-Smash breaks objects into fragments. Destructive - backup first.",
+      "contexts": {
+        "default": "Standard smash breaks selected objects into constituent parts or fragments. Use _SelLast/_SelAll for selection shortcuts. Operation is immediate after confirmation."
+      },
+      "errors": "Destructive operation cannot be easily undone. Results vary by object type - some may not fragment as expected.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 41,
+        "errors": 27
+      }
+    },
+    "-Stretch": {
+      "command": "-Stretch",
+      "family": "Unknown",
+      "quick": "-Stretch: Reverse stretch command. Requires selection first, interactive prompts for base point/direction/scale.",
+      "contexts": {
+        "modeling": "Use for inverse stretch operations on geometry. Select objects first, then specify base point and stretch parameters through interactive dialogue.",
+        "automation": "Combine with _SelLast for scripting: '-Stretch _SelLast'. Handle interactive prompts programmatically for base point and scale factor.",
+        "troubleshooting": "Minus prefix indicates alternative behavior vs standard Stretch. Ensure proper object selection before execution to avoid command failure."
+      },
+      "errors": "Fails without valid selection. Interactive dialogue can timeout. Dramatic geometry changes if wrong parameters entered.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 28,
+        "contexts": 103,
+        "errors": 29
+      }
+    },
+    "-Taper": {
+      "command": "-Taper",
+      "family": "Unknown",
+      "quick": "-Taper: Select objects \u2192 specify axis \u2192 set scale factor. Dash bypasses UI dialogs.",
+      "contexts": {
+        "modeling": "Use for creating tapered forms like table legs, lamp bases, or architectural elements. Preview before accepting to avoid unwanted distortion.",
+        "scripting": "Dash prefix ensures command-line operation without UI interruptions. Combine with _SelLast for automated workflows.",
+        "precision": "Taper axis direction is critical - incorrect orientation produces unexpected results. Define base point carefully to control which end stays fixed."
+      },
+      "errors": "Fails on unsupported geometry types. Extreme taper ratios cause severe distortion or invalid geometry.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 99,
+        "errors": 25
+      }
+    },
+    "-Twist": {
+      "command": "-Twist",
+      "family": "Unknown",
+      "quick": "-Twist: Select objects > axis start/end points > angle. Axis direction affects twist direction.",
+      "contexts": {
+        "modeling": "Progressive rotation along axis creates helical deformation. Use shorter axes for tighter twists, longer for gradual curves.",
+        "parametric": "Twist angle distributes evenly along axis length. Consider axis placement for desired deformation center.",
+        "complex_geometry": "Large angles risk self-intersection. Test with small increments on complex surfaces or solids."
+      },
+      "errors": "Self-intersecting geometry from excessive angles. Wrong twist direction from reversed axis orientation.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 23,
+        "contexts": 80,
+        "errors": 25
+      }
+    },
+    "-SetUserText": {
+      "command": "-SetUserText",
+      "family": "Unknown",
+      "quick": "Syntax: _-SetUserText [key] [value] | Keys are case-sensitive, overwrites existing",
+      "contexts": {
+        "default": "Select objects then enter key-value pairs. Use for custom metadata like material types, part numbers, or project info. Keys case-sensitive, values can be empty but avoid for clarity."
+      },
+      "errors": "No selection fails silently. Case mismatches create duplicate keys. Empty values allowed but confusing later.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 45,
+        "errors": 27
+      }
+    },
+    "-GetUserText": {
+      "command": "-GetUserText",
+      "family": "Unknown",
+      "quick": "_-GetUserText: Retrieves user-defined text from selected objects. Objects must have user text attached.",
+      "contexts": {
+        "default": "Select objects with attached user text data. Command displays text key-value pairs but doesn't modify objects. Use _SelLast for quick access to recently modified objects."
+      },
+      "errors": "Empty results if objects lack user text. Selection required - command fails without objects selected.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 42,
+        "errors": 25
+      }
+    },
+    "-SetDocumentUserText": {
+      "command": "-SetDocumentUserText",
+      "family": "Unknown",
+      "quick": "-SetDocumentUserText <key> <value> | Keys/values with spaces need quotes",
+      "contexts": {
+        "default": "Sets document metadata key-value pairs. Use quotes for spaced keys/values. Overwrites existing keys. Case-sensitive key names."
+      },
+      "errors": "Unquoted spaces break parsing. Key overwrites lose previous values.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 18,
+        "contexts": 31,
+        "errors": 16
+      }
+    },
+    "-GetDocumentUserText": {
+      "command": "-GetDocumentUserText",
+      "family": "Unknown",
+      "quick": "_-GetDocumentUserText [key] | Case-sensitive keys | Returns nothing if key missing",
+      "contexts": {
+        "scripting": "Use for automated document metadata retrieval. Check return value for empty results before processing.",
+        "batch_processing": "Omit key parameter to dump all entries for analysis. Parse output carefully as format may vary.",
+        "data_validation": "Verify key existence before retrieval operations. Case sensitivity often causes lookup failures."
+      },
+      "errors": "Silent failure on missing keys. No error message, just empty return. Case mismatch is common cause.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 20,
+        "contexts": 72,
+        "errors": 24
+      }
+    },
+    "-SelUserText": {
+      "command": "-SelUserText",
+      "family": "Unknown",
+      "quick": "_-SelUserText | Selects objects with user text data. Clears existing selection first.",
+      "contexts": {
+        "data_management": "Use to find objects with custom metadata. Helpful for filtering objects by attached information before batch operations.",
+        "quality_control": "Quickly identify which objects have documentation or custom properties attached. Useful for checking data completeness.",
+        "automation": "Essential for scripts that need to process only objects with specific user text data. Combine with other selection filters."
+      },
+      "errors": "Returns empty selection if no objects have user text. Won't select objects with only names/layer assignments.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 89,
+        "errors": 27
+      }
+    },
+    "-Layer": {
+      "command": "-Layer",
+      "family": "Unknown",
+      "quick": "_-Layer _New <name> | _Set <name> | _On/_Off <name> | _Lock/_Unlock <name>. Names are case-sensitive.",
+      "contexts": {
+        "new": "Creates layer with optional color: _-Layer _New MyLayer _Color 255,0,0. Color values 0-255 RGB format.",
+        "set": "Sets active layer for new objects: _-Layer _Set LayerName. Must exist first or command fails.",
+        "visibility": "_On/_Off controls layer visibility. Hidden layers still exist, objects just not displayed.",
+        "locking": "_Lock/_Unlock prevents/allows selection and modification. Locked objects visible but untouchable."
+      },
+      "errors": "Non-existent layer names fail silently. Invalid color values (>255 or non-integer) rejected. Case mismatch causes failures.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 25,
+        "contexts": 94,
+        "errors": 30
+      }
+    },
+    "-ChangeLayer": {
+      "command": "-ChangeLayer",
+      "family": "Unknown",
+      "quick": "_-ChangeLayer _SelLast TargetLayer | Target layer must exist first",
+      "contexts": {
+        "default": "Moves selected objects to specified layer. Objects keep all properties except layer. Use _SelLast for last created objects or select manually first."
+      },
+      "errors": "Fails if target layer doesn't exist, is locked/frozen, or has spaces without quotes",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 37,
+        "errors": 20
+      }
+    },
+    "-ChangeToCurrentLayer": {
+      "command": "-ChangeToCurrentLayer",
+      "family": "Unknown",
+      "quick": "Moves selected objects to current active layer. Syntax: -ChangeToCurrentLayer",
+      "contexts": {
+        "default": "Interactive selection mode. Prompts to select objects, then moves them to whatever layer is currently active. Can combine with selection filters like _SelLast or _SelAll for efficiency."
+      },
+      "errors": "Fails if current layer is locked/hidden, or selected objects are on locked layers. Hidden objects won't be selectable without special selection commands.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 19,
+        "contexts": 46,
+        "errors": 38
+      }
+    },
+    "-CopyToLayer": {
+      "command": "-CopyToLayer",
+      "family": "Unknown",
+      "quick": "-CopyToLayer [objects] [layer] | Creates duplicates on target layer, originals stay put",
+      "contexts": {
+        "organization": "Duplicates geometry across layers for different design iterations or backup copies while preserving originals",
+        "workflow": "Use when you need the same objects on multiple layers - common for creating layer-based design alternatives",
+        "automation": "Can create new layers automatically if they don't exist, making it useful for scripted workflows"
+      },
+      "errors": "Dash prefix means no dialog - typos in layer names create unwanted layers; overlapping duplicates if run repeatedly",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 21,
+        "contexts": 77,
+        "errors": 28
+      }
+    },
+    "-OneLayerOn": {
+      "command": "-OneLayerOn",
+      "family": "Unknown",
+      "quick": "-OneLayerOn LayerName | Isolates one layer, hides all others",
+      "contexts": {
+        "modeling": "Quick isolation for working on specific geometry without visual clutter from other layers",
+        "drafting": "Focus on single drawing layer while hiding construction lines, dimensions, or annotations",
+        "analysis": "Isolate objects by layer for measurement, inspection, or modification without interference"
+      },
+      "errors": "Nonexistent layer names fail silently; all other layers hidden including important references",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 15,
+        "contexts": 66,
+        "errors": 23
+      }
+    },
+    "-OneLayerOff": {
+      "command": "-OneLayerOff",
+      "family": "Unknown",
+      "quick": "Hides one layer. Cannot turn off current active layer - switch first.",
+      "contexts": {
+        "default": "Prompts to select layer by name or picker. Use exact case-sensitive names when typing directly."
+      },
+      "errors": "Fails silently on current layer. No effect if layer already hidden.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 23,
+        "errors": 16
+      }
+    },
+    "-SelObjectsOnLayer": {
+      "command": "-SelObjectsOnLayer",
+      "family": "Unknown",
+      "quick": "_-SelObjectsOnLayer <LayerName> | Hidden/locked objects won't select",
+      "contexts": {
+        "layer_management": "Essential for isolating work to specific layers. Use with ShowSelected/HideSelected for layer-based workflows. Combine with SelNone first to ensure clean selection.",
+        "object_filtering": "Part of selection toolkit alongside SelObjectType, SelVisible. Layer visibility affects results - ensure target layer is visible before selecting.",
+        "batch_operations": "Select all layer objects before applying transformations, material changes, or deletions. Useful for layer cleanup and organization tasks."
+      },
+      "errors": "Misspelled layer names result in no selection. Hidden/locked objects ignored. Layer must exist in document or command fails silently.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 17,
+        "contexts": 111,
+        "errors": 33
+      }
+    },
+    "-Trim": {
+      "command": "-Trim",
+      "family": "Unknown",
+      "quick": "_-Trim | Inverted selection vs standard Trim",
+      "contexts": {
+        "default": "Select cutting objects first, then objects to trim. Negative prefix changes selection behavior from standard Trim.",
+        "cuttingobjects=no": "_-Trim _CuttingObjects=No skips cutting object selection, goes directly to selecting objects to trim.",
+        "no_cutting_objects": "Trim without boundaries - select objects to trim directly, useful for self-trimming operations."
+      },
+      "errors": "Fails if expecting standard Trim behavior - negative prefix inverts selection sequence",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 11,
+        "contexts": 76,
+        "errors": 21
+      }
+    },
+    "-Fillet": {
+      "command": "-Fillet",
+      "family": "Unknown",
+      "quick": "_-Fillet _Radius {value} | Must set radius BEFORE selecting edges",
+      "contexts": {
+        "edge_filleting": "Works on polysurface edges. Radius limited by smallest adjacent face dimension. Complex intersections may fail with large radii.",
+        "curve_filleting": "Creates arc transitions between curves. Both curves must be in same plane. Radius affects how much of original curves gets trimmed.",
+        "surface_filleting": "Creates blend surfaces between surfaces. More complex than edge fillets. Consider Join=Yes to merge results automatically."
+      },
+      "errors": "Fails if radius > smallest geometry dimension. Complex intersections fail with large radii. No radius set = no operation.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 16,
+        "contexts": 94,
+        "errors": 30
+      }
+    },
+    "-Chamfer": {
+      "command": "-Chamfer",
+      "family": "Unknown",
+      "quick": "Sets chamfer parameters first, then prompts for edge selection. Distances measured along surfaces, not chamfer width.",
+      "contexts": {
+        "distances": "Use _Distances for asymmetric chamfers with different values on each side of edge. First distance applies to first selected surface.",
+        "uniform": "Default mode applies same distance to both sides. Use _Distance option to explicitly set uniform value.",
+        "angle": "Use _Angle option to define chamfer by one distance and angle instead of two distances for more intuitive control."
+      },
+      "errors": "Fails when distances exceed available surface area or are too small/large relative to edge length.",
+      "similar_commands": [],
+      "token_estimate": {
+        "quick": 29,
+        "contexts": 86,
+        "errors": 24
+      }
+    }
+  }
+}

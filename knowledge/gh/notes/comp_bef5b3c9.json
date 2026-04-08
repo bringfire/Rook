@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_bef5b3c9",
+  "note_type": "component",
+  "name": "Surface Points",
+  "brief": "Surface Points | Inputs: S → P, W, G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Surface Points. Inputs: S (Surface). Outputs: P (Point), W (Number), G (Point), U (Integer), V (Integer).",
+  "keywords": [
+    "surface points",
+    "surface",
+    "points",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "surface points",
+    "surface",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Points"
+  ],
+  "solution_principle": "Get the control-points of a Nurbs Surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c9b05711",
+    "comp_d6ac8cfa",
+    "comp_28af3654",
+    "comp_c525b1a1",
+    "comp_570eb369"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "15128198-399d-4d6c-9586-1f65db3ce7bf",
+    "category": "surface_analysis",
+    "inputs": {
+      "S": "Surface"
+    },
+    "outputs": {
+      "P": "Point",
+      "W": "Number",
+      "G": "Point",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|surface points"
+  }
+}

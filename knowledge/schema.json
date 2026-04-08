@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rook Knowledge Graph",
+  "description": "NetworkX node_link_data format for GraphRAG knowledge storage",
+  "type": "object",
+  "required": ["directed", "multigraph", "nodes", "links"],
+  "properties": {
+    "directed": {
+      "type": "boolean",
+      "const": true
+    },
+    "multigraph": {
+      "type": "boolean",
+      "const": false
+    },
+    "graph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "created": { "type": "string", "format": "date-time" },
+        "updated": { "type": "string", "format": "date-time" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique node identifier, format: type:name",
+            "pattern": "^(intent|action|pattern|antipattern|context):[a-z0-9_]+$"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["intent", "action", "pattern", "antipattern", "context"]
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Semantic labels for intent matching"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "tool": {
+            "type": "string",
+            "description": "MCP tool name (for action nodes)"
+          },
+          "params": {
+            "type": "object",
+            "description": "Parameter key-value pairs (for pattern/antipattern)"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Terse explanation"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Why this is an antipattern"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5,
+            "description": "Confidence weight"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["canonical", "local", "session"],
+            "default": "canonical"
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relation"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Source node id"
+          },
+          "target": {
+            "type": "string",
+            "description": "Target node id"
+          },
+          "relation": {
+            "type": "string",
+            "enum": ["solved_by", "requires", "avoid", "when", "supersedes", "corrected_by"]
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1.0
+          },
+          "context": {
+            "type": "string",
+            "maxLength": 100
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "note_id": "comp_20bf3279",
+  "note_type": "component",
+  "name": "Button",
+  "brief": "Button | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-03-19T15:47:50.491316Z",
+  "context": "Grasshopper component: Button. ",
+  "keywords": [
+    "button",
+    "unknown",
+    "button"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "button",
+    "reset"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Button"
+  ],
+  "solution_principle": "Button | Inputs: none → output",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a8b97322-2d53-47cd-905e-b932c3ccd74e",
+    "category": "unknown",
+    "inputs": {},
+    "outputs": {},
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|input|button"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

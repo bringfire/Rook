@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_8e643df3",
+  "note_type": "component",
+  "name": "Simplify Tree",
+  "brief": "Simplify Tree | Inputs: T, F → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Simplify Tree. Inputs: T (Generic Data), F (Boolean). Outputs: T (Generic Data).",
+  "keywords": [
+    "simplify tree",
+    "simplify",
+    "tree",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "simplify tree",
+    "simplify",
+    "tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Simplify Tree"
+  ],
+  "solution_principle": "Simplify a data tree by removing the overlap shared amongst all branches.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e163e947",
+    "comp_9390569c",
+    "comp_6e8f5e48",
+    "comp_d547bd03",
+    "comp_eddf9472",
+    "comp_609c22e2",
+    "comp_9cc0adac",
+    "comp_50ed8e56",
+    "comp_2ea906f3",
+    "comp_a92595dd",
+    "comp_d2a1e0b8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1303da7b-e339-4e65-a051-82c4dce8224d",
+    "category": "tree_operations",
+    "inputs": {
+      "T": "Generic Data",
+      "F": "Boolean"
+    },
+    "outputs": {
+      "T": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "071c3940-a12d-4b77-bb23-42b5d3314a0d"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|simplify tree"
+  }
+}

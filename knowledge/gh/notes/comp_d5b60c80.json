@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_d5b60c80",
+  "note_type": "component",
+  "name": "removeDuplicatePts",
+  "brief": "removeDuplicatePts | Inputs: P, t → Q",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: removeDuplicatePts. Inputs: P (Point), t (Number). Outputs: Q (Point).",
+  "keywords": [
+    "removeduplicatepts",
+    "kangaroo2_utility"
+  ],
+  "category": "kangaroo2_utility",
+  "tags": [
+    "kangaroo2_utility"
+  ],
+  "trigger_intents": [
+    "removeduplicatepts",
+    "remove",
+    "duplicate",
+    "pts"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "removeDuplicatePts"
+  ],
+  "solution_principle": "Removes similar points from a list",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ea65cfe",
+    "comp_6e9a9654",
+    "recipe_08d50032",
+    "recipe_130f6b1d",
+    "recipe_6ba5ea93",
+    "comp_e0f50326",
+    "comp_e8f5fb4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5e2f9e3f-d467-46f6-870c-6fa7cd01e1ed",
+    "category": "kangaroo2_utility",
+    "inputs": {
+      "P": "Point",
+      "t": "Number"
+    },
+    "outputs": {
+      "Q": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5b882297-9063-439e-82b9-70961f743c5d"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|utility|removeduplicatepts"
+  }
+}

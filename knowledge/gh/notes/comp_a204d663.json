@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_a204d663",
+  "note_type": "component",
+  "name": "Diamond Panels",
+  "brief": "Diamond Panels | Inputs: Srf, U, V → Diamonds, Triangles",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Diamond Panels. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: Diamonds (Generic Data), Triangles (Generic Data).",
+  "keywords": [
+    "diamond panels",
+    "diamond",
+    "panels",
+    "lunchbox_panels"
+  ],
+  "category": "lunchbox_panels",
+  "tags": [
+    "lunchbox_panels"
+  ],
+  "trigger_intents": [
+    "diamond panels",
+    "diamond",
+    "panels"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Diamond Panels"
+  ],
+  "solution_principle": "Creates diamond panels on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6ae4ed88",
+    "teaching_97771130",
+    "teaching_0df0144b",
+    "teaching_3fd97f53",
+    "teaching_90de351e",
+    "comp_b1640d53",
+    "comp_bcbf180c",
+    "comp_d184690d",
+    "comp_fb66c313"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8582bf30-b78b-4d21-b4cf-f744a84af497",
+    "category": "lunchbox_panels",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "Diamonds": "Generic Data",
+      "Triangles": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "797e3a90-16e6-4cfc-9a0b-d0d494d9d598"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|panels|diamond panels"
+  }
+}

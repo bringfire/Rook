@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_50ed8e56",
+  "note_type": "component",
+  "name": "Trim Tree",
+  "brief": "Trim Tree | Inputs: T, D → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Trim Tree. Inputs: T (Generic Data), D (Integer). Outputs: T (Generic Data).",
+  "keywords": [
+    "trim tree",
+    "trim",
+    "tree",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "trim tree",
+    "trim",
+    "tree"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Trim Tree"
+  ],
+  "solution_principle": "Reduce the complexity of a tree by merging the outermost branches.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8e643df3",
+    "comp_d547bd03",
+    "comp_eddf9472",
+    "comp_609c22e2",
+    "comp_9cc0adac"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1177d6ee-3993-4226-9558-52b7fd63e1e3",
+    "category": "tree_operations",
+    "inputs": {
+      "T": "Generic Data",
+      "D": "Integer"
+    },
+    "outputs": {
+      "T": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7991bc5f-8a01-4768-bfb0-a39357ac6b84",
+      "46372d0d-82dc-4acb-adc3-25d1fde04c4e"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|trim tree"
+  }
+}

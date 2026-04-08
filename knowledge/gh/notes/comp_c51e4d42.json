@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_c51e4d42",
+  "note_type": "component",
+  "name": "Fit Curve",
+  "brief": "Fit Curve | Inputs: C, D, Ft → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Fit Curve. Inputs: C (Curve), D (Integer), Ft (Number). Outputs: C (Curve).",
+  "keywords": [
+    "fit curve",
+    "fit",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "fit curve",
+    "fit",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Fit Curve"
+  ],
+  "solution_principle": "Fit a curve along another curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_7d656ef6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a3f9f19e-3e6c-4ac7-97c3-946de32c3e8e",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "D": "Integer",
+      "Ft": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9333c5b3-11f9-423c-bbb5-7e5156430219"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|fit curve"
+  }
+}

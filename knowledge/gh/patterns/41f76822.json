@@ -1,0 +1,360 @@
+{
+  "pattern_id": "41f76822",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T20:46:51.469915Z",
+  "solution": {
+    "brief": "Parametric workflow with 9 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "GhPython Script",
+      "GhPython Script",
+      "slider",
+      "Sphere",
+      "Populate Geometry",
+      "GhPython Script",
+      "Toggle",
+      "Timer",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Button",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a sphere",
+      "parametric sphere"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:32:00.052092Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 17 wires -> 18 components, 17 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 2000,
+          "value": 1000
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.22
+        },
+        {
+          "id": "R10",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Swarm Intelligence.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "GhPython Script",
+          "pos": [
+            475,
+            89
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "GhPython Script",
+          "pos": [
+            879,
+            335
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            375.3,
+            156.3
+          ],
+          "min": 0,
+          "max": 2000,
+          "value": 1000
+        },
+        {
+          "id": "R4",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            489,
+            232
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            589,
+            233
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "GhPython Script",
+          "pos": [
+            1261,
+            129
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            966,
+            124
+          ],
+          "value": true
+        },
+        {
+          "id": "R8",
+          "type": "Timer",
+          "name": "Timer",
+          "pos": [
+            1154,
+            287
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            461.3,
+            307.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.22
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "pos": [
+            461.3,
+            331.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            461.3,
+            488.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            461.3,
+            358.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            461.3,
+            384.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            461.2,
+            410.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.5
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            461.4,
+            437.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            461.9,
+            462
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R17",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            588,
+            532
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            967,
+            163
+          ],
+          "value": true
+        }
+      ],
+      "flows": [
+        "R1.O1>R2.I0",
+        "R5.O0>R2.I1",
+        "R9.O0>R2.I2",
+        "R10.O0>R2.I3",
+        "R12.O0>R2.I4",
+        "R13.O0>R2.I5",
+        "R14.O0>R2.I6",
+        "R15.O0>R2.I7",
+        "R16.O0>R2.I8",
+        "R11.O0>R2.I9",
+        "R17.O0>R2.I10",
+        "R4.O0>R5.I0",
+        "R3.O0>R5.I1",
+        "R1.O1>R6.I0",
+        "R2.O1>R6.I1",
+        "R7.O0>R6.I2",
+        "R18.O0>R6.I3"
+      ],
+      "subgraphs": []
+    }
+  }
+}

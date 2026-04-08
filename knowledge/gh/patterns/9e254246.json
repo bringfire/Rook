@@ -1,0 +1,75 @@
+{
+  "pattern_id": "9e254246",
+  "name": "wasp_33_teaching_WASP_PARTS_FOR_DISCO",
+  "version": "1.0",
+  "created": "2026-03-19T18:50:19.367637Z",
+  "solution": {
+    "brief": "WASP PARTS FOR DISCO\r\nDisCo works in meters, so the Rhino file should\r\nalso be in meters, and the size of the parts should\r\nbe compatible to what can be manipulated in VR.",
+    "principle": "",
+    "components_needed": [
+      "Brep",
+      "Wasp_Update File",
+      "Point",
+      "Curve",
+      "Wasp_Connection From Direction"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "should",
+      "file",
+      "parts",
+      "disco",
+      "also",
+      "works",
+      "meters,",
+      "wasp",
+      "rhino"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

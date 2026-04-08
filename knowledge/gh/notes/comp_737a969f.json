@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_737a969f",
+  "note_type": "component",
+  "name": "Centermark",
+  "brief": "Centermark | Inputs: C, P, Cv, t → C, P, Cp",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Centermark. Inputs: C (Radial Centermark), P (Plane), Cv (Curve), t (Number), As (Model Annotation Style). Outputs: C (Radial Centermark), P (Plane), Cp (Point), R (Number), As (Model Annotation Style).",
+  "keywords": [
+    "centermark",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "centermark"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Centermark"
+  ],
+  "solution_principle": "Centermark",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_6e038908",
+    "comp_c63df18b",
+    "comp_e4c56a6c",
+    "comp_375a03ab"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "413327a1-b01a-4de2-a9f1-71cfdce98e47",
+    "category": "rhino_annotations",
+    "inputs": {
+      "C": "Radial Centermark",
+      "P": "Plane",
+      "Cv": "Curve",
+      "t": "Number",
+      "As": "Model Annotation Style"
+    },
+    "outputs": {
+      "C": "Radial Centermark",
+      "P": "Plane",
+      "Cp": "Point",
+      "R": "Number",
+      "As": "Model Annotation Style"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|centermark"
+  }
+}

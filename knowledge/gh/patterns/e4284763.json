@@ -1,0 +1,80 @@
+{
+  "pattern_id": "e4284763",
+  "name": "wasp_05_collider_teaching_2._Define_Aggregatio",
+  "version": "1.0",
+  "created": "2026-03-19T17:27:02.215504Z",
+  "solution": {
+    "brief": "2. Define Aggregation Start Point\r\nBy using the TransformPart component, it is possible to apply\r\ncustom transformations to a part, positioning it in the right location\r\nto define the aggregation starting point.\r\nThe tranformed part (or parts) can then be provided as input in\r\nthe PREV input of the Aggregation component.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "Unit X",
+      "Wasp_Basic Part",
+      "Move",
+      "NumberSlider",
+      "Wasp_Transform Part",
+      "Unit X",
+      "Rotate 3D"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "possible",
+      "apply",
+      "custom",
+      "define",
+      "component,",
+      "point",
+      "using",
+      "transformpart",
+      "aggregation",
+      "start"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "collision",
+    "containment",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

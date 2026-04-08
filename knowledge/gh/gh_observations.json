@@ -1,0 +1,355 @@
+{
+  "version": "1.0",
+  "description": "Investigation observations for GH components - captures hypothesis-driven exploration",
+  "created": "2026-01-25",
+  "last_updated": "2026-01-25T20:50:24.313023Z",
+  "observations": {
+    "gh_obs_4a7148d5debf": {
+      "id": "gh_obs_4a7148d5debf",
+      "timestamp": "2026-01-25T20:41:37.122870Z",
+      "session_id": "pipe_cap_type_investigation",
+      "component_guid": "adeadd58-4e28-46ed-853a-b590507d892e",
+      "component_name": "Pipe",
+      "attempt": 1,
+      "hypothesis": "Providing curve input and E=5 should trigger the cap type error since only 0, 1, 2 are valid",
+      "intent": "Find valid cap type values for Pipe component",
+      "config": {
+        "C": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "E": {
+          "type": "integer",
+          "value": 5
+        }
+      },
+      "result": {
+        "status": "error",
+        "outputs": {
+          "Pipe": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [
+          "Invalid cap type. Only 0, 1 and 2 are allowed"
+        ],
+        "warnings": []
+      },
+      "learned": "E (cap type) must be 0, 1, or 2. Values >2 cause 'Invalid cap type' error. 0=none (open), 1=flat, 2=round.",
+      "previous_attempt_id": null
+    },
+    "gh_obs_c6852bfe14e3": {
+      "id": "gh_obs_c6852bfe14e3",
+      "timestamp": "2026-01-25T20:41:49.490969Z",
+      "session_id": "pipe_cap_type_investigation",
+      "component_guid": "adeadd58-4e28-46ed-853a-b590507d892e",
+      "component_name": "Pipe",
+      "attempt": 2,
+      "hypothesis": "Error says only 0, 1, 2 allowed. E=0 should mean no caps (open pipe).",
+      "intent": "Find valid cap type values for Pipe component",
+      "config": {
+        "C": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "E": {
+          "type": "integer",
+          "value": 0
+        }
+      },
+      "result": {
+        "status": "success",
+        "outputs": {
+          "Pipe": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": []
+      },
+      "learned": "E (cap type) must be 0, 1, or 2. Values >2 cause 'Invalid cap type' error. 0=none (open), 1=flat, 2=round.",
+      "previous_attempt_id": "gh_obs_4a7148d5debf"
+    },
+    "gh_obs_615bbea5716b": {
+      "id": "gh_obs_615bbea5716b",
+      "timestamp": "2026-01-25T20:46:52.769599Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "4b87eb13-f87c-4ff1-ae0e-6c9f1f2aecbd",
+      "component_name": "Unknown",
+      "attempt": 1,
+      "hypothesis": "Error says 'Blend type is invalid'. Like Pipe cap type, B likely accepts small integers 0, 1, 2. Testing B=0 as starting point.",
+      "intent": "Find valid blend type and metric type values for Fillet Edge",
+      "config": {
+        "S": {
+          "type": "surface",
+          "source": "Sphere"
+        },
+        "B": {
+          "type": "integer",
+          "value": 0
+        },
+        "M": {
+          "type": "integer",
+          "value": 0
+        },
+        "R": {
+          "type": "number",
+          "value": 1
+        }
+      },
+      "result": {
+        "status": "error",
+        "outputs": {
+          "Result": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [
+          "You may not specify more radii than edge indices."
+        ],
+        "warnings": []
+      },
+      "learned": "",
+      "previous_attempt_id": null
+    },
+    "gh_obs_820d303311c9": {
+      "id": "gh_obs_820d303311c9",
+      "timestamp": "2026-01-25T20:47:10.682529Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "4b87eb13-f87c-4ff1-ae0e-6c9f1f2aecbd",
+      "component_name": "Unknown",
+      "attempt": 2,
+      "hypothesis": "Error says 'more radii than edge indices'. Need to specify E (edge index). Sphere has 4 edges (0-3). Try E=0 to fillet first edge.",
+      "intent": "Find valid blend type and metric type values for Fillet Edge",
+      "config": {
+        "S": {
+          "type": "surface",
+          "source": "Sphere"
+        },
+        "B": {
+          "type": "integer",
+          "value": 0
+        },
+        "M": {
+          "type": "integer",
+          "value": 0
+        },
+        "E": {
+          "type": "integer",
+          "value": 0
+        },
+        "R": {
+          "type": "number",
+          "value": 0.5
+        }
+      },
+      "result": {
+        "status": "error",
+        "outputs": {
+          "Result": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [
+          "Fillet edge operation failed."
+        ],
+        "warnings": []
+      },
+      "learned": "",
+      "previous_attempt_id": "gh_obs_615bbea5716b"
+    },
+    "gh_obs_5cd4f73e395f": {
+      "id": "gh_obs_5cd4f73e395f",
+      "timestamp": "2026-01-25T20:49:08.209554Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "component_name": "Unknown",
+      "attempt": 1,
+      "hypothesis": "Sweep1 warning says 'Invalid miter type'. Like other enum params, M likely accepts 0, 1, 2. Testing M=0.",
+      "intent": "Find valid miter type values for Sweep1",
+      "config": {
+        "R": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "S": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "M": {
+          "type": "integer",
+          "value": 0
+        }
+      },
+      "result": {
+        "status": "success",
+        "outputs": {
+          "Brep": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": []
+      },
+      "learned": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+      "previous_attempt_id": null
+    },
+    "gh_obs_2e56c290e631": {
+      "id": "gh_obs_2e56c290e631",
+      "timestamp": "2026-01-25T20:49:25.393977Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "component_name": "Unknown",
+      "attempt": 2,
+      "hypothesis": "M=0 works. Testing M=1 to find all valid miter types.",
+      "intent": "Find valid miter type values for Sweep1",
+      "config": {
+        "R": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "S": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "M": {
+          "type": "integer",
+          "value": 1
+        }
+      },
+      "result": {
+        "status": "success",
+        "outputs": {
+          "Brep": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": []
+      },
+      "learned": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+      "previous_attempt_id": "gh_obs_5cd4f73e395f"
+    },
+    "gh_obs_86d3d0047c5b": {
+      "id": "gh_obs_86d3d0047c5b",
+      "timestamp": "2026-01-25T20:49:43.073839Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "component_name": "Unknown",
+      "attempt": 3,
+      "hypothesis": "M=0 and M=1 work. Testing M=5 to trigger 'Invalid miter type' and confirm upper bound.",
+      "intent": "Find valid miter type values for Sweep1",
+      "config": {
+        "R": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "S": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "M": {
+          "type": "integer",
+          "value": 5
+        }
+      },
+      "result": {
+        "status": "warning",
+        "outputs": {
+          "Brep": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": [
+          "Invalid miter type"
+        ]
+      },
+      "learned": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+      "previous_attempt_id": "gh_obs_2e56c290e631"
+    },
+    "gh_obs_a2a8791cf329": {
+      "id": "gh_obs_a2a8791cf329",
+      "timestamp": "2026-01-25T20:50:02.879362Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "component_name": "Unknown",
+      "attempt": 4,
+      "hypothesis": "M=0,1 valid, M=5 invalid. Testing M=2 to find upper bound of valid miter types.",
+      "intent": "Find valid miter type values for Sweep1",
+      "config": {
+        "R": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "S": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "M": {
+          "type": "integer",
+          "value": 2
+        }
+      },
+      "result": {
+        "status": "success",
+        "outputs": {
+          "Brep": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": []
+      },
+      "learned": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+      "previous_attempt_id": "gh_obs_86d3d0047c5b"
+    },
+    "gh_obs_c6c4f7e0047f": {
+      "id": "gh_obs_c6c4f7e0047f",
+      "timestamp": "2026-01-25T20:50:24.313015Z",
+      "session_id": "unknown_investigation_20260125",
+      "component_guid": "bb6666e7-d0f4-41ec-a257-df2371619f13",
+      "component_name": "Unknown",
+      "attempt": 5,
+      "hypothesis": "M=0,1,2 valid. Testing M=3 to confirm the upper bound.",
+      "intent": "Find valid miter type values for Sweep1",
+      "config": {
+        "R": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "S": {
+          "type": "curve",
+          "source": "Circle"
+        },
+        "M": {
+          "type": "integer",
+          "value": 3
+        }
+      },
+      "result": {
+        "status": "warning",
+        "outputs": {
+          "Brep": {
+            "type": "Brep",
+            "count": 0
+          }
+        },
+        "errors": [],
+        "warnings": [
+          "Invalid miter type"
+        ]
+      },
+      "learned": "M (miter type) must be 0, 1, or 2. Values >=3 trigger 'Invalid miter type' warning. 0=None, 1=Trimmed, 2=Rotated (based on Rhino sweep conventions).",
+      "previous_attempt_id": "gh_obs_a2a8791cf329"
+    }
+  }
+}

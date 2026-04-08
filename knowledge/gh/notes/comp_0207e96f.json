@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_0207e96f",
+  "note_type": "component",
+  "name": "SubD Box",
+  "brief": "SubD Box | Inputs: B, D, C \u2192 S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: SubD Box. Inputs: B (Box), D (Integer), C (Boolean). Outputs: S (SubD).",
+  "keywords": [
+    "subd box",
+    "subd",
+    "box",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd box",
+    "sub",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD Box"
+  ],
+  "solution_principle": "Create a subdivision box",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e7712cc1",
+    "comp_4c7b012f",
+    "comp_d1f4bc67",
+    "comp_a08bb022",
+    "comp_eae3ae94",
+    "comp_f0650611",
+    "comp_8d440de0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "10487e4e-a405-48b5-b188-5a8a6328418b",
+    "category": "subd_ops",
+    "inputs": {
+      "B": "Box",
+      "D": "Integer",
+      "C": "Boolean"
+    },
+    "outputs": {
+      "S": "SubD"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4bfe1bf6-fbc9-4ad2-bf28-a7402e1392ee"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd box",
+    "family": "subd_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

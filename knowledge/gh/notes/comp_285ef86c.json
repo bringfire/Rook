@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_285ef86c",
+  "note_type": "component",
+  "name": "Equality",
+  "brief": "Equality | Inputs: A, B → =, ≠",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Equality. Inputs: A (Number), B (Number). Outputs: = (Boolean), ≠ (Boolean).",
+  "keywords": [
+    "equality",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "equality"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Equality"
+  ],
+  "solution_principle": "Test for (in)equality of two numbers",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8c2fe922",
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_464d3c31",
+    "comp_05f4e5c2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5db0fb89-4f22-4f09-a777-fa5e55aed7ec",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Number",
+      "B": "Number"
+    },
+    "outputs": {
+      "=": "Boolean",
+      "≠": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "30d58600-1aab-42db-80a3-f1ea6c4269a0"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|operators|equality"
+  }
+}

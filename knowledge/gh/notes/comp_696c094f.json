@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_696c094f",
+  "note_type": "component",
+  "name": "Cone",
+  "brief": "Cone | Inputs: B, R, L → C, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Cone. Inputs: B (Plane), R (Number), L (Number). Outputs: C (Surface), T (Point).",
+  "keywords": [
+    "cone",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "cone"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cone"
+  ],
+  "solution_principle": "Create a conical surface",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_28632a9a",
+    "comp_7d5c54d0",
+    "comp_e3e04d00",
+    "comp_ffd7ba8d",
+    "comp_6d34b2c0",
+    "comp_66286a67"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "03e331ed-c4d1-4a23-afa2-f57b87d2043c",
+    "category": "primitives",
+    "inputs": {
+      "B": "Plane",
+      "R": "Number",
+      "L": "Number"
+    },
+    "outputs": {
+      "C": "Surface",
+      "T": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0373008a-80ee-45be-887d-ab5a244afc29"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|cone"
+  }
+}

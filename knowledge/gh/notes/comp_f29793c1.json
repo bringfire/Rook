@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_f29793c1",
+  "note_type": "component",
+  "name": "Range",
+  "brief": "Range | Inputs: D, N â†’ R",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Range. Inputs: D (Domain), N (Integer). Outputs: R (Number).",
+  "keywords": [
+    "range",
+    "range"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "component",
+    "number-generation",
+    "series",
+    "sequence",
+    "counting",
+    "fundamental-operation",
+    "range-control",
+    "parametric-input",
+    "numeric-sequence"
+  ],
+  "trigger_intents": [
+    "range"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Range"
+  ],
+  "solution_principle": "Create a range of numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_2f6660b2",
+    "recipe_155ea82b",
+    "recipe_1c4628ff",
+    "recipe_130f6b1d",
+    "teaching_64feecee"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9445ca40-cc73-4861-a455-146308676855",
+    "category": "sequence_ops",
+    "inputs": {
+      "D": "Domain",
+      "N": "Integer"
+    },
+    "outputs": {
+      "R": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 356,
+    "stable_key": "sets|sequence|range"
+  }
+}

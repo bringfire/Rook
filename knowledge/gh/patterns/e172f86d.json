@@ -1,0 +1,64 @@
+{
+  "pattern_id": "e172f86d",
+  "name": "teaching_Aggregating the higher level p",
+  "version": "1.0",
+  "created": "2026-03-19T19:25:25.706307Z",
+  "solution": {
+    "brief": "Aggregating the higher level part",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "level",
+      "higher",
+      "part",
+      "aggregating"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

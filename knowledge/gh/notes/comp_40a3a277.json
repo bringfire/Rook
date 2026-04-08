@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_40a3a277",
+  "note_type": "component",
+  "name": "Launch Application",
+  "brief": "Launch Application | Inputs: Launch, Path → out",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Launch Application. Inputs: Launch (Boolean), Path (Text). Outputs: out (Generic Data).",
+  "keywords": [
+    "launch application",
+    "launch",
+    "application",
+    "lunchbox_workflow"
+  ],
+  "category": "lunchbox_workflow",
+  "tags": [
+    "lunchbox_workflow"
+  ],
+  "trigger_intents": [
+    "launch application",
+    "launch",
+    "application"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Launch Application"
+  ],
+  "solution_principle": "Launch an external application or file",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5186d211-40eb-4af0-a2fb-a4fb640f4ca3",
+    "category": "lunchbox_workflow",
+    "inputs": {
+      "Launch": "Boolean",
+      "Path": "Text"
+    },
+    "outputs": {
+      "out": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3c822206-4de9-484f-9ccb-8bc5b563ccff"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|workflow|launch application"
+  }
+}

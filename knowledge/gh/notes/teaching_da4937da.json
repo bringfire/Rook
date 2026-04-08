@@ -1,0 +1,119 @@
+{
+  "note_id": "teaching_da4937da",
+  "note_type": "teaching",
+  "name": "U08 - Section 0",
+  "brief": "Teaching section from Unit-08-Class",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.262309Z",
+  "context": "",
+  "keywords": [
+    "surface",
+    "mesh surface",
+    "numberslider",
+    "unit 08 class"
+  ],
+  "category": "Unit 08",
+  "tags": [
+    "unit-08",
+    "advanced",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "annotated",
+    "section-0",
+    "introduction",
+    "requires-U07"
+  ],
+  "trigger_intents": [
+    "how to use surface",
+    "how to use mesh surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Mesh Surface",
+    "NumberSlider"
+  ],
+  "solution_principle": "Section from Unit-08-Class demonstrating Surface, Mesh Surface, NumberSlider",
+  "anti_patterns": [],
+  "preconditions": [
+    "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then co"
+  ],
+  "postconditions": [],
+  "links": [
+    "teaching_2918522f",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "teaching_220e8091",
+    "teaching_f12729f0",
+    "teaching_4f2b9009"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.262309Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-08-Class",
+    "unit_number": 8,
+    "section_number": null,
+    "section_index": 0,
+    "x_range": [
+      36.9,
+      474.5
+    ],
+    "full_teaching_text": "",
+    "sub_annotations": [
+      {
+        "id": "C311",
+        "text": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!\r\n\r\nHowever, we can use \"Face Boundaries\" component and then convert them to NURBS by using \"Boundary Surfaces\"! We are now able to choose the Faces!",
+        "topic": "When we want to manipulate the Mesh Faces, the \"Deconstruct Mesh\" component is not useful to choose the Faces >> List item does NOT work!",
+        "pos": [
+          133.4,
+          720.4
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C306",
+      "C307",
+      "C308"
+    ],
+    "intra_section_flows": [
+      "C306.O0>C307.I0",
+      "C308.O0>C307.I1",
+      "C308.O0>C307.I2"
+    ],
+    "groups": [
+      {
+        "group_id": "G13",
+        "name": "",
+        "colour": "#FFFFFF96"
+      },
+      {
+        "group_id": "G72",
+        "name": "",
+        "colour": "#FF333396"
+      }
+    ],
+    "components_demonstrated": {
+      "Surface": 1,
+      "Mesh Surface": 1,
+      "NumberSlider": 1
+    },
+    "stats": {
+      "teaching_panels": 0,
+      "sub_annotations": 1,
+      "working_components": 3,
+      "sub_labels": 2,
+      "connected_panels": 0,
+      "flows": 3,
+      "groups": 2
+    }
+  }
+}

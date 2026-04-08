@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_3c3e5309",
+  "note_type": "component",
+  "name": "VB Script",
+  "brief": "VB Script | Inputs: x, y → out, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: VB Script. Inputs: x (Generic Data), y (Generic Data). Outputs: out (Text), A (Generic Data).",
+  "keywords": [
+    "vb script",
+    "vb",
+    "script",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "vb script",
+    "script"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "VB Script"
+  ],
+  "solution_principle": "A VB.NET scriptable component",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1866ccd7",
+    "comp_49e4b5da",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_de846cdf",
+    "comp_9dd86c9d",
+    "comp_e953e26a",
+    "comp_0cfc313f",
+    "comp_314da057",
+    "comp_a1655c21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "079bd9bd-54a0-41d4-98af-db999015f63d",
+    "category": "scripting",
+    "inputs": {
+      "x": "Generic Data",
+      "y": "Generic Data"
+    },
+    "outputs": {
+      "out": "Text",
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "88c3f2b5-27f7-48a2-9528-1397fad62b93",
+      "719467e6-7cf5-4848-99b0-c5dd57e5442c",
+      "97aa26ef-88ae-4ba6-98a6-ed6ddeca11d1"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|script|vb script"
+  }
+}

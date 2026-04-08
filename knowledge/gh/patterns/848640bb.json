@@ -1,0 +1,65 @@
+{
+  "pattern_id": "848640bb",
+  "name": "teaching_Visualization of Edges Attribu",
+  "version": "1.0",
+  "created": "2026-03-19T19:25:25.696715Z",
+  "solution": {
+    "brief": "Visualization of Edges Attribute",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Get Attribute by Name",
+      "Wasp_Stochastic Aggregation",
+      "Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "attribute",
+      "visualization",
+      "edges"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

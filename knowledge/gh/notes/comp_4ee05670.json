@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_4ee05670",
+  "note_type": "component",
+  "name": "Random",
+  "brief": "Random | Inputs: R, N, S → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Random. Inputs: R (Domain), N (Integer), S (Integer). Outputs: R (Generic Data).",
+  "keywords": [
+    "random",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "random"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Random"
+  ],
+  "solution_principle": "Generate a list of pseudo random numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a84bec2b",
+    "comp_bd229a26",
+    "comp_398fe067",
+    "comp_bea3c0dc",
+    "comp_31bd5de8",
+    "comp_e201f286",
+    "comp_7507500e",
+    "comp_01c8f0b3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2ab17f9a-d852-4405-80e1-938c5e57e78d",
+    "category": "sequence_ops",
+    "inputs": {
+      "R": "Domain",
+      "N": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a12dddbf-bb49-4ef4-aeb8-5653bc882cbd",
+      "455925fd-23ff-4e57-a0e7-913a4165e659"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|random"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_23c0d526",
+  "note_type": "component",
+  "name": "DeconstructPlankton",
+  "brief": "DeconstructPlankton | Inputs: PMesh → V, V_He, He_V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: DeconstructPlankton. Inputs: PMesh (PlanktonMesh). Outputs: V (Point), V_He (Integer), He_V (Integer), He_F (Integer), He_Nxt (Integer), He_Prv (Integer), He_P (Integer), F_He (Integer).",
+  "keywords": [
+    "deconstructplankton",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "deconstructplankton",
+    "deconstruct",
+    "plankton"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "DeconstructPlankton"
+  ],
+  "solution_principle": "Decompose a plankton mesh into its topology information",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "97c28a7c-5d5a-4b3d-a935-b8730e88749b",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "PMesh": "PlanktonMesh"
+    },
+    "outputs": {
+      "V": "Point",
+      "V_He": "Integer",
+      "He_V": "Integer",
+      "He_F": "Integer",
+      "He_Nxt": "Integer",
+      "He_Prv": "Integer",
+      "He_P": "Integer",
+      "F_He": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "047097d1-83bd-4f76-9994-dff721c24047"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|deconstructplankton"
+  }
+}

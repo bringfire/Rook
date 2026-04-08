@@ -1,0 +1,220 @@
+{
+  "note_id": "teaching_035b3907",
+  "note_type": "teaching",
+  "name": "U02 - Rotation",
+  "brief": "Teaching: Rotation",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.258773Z",
+  "context": "2- Rotation:\r\n\r\n- Check out the below \"Rotate\" components.\r\nThey have the same name, however each one has a different function:\r\n- Rotate an object in a plane.\r\n- Rotate an object around an axis.\r\n- Rotate an object in 3D.\r\n\r\nEach of these \"Rotate\" components need different kinds of INPUTS.\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Using your knowledge in Grasshopper, use each of the three \"Rotate\" components below to rotate things.\r\n\r\n- You can use the \"Volume\" compon",
+  "keywords": [
+    "rotation",
+    "rotate",
+    "rotate 3d",
+    "rotate axis",
+    "radians",
+    "numberslider",
+    "geometry",
+    "volume",
+    "xy plane",
+    "xz plane",
+    "yz plane",
+    "line",
+    "point on curve",
+    "unit 02 class",
+    "angle",
+    "conversion",
+    "from",
+    "degrees",
+    "resultant",
+    "use",
+    "centroid",
+    "planes"
+  ],
+  "category": "Unit 02",
+  "tags": [
+    "unit-02",
+    "beginner",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "multi-group",
+    "rotation",
+    "resultant",
+    "use centroid",
+    "planes of rotation",
+    "transformation",
+    "geometry-basics"
+  ],
+  "trigger_intents": [
+    "rotation",
+    "how to use rotation",
+    "how to use rotate",
+    "how to use rotate 3d",
+    "how to use rotate axis",
+    "how to use radians",
+    "how to use geometry",
+    "how to use volume",
+    "how to use xy plane",
+    "how to use xz plane",
+    "how to use yz plane",
+    "how to use line",
+    "how to use point on curve",
+    "check out the below \"rotate\" components",
+    "rotate",
+    "rotate an object in a plane",
+    "rotate an object around an axis",
+    "rotate an object in 3d",
+    "volume",
+    "radians"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate",
+    "Rotate 3D",
+    "Rotate Axis",
+    "Radians",
+    "NumberSlider",
+    "Geometry",
+    "Volume",
+    "XY Plane",
+    "XZ Plane",
+    "YZ Plane",
+    "Line",
+    "Point On Curve"
+  ],
+  "solution_principle": "2- Rotation:\r\n\r\n- Check out the below \"Rotate\" components.\r\nThey have the same name, however each one has a different function:\r\n- Rotate an object in a plane.\r\n- Rotate an object around an axis.\r\n- Rotate an object in 3D.\r\n\r\nEach of these \"Rotate\" components need different kinds of INPUTS.\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Using your knowledge in Grasshopper, use each of the three \"Rotate\" components below to rotate things.\r\n\r\n- You can use the \"Volume\" component to extract the Centroid of the geometry, to be used as the center of Rotation.\r\nActually in Grasshopper, both the \"AREA\" & \"VOLUME\" components provide the respective CENTER & CENTROID of the respective curves and solids, in addition to providing the area and volume.\r\n\r\n\r\nRotation Angle: Degree vs. Radian:\r\n\r\n- Degrees and Radians are different angle measurement conventions.\r\n- Grasshopper's default angle convention is radians. However, this can be easily switched to degrees if you prefer using degrees...\r\n- Type \"Radians\" and choose \"Radians\".\r\n- This component converts the DEGREE INPUT to RADIANS OUTPUT (which can be used to feed the other angular INTPUTS that require RADIANS.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_fcbdb34a",
+    "teaching_062630c1",
+    "teaching_336d7638",
+    "teaching_567ea1e1",
+    "teaching_eeef070a",
+    "teaching_26b87a73",
+    "comp_1294644e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.258773Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-02-Class",
+    "unit_number": 2,
+    "section_number": 2,
+    "section_index": 2,
+    "x_range": [
+      2122.4,
+      3532.3
+    ],
+    "full_teaching_text": "2- Rotation:\r\n\r\n- Check out the below \"Rotate\" components.\r\nThey have the same name, however each one has a different function:\r\n- Rotate an object in a plane.\r\n- Rotate an object around an axis.\r\n- Rotate an object in 3D.\r\n\r\nEach of these \"Rotate\" components need different kinds of INPUTS.\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Using your knowledge in Grasshopper, use each of the three \"Rotate\" components below to rotate things.\r\n\r\n- You can use the \"Volume\" component to extract the Centroid of the geometry, to be used as the center of Rotation.\r\nActually in Grasshopper, both the \"AREA\" & \"VOLUME\" components provide the respective CENTER & CENTROID of the respective curves and solids, in addition to providing the area and volume.\r\n\r\n\r\nRotation Angle: Degree vs. Radian:\r\n\r\n- Degrees and Radians are different angle measurement conventions.\r\n- Grasshopper's default angle convention is radians. However, this can be easily switched to degrees if you prefer using degrees...\r\n- Type \"Radians\" and choose \"Radians\".\r\n- This component converts the DEGREE INPUT to RADIANS OUTPUT (which can be used to feed the other angular INTPUTS that require RADIANS.",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C21",
+      "C22",
+      "C23",
+      "C41",
+      "C42",
+      "C43",
+      "C46",
+      "C47",
+      "C48",
+      "C51",
+      "C53",
+      "C56",
+      "C156",
+      "C165",
+      "C166",
+      "C167",
+      "C319",
+      "C322"
+    ],
+    "intra_section_flows": [
+      "C46.O0>C21.I1",
+      "C156.O1>C21.I2",
+      "C43.O0>C22.I1",
+      "C322.O0>C22.I2",
+      "C319.O0>C22.I3",
+      "C42.O0>C23.I1",
+      "C46.O0>C41.I0",
+      "C47.O0>C42.I0",
+      "C48.O0>C43.I0",
+      "C51.O0>C60.I0",
+      "C156.O1>C165.I0",
+      "C156.O1>C166.I0",
+      "C156.O1>C167.I0"
+    ],
+    "groups": [
+      {
+        "group_id": "G79",
+        "name": "Rotation",
+        "colour": "#FF333396"
+      },
+      {
+        "group_id": "G80",
+        "name": "Angle conversion from Degrees to Radians",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G54",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G53",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G52",
+        "name": "",
+        "colour": "#00FFFB"
+      },
+      {
+        "group_id": "G77",
+        "name": "Resultant",
+        "colour": "#33AAFF"
+      },
+      {
+        "group_id": "G99",
+        "name": "Use Centroid",
+        "colour": "#FF00AE"
+      },
+      {
+        "group_id": "G27",
+        "name": "Planes of rotation",
+        "colour": "#FF000096"
+      }
+    ],
+    "components_demonstrated": {
+      "Rotate": 1,
+      "Rotate 3D": 1,
+      "Rotate Axis": 1,
+      "Radians": 3,
+      "NumberSlider": 3,
+      "Geometry": 3,
+      "Volume": 1,
+      "XY Plane": 1,
+      "XZ Plane": 1,
+      "YZ Plane": 1,
+      "Line": 1,
+      "Point On Curve": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 18,
+      "sub_labels": 1,
+      "connected_panels": 1,
+      "flows": 13,
+      "groups": 8
+    }
+  }
+}

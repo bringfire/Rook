@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_262f1d29",
+  "note_type": "component",
+  "name": "Curve Frame",
+  "brief": "Curve Frame | Inputs: C, t → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Curve Frame. Inputs: C (Curve), t (Number). Outputs: F (Plane).",
+  "keywords": [
+    "curve frame",
+    "curve",
+    "frame",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "curve frame",
+    "curve",
+    "frame"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Frame"
+  ],
+  "solution_principle": "Get the curvature frame of a curve at a specified parameter.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_bf71cfc8",
+    "comp_3ab80c58",
+    "comp_07cd32cc",
+    "comp_fb45532b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6b2a5853-07aa-4329-ba84-0a5d46b51dbd",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "t": "Number"
+    },
+    "outputs": {
+      "F": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a1c16251-74f0-400f-9e7c-5e379d739963"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|curve frame"
+  }
+}

@@ -1,0 +1,280 @@
+{
+  "pattern_id": "2d21626e",
+  "name": "unnamed2",
+  "version": "1.0",
+  "created": "2026-02-22T14:24:29.316256Z",
+  "solution": {
+    "brief": "Recipe from FILES\\9\\unnamed2.gh (13 components)",
+    "principle": "",
+    "components_needed": [
+      "Square",
+      "slider",
+      "slider",
+      "Point",
+      "MetaBall(t) Custom",
+      "Curve Closest Point",
+      "Remap+",
+      "slider",
+      "slider",
+      "Series",
+      "Construct Point",
+      "slider",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unnamed2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "68d8cb33",
+    "0fbec7ad",
+    "91aa15f3"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "13-components",
+    "recipe",
+    "surface-creation",
+    "low-complexity",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.15
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7.98
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.45
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/9/unnamed2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            323,
+            155
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            85.1,
+            182.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            100.3,
+            145.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R4",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            411.6,
+            175.2
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "MetaBallComponentThresholdEx",
+          "nick": "MetaBall(t)",
+          "name": "MetaBall(t) Custom",
+          "pos": [
+            704,
+            195
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            415,
+            287
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            570,
+            363
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            314.8,
+            361.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.15
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            320,
+            385.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7.98
+        },
+        {
+          "id": "R10",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            505,
+            74
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            592,
+            54
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            276,
+            35.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.45
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            280.4,
+            62.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        }
+      ],
+      "flows": [
+        "R3.O0>R1.I1",
+        "R2.O0>R1.I2",
+        "R2.O0>R1.I3",
+        "R4.O0>R5.I0",
+        "R7.O0>R5.I1",
+        "R11.O0>R5.I2",
+        "R4.O0>R6.I0",
+        "R6.O2>R7.I0",
+        "R8.O0>R7.I1",
+        "R9.O0>R7.I2",
+        "R12.O0>R10.I1",
+        "R13.O0>R10.I2",
+        "R10.O0>R11.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

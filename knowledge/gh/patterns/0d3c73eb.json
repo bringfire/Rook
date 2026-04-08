@@ -1,0 +1,75 @@
+{
+  "pattern_id": "0d3c73eb",
+  "name": "wasp_11_teaching_RULE_GENERATOR_#01",
+  "version": "1.0",
+  "created": "2026-03-19T17:41:50.889859Z",
+  "solution": {
+    "brief": "RULE GENERATOR #01\r\nThe RuleGenerator component allows to quickly\r\ngenerate aggregation rules without the need to\r\ntype them one by one.\r\nBy default, the Generator creates rules between\r\neach part and each connection available in the\r\naggregation.\r\nThe SELF_P input allows to decide if a part is allowed\r\nto connect to itself (Must be True for aggregations with\r\nonly one part type).\r\nThe SELF_C input allows to decide if a connection is \r\nallowed to connect to itself.",
+    "principle": "",
+    "components_needed": [
+      "Toggle",
+      "Toggle",
+      "Wasp_Rules Generator",
+      "Wasp_Basic Part",
+      "Merge"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "generator",
+      "without",
+      "aggregation",
+      "rule",
+      "quickly",
+      "rules",
+      "rulegenerator",
+      "allows",
+      "component",
+      "generate"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

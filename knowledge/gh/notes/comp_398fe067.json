@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_398fe067",
+  "note_type": "component",
+  "name": "Duplicate Data",
+  "brief": "Duplicate Data | Inputs: D, N, O → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Duplicate Data. Inputs: D (Generic Data), N (Integer), O (Boolean). Outputs: D (Generic Data).",
+  "keywords": [
+    "duplicate data",
+    "duplicate",
+    "data",
+    "sequence_ops"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "sequence_ops"
+  ],
+  "trigger_intents": [
+    "duplicate data",
+    "duplicate",
+    "data"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Duplicate Data"
+  ],
+  "solution_principle": "Duplicate data a predefined number of times.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a84bec2b",
+    "comp_bd229a26",
+    "comp_e201f286",
+    "comp_4ee05670",
+    "comp_31bd5de8",
+    "comp_bea3c0dc",
+    "comp_7507500e",
+    "comp_01c8f0b3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "dd8134c0-109b-4012-92be-51d843edfff7",
+    "category": "sequence_ops",
+    "inputs": {
+      "D": "Generic Data",
+      "N": "Integer",
+      "O": "Boolean"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5fa4e736-0d82-4af0-97fb-30a79f4cbf41"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sequence|duplicate data"
+  }
+}

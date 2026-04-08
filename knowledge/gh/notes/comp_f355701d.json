@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_f355701d",
+  "note_type": "component",
+  "name": "Query Model Objects",
+  "brief": "Query Model Objects | Inputs: N, L, G, Lo → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Query Model Objects. Inputs: N (Text Pattern), L (Text Pattern), G (Text Pattern), Lo (Boolean), Ho (Boolean). Outputs: O (Model Object).",
+  "keywords": [
+    "query model objects",
+    "query",
+    "model",
+    "objects",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "query model objects",
+    "query",
+    "model",
+    "objects"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Objects"
+  ],
+  "solution_principle": "Query a Rhino document for all available model objects",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00e8e127",
+    "comp_6882f6f6",
+    "comp_e7c02afd",
+    "comp_525a73a1",
+    "comp_f0c75db8",
+    "comp_db0a14d5",
+    "comp_8333efcd",
+    "comp_509cab11"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3ed98048-ed09-41ef-b378-74c60c8d3e9a",
+    "category": "rhino_objects",
+    "inputs": {
+      "N": "Text Pattern",
+      "L": "Text Pattern",
+      "G": "Text Pattern",
+      "Lo": "Boolean",
+      "Ho": "Boolean"
+    },
+    "outputs": {
+      "O": "Model Object"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|query model objects"
+  }
+}

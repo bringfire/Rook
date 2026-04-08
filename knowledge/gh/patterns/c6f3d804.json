@@ -1,0 +1,1260 @@
+{
+  "pattern_id": "c6f3d804",
+  "name": "parametric_surface-creation_point-sequence",
+  "version": "1.0",
+  "created": "2026-02-02T20:32:45.162881Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Circle",
+      "slider",
+      "Random",
+      "Construct Domain",
+      "Scale",
+      "Construct Point",
+      "slider",
+      "slider",
+      "slider",
+      "Division",
+      "panel",
+      "Unit Z",
+      "Move",
+      "Unit Z",
+      "Circle",
+      "Random",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Move",
+      "Merge",
+      "Duplicate Data",
+      "Loft",
+      "Cap Holes",
+      "Number",
+      "Number",
+      "KMeans Clustering",
+      "Feature TensorSet",
+      "Remap TSet",
+      "Feature TensorSet",
+      "Remap TSet",
+      "Deconstruct TensorSet",
+      "Deconstruct TensorSet",
+      "Deconstruct Tensor",
+      "Deconstruct Tensor",
+      "DataTree to TensorSet",
+      "Merge",
+      "slider",
+      "slider",
+      "List Item",
+      "Flatten Tree",
+      "Series",
+      "List Length",
+      "slider",
+      "Unit X",
+      "Tree Statistics",
+      "List Length",
+      "Series",
+      "Unit Y",
+      "Graft Tree",
+      "Addition",
+      "Move",
+      "Radius Weight",
+      "Height Weight",
+      "slider",
+      "slider",
+      "Average TSet",
+      "Deconstruct TensorSet",
+      "Deconstruct Tensor",
+      "Mass Addition",
+      "Sort List",
+      "Group",
+      "Ungroup",
+      "Construct Point",
+      "Negative",
+      "slider",
+      "Move",
+      "Text Tag 3D",
+      "slider",
+      "Swatch",
+      "panel",
+      "Concatenate",
+      "Text",
+      "Text",
+      "panel",
+      "panel",
+      "Construct Point",
+      "Negative",
+      "slider",
+      "Text Tag 3D",
+      "slider",
+      "Series",
+      "panel",
+      "Integer",
+      "Range",
+      "Gradient",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "surface from curves",
+      "number sequence",
+      "range of values",
+      "loft curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "point-sequence"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:34:04.512035Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 96 wires -> 87 components, 96 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R39",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "min": 0,
+          "max": 200,
+          "value": 200
+        },
+        {
+          "id": "R53",
+          "nick": "Radius Weight",
+          "min": 0,
+          "max": 1,
+          "value": 0.78
+        },
+        {
+          "id": "R54",
+          "nick": "Height Weight",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 245
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 556
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 300,
+          "value": 157
+        },
+        {
+          "id": "R69",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R79",
+          "nick": "",
+          "min": 0,
+          "max": 300,
+          "value": 300
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 66
+        }
+      ],
+      "panels": [
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R71",
+          "nick": "",
+          "content": "[WEIGHT]\r\n"
+        },
+        {
+          "id": "R75",
+          "nick": "",
+          "content": "Height:"
+        },
+        {
+          "id": "R76",
+          "nick": "",
+          "content": "\r\nRadius:"
+        },
+        {
+          "id": "R83",
+          "nick": "",
+          "content": "1"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "Categorized Stool.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            611,
+            431
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            364.5,
+            456.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R3",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            601,
+            262
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            319,
+            282
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            717,
+            410
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            488,
+            387
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            57.5,
+            260.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            62.7,
+            289.6
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 200
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            167.9,
+            116.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R10",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            796,
+            272
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            659,
+            278.1
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R12",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            889,
+            272
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            925,
+            350
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            715,
+            344
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            605,
+            547
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            495,
+            621
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            320,
+            557
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "slider",
+          "pos": [
+            54.5,
+            530.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R19",
+          "type": "slider",
+          "pos": [
+            57.8,
+            562.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R20",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            926,
+            477
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1098,
+            340
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_DuplicateData",
+          "nick": "Dup",
+          "name": "Duplicate Data",
+          "pos": [
+            943,
+            174
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1210,
+            334
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_CapPlanarHoles",
+          "nick": "Cap",
+          "name": "Cap Holes",
+          "pos": [
+            1319,
+            330
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            831.5,
+            629.8
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            835.9,
+            725.7
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "PlaceholderComponent",
+          "name": "KMeans Clustering",
+          "pos": [
+            1614,
+            650
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "Feature TensorSet",
+          "pos": [
+            929,
+            629
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "PlaceholderComponent",
+          "name": "Remap TSet",
+          "pos": [
+            1049,
+            649
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "PlaceholderComponent",
+          "name": "Feature TensorSet",
+          "pos": [
+            922,
+            725
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "PlaceholderComponent",
+          "name": "Remap TSet",
+          "pos": [
+            1047,
+            745
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct TensorSet",
+          "pos": [
+            1160,
+            645
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct TensorSet",
+          "pos": [
+            1159,
+            745
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct Tensor",
+          "pos": [
+            1248,
+            645
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct Tensor",
+          "pos": [
+            1246,
+            741
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "PlaceholderComponent",
+          "name": "DataTree to TensorSet",
+          "pos": [
+            1497,
+            620
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1365,
+            678
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "slider",
+          "pos": [
+            1367.7,
+            756.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 7
+        },
+        {
+          "id": "R39",
+          "type": "slider",
+          "pos": [
+            1369.5,
+            810.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 1000
+        },
+        {
+          "id": "R40",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1685,
+            754
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            1434,
+            340
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2359,
+            788
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2263,
+            808
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "pos": [
+            1809.2,
+            855.4
+          ],
+          "min": 0,
+          "max": 200,
+          "value": 200
+        },
+        {
+          "id": "R45",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            2530,
+            788
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_TreeStatistics",
+          "nick": "TStat",
+          "name": "Tree Statistics",
+          "pos": [
+            2176,
+            709
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2261,
+            689
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2353,
+            672
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            2441,
+            676
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "GraftTreeComponent",
+          "nick": "Graft",
+          "name": "Graft Tree",
+          "pos": [
+            2531,
+            676
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            2653,
+            764
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2759,
+            737
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "slider",
+          "nick": "Radius Weight",
+          "pos": [
+            789.6,
+            858.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.78
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "nick": "Height Weight",
+          "pos": [
+            795.4,
+            671.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "pos": [
+            358.2,
+            314.5
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 245
+        },
+        {
+          "id": "R56",
+          "type": "slider",
+          "pos": [
+            260.2,
+            631.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 556
+        },
+        {
+          "id": "R57",
+          "type": "PlaceholderComponent",
+          "name": "Average TSet",
+          "pos": [
+            1726,
+            431
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct TensorSet",
+          "pos": [
+            1828,
+            431
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct Tensor",
+          "pos": [
+            1930,
+            431
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            2016,
+            431
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_SortList",
+          "nick": "Sort",
+          "name": "Sort List",
+          "pos": [
+            2139,
+            495
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "GroupGeometryComponent",
+          "name": "Group",
+          "pos": [
+            2029,
+            517
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "UngroupGeometryComponent",
+          "name": "Ungroup",
+          "pos": [
+            2073,
+            727
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            2187,
+            1024
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2090,
+            1004
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            1866.9,
+            994
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 157
+        },
+        {
+          "id": "R67",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2310,
+            1034
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "TextTag3DComponent",
+          "nick": "Tag",
+          "name": "Text Tag 3D",
+          "pos": [
+            2472,
+            1090
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "slider",
+          "pos": [
+            2218.4,
+            1118
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R70",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2276.2,
+            1174.3
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "panel",
+          "pos": [
+            1965.1,
+            1297.8
+          ],
+          "content": "[WEIGHT]\r\n"
+        },
+        {
+          "id": "R72",
+          "type": "Component_Concatenate",
+          "nick": "Concat",
+          "name": "Concatenate",
+          "pos": [
+            2189,
+            1359
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Param_String",
+          "nick": "Txt",
+          "name": "Text",
+          "pos": [
+            2041.4,
+            1427.5
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Param_String",
+          "nick": "Txt",
+          "name": "Text",
+          "pos": [
+            2045.9,
+            1512.5
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "panel",
+          "pos": [
+            1977.9,
+            1342.5
+          ],
+          "content": "Height:"
+        },
+        {
+          "id": "R76",
+          "type": "panel",
+          "pos": [
+            1979.1,
+            1454.4
+          ],
+          "content": "\r\nRadius:"
+        },
+        {
+          "id": "R77",
+          "type": "Component_ConstructPoint",
+          "nick": "Pt",
+          "name": "Construct Point",
+          "pos": [
+            2280,
+            1266
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            2183,
+            1246
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "slider",
+          "pos": [
+            1960.1,
+            1236
+          ],
+          "min": 0,
+          "max": 300,
+          "value": 300
+        },
+        {
+          "id": "R80",
+          "type": "TextTag3DComponent",
+          "nick": "Tag",
+          "name": "Text Tag 3D",
+          "pos": [
+            2482,
+            1317
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "slider",
+          "pos": [
+            2171.5,
+            1424.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 66
+        },
+        {
+          "id": "R82",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2322,
+            939
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "panel",
+          "pos": [
+            2209.3,
+            919.1
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R84",
+          "type": "Param_Integer",
+          "nick": "Int",
+          "name": "Integer",
+          "pos": [
+            2439.2,
+            933.4
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            2772,
+            830
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            2848,
+            781
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3164,
+            737
+          ]
+        }
+      ],
+      "flows": [
+        "R6.O0>R1.I0",
+        "R2.O0>R1.I1",
+        "R4.O0>R3.I0",
+        "R9.O0>R3.I1",
+        "R55.O0>R3.I2",
+        "R7.O0>R4.I0",
+        "R8.O0>R4.I1",
+        "R1.O0>R5.I0",
+        "R6.O0>R5.I1",
+        "R3.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R10.O0>R12.I0",
+        "R5.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R3.O0>R14.I0",
+        "R6.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R17.O0>R16.I0",
+        "R9.O0>R16.I1",
+        "R56.O0>R16.I2",
+        "R18.O0>R17.I0",
+        "R19.O0>R17.I1",
+        "R15.O0>R20.I0",
+        "R14.O0>R20.I1",
+        "R22.O0>R21.I0",
+        "R13.O0>R21.I1",
+        "R20.O0>R21.I2",
+        "R1.O0>R22.I0",
+        "R9.O0>R22.I1",
+        "R21.O0>R23.I0",
+        "R23.O0>R24.I0",
+        "R36.O0>R27.I0",
+        "R38.O0>R27.I1",
+        "R39.O0>R27.I2",
+        "R4.O0>R29.I1",
+        "R54.O0>R29.I2",
+        "R17.O0>R31.I1",
+        "R53.O0>R31.I2",
+        "R29.O0>R32.I0",
+        "R31.O0>R33.I0",
+        "R32.O0>R34.I0",
+        "R33.O0>R35.I0",
+        "R37.O0>R36.I0",
+        "R34.O0>R37.I0",
+        "R35.O0>R37.I1",
+        "R41.O0>R40.I0",
+        "R27.O1>R40.I1",
+        "R24.O0>R41.I0",
+        "R44.O0>R42.I1",
+        "R43.O0>R42.I2",
+        "R63.O0>R43.I0",
+        "R42.O0>R45.I0",
+        "R63.O0>R46.I0",
+        "R46.O0>R47.I0",
+        "R44.O0>R48.I1",
+        "R47.O0>R48.I2",
+        "R48.O0>R49.I0",
+        "R49.O0>R50.I0",
+        "R50.O0>R51.I0",
+        "R45.O0>R51.I1",
+        "R63.O0>R52.I0",
+        "R51.O0>R52.I1",
+        "R27.O0>R57.I0",
+        "R57.O0>R58.I0",
+        "R58.O0>R59.I0",
+        "R59.O0>R60.I0",
+        "R60.O0>R61.I0",
+        "R62.O0>R61.I1",
+        "R40.O0>R62.I0",
+        "R61.O1>R63.I0",
+        "R65.O0>R64.I0",
+        "R66.O0>R65.I0",
+        "R64.O0>R67.I0",
+        "R50.O0>R67.I1",
+        "R67.O0>R68.I0",
+        "R84.O0>R68.I1",
+        "R69.O0>R68.I2",
+        "R70.O0>R68.I3",
+        "R71.O0>R72.I0",
+        "R75.O0>R72.I1",
+        "R73.O0>R72.I2",
+        "R76.O0>R72.I3",
+        "R74.O0>R72.I4",
+        "R78.O0>R77.I0",
+        "R79.O0>R78.I0",
+        "R77.O0>R80.I0",
+        "R72.O0>R80.I1",
+        "R81.O0>R80.I2",
+        "R70.O0>R80.I3",
+        "R83.O0>R82.I0",
+        "R83.O0>R82.I1",
+        "R47.O0>R82.I2",
+        "R47.O0>R85.I1",
+        "R85.O0>R86.I2",
+        "R52.O0>R87.I0",
+        "R86.O0>R87.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

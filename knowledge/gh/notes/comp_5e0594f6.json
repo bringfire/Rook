@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_5e0594f6",
+  "note_type": "component",
+  "name": "Linear Array",
+  "brief": "Linear Array | Inputs: G, D, N → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Linear Array. Inputs: G (Geometry), D (Vector), N (Integer). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "linear array",
+    "linear",
+    "array",
+    "array_ops"
+  ],
+  "category": "array_ops",
+  "tags": [
+    "array_ops"
+  ],
+  "trigger_intents": [
+    "linear array",
+    "linear",
+    "array"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Linear Array"
+  ],
+  "solution_principle": "Create a linear array of geometry.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0e842fd0",
+    "comp_e0fd1f17",
+    "comp_4cfe3412",
+    "comp_3032b333",
+    "comp_a27c5163"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e87db220-a0a0-4d67-a405-f97fd14b2d7a",
+    "category": "array_ops",
+    "inputs": {
+      "G": "Geometry",
+      "D": "Vector",
+      "N": "Integer"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "c6f23658-617f-4ac8-916d-d0d9e7241b25",
+      "fca5ad7e-ecac-401d-a357-edda0a251cbc"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|array|linear array"
+  }
+}

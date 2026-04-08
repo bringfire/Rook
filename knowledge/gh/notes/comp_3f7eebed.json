@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_3f7eebed",
+  "note_type": "component",
+  "name": "Direction",
+  "brief": "Direction | Inputs: Line, Direction, Strength → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Direction. Inputs: Line (Line), Direction (Vector), Strength (Number). Outputs: D (Generic Data).",
+  "keywords": [
+    "direction",
+    "kangaroo2_goals-lin"
+  ],
+  "category": "kangaroo2_goals-lin",
+  "tags": [
+    "kangaroo2_goals-lin"
+  ],
+  "trigger_intents": [
+    "direction"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Direction"
+  ],
+  "solution_principle": "Align a line segment with a given vector, or if none supplied, the closest of the World XYZ vectors",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_21c34834",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "comp_58d4c26f",
+    "comp_d03e942d",
+    "comp_f66842b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6d36a97d-811f-423a-a4a1-35a7a7637697",
+    "category": "kangaroo2_goals-lin",
+    "inputs": {
+      "Line": "Line",
+      "Direction": "Vector",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "D": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-lin|direction"
+  }
+}

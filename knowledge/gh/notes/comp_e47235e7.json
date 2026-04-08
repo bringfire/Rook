@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_e47235e7",
+  "note_type": "component",
+  "name": "TriRemesh",
+  "brief": "TriRemesh | Inputs: Geometry, Target, Sharp, Features → T, D, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: TriRemesh. Inputs: Geometry (Geometry), Target (Mesh), Sharp (Boolean), Features (Generic Data), Length (Number), Iters (Integer). Outputs: T (Mesh), D (Mesh), C (Line).",
+  "keywords": [
+    "triremesh",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "triremesh",
+    "tri",
+    "remesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "TriRemesh"
+  ],
+  "solution_principle": "Convert a Brep or Mesh into a mesh of near equilateral triangles",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_85c284b0",
+    "comp_5cae1f1d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "866222ee-6093-4af8-8944-2f9264885385",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "Geometry": "Geometry",
+      "Target": "Mesh",
+      "Sharp": "Boolean",
+      "Features": "Generic Data",
+      "Length": "Number",
+      "Iters": "Integer"
+    },
+    "outputs": {
+      "T": "Mesh",
+      "D": "Mesh",
+      "C": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1a17d3f0-c8f8-4ee9-8dab-ea1c29db6a49"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|triremesh"
+  }
+}

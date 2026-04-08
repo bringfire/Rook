@@ -1,0 +1,86 @@
+{
+  "note_id": "teaching_73f5abfe",
+  "note_type": "teaching",
+  "name": "U03 - Lists",
+  "brief": "Teaching: Lists",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.259289Z",
+  "context": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside t",
+  "keywords": [
+    "lists",
+    "unit 03 class"
+  ],
+  "category": "Unit 03",
+  "tags": [
+    "unit-03",
+    "beginner-intermediate",
+    "teaching",
+    "tutorial",
+    "list-fundamentals",
+    "data-management",
+    "prerequisite-for-trees",
+    "prerequisite-for-assignments",
+    "hands-on",
+    "requires-u01"
+  ],
+  "trigger_intents": [
+    "lists",
+    "how to use lists",
+    "series\" component will help us do this",
+    "series"
+  ],
+  "trigger_symptoms": [],
+  "components": [],
+  "solution_principle": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_04dab798",
+    "teaching_4f32fa83",
+    "teaching_90fd2ccf",
+    "teaching_56fc7a76",
+    "teaching_62085558"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.259289Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-03-Class",
+    "unit_number": 3,
+    "section_number": 1,
+    "section_index": 0,
+    "x_range": [
+      33.8,
+      458.6
+    ],
+    "full_teaching_text": "1- Lists:\r\n\r\n- Lists are some of Grasshopper's most powerful features. Lists are as their name suggests, lists of information.\r\n\r\n- Grasshopper provides many tools to manipulate lists and use them parametrically.\r\n\r\n- Let us generate a list of 10 numbers, starting from 1 with a step size of 1.\r\n\r\n- \"Series\" component will help us do this.\r\n\r\n- Plug a \"Note\" at the OUTPUT and check the information generated.\r\n\r\n- Notice that the very first item on the right side is 1.0, however its order inside the List is 0!\r\n\r\nThis is how Grasshopper orders things or items, the first item of anthing has the order of 0, the second one has the order of 1, and so on.\r\n\r\n- Notice as well that the 10th item inside the List has the 9th order.\r\n\r\n- Notice the shape of the wire going out from the S OUTPUT, it is a double line. Wires what contain Lists appear as double lines.",
+    "sub_annotations": [],
+    "working_component_ids": [],
+    "intra_section_flows": [],
+    "groups": [
+      {
+        "group_id": "G67",
+        "name": "",
+        "colour": "#FFFFFF96"
+      }
+    ],
+    "components_demonstrated": {},
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 0,
+      "sub_labels": 2,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 1
+    }
+  }
+}

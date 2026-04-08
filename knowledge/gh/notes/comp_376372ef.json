@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_376372ef",
+  "note_type": "component",
+  "name": "Serial Dimension",
+  "brief": "Serial Dimension | Inputs: L, P, T, S → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Serial Dimension. Inputs: L (Line), P (Point), T (Text), S (Number).",
+  "keywords": [
+    "serial dimension",
+    "serial",
+    "dimension",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "serial dimension",
+    "serial",
+    "dimension"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Serial Dimension"
+  ],
+  "solution_principle": "Create a distance annotation between multiple points, projected to a line.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c4606904",
+    "comp_e1a4465c",
+    "comp_6dc04629",
+    "comp_3f6fef15",
+    "comp_0fb35f5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7dd42002-75bb-4f41-857f-472a140b3b28",
+    "category": "display",
+    "inputs": {
+      "L": "Line",
+      "P": "Point",
+      "T": "Text",
+      "S": "Number"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "7e9489e0-122d-401a-aba8-f1dae0217c40"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|dimensions|serial dimension"
+  }
+}

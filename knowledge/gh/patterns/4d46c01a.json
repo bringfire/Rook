@@ -1,0 +1,78 @@
+{
+  "pattern_id": "4d46c01a",
+  "name": "wasp_33_teaching_LOAD_FROM_DISCO",
+  "version": "1.0",
+  "created": "2026-03-19T18:50:19.376773Z",
+  "solution": {
+    "brief": "LOAD FROM DISCO\r\nThis component allows to load a DisCo-generated aggregation into Grasshopper.\r\nThe imported aggregation can be used as base for further aggregation\r\nby plugging the PART_OUT output to the PREV input of\r\nan aggregation component.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_DisCo IO Settings",
+      "Toggle",
+      "Toggle",
+      "Wasp_DisCo Placement Settings",
+      "Toggle",
+      "Button",
+      "Toggle",
+      "Wasp_Load From DisCo"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "from",
+      "disco-generated",
+      "aggregation",
+      "disco",
+      "this",
+      "load",
+      "allows",
+      "into",
+      "component"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

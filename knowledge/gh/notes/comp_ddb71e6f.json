@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_ddb71e6f",
+  "note_type": "component",
+  "name": "Object Save",
+  "brief": "Object Save | Inputs: Bake, Dir, File, Objects → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Object Save. Inputs: Bake (Boolean), Dir (Text), File (Text), Objects (Generic Data), Layer (Text), objName (Text), objColor (Colour), layerColor (Colour).",
+  "keywords": [
+    "object save",
+    "object",
+    "save",
+    "lunchbox_workflow"
+  ],
+  "category": "lunchbox_workflow",
+  "tags": [
+    "lunchbox_workflow"
+  ],
+  "trigger_intents": [
+    "object save",
+    "object",
+    "save"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Object Save"
+  ],
+  "solution_principle": "Saves geometry to a specified file location.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d38ff1a2",
+    "comp_da2c5c1e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6979c478-e349-46f8-89f2-202310f599f4",
+    "category": "lunchbox_workflow",
+    "inputs": {
+      "Bake": "Boolean",
+      "Dir": "Text",
+      "File": "Text",
+      "Objects": "Generic Data",
+      "Layer": "Text",
+      "objName": "Text",
+      "objColor": "Colour",
+      "layerColor": "Colour"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "5fd8fe11-afdd-4c02-ba21-2791b88ee04c"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|workflow|object save"
+  }
+}

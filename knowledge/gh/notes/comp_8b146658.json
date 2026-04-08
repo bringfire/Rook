@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_8b146658",
+  "note_type": "component",
+  "name": "Convert XML to JSON",
+  "brief": "Convert XML to JSON | Inputs: XML → JSON",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Convert XML to JSON. Inputs: XML (Text). Outputs: JSON (Generic Data).",
+  "keywords": [
+    "convert xml to json",
+    "convert",
+    "xml",
+    "to",
+    "json",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "convert xml to json",
+    "convert"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Convert XML to JSON"
+  ],
+  "solution_principle": "Converts a XML string to JSON",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_68c9f86f",
+    "comp_1db206a9",
+    "comp_779bd9b1",
+    "teaching_0f847371",
+    "comp_d95ea85a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "888d89c6-8580-4f8e-96ea-41225c33e883",
+    "category": "lunchbox_data",
+    "inputs": {
+      "XML": "Text"
+    },
+    "outputs": {
+      "JSON": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0c252dd0-e91e-4e99-9315-8f15edf068da"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|convert xml to json"
+  }
+}

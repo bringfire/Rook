@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_123bf176",
+  "note_type": "component",
+  "name": "Planar",
+  "brief": "Planar | Inputs: C → p, P, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Planar. Inputs: C (Curve). Outputs: p (Boolean), P (Plane), D (Number).",
+  "keywords": [
+    "planar",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "planar"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Planar"
+  ],
+  "solution_principle": "Test a curve for planarity.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_0d20e65c",
+    "comp_b59df947"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5816ec9c-f170-4c59-ac44-364401ff84cd",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve"
+    },
+    "outputs": {
+      "p": "Boolean",
+      "P": "Plane",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|planar"
+  }
+}

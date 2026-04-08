@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_6d59d8a6",
+  "note_type": "component",
+  "name": "Closest Points",
+  "brief": "Closest Points | Inputs: P, C, N → P, i, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Closest Points. Inputs: P (Point), C (Point), N (Integer). Outputs: P (Point), i (Integer), D (Number).",
+  "keywords": [
+    "closest points",
+    "closest",
+    "points",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "closest points",
+    "closest",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Closest Points"
+  ],
+  "solution_principle": "Find closest points in a point collection.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_9b720f9d",
+    "comp_38f191d8",
+    "comp_87ff6e5d",
+    "comp_32345445",
+    "comp_35e1539e",
+    "comp_ad6aac5d",
+    "comp_b8806e68"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "446014c4-c11c-45a7-8839-c45dc60950d6",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "C": "Point",
+      "N": "Integer"
+    },
+    "outputs": {
+      "P": "Point",
+      "i": "Integer",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "571ca323-6e55-425a-bf9e-ee103c7ba4b9"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|closest points"
+  }
+}

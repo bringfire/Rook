@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_13d603c5",
+  "note_type": "component",
+  "name": "Platonic Octahedron",
+  "brief": "Platonic Octahedron | Inputs: Pln, Rad, Trunc → Plato",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Platonic Octahedron. Inputs: Pln (Plane), Rad (Number), Trunc (Number). Outputs: Plato (Generic Data).",
+  "keywords": [
+    "platonic octahedron",
+    "platonic",
+    "octahedron",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "platonic octahedron",
+    "platonic",
+    "octahedron"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Platonic Octahedron"
+  ],
+  "solution_principle": "Create a parametric octrahedron with a truncation parameter.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_97771130",
+    "comp_40dc966b",
+    "comp_b72c3416",
+    "comp_c33aa162"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9a4d18a1-87f0-428d-8c01-da8530f5fb7a",
+    "category": "lunchbox_form",
+    "inputs": {
+      "Pln": "Plane",
+      "Rad": "Number",
+      "Trunc": "Number"
+    },
+    "outputs": {
+      "Plato": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1d27e28c-c3e9-4371-ac6a-416bac497b78"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|platonic octahedron"
+  }
+}

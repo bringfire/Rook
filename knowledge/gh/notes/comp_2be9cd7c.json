@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_2be9cd7c",
+  "note_type": "component",
+  "name": "Clamp",
+  "brief": "Clamp | Inputs: V, D → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Clamp. Inputs: V (Generic Data), D (Domain). Outputs: C (Generic Data).",
+  "keywords": [
+    "clamp",
+    "math_utilities"
+  ],
+  "category": "math_utilities",
+  "tags": [
+    "math_utilities"
+  ],
+  "trigger_intents": [
+    "clamp"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Clamp"
+  ],
+  "solution_principle": "Restrict a number between two numeric extremes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_82720415",
+    "comp_d1d2324d",
+    "comp_4d2f94f0",
+    "comp_139f0061",
+    "comp_54e5de68",
+    "comp_74370b80",
+    "comp_f2208990",
+    "comp_fcf5b5d6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "116df248-630e-4045-8c81-58693d1ff3a4",
+    "category": "math_utilities",
+    "inputs": {
+      "V": "Generic Data",
+      "D": "Domain"
+    },
+    "outputs": {
+      "C": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|util|clamp"
+  }
+}

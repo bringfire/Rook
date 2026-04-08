@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_7d5c54d0",
+  "note_type": "component",
+  "name": "Box 2Pt",
+  "brief": "Box 2Pt | Inputs: A, B, P → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Box 2Pt. Inputs: A (Point), B (Point), P (Plane). Outputs: B (Box).",
+  "keywords": [
+    "box 2pt",
+    "box",
+    "2pt",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "box 2pt",
+    "box"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Box 2Pt"
+  ],
+  "solution_principle": "Create a box defined by two points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_28632a9a",
+    "comp_e3e04d00",
+    "comp_66286a67",
+    "comp_696c094f",
+    "comp_ffd7ba8d",
+    "comp_6d34b2c0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+    "category": "primitives",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "P": "Plane"
+    },
+    "outputs": {
+      "B": "Box"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "28061aae-04fb-4cb5-ac45-16f3b66bc0a4",
+      "79aa7f47-397c-4d3f-9761-aaf421bb7f5f"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|box 2pt"
+  }
+}

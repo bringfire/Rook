@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_58e0c18d",
+  "note_type": "component",
+  "name": "RigidBody",
+  "brief": "RigidBody | Inputs: Part, Plane, Points, Strength → RB",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: RigidBody. Inputs: Part (Brep), Plane (Plane), Points (Point), Strength (Number). Outputs: RB (Generic Data).",
+  "keywords": [
+    "rigidbody",
+    "kangaroo2_goals-6dof"
+  ],
+  "category": "kangaroo2_goals-6dof",
+  "tags": [
+    "kangaroo2_goals-6dof"
+  ],
+  "trigger_intents": [
+    "rigidbody",
+    "rigid",
+    "body"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "RigidBody"
+  ],
+  "solution_principle": "RigidBody",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "76b38cca-507d-409e-a773-044b2577d0b4",
+    "category": "kangaroo2_goals-6dof",
+    "inputs": {
+      "Part": "Brep",
+      "Plane": "Plane",
+      "Points": "Point",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "RB": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8aa5774d-422a-433b-9a3f-667946bde157",
+      "81cc6201-6cda-4954-8503-66be5363aac8"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-6dof|rigidbody"
+  }
+}

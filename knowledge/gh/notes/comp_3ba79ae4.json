@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_3ba79ae4",
+  "note_type": "component",
+  "name": "Text Balloon",
+  "brief": "Text Balloon | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Text Balloon.",
+  "keywords": [
+    "text balloon",
+    "text",
+    "balloon",
+    "param_utilities"
+  ],
+  "category": "param_utilities",
+  "tags": [
+    "param_utilities"
+  ],
+  "trigger_intents": [
+    "text balloon",
+    "text",
+    "balloon"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Text Balloon"
+  ],
+  "solution_principle": "A thought balloon for annotation",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_00dd8796",
+    "comp_a8859f74",
+    "comp_8a34358d",
+    "comp_b77812c7",
+    "comp_62b2ee46"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5dcad41a-2cc6-4f24-a0e2-fbe949e0a7ee",
+    "category": "param_utilities",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "2844fec5-142d-4381-bd5d-4cbcef6d6fed"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|util|text balloon"
+  }
+}

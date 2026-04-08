@@ -1,0 +1,647 @@
+{
+  "version": "1.0",
+  "started": "2025-12-23T18:33:05.239904",
+  "last_updated": "2025-12-23T18:33:56.146902",
+  "mode": "sweep_stateful",
+  "tools_total": 105,
+  "tools_tested": 105,
+  "tools_completed": [
+    "rhino_instances",
+    "rhino_ping",
+    "rhino_document",
+    "rhino_layers",
+    "rhino_objects",
+    "rhino_selection",
+    "rhino_blocks",
+    "rhino_create",
+    "rhino_layer_create",
+    "rhino_block_create",
+    "rhino_text",
+    "rhino_dimension",
+    "rhino_subd_box",
+    "rhino_subd_sphere",
+    "rhino_subd_cylinder",
+    "rhino_mesh_box",
+    "rhino_mesh_sphere",
+    "rhino_mesh_cylinder",
+    "rhino_mesh_cone",
+    "rhino_select",
+    "rhino_geometry",
+    "rhino_delete",
+    "rhino_transform",
+    "rhino_copy",
+    "rhino_layer_delete",
+    "rhino_layer_visibility",
+    "rhino_layer_lock",
+    "rhino_layer_current",
+    "rhino_select_by_type",
+    "rhino_select_by_name",
+    "rhino_select_all",
+    "rhino_select_none",
+    "rhino_select_invert",
+    "rhino_deselect",
+    "rhino_measure_distance",
+    "rhino_measure_area",
+    "rhino_measure_volume",
+    "rhino_measure_length",
+    "rhino_measure_bbox",
+    "rhino_measure_centroid",
+    "rhino_extrude",
+    "rhino_group",
+    "rhino_block_insert",
+    "rhino_block_explode",
+    "rhino_block_delete",
+    "rhino_block_rename",
+    "rhino_block_description",
+    "rhino_block_info",
+    "rhino_block_add_objects",
+    "rhino_block_remove_objects",
+    "rhino_block_replace_geometry",
+    "rhino_block_instances",
+    "rhino_block_replace_instance",
+    "rhino_block_reset_scale",
+    "rhino_block_link",
+    "rhino_block_refresh",
+    "rhino_block_unlink",
+    "rhino_block_purge",
+    "rhino_block_duplicate",
+    "rhino_block_nested",
+    "rhino_curve_ops",
+    "rhino_material_ops",
+    "rhino_offset_curve",
+    "rhino_offset_curve_on_surface",
+    "rhino_offset_brep",
+    "rhino_split_brep",
+    "rhino_trim_brep",
+    "rhino_split_face",
+    "rhino_subd_from_mesh",
+    "rhino_subd_from_surface",
+    "rhino_subd_subdivide",
+    "rhino_subd_crease",
+    "rhino_subd_to_brep",
+    "rhino_subd_to_mesh",
+    "rhino_mesh_from_brep",
+    "rhino_mesh_reduce",
+    "rhino_quad_remesh",
+    "rhino_mesh_repair",
+    "rhino_mesh_smooth",
+    "rhino_mesh_weld",
+    "rhino_mesh_unweld",
+    "rhino_curvature_curve",
+    "rhino_curvature_surface",
+    "rhino_draft_angle",
+    "rhino_closest_point",
+    "rhino_curve_point_at",
+    "rhino_curve_tangent",
+    "rhino_curve_frame",
+    "rhino_surface_normal",
+    "rhino_brep_edges",
+    "rhino_brep_faces",
+    "rhino_brep_vertices",
+    "rhino_is_closed",
+    "rhino_is_valid",
+    "rhino_boolean",
+    "rhino_loft",
+    "rhino_sweep",
+    "rhino_intersect_curves",
+    "rhino_intersect_curve_surface",
+    "rhino_intersect_curve_brep",
+    "rhino_intersect_breps",
+    "rhino_intersect_plane",
+    "rhino_project_curve",
+    "rhino_pull_curve",
+    "rhino_mesh_boolean"
+  ],
+  "tools_remaining": [],
+  "successes": 39,
+  "failures": 66,
+  "corrections_found": 0,
+  "current_tool": null,
+  "per_tool_stats": {
+    "rhino_instances": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_ping": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_document": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_layers": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_objects": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_selection": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_blocks": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_create": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_layer_create": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_create": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_text": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_dimension": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_subd_box": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_sphere": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_cylinder": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_box": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_sphere": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_cylinder": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_cone": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_select": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_geometry": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_delete": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_transform": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_copy": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_layer_delete": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_layer_visibility": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_layer_lock": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_layer_current": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_select_by_type": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_select_by_name": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_select_all": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_select_none": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_select_invert": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_deselect": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_measure_distance": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_measure_area": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_measure_volume": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_measure_length": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_measure_bbox": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_measure_centroid": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_extrude": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_group": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_block_insert": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_block_explode": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_delete": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_rename": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_block_description": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_info": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_add_objects": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_remove_objects": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_replace_geometry": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_instances": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_replace_instance": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_reset_scale": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_link": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_refresh": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_unlink": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_purge": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_block_duplicate": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_block_nested": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_curve_ops": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_material_ops": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_offset_curve": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_offset_curve_on_surface": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_offset_brep": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_split_brep": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_trim_brep": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_split_face": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_from_mesh": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_from_surface": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_subd_subdivide": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_crease": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_to_brep": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_subd_to_mesh": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_from_brep": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_mesh_reduce": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_quad_remesh": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_repair": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_smooth": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_weld": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_mesh_unweld": {
+      "tests_run": 1,
+      "successes": 1,
+      "failures": 0
+    },
+    "rhino_curvature_curve": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_curvature_surface": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_draft_angle": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_closest_point": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_curve_point_at": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_curve_tangent": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_curve_frame": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_surface_normal": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_brep_edges": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_brep_faces": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_brep_vertices": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_is_closed": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_is_valid": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_boolean": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_loft": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_sweep": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_intersect_curves": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_intersect_curve_surface": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_intersect_curve_brep": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_intersect_breps": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_intersect_plane": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_project_curve": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_pull_curve": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    },
+    "rhino_mesh_boolean": {
+      "tests_run": 1,
+      "successes": 0,
+      "failures": 1
+    }
+  }
+}

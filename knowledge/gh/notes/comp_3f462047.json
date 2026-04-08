@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_3f462047",
+  "note_type": "component",
+  "name": "Query Model Environments",
+  "brief": "Query Model Environments | Inputs: N → E",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Query Model Environments. Inputs: N (Text Pattern). Outputs: E (Model Environment).",
+  "keywords": [
+    "query model environments",
+    "query",
+    "model",
+    "environments",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "query model environments",
+    "query",
+    "model",
+    "environments"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Environments"
+  ],
+  "solution_principle": "Query a Rhino document for all available render environments",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_580fe1e1",
+    "comp_3c75688e",
+    "comp_9ffe6eef",
+    "comp_acc717ff",
+    "comp_1662c3ae",
+    "comp_f805e573",
+    "comp_49b94bb0",
+    "comp_d83bab54",
+    "comp_07e6e9b8",
+    "comp_4029dc8e",
+    "comp_7fb47f33",
+    "comp_870768ac",
+    "comp_3ef7b850",
+    "comp_ccfa6e09"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "00c2fe26-2082-44e4-a4ff-9460e8cecbd2",
+    "category": "rhino_render",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "E": "Model Environment"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "91b5cfc2-a618-48e3-bdc5-1fbc356d4b68"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|query model environments"
+  }
+}

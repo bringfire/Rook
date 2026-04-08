@@ -1,0 +1,2330 @@
+{
+  "document": {
+    "name": "Unit-02-Class",
+    "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-02-Class.gh"
+  },
+  "total_components": 467,
+  "total_flows": 408,
+  "total_groups": 126,
+  "total_columns": 17,
+  "meaningful_sections": 17,
+  "sections": [
+    {
+      "column_index": 0,
+      "header_id": "C163",
+      "x_range": [
+        35.1,
+        448.6
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Construct Point": 1,
+        "Geometry": 1,
+        "Point": 1,
+        "Data": 1
+      },
+      "working_component_ids": [
+        "C7",
+        "C8",
+        "C14",
+        "C18"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C1",
+        "C2"
+      ],
+      "intra_section_flows": [],
+      "groups": [
+        {
+          "group_id": "G84",
+          "name": "",
+          "colour": "#FFFFFF96"
+        },
+        {
+          "group_id": "G83",
+          "name": "Geometry to Translate",
+          "colour": "#47B3FF37"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 4,
+        "sub_labels": 2,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 1,
+      "header_id": "C5",
+      "x_range": [
+        453.6,
+        2117.4
+      ],
+      "section_title": "Translation aka Move",
+      "section_number": 1,
+      "teaching_text": "1- Translation aka Move:\r\n\r\n- Construct a Point.\r\n\r\n- Type \"Move\" and use its component.\r\n\r\n- Type \"X\" and choose \"Unit X\". So the same for \"Y\" and \"Z\".\r\nThese are the basic vector directions.\r\n\r\n- The INPUT of these basic vectors can used to determine their factor, or length...\r\n\r\n- However, sometimes vectors don't have this option available, such as the \"Vector XYZ\" and \"Vector 2pt\"\r\nTherefore, the \"Amplitude\" component works as the factor, or length. The \"Amplitude\" component needs two INPUTS:\r\n1- Vector\r\n2- Numerical value (to give a length to the vector).",
+      "teaching_panel_id": "C4",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Construct a Point.",
+        "Move",
+        " and choose ",
+        " and ",
+        "Vector XYZ",
+        "Vector 2pt",
+        "Amplitude"
+      ],
+      "components_demonstrated": {
+        "Move": 4,
+        "Unit Z": 1,
+        "Unit X": 1,
+        "Unit Y": 1,
+        "Vector XYZ": 1,
+        "Amplitude": 1,
+        "NumberSlider": 5,
+        "Geometry": 5,
+        "Point": 2,
+        "Data": 1,
+        "Deconstruct Brep": 1,
+        "List Item": 3,
+        "Surface": 1,
+        "Line": 1,
+        "Vector Display": 2
+      },
+      "working_component_ids": [
+        "C6",
+        "C9",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C15",
+        "C16",
+        "C17",
+        "C39",
+        "C44",
+        "C45",
+        "C49",
+        "C55",
+        "C120",
+        "C122",
+        "C126",
+        "C237",
+        "C238",
+        "C316",
+        "C317",
+        "C318",
+        "C320",
+        "C321",
+        "C343",
+        "C346",
+        "C37",
+        "C38",
+        "C164",
+        "C352"
+      ],
+      "connected_panel_ids": [
+        "C36",
+        "C40",
+        "C275"
+      ],
+      "sub_label_ids": [
+        "C323"
+      ],
+      "intra_section_flows": [
+        "C11.O0>C6.I1",
+        "C38.O0>C9.I0",
+        "C36.O0>C10.I0",
+        "C37.O0>C11.I0",
+        "C164.O0>C12.I0",
+        "C352.O0>C12.I1",
+        "C9.O0>C13.I1",
+        "C10.O0>C15.I1",
+        "C17.O0>C16.I1",
+        "C12.O0>C17.I0",
+        "C39.O0>C17.I1",
+        "C15.O0>C40.I0",
+        "C45.O0>C237.I0",
+        "C237.O1>C238.I0",
+        "C12.O1>C275.I0",
+        "C318.O0>C320.I0",
+        "C318.O0>C321.I0",
+        "C17.O0>C343.I1",
+        "C12.O0>C346.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G82",
+          "name": "Translate aka Move",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G59",
+          "name": "Vectors",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G85",
+          "name": "Amplitude",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G50",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G48",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G81",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G78",
+          "name": "Geometry to Rotate",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G21",
+          "name": "Chosen Line as Axis",
+          "colour": "#4FFF4276"
+        },
+        {
+          "group_id": "G51",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G49",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G102",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 30,
+        "sub_labels": 1,
+        "connected_panels": 3,
+        "flows": 19,
+        "groups": 11
+      }
+    },
+    {
+      "column_index": 2,
+      "header_id": "C20",
+      "x_range": [
+        2122.4,
+        3532.3
+      ],
+      "section_title": "Rotation",
+      "section_number": 2,
+      "teaching_text": "2- Rotation:\r\n\r\n- Check out the below \"Rotate\" components.\r\nThey have the same name, however each one has a different function:\r\n- Rotate an object in a plane.\r\n- Rotate an object around an axis.\r\n- Rotate an object in 3D.\r\n\r\nEach of these \"Rotate\" components need different kinds of INPUTS.\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Using your knowledge in Grasshopper, use each of the three \"Rotate\" components below to rotate things.\r\n\r\n- You can use the \"Volume\" component to extract the Centroid of the geometry, to be used as the center of Rotation.\r\nActually in Grasshopper, both the \"AREA\" & \"VOLUME\" components provide the respective CENTER & CENTROID of the respective curves and solids, in addition to providing the area and volume.\r\n\r\n\r\nRotation Angle: Degree vs. Radian:\r\n\r\n- Degrees and Radians are different angle measurement conventions.\r\n- Grasshopper's default angle convention is radians. However, this can be easily switched to degrees if you prefer using degrees...\r\n- Type \"Radians\" and choose \"Radians\".\r\n- This component converts the DEGREE INPUT to RADIANS OUTPUT (which can be used to feed the other angular INTPUTS that require RADIANS.",
+      "teaching_panel_id": "C19",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Check out the below \"Rotate\" components.",
+        "Rotate",
+        "Rotate an object in a plane.",
+        "Rotate an object around an axis.",
+        "Rotate an object in 3D.",
+        "Volume",
+        "AREA",
+        "Radians"
+      ],
+      "components_demonstrated": {
+        "Rotate": 1,
+        "Rotate 3D": 1,
+        "Rotate Axis": 1,
+        "Radians": 3,
+        "NumberSlider": 3,
+        "Geometry": 3,
+        "Volume": 1,
+        "XY Plane": 1,
+        "XZ Plane": 1,
+        "YZ Plane": 1,
+        "Line": 1,
+        "Point On Curve": 1
+      },
+      "working_component_ids": [
+        "C21",
+        "C22",
+        "C23",
+        "C41",
+        "C42",
+        "C43",
+        "C46",
+        "C47",
+        "C48",
+        "C51",
+        "C53",
+        "C56",
+        "C156",
+        "C165",
+        "C166",
+        "C167",
+        "C319",
+        "C322"
+      ],
+      "connected_panel_ids": [
+        "C60"
+      ],
+      "sub_label_ids": [
+        "C324"
+      ],
+      "intra_section_flows": [
+        "C46.O0>C21.I1",
+        "C156.O1>C21.I2",
+        "C43.O0>C22.I1",
+        "C322.O0>C22.I2",
+        "C319.O0>C22.I3",
+        "C42.O0>C23.I1",
+        "C46.O0>C41.I0",
+        "C47.O0>C42.I0",
+        "C48.O0>C43.I0",
+        "C51.O0>C60.I0",
+        "C156.O1>C165.I0",
+        "C156.O1>C166.I0",
+        "C156.O1>C167.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G79",
+          "name": "Rotation",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G80",
+          "name": "Angle conversion from Degrees to Radians",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G54",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G53",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G52",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G77",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G99",
+          "name": "Use Centroid",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G27",
+          "name": "Planes of rotation",
+          "colour": "#FF000096"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 18,
+        "sub_labels": 1,
+        "connected_panels": 1,
+        "flows": 13,
+        "groups": 8
+      }
+    },
+    {
+      "column_index": 3,
+      "header_id": "C52",
+      "x_range": [
+        3537.3,
+        4522.0
+      ],
+      "section_title": "Planes",
+      "section_number": 3,
+      "teaching_text": "3- Planes:\r\n\r\nIn mathematics, a plane is formed by a minimum of three points.\r\n\r\n- Rhino shows the world XYZ planes at the bottom Left of the viewport.\r\n- Make sure to turn the visibility of these guide planes (and the guide axes) on so that you can visually refer to them while working.\r\nGo to:\r\nTools > Options > Grid\r\nAnd turn on \"Show grid axes\" & \"Show world axes icon\".\r\n\r\nThe respective colors of the XYZ follow the color convention RGB:\r\nX = Red\r\nY = Green\r\nZ = Blue\r\n\r\nSo that when seeing the grid axes, you will notice which axes you are looking at by noticing its color.\r\n\r\nYou can always turn these grid axes off when needed.\r\n\r\nOne the uses of planes is the \"Mirror\" component.\r\n- Type \"Mirror\" and choose \"Mirror\".\r\n- Test this component using different planes: XY, YZ, XZ.\r\n\r\nThere are other ways of constructing and deconstructing planes, as well as other funstions.\r\nYou can go to the \"Vector\" tab, and then \"Plane\" where you can find many more components.\r\n\r\nChange Plane Display:\r\nDisplay > Preview Plane Size",
+      "teaching_panel_id": "C50",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Show grid axes",
+        "Show world axes icon",
+        "Mirror",
+        "Vector",
+        "Plane"
+      ],
+      "components_demonstrated": {
+        "XZ Plane": 1,
+        "XY Plane": 1,
+        "YZ Plane": 1,
+        "Plane 3Pt": 1,
+        "Mirror": 3,
+        "Geometry": 4,
+        "Plane": 1,
+        "Volume": 1,
+        "Point": 3,
+        "4Point Surface": 1
+      },
+      "working_component_ids": [
+        "C54",
+        "C57",
+        "C58",
+        "C59",
+        "C61",
+        "C83",
+        "C84",
+        "C93",
+        "C94",
+        "C95",
+        "C96",
+        "C97",
+        "C157",
+        "C158",
+        "C159",
+        "C160",
+        "C285"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C158.O0>C59.I0",
+        "C159.O0>C59.I1",
+        "C160.O0>C59.I2",
+        "C84.O0>C61.I0",
+        "C57.O0>C61.I1",
+        "C84.O0>C83.I0",
+        "C58.O0>C83.I1",
+        "C84.O0>C93.I0",
+        "C54.O0>C93.I1",
+        "C84.O0>C157.I0",
+        "C158.O0>C285.I0",
+        "C159.O0>C285.I1",
+        "C160.O0>C285.I2"
+      ],
+      "groups": [
+        {
+          "group_id": "G28",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G30",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G29",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G70",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G86",
+          "name": "Geometry to Mirror",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G58",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G100",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G15",
+          "name": "Shows the Surface between the three Points",
+          "colour": "#24C7E0BE"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 17,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 13,
+        "groups": 8
+      }
+    },
+    {
+      "column_index": 4,
+      "header_id": "C25",
+      "x_range": [
+        4527,
+        5549.0
+      ],
+      "section_title": "Surface from Operations: Extrude, Loft, Revolve, etc...",
+      "section_number": 5,
+      "teaching_text": "5- Surface from Operations: Extrude, Loft, Revolve, etc...\r\n\r\n- Surfaces can be made by applying operations.\r\n\r\n- Find the below components by either typing inside the Grasshopper workspace or going to the \"Surface\" tab, then click on \"Freeform\".\r\n- \"Extrude\"\r\n- \"Loft\"\r\n- \"Revolve\"\r\n- \"Pipe\"\r\n- \"Sweep\"\r\n\r\n\r\n- Hover the cursor over the INPUTS and check what they need.\r\n\r\n- Discover the other ways of making surfaces using this method through the \"Surface\" tab, then click on \"Freeform\".",
+      "teaching_panel_id": "C28",
+      "additional_teaching_panels": [
+        {
+          "id": "C24",
+          "text": "4- Scaling:\r\n\r\n- Type \"Scale\" and choose \"Scale\" & \"Scale NU\".\r\n\r\n- Hover the cursor over the INPUTS and check what they need."
+        }
+      ],
+      "sub_annotations": [
+        {
+          "id": "C169",
+          "text": "Right-Click on F\r\nSelect \"Set Number\"\r\nChange the number as you wish",
+          "topic": "Right-Click on F",
+          "pos": [
+            4746.3,
+            991.9
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Surfaces can be made by applying operations.",
+        "Surface",
+        "Freeform",
+        "Extrude",
+        "Loft",
+        "Revolve",
+        "Pipe",
+        "Sweep"
+      ],
+      "components_demonstrated": {
+        "Scale NU": 1,
+        "Scale": 1,
+        "Geometry": 3,
+        "XY Plane": 1,
+        "Volume": 1,
+        "NumberSlider": 4
+      },
+      "working_component_ids": [
+        "C26",
+        "C27",
+        "C76",
+        "C77",
+        "C79",
+        "C100",
+        "C151",
+        "C153",
+        "C154",
+        "C155",
+        "C276"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C76.O0>C26.I0",
+        "C151.O1>C26.I1",
+        "C153.O0>C26.I2",
+        "C154.O0>C26.I3",
+        "C155.O0>C26.I4",
+        "C76.O0>C27.I0",
+        "C151.O1>C27.I1",
+        "C276.O0>C27.I2",
+        "C151.O1>C77.I0",
+        "C76.O0>C151.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G72",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G73",
+          "name": "Geometry to Scale",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G33",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G71",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G31",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G98",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 2,
+        "sub_annotations": 1,
+        "working_components": 11,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 10,
+        "groups": 6
+      }
+    },
+    {
+      "column_index": 5,
+      "header_id": "C29",
+      "x_range": [
+        5554,
+        7518.2
+      ],
+      "section_title": "VERY IMPORTANT!",
+      "section_number": null,
+      "teaching_text": "VERY IMPORTANT!\r\n\r\nBe careful which components you choose!\r\nSometimes, components may give the same results visually, but they may have different impacts on the long run, and that could creat problems.\r\n\r\nAlways double check the result comprehensively in order to avoid problems.\r\n\r\nExample below:\r\n\r\nBoundary Surface results into a \"Trimmed Surface\".\r\n\r\nLoft results into an \"Untrimmed Surface\".\r\n\r\nBoth results work fine. But if you want to make surface divisions, differences are very big and could make you choose which component to beging with!\r\n\r\nIn this case, Loft works better because in results into an \"Untrimmed Surface\", which would be a good start for surface division!",
+      "teaching_panel_id": "C311",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Trimmed Surface",
+        "Untrimmed Surface"
+      ],
+      "components_demonstrated": {
+        "Extrude": 2,
+        "Revolution": 1,
+        "Pipe": 1,
+        "Sweep1": 1,
+        "Patch": 1,
+        "Loft Options": 1,
+        "Surface": 4,
+        "Curve": 10,
+        "Point": 1,
+        "Merge": 1,
+        "Brep": 5,
+        "NumberSlider": 6,
+        "Unit Z": 1,
+        "Boundary Surfaces": 1,
+        "Cap Holes": 3,
+        "Brep Join": 1,
+        "Data": 1,
+        "BooleanToggle": 1,
+        "Loft": 2,
+        "ValueList": 1
+      },
+      "working_component_ids": [
+        "C62",
+        "C63",
+        "C64",
+        "C65",
+        "C66",
+        "C67",
+        "C68",
+        "C74",
+        "C75",
+        "C85",
+        "C86",
+        "C98",
+        "C99",
+        "C101",
+        "C102",
+        "C103",
+        "C104",
+        "C105",
+        "C106",
+        "C107",
+        "C108",
+        "C109",
+        "C110",
+        "C111",
+        "C112",
+        "C143",
+        "C144",
+        "C145",
+        "C146",
+        "C147",
+        "C148",
+        "C149",
+        "C150",
+        "C152",
+        "C161",
+        "C162",
+        "C170",
+        "C171",
+        "C239",
+        "C286",
+        "C303",
+        "C305",
+        "C344",
+        "C353",
+        "C365"
+      ],
+      "connected_panel_ids": [
+        "C277",
+        "C325",
+        "C366",
+        "C428"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C85.O0>C62.I0",
+        "C143.O0>C62.I1",
+        "C108.O0>C63.I0",
+        "C149.O0>C63.I1",
+        "C108.O0>C64.I0",
+        "C112.O0>C64.I1",
+        "C344.O0>C64.I2",
+        "C110.O0>C65.I0",
+        "C111.O0>C65.I1",
+        "C74.O0>C66.I0",
+        "C75.O0>C66.I1",
+        "C161.O0>C66.I2",
+        "C162.O0>C66.I3",
+        "C239.O0>C67.I0",
+        "C277.O0>C67.I4",
+        "C145.O0>C86.I0",
+        "C143.O0>C86.I1",
+        "C103.O0>C102.I0",
+        "C101.O0>C102.I1",
+        "C99.O0>C102.I2",
+        "C144.O0>C143.I0",
+        "C85.O0>C145.I0",
+        "C98.O0>C147.I0",
+        "C68.O0>C150.I0",
+        "C145.O0>C170.I0",
+        "C62.O0>C170.I0",
+        "C101.O0>C286.I0",
+        "C103.O0>C286.I0",
+        "C99.O0>C286.I0",
+        "C170.O0>C325.I0",
+        "C102.O0>C353.I0",
+        "C67.O0>C353.I1",
+        "C170.O0>C365.I0",
+        "C365.O0>C366.I0",
+        "C150.O0>C428.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G75",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G56",
+          "name": "This component provides more settings for the Loft, however not needed to make the Loft work",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G76",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G74",
+          "name": "Geometry",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G62",
+          "name": "Geometry",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G66",
+          "name": "Use Merge to set the order correctly",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G55",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G37",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G95",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G36",
+          "name": "Makes a Surface from Closed Planar Curves",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G35",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G34",
+          "name": "",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G57",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G97",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G96",
+          "name": "",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G101",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G110",
+          "name": "Order of Curves inputed is wrong",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G5",
+          "name": "",
+          "colour": "#FF00AE"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 45,
+        "sub_labels": 0,
+        "connected_panels": 4,
+        "flows": 35,
+        "groups": 18
+      }
+    },
+    {
+      "column_index": 6,
+      "header_id": "C427",
+      "x_range": [
+        7523.2,
+        8583.7
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Circle": 2,
+        "Loft": 1,
+        "Merge": 1,
+        "Boundary Surfaces": 1,
+        "Quad Panels": 3,
+        "NumberSlider": 2,
+        "Shrink Trimmed Surface": 1
+      },
+      "working_component_ids": [
+        "C302",
+        "C304",
+        "C306",
+        "C307",
+        "C308",
+        "C309",
+        "C310",
+        "C345",
+        "C355",
+        "C357",
+        "C429"
+      ],
+      "connected_panel_ids": [
+        "C312",
+        "C313",
+        "C356"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C307.O0>C306.I0",
+        "C302.O0>C307.I0",
+        "C304.O0>C307.I1",
+        "C307.O0>C308.I0",
+        "C306.O0>C309.I0",
+        "C345.O0>C309.I1",
+        "C355.O0>C309.I2",
+        "C308.O0>C310.I0",
+        "C308.O0>C312.I0",
+        "C306.O0>C313.I0",
+        "C429.O0>C356.I0",
+        "C429.O0>C357.I0",
+        "C308.O0>C429.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G9",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G10",
+          "name": "",
+          "colour": "#FF333396"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 11,
+        "sub_labels": 0,
+        "connected_panels": 3,
+        "flows": 13,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 7,
+      "header_id": "C331",
+      "x_range": [
+        8588.7,
+        9516.8
+      ],
+      "section_title": "VERY IMPORTANT!",
+      "section_number": null,
+      "teaching_text": "VERY IMPORTANT!\r\n\r\nThere is not copying in Grasshopper. Transformations are actually copying of geometries.",
+      "teaching_panel_id": "C330",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Circle": 1,
+        "Move": 1,
+        "Series": 1,
+        "NumberSlider": 4,
+        "Unit Z": 1
+      },
+      "working_component_ids": [
+        "C332",
+        "C333",
+        "C334",
+        "C335",
+        "C336",
+        "C337",
+        "C338",
+        "C340"
+      ],
+      "connected_panel_ids": [
+        "C339"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C338.O0>C332.I1",
+        "C332.O0>C333.I0",
+        "C337.O0>C333.I1",
+        "C340.O0>C334.I0",
+        "C336.O0>C334.I1",
+        "C335.O0>C334.I2",
+        "C334.O0>C337.I0",
+        "C334.O0>C339.I0"
+      ],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 8,
+        "sub_labels": 0,
+        "connected_panels": 1,
+        "flows": 8,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 8,
+      "header_id": "C31",
+      "x_range": [
+        9521.8,
+        10508.6
+      ],
+      "section_title": "Surface Referencing from Rhino",
+      "section_number": 7,
+      "teaching_text": "7- Surface Referencing from Rhino:\r\n\r\n- You can always model the surface in Rhino and then reference it inside Grasshopper.\r\n\r\n- In Rhino, choose the Surface icon \"Surface from 3 or 4 corner points\"\r\n- While constructing the surface, start from the bottom left corner and go in a clock-wise fashion.\r\n- After modeling the surface, make sure to make it non-planar.\r\n- Click on the icon \"Points on\" and move the corner points in Z direction to make a non-planar surface.\r\n- In Grasshopper workspace, type \"Surface\" and choose \"Surface\"\r\n- Now select the modeled surface in Rhino, and, inside Grasshopper, right-click on the \"Surface\" component and select \"Set one Surface\"\r\n\r\n\r\n- In case the surface is changed in Rhino, it will automatically update in Grasshopper.\r\nHowever, if the surface is deleted, the referencing component will become empty and hence the definition will include an error.\r\n\r\n- Keep in mind that if there are multiple geometries referenced from Rhino (Points, Lines, Curves, Surfaces, etc...) and few but not all get deleted in Rhino, the Grasshopper referencing component shows an error, however the remaining geometries stay inside the component as referenced.\r\nAs a best practice, whenever referenced geometries from Rhino change, it is important to re-reference/update the Grasshopper referencing components and always make sure that the definition does not contain any errors.",
+      "teaching_panel_id": "C30",
+      "additional_teaching_panels": [
+        {
+          "id": "C32",
+          "text": "8- Surface Evaluation 1:\r\n\r\nSurface Evaluation is finding the properties of a surface at a certain point in space.\r\nFor this, we will need to use a point in two different ways!\r\n\r\n- Use the component \"Contruct Point\".\r\n- Keep the X & Z as value 1, and give a number slider to the Y.\r\n- Change the value of the number slider and see where the point is:\r\n1- the point itself in space\r\n2- the point on the evaluated surface\r\n\r\n- Now Right-Click on the S INPUT of the \"Evaluate Surface\" component and select \"Reparametrize\".\r\n- This will bring the rebuild the domain of the surface to {0;1}:\r\n\r\n- If the number slider's range is between 0 & 1, the Point evaluated on the surface will stretch between the beginning and end of the surface's Y side, in the Y direction\r\n- If the number slider's range goes beyond 1, the Point evaluated on the surface will go beyind the surface's Y side, like a factor.\r\nFor example, if the number slider is 2, then the Point goes two times the Y side beyond the surface, in the Y direction.\r\n\r\n- Use the component \"MD Slider\".\r\nThis is an interesting component since it provides both X & Y information simultaneously. They can be easily changed by manipulating the point on the graph visually.\r\n- Again, \"Reparametrize\" the S in the \"Evaluate Surface\" component and make sure to have the domains of both the X & Y of the MD Slider set between {0;1}."
+        }
+      ],
+      "sub_annotations": [
+        {
+          "id": "C342",
+          "text": "The way to build a Surface in Rhino is Extremely important: Think of going from X to Y Direction, counter clock-wise, starting with the local Origin of the Surface",
+          "topic": "The way to build a Surface in Rhino is Extremely important: Think of going from X to Y Direction, counter clock-wise, starting with the local Origin of the Surface",
+          "pos": [
+            9543.3,
+            684.5
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Surface from 3 or 4 corner points",
+        "Points on",
+        "Surface",
+        "Set one Surface"
+      ],
+      "components_demonstrated": {
+        "Surface": 1,
+        "Construct Point": 1,
+        "NumberSlider": 3
+      },
+      "working_component_ids": [
+        "C34",
+        "C282",
+        "C283",
+        "C284",
+        "C451"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C283.O0>C282.I0",
+        "C284.O0>C282.I1",
+        "C451.O0>C282.I2"
+      ],
+      "groups": [
+        {
+          "group_id": "G65",
+          "name": "Referenced Surface from Rhino",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G108",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G109",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 2,
+        "sub_annotations": 1,
+        "working_components": 5,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 3,
+        "groups": 3
+      }
+    },
+    {
+      "column_index": 9,
+      "header_id": "C33",
+      "x_range": [
+        10513.6,
+        11204.4
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Plane": 1,
+        "Construct Point": 1,
+        "Deconstruct": 1,
+        "NumberSlider": 1,
+        "Point": 1,
+        "Vector Display": 2,
+        "Evaluate Surface": 3,
+        "MultiDimensionalSlider": 1
+      },
+      "working_component_ids": [
+        "C240",
+        "C294",
+        "C296",
+        "C300",
+        "C301",
+        "C359",
+        "C430",
+        "C431",
+        "C432",
+        "C450",
+        "C35"
+      ],
+      "connected_panel_ids": [
+        "C295",
+        "C297",
+        "C298",
+        "C299",
+        "C449"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C296.O0>C294.I0",
+        "C296.O1>C294.I1",
+        "C300.O0>C294.I2",
+        "C35.O0>C295.I0",
+        "C35.O0>C296.I0",
+        "C296.O0>C297.I0",
+        "C296.O1>C298.I0",
+        "C296.O2>C299.I0",
+        "C430.O0>C359.I0",
+        "C430.O1>C359.I1",
+        "C35.O0>C432.I1",
+        "C430.O0>C449.I0",
+        "C430.O0>C450.I0",
+        "C430.O2>C450.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G12",
+          "name": "Add Z dimension",
+          "colour": "#FF000085"
+        },
+        {
+          "group_id": "G7",
+          "name": "Point Shortcut to visualize the Point, BECAUSE MD Slider does NOT preview the Point",
+          "colour": "#FF007388"
+        },
+        {
+          "group_id": "G69",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G47",
+          "name": "MD Slider provides both X & Y information simultaneously!",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 11,
+        "sub_labels": 0,
+        "connected_panels": 5,
+        "flows": 14,
+        "groups": 4
+      }
+    },
+    {
+      "column_index": 10,
+      "header_id": "C116",
+      "x_range": [
+        11209.4,
+        12840.2
+      ],
+      "section_title": "Surface Evaluation 2",
+      "section_number": 9,
+      "teaching_text": "9- Surface Evaluation 2:\r\n\r\nThe \"Evaluate Surface\" component has two interesting OUTPUTS that we will discover now.\r\n\r\n1- \"P\", the resultant Point.\r\n2- \"N\", the normal at that resultant Point.\r\n\r\n- Use the definition that contains the MD Slider,\r\nand use the right combination of the following components to make a line normal to the surface at the resultant point:\r\n- \"Move\"\r\n- \"Amplitude\"\r\n- \"Number slider\"\r\n- \"Line\"\r\n\r\n\r\n- Now if you change the MD Slider, you will see that the line normal to the surface changes as well. It moves on the surface and stays always normal to the surface.\r\n- This is possible because every time you change the MD Slider, the resultant \"P\" changes and also its respective \"N\", and therefore the Line formed by these resultants changes accordingly.\r\n\r\n\r\n- An interesting component that shows the local XY Plane at the Point Normal to the Surface is the \"Plane Normal\".\r\n- Use it in order to show the Plane Normal at the Point evaluated onto the surface. Then change the MD Slider and see how the Plane Normal also changes simultaneously with the Point and the Normal Line.\r\n- To edit the display size of the Plane, go to:\r\nDisplay > Preview Plane Size",
+      "teaching_panel_id": "C115",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Evaluate Surface",
+        "Use the definition that contains the MD Slider,",
+        "Move",
+        "Amplitude",
+        "Number slider",
+        "Line",
+        " changes and also its respective ",
+        "Plane Normal",
+        "To edit the display size of the Plane, go to:"
+      ],
+      "components_demonstrated": {
+        "Surface": 3,
+        "Move": 1,
+        "Amplitude": 2,
+        "NumberSlider": 3,
+        "Line": 1,
+        "Vector Display": 2,
+        "Evaluate Surface": 1
+      },
+      "working_component_ids": [
+        "C87",
+        "C88",
+        "C117",
+        "C118",
+        "C119",
+        "C121",
+        "C347",
+        "C348",
+        "C361",
+        "C363",
+        "C435",
+        "C461",
+        "C350"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C118.O0>C117.I1",
+        "C119.O0>C118.I1",
+        "C117.O0>C121.I1",
+        "C348.O0>C347.I1",
+        "C350.O0>C348.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G63",
+          "name": "Surface to Manipulate",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G40",
+          "name": "Moving ONE point along its Normal away from Surface",
+          "colour": "#FFFF8549"
+        },
+        {
+          "group_id": "G43",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G44",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G88",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G42",
+          "name": "",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G6",
+          "name": "Offset Srf Solid",
+          "colour": "#0E00CC75"
+        },
+        {
+          "group_id": "G11",
+          "name": "Notice that the evaluated Point won't go away from the Surface because the Surface is a 2-dimentional geometry",
+          "colour": "#FF000085"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 13,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 5,
+        "groups": 8
+      }
+    },
+    {
+      "column_index": 11,
+      "header_id": "C70",
+      "x_range": [
+        12845.2,
+        14317.6
+      ],
+      "section_title": "Surface Transformation: Division, Offset, Flip, Join, etc...",
+      "section_number": 10,
+      "teaching_text": "10- Surface Transformation: Division, Offset, Flip, Join, etc...\r\n\r\n- Surfaces can be transformed by many components with various results.\r\nTry the following components and check their INPUTS in order to use them:\r\n- \"Divide Surface\"\r\n- \"Isotrim\"\r\n- \"Offset\"\r\n- \"Brep Join\"\r\n\r\n- To join two surfaces together, we need to use the \"Brep Join\" component. There is not a \"Surface Join\" component in Grasshopper since surfaces are also considered as Breps.\r\nA surface is an \"open\" Brep.\r\nAn \"open\" Brep can also be made out of many surfaces joined together, but not forming a closed solid.\r\nA \"closed\" Brep is essentially a closed solid object.",
+      "teaching_panel_id": "C69",
+      "additional_teaching_panels": [
+        {
+          "id": "C130",
+          "text": "11- Surface Evaluation 3:\r\n\r\nBuilding on the previous \"Divide Surface\" component, which resulted in many points being applied onto the surface,\r\nNow use these resulting points to make \"hair-like\" lines normal to the surface.\r\n\r\nHint: use the same combination of components as used before with the single line normal to surface."
+        }
+      ],
+      "sub_annotations": [
+        {
+          "id": "C132",
+          "text": "Assignemnt 2a:\r\n\r\n- Apply the \"Evaluate Surface\" to one resultant surface made by any of the previous operations (ie. Extrusion, Revolution, etc...)\r\n\r\n- Use the \"MD Slider\" and make sure to Reparametrize the surface INPUT.",
+          "topic": "Assignemnt 2a",
+          "pos": [
+            14310.2,
+            1351.1
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Divide Surface",
+        "Isotrim",
+        "Offset",
+        "Brep Join",
+        "Surface Join",
+        "open",
+        "closed"
+      ],
+      "components_demonstrated": {
+        "Divide Surface": 1,
+        "Isotrim": 2,
+        "Brep Join": 1,
+        "Point": 1,
+        "Surface": 3,
+        "Brep": 1,
+        "Merge": 3,
+        "Construct Domain": 2,
+        "NumberSlider": 10,
+        "BooleanToggle": 1,
+        "Construct Domain²": 1,
+        "Move": 2,
+        "Amplitude": 1,
+        "Unit Z": 1,
+        "Extrude": 1,
+        "Divide Domain²": 1,
+        "Deconstruct Brep": 2,
+        "Loft": 1,
+        "Join Curves": 2,
+        "Offset Surface": 4,
+        "Point On Curve": 3,
+        "Seam To Curve Corner": 1,
+        "Cluster": 1
+      },
+      "working_component_ids": [
+        "C71",
+        "C72",
+        "C73",
+        "C78",
+        "C80",
+        "C81",
+        "C82",
+        "C89",
+        "C90",
+        "C91",
+        "C92",
+        "C113",
+        "C114",
+        "C135",
+        "C136",
+        "C137",
+        "C138",
+        "C139",
+        "C140",
+        "C269",
+        "C270",
+        "C278",
+        "C279",
+        "C280",
+        "C290",
+        "C291",
+        "C292",
+        "C293",
+        "C349",
+        "C358",
+        "C364",
+        "C371",
+        "C374",
+        "C377",
+        "C378",
+        "C436",
+        "C453",
+        "C455",
+        "C456",
+        "C457",
+        "C458",
+        "C459",
+        "C460",
+        "C462",
+        "C362",
+        "C376"
+      ],
+      "connected_panel_ids": [
+        "C128",
+        "C129"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C113.O0>C71.I1",
+        "C114.O0>C71.I2",
+        "C137.O0>C72.I1",
+        "C89.O0>C73.I0",
+        "C135.O0>C90.I0",
+        "C136.O0>C90.I1",
+        "C71.O0>C128.I0",
+        "C71.O1>C129.I0",
+        "C90.O0>C137.I0",
+        "C138.O0>C137.I1",
+        "C139.O0>C138.I0",
+        "C140.O0>C138.I1",
+        "C71.O0>C269.I0",
+        "C270.O0>C269.I1",
+        "C71.O1>C270.I0",
+        "C91.O0>C270.I1",
+        "C71.O0>C278.I0",
+        "C279.O0>C278.I1",
+        "C91.O0>C279.I0",
+        "C279.O0>C280.I1",
+        "C291.O0>C290.I1",
+        "C292.O0>C290.I2",
+        "C290.O0>C293.I1",
+        "C460.O0>C349.I0",
+        "C371.O0>C358.I0",
+        "C374.O0>C364.I0",
+        "C457.O0>C371.I0",
+        "C377.O0>C371.I1",
+        "C374.O0>C376.I0",
+        "C460.O0>C376.I1",
+        "C358.O0>C376.I2",
+        "C349.O1>C377.I0",
+        "C364.O1>C378.I0",
+        "C91.O0>C436.I1",
+        "C91.O0>C453.I1",
+        "C92.O0>C453.I2",
+        "C378.O0>C457.I0",
+        "C459.O0>C457.I1",
+        "C374.O0>C460.I0",
+        "C362.O0>C460.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G68",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G67",
+          "name": "Resultant",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G64",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G60",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G46",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G17",
+          "name": "Offsetting",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G45",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G87",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G26",
+          "name": "All Points",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G25",
+          "name": "All Normal Vectors at Points",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G39",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G94",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G18",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G16",
+          "name": "Extruding",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G13",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G6",
+          "name": "Offset Srf Solid",
+          "colour": "#0E00CC75"
+        },
+        {
+          "group_id": "G3",
+          "name": "",
+          "colour": "#006BD66A"
+        },
+        {
+          "group_id": "G4",
+          "name": "Pfufferfish Offest",
+          "colour": "#006BD66A"
+        },
+        {
+          "group_id": "G123",
+          "name": "Pufferfish Component Offset Surface Solid",
+          "colour": "#00C0FA75"
+        },
+        {
+          "group_id": "G122",
+          "name": "Offset Surface \"Home-made\" Component",
+          "colour": "#FF0000"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 2,
+        "sub_annotations": 1,
+        "working_components": 46,
+        "sub_labels": 0,
+        "connected_panels": 2,
+        "flows": 40,
+        "groups": 20
+      }
+    },
+    {
+      "column_index": 12,
+      "header_id": "C131",
+      "x_range": [
+        14322.6,
+        15292.1
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Move": 1,
+        "Amplitude": 1,
+        "Line": 1,
+        "Breps": 1,
+        "Brep Join": 1,
+        "NumberSlider": 1
+      },
+      "working_component_ids": [
+        "C123",
+        "C124",
+        "C127",
+        "C360",
+        "C372",
+        "C125"
+      ],
+      "connected_panel_ids": [
+        "C351"
+      ],
+      "sub_label_ids": [
+        "C3"
+      ],
+      "intra_section_flows": [
+        "C124.O0>C123.I1",
+        "C125.O0>C124.I1",
+        "C123.O0>C127.I1",
+        "C127.O0>C351.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G41",
+          "name": "Moving MANY points along their respective Normals away from Surface",
+          "colour": "#FFFF8549"
+        },
+        {
+          "group_id": "G90",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G91",
+          "name": "",
+          "colour": "#FF00AE"
+        },
+        {
+          "group_id": "G89",
+          "name": "",
+          "colour": "#33AAFF"
+        },
+        {
+          "group_id": "G6",
+          "name": "Offset Srf Solid",
+          "colour": "#0E00CC75"
+        },
+        {
+          "group_id": "G92",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 6,
+        "sub_labels": 1,
+        "connected_panels": 1,
+        "flows": 4,
+        "groups": 6
+      }
+    },
+    {
+      "column_index": 13,
+      "header_id": "C134",
+      "x_range": [
+        15297.1,
+        16557.7
+      ],
+      "section_title": "Editing the referenced Rhino Surface",
+      "section_number": 12,
+      "teaching_text": "12- Editing the referenced Rhino Surface:\r\n\r\n- Select the Rhino surface that is referenced inside Grasshopper.\r\n\r\n- Click on \"Points On\" and change some of the corner points.\r\nYou will notice that while doing so, all the Grasshopper parametric geometries update accordingly.\r\n\r\n- This is a basic example showing the power of Grasshopper as a Parametric Tool with which you can go back and change something at the beginning of your design process while not losing any of the steps along your Parametric Definition.\r\n\r\n- You can even model a totally different surface in Rhino or Grasshopper and then use that new one to feed the Definition from its beginning.",
+      "teaching_panel_id": "C133",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C142",
+          "text": "Assignment 2b:\r\n\r\n- Take a look at the \"Offset Surface\" component & the \"Amplitude\" of the vector given to make the Normal Lines onto the Surface above.\r\n\r\n- Use the same number to both the D INPUT of the \"Offset Surface\" component and the A INPUT of the \"Amplitude\" component.\r\n\r\n- Turn the visibility of both the resultant offsetted surface and the resultant normal Lines ON.\r\n\r\n- Notice that when you change the number slider, the offsetted surface and the Lines changes simultaneously as if they are following each other...\r\n\r\n- This is an example of how you can use same numbers with many components' INPUTS.",
+          "topic": "Assignment 2b",
+          "pos": [
+            15298.3,
+            1351.2
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Points On"
+      ],
+      "components_demonstrated": {
+        "Offset": 1,
+        "Surface": 1,
+        "NumberSlider": 1,
+        "BooleanToggle": 1,
+        "Divide Surface": 1,
+        "Move": 1,
+        "Amplitude": 1,
+        "Line": 1,
+        "MultiDimensionalSlider": 1
+      },
+      "working_component_ids": [
+        "C172",
+        "C173",
+        "C174",
+        "C175",
+        "C176",
+        "C177",
+        "C178",
+        "C179",
+        "C391"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C141"
+      ],
+      "intra_section_flows": [
+        "C173.O0>C172.I0",
+        "C174.O0>C172.I1",
+        "C175.O0>C172.I2",
+        "C173.O0>C176.I0",
+        "C176.O0>C177.I0",
+        "C178.O0>C177.I1",
+        "C176.O1>C178.I0",
+        "C174.O0>C178.I1",
+        "C176.O0>C179.I0",
+        "C177.O0>C179.I1"
+      ],
+      "groups": [
+        {
+          "group_id": "G22",
+          "name": "",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G103",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G23",
+          "name": "",
+          "colour": "#FF00005F"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 9,
+        "sub_labels": 1,
+        "connected_panels": 0,
+        "flows": 10,
+        "groups": 3
+      }
+    },
+    {
+      "column_index": 14,
+      "header_id": "C380",
+      "x_range": [
+        16562.7,
+        19356.5
+      ],
+      "section_title": "We have previously seen how when using the \"Evaluate Surface\" component with a point of coordinates between 0 and 1, in both X & Y coordinates, the Surface Input would need to be \"Reparametrized\".",
+      "section_number": null,
+      "teaching_text": "We have previously seen how when using the \"Evaluate Surface\" component with a point of coordinates between 0 and 1, in both X & Y coordinates, the Surface Input would need to be \"Reparametrized\".\r\n\r\nHowever, how can we do that in case the point(s) to be evaluted on the surface are already given, without specific coordinates? Such points may not have coordinates between 0 and 1, which may render reparametrizing the Surface Input pointless.\r\n\r\nThere is however an interesting component that provides the needed UV Coordinates of points on the Surface (where the Points X & Y are not between 0 & 1) without needing to be reparametrized, the \"Surface Closest Point\" component.",
+      "teaching_panel_id": "C379",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C386",
+          "text": "IMPORTANT:\r\n\r\nThe output \"UV Point\" automatically gives the UV coordinates of all points according to the Surface linked from the input \"Surface\",\r\n\r\nWITHOUT\r\n\r\nneeding to \"Reparametrize\" the Surface!",
+          "topic": "IMPORTANT",
+          "pos": [
+            17390.1,
+            1467.1
+          ]
+        },
+        {
+          "id": "C388",
+          "text": "Actually, the \"UV Point\" already considers the Surface's coordinates, as if it has already been Reparametrized!",
+          "topic": "Actually, the \"UV Point\" already considers the Surface's coordinates, as if it has already been Reparametrized!",
+          "pos": [
+            17584.5,
+            1467.1
+          ]
+        },
+        {
+          "id": "C390",
+          "text": "IMPORTANT:\r\n\r\nIn this case, each surface is \"Reparametrized\" and evaluated with a Point with X & Y Coordinates between 0 & 1",
+          "topic": "IMPORTANT",
+          "pos": [
+            17602,
+            823.4
+          ]
+        },
+        {
+          "id": "C403",
+          "text": "Since \"Surface/Curve\" component already provides a \"UV Points\" output, we can directly use it to evaluate the Point on the Surface.\r\n\r\nHowever, in case such an output is not provided, or if the points comes from Rhino, then we would need to use the \"Surface Closest Point\" as above",
+          "topic": "Since \"Surface/Curve\" component already provides a \"UV Points\" output, we can directly use it to evaluate the Point on the Surface.",
+          "pos": [
+            16954.8,
+            2112.1
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Evaluate Surface",
+        "Reparametrized",
+        "Surface Closest Point"
+      ],
+      "components_demonstrated": {
+        "NumberSlider": 5,
+        "Surface": 3,
+        "Surface Closest Point": 1,
+        "MultiDimensionalSlider": 1,
+        "Point": 6,
+        "Line SDL": 2,
+        "Unit Z": 2,
+        "Surface | Curve": 2,
+        "Move": 3,
+        "Amplitude": 3,
+        "Line": 3,
+        "Pipe": 3,
+        "Evaluate Surface": 3
+      },
+      "working_component_ids": [
+        "C181",
+        "C182",
+        "C184",
+        "C381",
+        "C382",
+        "C383",
+        "C384",
+        "C392",
+        "C393",
+        "C394",
+        "C396",
+        "C398",
+        "C399",
+        "C401",
+        "C405",
+        "C406",
+        "C407",
+        "C408",
+        "C409",
+        "C410",
+        "C412",
+        "C413",
+        "C415",
+        "C416",
+        "C418",
+        "C419",
+        "C420",
+        "C421",
+        "C424",
+        "C425",
+        "C437",
+        "C439",
+        "C441",
+        "C443",
+        "C444",
+        "C463",
+        "C464"
+      ],
+      "connected_panel_ids": [
+        "C395",
+        "C400",
+        "C411",
+        "C414",
+        "C417",
+        "C422",
+        "C423",
+        "C445",
+        "C446",
+        "C447",
+        "C448"
+      ],
+      "sub_label_ids": [
+        "C387",
+        "C389",
+        "C397",
+        "C404"
+      ],
+      "intra_section_flows": [
+        "C396.O1>C382.I0",
+        "C405.O0>C382.I1",
+        "C392.O0>C393.I0",
+        "C394.O0>C393.I1",
+        "C395.O0>C393.I2",
+        "C405.O0>C396.I0",
+        "C393.O0>C396.I1",
+        "C392.O0>C398.I0",
+        "C399.O0>C398.I1",
+        "C400.O0>C398.I2",
+        "C406.O0>C401.I0",
+        "C398.O0>C401.I1",
+        "C439.O0>C407.I0",
+        "C408.O0>C407.I1",
+        "C439.O1>C408.I0",
+        "C463.O0>C408.I1",
+        "C439.O0>C409.I0",
+        "C407.O0>C409.I1",
+        "C409.O0>C410.I0",
+        "C411.O0>C410.I1",
+        "C437.O0>C412.I0",
+        "C413.O0>C412.I1",
+        "C437.O1>C413.I0",
+        "C414.O0>C413.I1",
+        "C437.O0>C415.I0",
+        "C412.O0>C415.I1",
+        "C415.O0>C416.I0",
+        "C417.O0>C416.I1",
+        "C441.O0>C418.I0",
+        "C419.O0>C418.I1",
+        "C441.O1>C419.I0",
+        "C464.O0>C419.I1",
+        "C441.O0>C420.I0",
+        "C418.O0>C420.I1",
+        "C420.O0>C421.I0",
+        "C422.O0>C421.I1",
+        "C396.O1>C423.I0",
+        "C381.O0>C437.I0",
+        "C384.O0>C437.I1",
+        "C405.O0>C439.I0",
+        "C382.O1>C439.I1",
+        "C406.O0>C441.I0",
+        "C401.O2>C441.I1",
+        "C424.O0>C445.I0",
+        "C425.O0>C446.I0",
+        "C443.O0>C447.I0",
+        "C444.O0>C448.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G114",
+          "name": "",
+          "colour": "#FF00007F"
+        },
+        {
+          "group_id": "G116",
+          "name": "Finds closest Point to Surface from all input Points",
+          "colour": "#FF00007F"
+        },
+        {
+          "group_id": "G115",
+          "name": "Point with X & Y between 0 & 1 using an MD Slider",
+          "colour": "#FF00007F"
+        },
+        {
+          "group_id": "G117",
+          "name": "",
+          "colour": "#00E5FA75"
+        },
+        {
+          "group_id": "G118",
+          "name": "",
+          "colour": "#00E5FA75"
+        },
+        {
+          "group_id": "G113",
+          "name": "",
+          "colour": "#FF00007F"
+        },
+        {
+          "group_id": "G112",
+          "name": "",
+          "colour": "#FF00007F"
+        },
+        {
+          "group_id": "G119",
+          "name": "",
+          "colour": "#47FA0075"
+        },
+        {
+          "group_id": "G120",
+          "name": "",
+          "colour": "#47FA0075"
+        },
+        {
+          "group_id": "G121",
+          "name": "",
+          "colour": "#47FA0075"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 4,
+        "working_components": 37,
+        "sub_labels": 4,
+        "connected_panels": 11,
+        "flows": 47,
+        "groups": 10
+      }
+    },
+    {
+      "column_index": 15,
+      "header_id": "C454",
+      "x_range": [
+        19361.5,
+        20795.2
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Cylinder": 1,
+        "Offset": 2,
+        "Circle": 1,
+        "Boundary Surfaces": 2,
+        "Merge": 1,
+        "Extrude": 2,
+        "Unit Z": 1,
+        "Deconstruct Brep": 2,
+        "List Item": 2,
+        "Loft": 1,
+        "Brep Join": 1,
+        "Cap Holes": 1
+      },
+      "working_component_ids": [
+        "C180",
+        "C183",
+        "C185",
+        "C186",
+        "C187",
+        "C188",
+        "C189",
+        "C190",
+        "C191",
+        "C192",
+        "C193",
+        "C194",
+        "C195",
+        "C196",
+        "C197",
+        "C271",
+        "C273"
+      ],
+      "connected_panel_ids": [
+        "C272",
+        "C274",
+        "C281",
+        "C465"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C180.O0>C183.I0",
+        "C185.O0>C186.I0",
+        "C188.O0>C187.I0",
+        "C185.O0>C188.I0",
+        "C186.O0>C188.I1",
+        "C187.O0>C189.I0",
+        "C190.O0>C189.I1",
+        "C183.O0>C191.I0",
+        "C191.O1>C192.I0",
+        "C180.O0>C193.I0",
+        "C193.O1>C194.I0",
+        "C192.O0>C195.I0",
+        "C194.O0>C195.I0",
+        "C188.O0>C196.I0",
+        "C196.O0>C197.I0",
+        "C190.O0>C197.I1",
+        "C180.O0>C271.I0",
+        "C183.O0>C271.I0",
+        "C195.O0>C271.I0",
+        "C271.O0>C272.I0",
+        "C271.O0>C273.I0",
+        "C273.O0>C274.I0",
+        "C189.O0>C281.I0",
+        "C197.O0>C465.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G106",
+          "name": "Offsetted Cylinder",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G105",
+          "name": "Alternative Method",
+          "colour": "#FF00005F"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 17,
+        "sub_labels": 0,
+        "connected_panels": 4,
+        "flows": 24,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 16,
+      "header_id": "C426",
+      "x_range": [
+        20800.2,
+        null
+      ],
+      "section_title": "",
+      "section_number": null,
+      "teaching_text": "",
+      "teaching_panel_id": null,
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [],
+      "components_demonstrated": {
+        "Circle": 4,
+        "Divide Curve": 4,
+        "NumberSlider": 17,
+        "Line": 8,
+        "Area": 4,
+        "Move": 7,
+        "Amplitude": 4,
+        "Unit Z": 4,
+        "Rotate": 2,
+        "Radians": 2,
+        "Loft": 3,
+        "End Points": 5,
+        "Extrude": 1,
+        "Boundary Surfaces": 1,
+        "Trim Solid": 1,
+        "Mesh Brep": 1,
+        "Weaverbird's Mesh Thicken": 1,
+        "Weaverbird's Split Triangles Subdivision": 1,
+        "Weaverbird's Loop Subdivision": 1,
+        "Deconstruct Brep": 1,
+        "List Item": 1,
+        "Merge": 2,
+        "Offset Surface": 1,
+        "Negative": 1
+      },
+      "working_component_ids": [
+        "C198",
+        "C199",
+        "C200",
+        "C201",
+        "C202",
+        "C203",
+        "C204",
+        "C205",
+        "C206",
+        "C207",
+        "C208",
+        "C209",
+        "C210",
+        "C211",
+        "C212",
+        "C213",
+        "C214",
+        "C215",
+        "C216",
+        "C217",
+        "C218",
+        "C219",
+        "C220",
+        "C221",
+        "C222",
+        "C223",
+        "C224",
+        "C225",
+        "C226",
+        "C227",
+        "C228",
+        "C229",
+        "C230",
+        "C231",
+        "C232",
+        "C233",
+        "C234",
+        "C235",
+        "C236",
+        "C241",
+        "C242",
+        "C243",
+        "C244",
+        "C245",
+        "C246",
+        "C247",
+        "C248",
+        "C249",
+        "C250",
+        "C251",
+        "C252",
+        "C253",
+        "C254",
+        "C255",
+        "C256",
+        "C257",
+        "C258",
+        "C259",
+        "C261",
+        "C262",
+        "C263",
+        "C264",
+        "C265",
+        "C266",
+        "C267",
+        "C268",
+        "C287",
+        "C326",
+        "C327",
+        "C328",
+        "C329",
+        "C341",
+        "C367",
+        "C368",
+        "C373",
+        "C466",
+        "C467"
+      ],
+      "connected_panel_ids": [
+        "C260",
+        "C288",
+        "C369",
+        "C370"
+      ],
+      "sub_label_ids": [
+        "C289"
+      ],
+      "intra_section_flows": [
+        "C200.O0>C198.I1",
+        "C198.O0>C199.I0",
+        "C248.O0>C199.I1",
+        "C202.O1>C201.I0",
+        "C199.O0>C201.I1",
+        "C198.O0>C202.I0",
+        "C199.O0>C203.I0",
+        "C204.O0>C203.I1",
+        "C201.O0>C204.I0",
+        "C205.O0>C204.I1",
+        "C199.O0>C206.I0",
+        "C203.O0>C206.I1",
+        "C209.O0>C207.I1",
+        "C219.O0>C208.I0",
+        "C248.O0>C208.I1",
+        "C211.O1>C210.I0",
+        "C208.O0>C210.I1",
+        "C219.O0>C211.I0",
+        "C208.O0>C212.I0",
+        "C213.O0>C212.I1",
+        "C210.O0>C213.I0",
+        "C214.O0>C213.I1",
+        "C208.O0>C215.I0",
+        "C212.O0>C215.I1",
+        "C207.O0>C216.I0",
+        "C217.O0>C216.I1",
+        "C218.O0>C217.I0",
+        "C216.O0>C219.I0",
+        "C220.O0>C219.I1",
+        "C221.O0>C220.I0",
+        "C373.O0>C222.I0",
+        "C225.O0>C223.I1",
+        "C234.O0>C224.I0",
+        "C248.O0>C224.I1",
+        "C227.O1>C226.I0",
+        "C224.O0>C226.I1",
+        "C234.O0>C227.I0",
+        "C224.O0>C228.I0",
+        "C229.O0>C228.I1",
+        "C226.O0>C229.I0",
+        "C341.O0>C229.I1",
+        "C224.O0>C230.I0",
+        "C228.O0>C230.I1",
+        "C223.O0>C231.I0",
+        "C232.O0>C231.I1",
+        "C233.O0>C232.I0",
+        "C231.O0>C234.I0",
+        "C235.O0>C234.I1",
+        "C236.O0>C235.I0",
+        "C231.O0>C241.I0",
+        "C234.O0>C242.I0",
+        "C198.O0>C243.I0",
+        "C219.O0>C244.I0",
+        "C216.O0>C245.I0",
+        "C198.O0>C246.I0",
+        "C287.O0>C246.I1",
+        "C246.O0>C247.I0",
+        "C248.O0>C247.I1",
+        "C250.O1>C249.I0",
+        "C247.O0>C249.I1",
+        "C246.O0>C250.I0",
+        "C247.O0>C251.I0",
+        "C252.O0>C251.I1",
+        "C249.O0>C252.I0",
+        "C253.O0>C252.I1",
+        "C247.O0>C254.I0",
+        "C251.O0>C254.I1",
+        "C256.O0>C255.I1",
+        "C258.O0>C257.I0",
+        "C259.O0>C257.I1",
+        "C255.O0>C258.I0",
+        "C260.O0>C259.I0",
+        "C222.O0>C261.I0",
+        "C257.O0>C261.I1",
+        "C261.O0>C262.I0",
+        "C262.O0>C263.I0",
+        "C264.O0>C263.I1",
+        "C263.O0>C265.I0",
+        "C266.O0>C265.I1",
+        "C265.O0>C268.I0",
+        "C267.O0>C268.I1",
+        "C288.O0>C287.I0",
+        "C222.O0>C327.I0",
+        "C327.O1>C328.I0",
+        "C328.O0>C329.I0",
+        "C254.O0>C367.I0",
+        "C206.O0>C367.I1",
+        "C230.O0>C367.I2",
+        "C215.O0>C367.I3",
+        "C367.O0>C368.I0",
+        "C367.O0>C369.I0",
+        "C373.O0>C370.I0",
+        "C254.O0>C373.I0",
+        "C206.O0>C373.I1",
+        "C230.O0>C373.I2",
+        "C215.O0>C373.I3",
+        "C261.O0>C466.I0",
+        "C326.O0>C466.I1",
+        "C467.O0>C466.I2",
+        "C326.O0>C467.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G104",
+          "name": "Basic Twisted Vase",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G19",
+          "name": "",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G8",
+          "name": "",
+          "colour": "#00E5FF80"
+        },
+        {
+          "group_id": "G14",
+          "name": "Base Trim",
+          "colour": "#24C7E0BE"
+        },
+        {
+          "group_id": "G20",
+          "name": "",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G126",
+          "name": "Meshing",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G125",
+          "name": "Offset Surface",
+          "colour": "#FF00005F"
+        },
+        {
+          "group_id": "G124",
+          "name": "Internal Surface",
+          "colour": "#FA00F675"
+        },
+        {
+          "group_id": "G2",
+          "name": "All Curves are in one List, forming one continuous Loft, which wouldn't work to make the vase loft",
+          "colour": "#B41AE86A"
+        },
+        {
+          "group_id": "G1",
+          "name": "Each 4 respective curves from each level are lofted together, forming the vase",
+          "colour": "#B41AE86A"
+        },
+        {
+          "group_id": "G111",
+          "name": "All Inputs need to be grafted! Grafting will be explained in depth in the coming units",
+          "colour": "#B41AE86A"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 0,
+        "sub_annotations": 0,
+        "working_components": 77,
+        "sub_labels": 1,
+        "connected_panels": 4,
+        "flows": 100,
+        "groups": 11
+      }
+    }
+  ]
+}

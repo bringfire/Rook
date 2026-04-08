@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_69c7f932",
+  "note_type": "component",
+  "name": "Text Tag 3D",
+  "brief": "Text Tag 3D | Inputs: L, T, S, C → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Text Tag 3D. Inputs: L (Plane), T (Text), S (Number), C (Colour), J (Integer).",
+  "keywords": [
+    "text tag 3d",
+    "text",
+    "tag",
+    "3d",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "text tag 3d",
+    "text",
+    "tag"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Text Tag 3D"
+  ],
+  "solution_principle": "Represents a list of 3D text tags in a Rhino viewport",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0fb35f5d",
+    "teaching_f12729f0",
+    "comp_830290b0",
+    "comp_fba41916",
+    "comp_f2304758"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5a41528b-12b9-40dc-a3f2-842034d267c4",
+    "category": "display",
+    "inputs": {
+      "L": "Plane",
+      "T": "Text",
+      "S": "Number",
+      "C": "Colour",
+      "J": "Integer"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "6b1bd8b2-47a4-4aa6-a471-3fd91c62a486"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|dimensions|text tag 3d"
+  }
+}

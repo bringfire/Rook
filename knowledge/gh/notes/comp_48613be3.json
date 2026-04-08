@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_48613be3",
+  "note_type": "component",
+  "name": "Custom Preview",
+  "brief": "Custom Preview | Inputs: G, M â†’ output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Custom Preview. Inputs: G (Geometry), M (Shader).",
+  "keywords": [
+    "custom preview",
+    "custom",
+    "preview"
+  ],
+  "category": "display",
+  "tags": [
+    "visualization",
+    "display",
+    "component",
+    "grasshopper",
+    "preview",
+    "custom-display",
+    "rendering",
+    "geometry-display"
+  ],
+  "trigger_intents": [
+    "custom preview",
+    "custom",
+    "preview"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Custom Preview"
+  ],
+  "solution_principle": "Allows for customized geometry previews",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_09d68cd9",
+    "comp_bb3b6d27",
+    "recipe_1c4628ff",
+    "recipe_36b862a1",
+    "recipe_155ea82b",
+    "comp_8cc313fd",
+    "comp_52a7679a",
+    "comp_a87bd296"
+  ],
+  "times_used": 9,
+  "times_succeeded": 9,
+  "retrieval_count": 0,
+  "last_accessed": "2026-03-08T03:12:41.958518Z",
+  "last_verified": "2026-03-08T03:12:41.958518Z",
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "537b0419-bbc2-4ff4-bf08-afe526367b2c",
+    "category": "display",
+    "inputs": {
+      "G": "Geometry",
+      "M": "Shader"
+    },
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 729,
+    "stable_key": "display|preview|custom preview"
+  }
+}

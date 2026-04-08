@@ -1,0 +1,5891 @@
+{
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Phase 1: Core geometry creation and manipulation",
+      "categories": [
+        "Primitives",
+        "Curves",
+        "Transforms",
+        "Booleans"
+      ],
+      "commands": [
+        {
+          "name": "Intersect",
+          "category": "Booleans",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526834+00:00"
+        },
+        {
+          "name": "IntersectSelf",
+          "category": "Booleans",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526835+00:00"
+        },
+        {
+          "name": "IntersectTwoSets",
+          "category": "Booleans",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526837+00:00"
+        },
+        {
+          "name": "ApplyCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526895+00:00"
+        },
+        {
+          "name": "Arc",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526628+00:00"
+        },
+        {
+          "name": "ArcBlend",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526870+00:00"
+        },
+        {
+          "name": "ArrayCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526897+00:00"
+        },
+        {
+          "name": "BlendCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526871+00:00"
+        },
+        {
+          "name": "Catenary",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526879+00:00"
+        },
+        {
+          "name": "CloseCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526873+00:00"
+        },
+        {
+          "name": "Conic",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526875+00:00"
+        },
+        {
+          "name": "ContinueCurve",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526891+00:00"
+        },
+        {
+          "name": "ContinueInterpCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526894+00:00"
+        },
+        {
+          "name": "CreateUVCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526899+00:00"
+        },
+        {
+          "name": "CrvDeviation",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526889+00:00"
+        },
+        {
+          "name": "CrvEnd",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526882+00:00"
+        },
+        {
+          "name": "CrvSeam",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526887+00:00"
+        },
+        {
+          "name": "CrvStart",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526884+00:00"
+        },
+        {
+          "name": "Curve",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526995+00:00"
+        },
+        {
+          "name": "CurveBoolean",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:40.850984+00:00"
+        },
+        {
+          "name": "CurveThroughPt",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:48.592398+00:00"
+        },
+        {
+          "name": "DeleteSubCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:50.884816+00:00"
+        },
+        {
+          "name": "ExtractSubCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:52.987818+00:00"
+        },
+        {
+          "name": "ExtrudeCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526636+00:00"
+        },
+        {
+          "name": "ExtrudeCrvAlongCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:54.986628+00:00"
+        },
+        {
+          "name": "ExtrudeSrfAlongCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 3,
+          "last_attempt": "2026-01-18T04:30:56.924570+00:00"
+        },
+        {
+          "name": "FilletCorners",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 2,
+          "last_attempt": "2026-01-18T14:51:28.864442+00:00"
+        },
+        {
+          "name": "FilletSrfCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 2,
+          "last_attempt": "2026-01-18T04:29:37.731572+00:00"
+        },
+        {
+          "name": "FitCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 2,
+          "last_attempt": "2026-01-18T04:30:03.673405+00:00"
+        },
+        {
+          "name": "Helix",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526908+00:00"
+        },
+        {
+          "name": "Hyperbola",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526953+00:00"
+        },
+        {
+          "name": "InsertLineIntoCrv",
+          "category": "Curves",
+          "learned": true,
+          "attempts": 2,
+          "last_attempt": "2026-01-18T04:30:05.367963+00:00"
+        },
+        {
+          "name": "InterpCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526920+00:00"
+        },
+        {
+          "name": "Line",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526613+00:00"
+        },
+        {
+          "name": "MergeCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864458+00:00"
+        },
+        {
+          "name": "OrientOnCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864511+00:00"
+        },
+        {
+          "name": "Parabola",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526923+00:00"
+        },
+        {
+          "name": "Polyline",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526626+00:00"
+        },
+        {
+          "name": "SelClosedCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528643+00:00"
+        },
+        {
+          "name": "SelCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528639+00:00"
+        },
+        {
+          "name": "SelOpenCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528647+00:00"
+        },
+        {
+          "name": "SelPlanarCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528999+00:00"
+        },
+        {
+          "name": "SelSelfIntersectingCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864491+00:00"
+        },
+        {
+          "name": "SelShortCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864498+00:00"
+        },
+        {
+          "name": "SelSubDFriendlyCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864505+00:00"
+        },
+        {
+          "name": "SimplifyCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527514+00:00"
+        },
+        {
+          "name": "SlopeCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864483+00:00"
+        },
+        {
+          "name": "Spiral",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526916+00:00"
+        },
+        {
+          "name": "SubCrv",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864467+00:00"
+        },
+        {
+          "name": "TweenCurves",
+          "category": "Curves",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864476+00:00"
+        },
+        {
+          "name": "Box",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526570+00:00"
+        },
+        {
+          "name": "Circle",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526617+00:00"
+        },
+        {
+          "name": "Cone",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526603+00:00"
+        },
+        {
+          "name": "Cylinder",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526598+00:00"
+        },
+        {
+          "name": "Ellipse",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526633+00:00"
+        },
+        {
+          "name": "Ellipsoid",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526842+00:00"
+        },
+        {
+          "name": "Plane",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526847+00:00"
+        },
+        {
+          "name": "Polygon",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526852+00:00"
+        },
+        {
+          "name": "Pyramid",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526857+00:00"
+        },
+        {
+          "name": "Rectangle",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526623+00:00"
+        },
+        {
+          "name": "RectangularLight",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526868+00:00"
+        },
+        {
+          "name": "Sphere",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526591+00:00"
+        },
+        {
+          "name": "Torus",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526609+00:00"
+        },
+        {
+          "name": "Tube",
+          "category": "Primitives",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526862+00:00"
+        },
+        {
+          "name": "Align",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864520+00:00"
+        },
+        {
+          "name": "Array",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526905+00:00"
+        },
+        {
+          "name": "ArrayPolar",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527305+00:00"
+        },
+        {
+          "name": "Bend",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864529+00:00"
+        },
+        {
+          "name": "BoxEdit",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864540+00:00"
+        },
+        {
+          "name": "BringForward",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864549+00:00"
+        },
+        {
+          "name": "BringToFront",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864558+00:00"
+        },
+        {
+          "name": "Cage",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864568+00:00"
+        },
+        {
+          "name": "CageEdit",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864578+00:00"
+        },
+        {
+          "name": "Copy",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526693+00:00"
+        },
+        {
+          "name": "Distribute",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864588+00:00"
+        },
+        {
+          "name": "DragMode",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864598+00:00"
+        },
+        {
+          "name": "DragStrength",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864608+00:00"
+        },
+        {
+          "name": "Flow",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864618+00:00"
+        },
+        {
+          "name": "Gumball",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864628+00:00"
+        },
+        {
+          "name": "Maelstrom",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864639+00:00"
+        },
+        {
+          "name": "Mirror",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526716+00:00"
+        },
+        {
+          "name": "Move",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526687+00:00"
+        },
+        {
+          "name": "Orient",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864650+00:00"
+        },
+        {
+          "name": "Project",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864661+00:00"
+        },
+        {
+          "name": "Pull",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864671+00:00"
+        },
+        {
+          "name": "ReleaseFromCage",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864683+00:00"
+        },
+        {
+          "name": "Rotate",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526703+00:00"
+        },
+        {
+          "name": "Scale",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526710+00:00"
+        },
+        {
+          "name": "SendBackward",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864695+00:00"
+        },
+        {
+          "name": "SendToBack",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864706+00:00"
+        },
+        {
+          "name": "SetPt",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864718+00:00"
+        },
+        {
+          "name": "Shear",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864729+00:00"
+        },
+        {
+          "name": "Smash",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864740+00:00"
+        },
+        {
+          "name": "Stretch",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864752+00:00"
+        },
+        {
+          "name": "Taper",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864764+00:00"
+        },
+        {
+          "name": "Twist",
+          "category": "Transforms",
+          "learned": true,
+          "last_attempt": "2026-01-18T14:51:28.864776+00:00"
+        }
+      ],
+      "total": 96,
+      "learned": 17
+    },
+    {
+      "phase": 2,
+      "name": "Phase 2: Surface creation and editing operations",
+      "categories": [
+        "Surfaces",
+        "Editing",
+        "Selection"
+      ],
+      "commands": [
+        {
+          "name": "AddToGroup",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Bevel",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Bridge",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Chamfer",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ChangeDegree",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Connect",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ConnectAll",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ConnectNearest",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Crease",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "CreaseSplitting",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Dir",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "DupBorder",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527299+00:00"
+        },
+        {
+          "name": "DupEdge",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "DupFaceBorder",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Explode",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526822+00:00"
+        },
+        {
+          "name": "Extend",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527509+00:00"
+        },
+        {
+          "name": "ExtractAnalysisMesh",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractClippingSections",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractClippingSlices",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractConnectedMeshFaces",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractControlPolygon",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractCurvatureGraph",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractCustomMappingObject",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractIsocurve",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractLineTypeSegments",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshEdges",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshFacesByArea",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshFacesByAspectRatio",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshFacesByDraftAngle",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshFacesByEdgeLength",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractMeshPart",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractOriginalCaptives",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractPipedCurve",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractPt",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractRenderMesh",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractUVMesh",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractWireframe",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ExtractWireframeFromHatches",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Fillet",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Flip",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Group",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "InsertKnot",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Join",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526813+00:00"
+        },
+        {
+          "name": "Match",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "MatchLayer",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "MergeEdge",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Offset",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526832+00:00"
+        },
+        {
+          "name": "OffsetMultiple",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "OffsetNormal",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Rebuild",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "RebuildCrvNonUniform",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "RemoveCrease",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "RemoveFromGroup",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "RemoveKnot",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "RemoveMultiKnot",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ShowDir",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "ShowDirOff",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Smooth",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Split",
+          "category": "Editing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527438+00:00"
+        },
+        {
+          "name": "SplitEdge",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Trim",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Ungroup",
+          "category": "Editing",
+          "learned": false
+        },
+        {
+          "name": "Lasso",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelAll",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528529+00:00"
+        },
+        {
+          "name": "SelArc",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelArrow",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelBadObjects",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528821+00:00"
+        },
+        {
+          "name": "SelBlockInstance",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528834+00:00"
+        },
+        {
+          "name": "SelBlockInstanceNamed",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelBoundary",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelBox",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelBrush",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelBrushPoints",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelCaptives",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelChain",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelChildren",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelCircular",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelClippingPlane",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.529108+00:00"
+        },
+        {
+          "name": "SelClippingPlaneInViewport",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelColor",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528758+00:00"
+        },
+        {
+          "name": "SelConnected",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelConnectedMeshFaces",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelControlPointRegion",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelControls",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelCrossing",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDetail",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDim",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528899+00:00"
+        },
+        {
+          "name": "SelDimAngular",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimCentermark",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimLinear",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimOrdinate",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimOverride",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimRadial",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDimTextOverride",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDot",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelDup",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528790+00:00"
+        },
+        {
+          "name": "SelDupAll",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelEdgeLoop",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelEdgeRing",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelExtrusion",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelFaceLoop",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelFacesToBoundary",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelFence",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelFontUse",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelGroup",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528851+00:00"
+        },
+        {
+          "name": "SelHatch",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528914+00:00"
+        },
+        {
+          "name": "SelID",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelKey",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelKeyValue",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelLast",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528558+00:00"
+        },
+        {
+          "name": "SelLayerNumber",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelLeader",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelLight",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528929+00:00"
+        },
+        {
+          "name": "SelLine",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelLinetype",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMappingWidget",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMaterialName",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshEdges",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshFacesByArea",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshFacesByAspectRatio",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshFacesByDraftAngle",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshFacesByEdgeLength",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMeshPart",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelMirroredBlocks",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelNakedMeshEdgePt",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelName",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528774+00:00"
+        },
+        {
+          "name": "SelNamedViewWidget",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelNone",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528545+00:00"
+        },
+        {
+          "name": "SelObjectsWithHistory",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelParents",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelPicture",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelPolyline",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.529094+00:00"
+        },
+        {
+          "name": "SelPrev",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528573+00:00"
+        },
+        {
+          "name": "SelPt",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528868+00:00"
+        },
+        {
+          "name": "SelPtCloud",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelRectangular",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelSmall",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528808+00:00"
+        },
+        {
+          "name": "SelSubDEdges",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelTag",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelText",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528885+00:00"
+        },
+        {
+          "name": "SelTop",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelU",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelUV",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelUserText",
+          "category": "Selection",
+          "learned": true,
+          "last_attempt": "2026-01-18T15:59:38.734528+00:00"
+        },
+        {
+          "name": "SelV",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelValue",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelVisible",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelVolumeObject",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelVolumePipe",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelVolumeSphere",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelWindow",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "Select",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilter",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterEdges",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterEnable",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterFaces",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterNone",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterToggle",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "SelectionFilterVertices",
+          "category": "Selection",
+          "learned": false
+        },
+        {
+          "name": "ArrayCrvOnSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ArraySrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "BlendSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ChamferSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "DevLoft",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Drape",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "DrapePt",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "EdgeSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ExtendCrvOnSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ExtractBadSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ExtractSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527501+00:00"
+        },
+        {
+          "name": "FilletSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Fin",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "FitSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "FlattenSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "FlowAlongSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "HatchToSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Heightfield",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "InterpCrvOnSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Loft",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526657+00:00"
+        },
+        {
+          "name": "MatchSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "MergeSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "MoveToSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "NetworkSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527033+00:00"
+        },
+        {
+          "name": "OffsetCrvOnSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "OffsetSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527483+00:00"
+        },
+        {
+          "name": "OrientCameraToSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "OrientOnSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Patch",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527051+00:00"
+        },
+        {
+          "name": "PlanarSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526678+00:00"
+        },
+        {
+          "name": "RailRevolve",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ReducePolysrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Revolve",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527014+00:00"
+        },
+        {
+          "name": "Ribbon",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "RibbonMultiple",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "RibbonOffset",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SelClosedPolysrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528717+00:00"
+        },
+        {
+          "name": "SelClosedSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528973+00:00"
+        },
+        {
+          "name": "SelOpenPolysrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528951+00:00"
+        },
+        {
+          "name": "SelOpenSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528994+00:00"
+        },
+        {
+          "name": "SelPlanarSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SelPolysrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528694+00:00"
+        },
+        {
+          "name": "SelSrf",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528669+00:00"
+        },
+        {
+          "name": "SelTrimmedSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SelUntrimmedSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "ShrinkTrimmedSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SrfControlPtGrid",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SrfPt",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SrfPtGrid",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "SrfSeam",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "Sweep1",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526973+00:00"
+        },
+        {
+          "name": "Sweep2",
+          "category": "Surfaces",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526993+00:00"
+        },
+        {
+          "name": "UnrollSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "VariableBlendSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "VariableChamferSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "VariableFilletSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "VariableOffsetSrf",
+          "category": "Surfaces",
+          "learned": false
+        },
+        {
+          "name": "oldFilletSrf",
+          "category": "Surfaces",
+          "learned": false
+        }
+      ],
+      "total": 218,
+      "learned": 5
+    },
+    {
+      "phase": 3,
+      "name": "Phase 3: Solids, measurement, documentation, and conversion",
+      "categories": [
+        "Solids",
+        "SolidEditing",
+        "Analysis",
+        "Annotation",
+        "Dimensions",
+        "Conversion"
+      ],
+      "commands": [
+        {
+          "name": "Angle",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Area",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "AreaCentroid",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "AreaMoments",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "AreaSchedule",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Audit",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "BoundingBox",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CSec",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Check",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Clash",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Contour",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Curvature",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CurvatureAnalysis",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CurvatureAnalysisOff",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CurvatureGraph",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CurvatureGraphOff",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CutPlane",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "CutVolume",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Diameter",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Distance",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Domain",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "DraftAngleAnalysis",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "DraftAngleAnalysisOff",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "EMap",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "EMapOff",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Length",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "PointDeviation",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Radius",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Section",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Silhouette",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Volume",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "VolumeCentroid",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "VolumeMoments",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "What",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Zebra",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "ZebraOff",
+          "category": "Analysis",
+          "learned": false
+        },
+        {
+          "name": "Arrow",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Arrowhead",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Centermark",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Detail",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Dim",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527593+00:00"
+        },
+        {
+          "name": "DimAngle",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "DimArea",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "DimCurveLength",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "DimDiameter",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527643+00:00"
+        },
+        {
+          "name": "DimOrdinate",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "DimRadius",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527619+00:00"
+        },
+        {
+          "name": "Hatch",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "HatchBase",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "HatchScale",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Leader",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527570+00:00"
+        },
+        {
+          "name": "Make2D",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "RLeaderEdit",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "SrfToHatch",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Tag",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "Text",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527166+00:00"
+        },
+        {
+          "name": "TextObject",
+          "category": "Annotation",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527191+00:00"
+        },
+        {
+          "name": "TextProperties",
+          "category": "Annotation",
+          "learned": false
+        },
+        {
+          "name": "ConvertExtrusion",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ConvertTextToBlockAttribute",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ConvertToBeziers",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ConvertToSingleSpans",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ToNURBS",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ToggleGpuProcedurals",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ToggleLeftSidebar",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ToggleRightSidebar",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "ToolbarLock",
+          "category": "Conversion",
+          "learned": false
+        },
+        {
+          "name": "DimAligned",
+          "category": "Dimensions",
+          "learned": false
+        },
+        {
+          "name": "DimCreaseAngle",
+          "category": "Dimensions",
+          "learned": false
+        },
+        {
+          "name": "DimRecenterText",
+          "category": "Dimensions",
+          "learned": false
+        },
+        {
+          "name": "DimRotated",
+          "category": "Dimensions",
+          "learned": false
+        },
+        {
+          "name": "DimVolume",
+          "category": "Dimensions",
+          "learned": false
+        },
+        {
+          "name": "AppendFace",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "BlendEdge",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "ChamferEdge",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "DeleteFaces",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "EdgeContinuity",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "EndBulge",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "Fair",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "FilletEdge",
+          "category": "SolidEditing",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527076+00:00"
+        },
+        {
+          "name": "GCon",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "MakeNonPeriodic",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "MakePeriodic",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "MakeUniform",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "MakeUniformUV",
+          "category": "SolidEditing",
+          "learned": false
+        },
+        {
+          "name": "BooleanDifference",
+          "category": "Solids",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526774+00:00"
+        },
+        {
+          "name": "BooleanIntersection",
+          "category": "Solids",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526803+00:00"
+        },
+        {
+          "name": "BooleanSplit",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "BooleanUnion",
+          "category": "Solids",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526746+00:00"
+        },
+        {
+          "name": "Cap",
+          "category": "Solids",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527463+00:00"
+        },
+        {
+          "name": "CreateRegions",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "CreateSolid",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "MergeAllCoplanarFaces",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "MultiPipe",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "NonmanifoldMerge",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "Pipe",
+          "category": "Solids",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.526949+00:00"
+        },
+        {
+          "name": "Shell",
+          "category": "Solids",
+          "learned": false
+        },
+        {
+          "name": "SquarePipe",
+          "category": "Solids",
+          "learned": false
+        }
+      ],
+      "total": 98,
+      "learned": 3
+    },
+    {
+      "phase": 4,
+      "name": "Phase 4: Specialized geometry types and organization",
+      "categories": [
+        "Mesh",
+        "SubD",
+        "Blocks",
+        "Layers",
+        "Groups",
+        "Points",
+        "UV_Editing"
+      ],
+      "commands": [
+        {
+          "name": "AddObjectsToBlock",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "Bake",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "Block",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "BlockManager",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "BlockResetScale",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "ClearEmbeddedWorksession",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "CreateUniqueBlock",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "EmbedWorksession",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "Insert",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "ReplaceBlock",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "SelSameBlock",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "Worksession",
+          "category": "Blocks",
+          "learned": false
+        },
+        {
+          "name": "SetGroupName",
+          "category": "Groups",
+          "learned": false
+        },
+        {
+          "name": "ChangeLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "ChangeToCurrentLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "CopyToLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "DisplayColorByLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "Layer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "LayerBook",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "LayerHideAttached",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "LayerStateManager",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "OneLayerOff",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "OneLayerOn",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "RenderAssignMaterialToLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "SelLayer",
+          "category": "Layers",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528745+00:00"
+        },
+        {
+          "name": "SelObjectsOnLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "SetDimensionLayer",
+          "category": "Layers",
+          "learned": false
+        },
+        {
+          "name": "AddNgonsToMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ApplyMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "AutomaticSubDFromMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "CullControlPolygon",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "DeleteMeshNgons",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "DivideAlongCreases",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "HideRenderMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "Mesh",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528085+00:00"
+        },
+        {
+          "name": "MeshBooleanDifference",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshBooleanIntersection",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshBooleanSplit",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshBooleanUnion",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshBox",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528115+00:00"
+        },
+        {
+          "name": "MeshCone",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528205+00:00"
+        },
+        {
+          "name": "MeshCylinder",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528175+00:00"
+        },
+        {
+          "name": "MeshEllipsoid",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshFromLines",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshIntersect",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshOutline",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshPatch",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshPlane",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528235+00:00"
+        },
+        {
+          "name": "MeshPolyline",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshRepair",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshSelfIntersect",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshSphere",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528145+00:00"
+        },
+        {
+          "name": "MeshSplit",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshToNURB",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshTorus",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528265+00:00"
+        },
+        {
+          "name": "MeshTrim",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "MeshTruncatedCone",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "OffsetMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "PlanarMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "PolylineOnMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ProjectCornersToMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "QuadrangulateMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ReduceMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ReducePolyline",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "SelClosedMesh",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.529174+00:00"
+        },
+        {
+          "name": "SelMesh",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.529140+00:00"
+        },
+        {
+          "name": "SelOpenMesh",
+          "category": "Mesh",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.529206+00:00"
+        },
+        {
+          "name": "ShowRenderMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "SplitDisjointMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ToggleRenderMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "TriangulateMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "Unweld",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "UnweldEdge",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "UnweldVertex",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "Weld",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "WeldVertices",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "vrayEnmesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "vrayLightMesh",
+          "category": "Mesh",
+          "learned": false
+        },
+        {
+          "name": "ClosestPt",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "DecimalPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "Dot",
+          "category": "Points",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527546+00:00"
+        },
+        {
+          "name": "DotElevation",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "DraftAnglePoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "EarthAnchorPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "EditPtOn",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "EvaluatePt",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeCrvToPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeSrfToPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ImportEarthAnchorPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "InsertEditPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "InsertPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ModelBasepoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "Point",
+          "category": "Points",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527108+00:00"
+        },
+        {
+          "name": "PointCloud",
+          "category": "Points",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527223+00:00"
+        },
+        {
+          "name": "PointCloudColor",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointCloudContour",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointCloudSection",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointGrid",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointLight",
+          "category": "Points",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527937+00:00"
+        },
+        {
+          "name": "Points",
+          "category": "Points",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527140+00:00"
+        },
+        {
+          "name": "PointsFromUV",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointsOff",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "PointsOn",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ReducePointCloud",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "SelControlPoint",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "pointCloudDeleteInside",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "pointCloudDeleteOutside",
+          "category": "Points",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "OffsetSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "RepairSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SelClosedSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SelOpenSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SelSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDBox",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDCone",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDCrease",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDCylinder",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDDisplayToggle",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDEllipsoid",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDExpandEdges",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDFaceEdgeVertexToggle",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDLoft",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDPlane",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDSphere",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDSpinEdge",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDSweep1",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDSweep2",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDTorus",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDTruncatedCone",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDUnfriend",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "SubDivide",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "ToSubD",
+          "category": "SubD",
+          "learned": false
+        },
+        {
+          "name": "EndUVEditor",
+          "category": "UV_Editing",
+          "learned": false
+        },
+        {
+          "name": "RebuildUV",
+          "category": "UV_Editing",
+          "learned": false
+        },
+        {
+          "name": "UVEditor",
+          "category": "UV_Editing",
+          "learned": false
+        }
+      ],
+      "total": 136,
+      "learned": 0
+    },
+    {
+      "phase": 5,
+      "name": "Phase 5: Rendering, display, and construction aids",
+      "categories": [
+        "Materials",
+        "Rendering",
+        "Views",
+        "CPlanes",
+        "Clipping",
+        "Gumball",
+        "ViewCapture"
+      ],
+      "commands": [
+        {
+          "name": "AutoAlignCPlane",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "CPlane",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "CPlaneFromLine",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "NamedCPlane",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "OrientToNamedCplane",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "PlansFromNamedCPlanes",
+          "category": "CPlanes",
+          "learned": false
+        },
+        {
+          "name": "ClearClippingSections",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ClippingDrawings",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ClippingPlane",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ClippingPlaneProperties",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ClippingSections",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "DisableClippingPlane",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "EditClippingDrawings",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "EnableClippingPlane",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ExportClippingDrawings",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ExportClippingSectionInfo",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "NestedClippingDrawing",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "OrientCameraToClippingPlane",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "SaveClippingSectionCPlanes",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "SaveClippingSectionViews",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "UpdateClippingDrawings",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "ViewClippingSections",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "vrayCamClipping",
+          "category": "Clipping",
+          "learned": false
+        },
+        {
+          "name": "GumballAlignment",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballAutoReset",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballDynamicRelocate",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballRelocate",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballReset",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballScaleMode",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "GumballSettings",
+          "category": "Gumball",
+          "learned": false
+        },
+        {
+          "name": "ApplyBoxMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplyCustomMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplyCylindricalMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplyOcsMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplyPlanarMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplySphericalMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "ApplySurfaceMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "BakeMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "Environments",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "MatchMapping",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "Materials",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "RandomMaterial",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "Textures",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "vrayDecal",
+          "category": "Materials",
+          "learned": false
+        },
+        {
+          "name": "CloseRenderWindow",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "DirectionalLight",
+          "category": "Rendering",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528018+00:00"
+        },
+        {
+          "name": "GroundPlane",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "LinearLight",
+          "category": "Rendering",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528056+00:00"
+        },
+        {
+          "name": "RenderArctic",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderAssignMaterialToLayersOfObjects",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderAssignMaterialToObjects",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderBlowup",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderInWindow",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderMergeIdenticalMaterials",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderOpenLastRendering",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderOpenRenderImage",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderPreview",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderPreviewInWindow",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderPreviewWindow",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderReportImageFiles",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderReportMissingImageFiles",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "RenderWindow",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "Rendering",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "SaveRenderWindowAs",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "Spotlight",
+          "category": "Rendering",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527977+00:00"
+        },
+        {
+          "name": "Sun",
+          "category": "Rendering",
+          "learned": false
+        },
+        {
+          "name": "BatchRenderNamedViews",
+          "category": "ViewCapture",
+          "learned": false
+        },
+        {
+          "name": "ScreenCaptureToClipboard",
+          "category": "ViewCapture",
+          "learned": false
+        },
+        {
+          "name": "ScreenCaptureToFile",
+          "category": "ViewCapture",
+          "learned": false
+        },
+        {
+          "name": "ViewCaptureToClipboard",
+          "category": "ViewCapture",
+          "learned": false
+        },
+        {
+          "name": "ViewCaptureToFile",
+          "category": "ViewCapture",
+          "learned": false
+        },
+        {
+          "name": "3View",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "4View",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "BackgroundBitmap",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "BringViewportToTop",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Camera",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528376+00:00"
+        },
+        {
+          "name": "CloseViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "CopyDetailToViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "CopyViewportToDetail",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "DarkMode",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "DisplayColorByMaterial",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "DisplayCommandPrompt",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "DisplayProperties",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "DollyZoom",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Fullscreen",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Hide",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Lock",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "LockViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "MaxViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NamedView",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527778+00:00"
+        },
+        {
+          "name": "NewFloatingViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NewViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NextOrthoViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NextPerspectiveViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NextViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "NextViewportToTop",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Pan",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527860+00:00"
+        },
+        {
+          "name": "PrevViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "PushViewportToBack",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ReadViewportsFromFile",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "RotateCamera",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "RotateView",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527903+00:00"
+        },
+        {
+          "name": "SetActiveViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "SetMaximizedViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "SetView",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527819+00:00"
+        },
+        {
+          "name": "Show",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ShowEdges",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ShowEnds",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ShowSelected",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "SplitViewportHorizontal",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "SplitViewportVertical",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ToggleFloatingViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ToggleLockedActiveRealtimeViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "TogglePausedActiveRealtimeViewport",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Unlock",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "ViewportProperties",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527736+00:00"
+        },
+        {
+          "name": "ViewportTabs",
+          "category": "Views",
+          "learned": false
+        },
+        {
+          "name": "Zoom",
+          "category": "Views",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527687+00:00"
+        }
+      ],
+      "total": 118,
+      "learned": 0
+    },
+    {
+      "phase": 6,
+      "name": "Phase 6: Utility commands",
+      "categories": [
+        "File",
+        "Import_Export",
+        "Settings",
+        "History",
+        "Help",
+        "Scripting",
+        "Snaps",
+        "Admin"
+      ],
+      "commands": [
+        {
+          "name": "Audit3dmFile",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "CheckInLicense",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "CheckOutLicense",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "DocumentPropertiesPage",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "DocumentText",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "Purge",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "PurgeRefObjects",
+          "category": "Admin",
+          "learned": false
+        },
+        {
+          "name": "Autosave",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Export",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Import",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "IncrementalSave",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Layout",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "New",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Open",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Picture",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Print",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "ReadCommandFile",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "Save",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "SaveAs",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "SaveSmall",
+          "category": "File",
+          "learned": false
+        },
+        {
+          "name": "About",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "AboutRhino",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "CommandHelp",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "CommandHistory",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "CommandList",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "Commands",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "Help",
+          "category": "Help",
+          "learned": false
+        },
+        {
+          "name": "ClearUndo",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "History",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "HistoryPurge",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "HistoryUpdate",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "Redo",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "Undo",
+          "category": "History",
+          "learned": false
+        },
+        {
+          "name": "CopyLayout",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "CopyRenderWindowToClipboard",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "CopyToClipboard",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "Cut",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "Delete",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportAreasToTSV",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportBitmaps",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportHatchesToTSV",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportLinkedBlocks",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportRuiFile",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ExportWithOrigin",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportAnnotationStyles",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportLAS",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportLayout",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportOSM",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportOsmFile",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "ImportXYZ",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "PasteToCplane",
+          "category": "Import_Export",
+          "learned": false
+        },
+        {
+          "name": "EditPythonScript",
+          "category": "Scripting",
+          "learned": false
+        },
+        {
+          "name": "MacroEditor",
+          "category": "Scripting",
+          "learned": false
+        },
+        {
+          "name": "Macros",
+          "category": "Scripting",
+          "learned": false
+        },
+        {
+          "name": "Run",
+          "category": "Scripting",
+          "learned": false
+        },
+        {
+          "name": "RunPythonScript",
+          "category": "Scripting",
+          "learned": false
+        },
+        {
+          "name": "DocumentProperties",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "Options",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "Properties",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetCurrentAnnotationStyle",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetCurrentRenderPlugIn",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetCustomLinetype",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetDisplayMode",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetDocumentUserText",
+          "category": "Settings",
+          "learned": true,
+          "last_attempt": "2026-01-18T15:59:38.734440+00:00"
+        },
+        {
+          "name": "SetDotNetRuntime",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetEarthAnchorPointFromName",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetLayerLinetype",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetLayerToObject",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetLinetype",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetLinetypeScale",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetMeshSurfaceParameters",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetObjectDisplayMode",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetObjectName",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetOrtho",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetPerFaceColorByFacePack",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetPlanar",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetRedrawOff",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetRedrawOn",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetSnap",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetSpotlightToView",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetSurfaceTangent",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetUserText",
+          "category": "Settings",
+          "learned": true,
+          "last_attempt": "2026-01-18T15:59:38.734287+00:00"
+        },
+        {
+          "name": "SetViewToSpotlight",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetWorkingFolder",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "SetZoomExtentsBorder",
+          "category": "Settings",
+          "learned": false
+        },
+        {
+          "name": "AddGuide",
+          "category": "Snaps",
+          "learned": false
+        },
+        {
+          "name": "Grid",
+          "category": "Snaps",
+          "learned": false
+        },
+        {
+          "name": "Osnap",
+          "category": "Snaps",
+          "learned": false
+        },
+        {
+          "name": "RemoveGuide",
+          "category": "Snaps",
+          "learned": false
+        },
+        {
+          "name": "SmartTrack",
+          "category": "Snaps",
+          "learned": false
+        },
+        {
+          "name": "Snap",
+          "category": "Snaps",
+          "learned": false
+        }
+      ],
+      "total": 91,
+      "learned": 0
+    },
+    {
+      "phase": 7,
+      "name": "Phase 7: Specialized/plugin commands",
+      "categories": [
+        "Digitizer",
+        "UI",
+        "Misc_Geometry",
+        "Plugins_Render"
+      ],
+      "commands": [
+        {
+          "name": "DigBeep",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigCalibrate",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigCamera",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigClick",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigDisconnect",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigLine",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigPause",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigScale",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigSection",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "DigSketch",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "Digitize",
+          "category": "Digitizer",
+          "learned": false
+        },
+        {
+          "name": "3DFace",
+          "category": "Misc_Geometry",
+          "learned": false
+        },
+        {
+          "name": "Divide",
+          "category": "Misc_Geometry",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527427+00:00"
+        },
+        {
+          "name": "Fill",
+          "category": "Misc_Geometry",
+          "learned": false
+        },
+        {
+          "name": "Planar",
+          "category": "Misc_Geometry",
+          "learned": false
+        },
+        {
+          "name": "PlanarIntersection",
+          "category": "Misc_Geometry",
+          "learned": false
+        },
+        {
+          "name": "UnrollSrfUV",
+          "category": "Misc_Geometry",
+          "learned": false
+        },
+        {
+          "name": "DatasmithDirectLinkConnections",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "DatasmithDirectLinkSync",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "DatasmithExport",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "DatasmithMessages",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "DatasmithToggleAutoSync",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeAboutCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeBlocksFromRevit",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeBlocksFromSketchup",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeEnableOrDisableCameraSyncCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeEnableOrDisableLiveUpdatesCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeFeedbackCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeOpenAssetLibraryBrowserCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeOpenGeneralSettingsCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeOpenMaterialEditorCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeOpenMaterialLibraryCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeOpenUploadsManagerCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeStartCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "EnscapeUserAreaCommand",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayBatchRender",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayCamFocus",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayCamGuessVertical",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayCamOrientation",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayChangeDefaultScene",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayClipper",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayCosmos",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayDEV",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayDisplacement",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayEdit",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayEnscape",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayExportVRScene",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayFur",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayImportMaterial",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayInfinitePlane",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayLight",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayLightSunFromDirect",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayLiveLink",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayLoadSettings",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayMtlFromRhino",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayProxyExport",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayProxyImport",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayRender",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayRenderWindow",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayScatter",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vraySelID",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vraySetMtlID",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vraySetObjectID",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowAssetEditor",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowCollaboration",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowCosmos",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowFilePathEditor",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowLightGen",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayShowVFB",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayTexturePreviewSettings",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayVPRSettings",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayVantage",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "vrayVision",
+          "category": "Plugins_Render",
+          "learned": false
+        },
+        {
+          "name": "Alerter",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Bounce",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Cancel",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "CommandPrompt",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Echo",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Enter",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "EnterEnd",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Exit",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "PopupMenu",
+          "category": "UI",
+          "learned": false
+        },
+        {
+          "name": "Toolbar",
+          "category": "UI",
+          "learned": false
+        }
+      ],
+      "total": 86,
+      "learned": 0
+    },
+    {
+      "phase": 99,
+      "name": "Phase 99: Uncategorized (need manual review)",
+      "categories": [
+        "Uncategorized"
+      ],
+      "commands": [
+        {
+          "name": "AddMissingBlockAttributeKeys",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AddNextU",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AddNextV",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AddPrevU",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AddPrevV",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AlignProfiles",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AreaScheduleFromFiles",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "AssignBlankTexture",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CheckNewObjects",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ClearAllMeshes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ClearAllObjectDisplayModes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ClearAnalysisMeshes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ClearDrawOrder",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CollapseMeshFacesByArea",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CollapseMeshFacesByAspectRatio",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CollapseMeshFacesByEdgeLength",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Containers",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Convert",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CopyCPlaneSettingsToAll",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CopyCPlaneToAll",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CopyLinkedBlockDefinition",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Crv2View",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CurveThroughPolyline",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "CurveThroughSrfControlPt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "DisableOsnap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "DownloadLibraryTextures",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "DragCopy",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Drop",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "EditLightByHighlight",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "EditLightByLooking",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "EvaluateUVPt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtendDynamic",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeCrvTapered",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrudePts",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrudeSrfTapered",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrusionsFromBox",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrusionsFromBrepNested",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ExtrusionsFromPipe",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "FileExplorer",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "FilletSrfToRail",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "FindText",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "FitCurveToSurface",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "FlatShade",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ForceJoin",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "GetDocumentUserText",
+          "category": "Uncategorized",
+          "learned": true,
+          "last_attempt": "2026-01-18T15:59:38.734509+00:00"
+        },
+        {
+          "name": "GetIssueState",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "GetUserText",
+          "category": "Uncategorized",
+          "learned": true,
+          "last_attempt": "2026-01-18T15:59:38.734367+00:00"
+        },
+        {
+          "name": "HBar",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "HandleCurve",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "HideInDetail",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "HidePt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "HideSwap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "HighlightObjectLayers",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Hydrostatics",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "IPlane",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "InsertEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "InsertKink",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Inset",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Insulation",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Invert",
+          "category": "Uncategorized",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528635+00:00"
+        },
+        {
+          "name": "InvertPt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "IsocurvesOff",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Isolate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "IsolateLock",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "JoinCopy",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "JoinEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LayoutProperties",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Layouts",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Libraries",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LightMode",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Lights",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LimitReferenceModel",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LineOfSight",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LineThroughPt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Lines",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LinetypeDisplay",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Linetypes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "List",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "LockSwap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Login",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Logout",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MakeSubDFriendly",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MappingWidget",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MappingWidgetOff",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MarkFoci",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MatchAnnotation",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MatchProperties",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Maximize",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Menus",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MergeAllEdges",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MergeCoplanarFace",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MergeFaces",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MigratePlugIns",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Minimize",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MoveExtractedIsocurve",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MoveTargetToObjects",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MoveToCPlane",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MoveUVN",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "MultiPause",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "NamedSelections",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "NextU",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "NextV",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "NoEcho",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Notes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Notifications",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OneView",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OpenEmbeddedWorksession",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OpenFromCentral",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OpenURL",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OpenWorksessionSpecify",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OptionsExport",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OptionsImport",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OptionsPage",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Orient3Pt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OrientCrvToEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OrientToObjects",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Ortho",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OrthoAngle",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "OrthoSnapToCPlaneZ",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PackSubDFaces",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PackTextures",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PackageManager",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Parabola3Pt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Paraboloid",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Paste",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PatchSingleFace",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Pause",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Perforations",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PerspectiveAngle",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PerspectiveMatch",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Plan",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PlanarDifference",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PlanarUnion",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PlaneThroughPt",
+          "category": "Uncategorized",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.527291+00:00"
+        },
+        {
+          "name": "PlansFromLines",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PlansFromRectangles",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PolygonCount",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PopupPopular",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PopupToolbar",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrevU",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrevV",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrintDisplay",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrintLayerStatesPDF",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrintLayerStatesPNG",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PrintSections",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ProjectOsnap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ProjectToCPlane",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PropertiesPage",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PtOffSelected",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "PushPull",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RTextEdit",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Radiate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RadiateFind",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RampToStairs",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RebuildEdges",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RecordAnimation",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RedoMultiple",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RedoView",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RefitTrim",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Reflect",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RefreshAllTextures",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RefreshShade",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Regen",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RemapCPlane",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RememberCopyOptions",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RemoveAllNakedMicroEdges",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RemoveMappingChannel",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RemovePerFaceColors",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RemoveSymmetry",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Render",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Reparameterize",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Repeat",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ReportProblem",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Rescue3dmFile",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RescueBlockOrphans",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Reset",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ResetMessageBoxes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Restore",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "RoadwayRamp",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Rotate3D",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SaveACopy",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SaveAsTemplate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SaveWindowLayout",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Scale1D",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Scale2D",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ScaleBox",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ScaleByPlane",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ScaleNU",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ScalePositions",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ScaleTextHeight",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SectionBox",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SectionsFromLines",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Shade",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShadeSelected",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShortPath",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowEdgesOff",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowEndsOff",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowInDetail",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowOsnap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowPt",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowToolBar",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShowZBuffer",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ShrinkTrimmedSrfToEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Sketch",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Slab",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Slide",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Slope",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapSize",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapToLocked",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapToMeshObject",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapToMeshes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapToOccluded",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SnapToSubDObject",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Snapshots",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SoftTransform",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SpaceMouse",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SphereTangentToThreeSurfaces",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SplitMeshWithCurve",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SplitRefitSurface",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Splop",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Stitch",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SunLight",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SwapView",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SweepProfile",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Symmetry",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SyncHash",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SyncToCentral",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SynchronizeCPlanes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SynchronizeViews",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "SystemInfo",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TagName",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TagUpdate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ThicknessAnalysis",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ThicknessAnalysisOff",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TiltView",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TriangulateNonPlanarQuads",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TriangulateRenderMeshes",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TruncatedCone",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TruncatedPyramid",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Truss",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Turntable",
+          "category": "Uncategorized",
+          "learned": true,
+          "last_attempt": "2026-01-18T03:21:14.528518+00:00"
+        },
+        {
+          "name": "Tutorials",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "TweenSurfaces",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnSectionBox",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UndoMultiple",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UndoSelected",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UndoView",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UngroupAll",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnifyMeshNormals",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Unisolate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnisolateLock",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnjoinEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnlockFromCentral",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnlockSelected",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UnpackTextures",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Unwrap",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UpdateLinkedBlocks",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "UseExtrusions",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "WebBrowser",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "WebPage",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Weight",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "WeldEdge",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "WindowLayout",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZBuffer",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "Zoom1To1Calibrate",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomDetailExtents",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomEnds",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomLayoutExtents",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomLens",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomNaked",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomNonManifold",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomWalkthrough",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "ZoomZeroToOne",
+          "category": "Uncategorized",
+          "learned": false
+        },
+        {
+          "name": "syncExamineFile",
+          "category": "Uncategorized",
+          "learned": false
+        }
+      ],
+      "total": 276,
+      "learned": 0
+    }
+  ],
+  "summary": {
+    "total_commands": 1119,
+    "already_learned": 25,
+    "remaining": 1094
+  }
+}

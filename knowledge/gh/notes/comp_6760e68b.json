@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_6760e68b",
+  "note_type": "component",
+  "name": "Curve To Polyline",
+  "brief": "Curve To Polyline | Inputs: C, Td, Ta, E- → P, S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Curve To Polyline. Inputs: C (Curve), Td (Number), Ta (Number), E- (Number), E+ (Number). Outputs: P (Curve), S (Integer).",
+  "keywords": [
+    "curve to polyline",
+    "curve",
+    "to",
+    "polyline",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "curve to polyline",
+    "curve",
+    "polyline"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve To Polyline"
+  ],
+  "solution_principle": "Convert a curve to a polyline.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_7d656ef6",
+    "comp_a2feec22"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2956d989-3599-476f-bc92-1d847aff98b6",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "Td": "Number",
+      "Ta": "Number",
+      "E-": "Number",
+      "E+": "Number"
+    },
+    "outputs": {
+      "P": "Curve",
+      "S": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5c5fbc42-3e1d-4081-9cf1-148d0b1d9610"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|curve to polyline"
+  }
+}

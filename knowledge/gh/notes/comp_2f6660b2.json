@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_2f6660b2",
+  "note_type": "component",
+  "name": "Series",
+  "brief": "Series | Inputs: S, N, C â†’ S",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Series. Inputs: S (Number), N (Number), C (Integer). Outputs: S (Number).",
+  "keywords": [
+    "series",
+    "series"
+  ],
+  "category": "sequence_ops",
+  "tags": [
+    "data-management",
+    "sequence",
+    "list-generation",
+    "component",
+    "series",
+    "parametric-input",
+    "number-generation",
+    "mathematical-functions",
+    "point-sequence-generation"
+  ],
+  "trigger_intents": [
+    "series"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Series"
+  ],
+  "solution_principle": "Create a series of numbers.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_155ea82b",
+    "comp_f29793c1",
+    "teaching_04dab798",
+    "teaching_088f486f",
+    "teaching_4f32fa83"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e64c5fb1-845c-4ab1-8911-5f338516ba67",
+    "category": "sequence_ops",
+    "inputs": {
+      "S": "Number",
+      "N": "Number",
+      "C": "Integer"
+    },
+    "outputs": {
+      "S": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 217,
+    "stable_key": "sets|sequence|series"
+  }
+}

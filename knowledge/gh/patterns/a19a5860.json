@@ -1,0 +1,648 @@
+{
+  "pattern_id": "a19a5860",
+  "name": "S19E02",
+  "version": "1.0",
+  "created": "2026-02-22T14:09:35.893147Z",
+  "solution": {
+    "brief": "Recipe from FILES\\19\\S19E02.gh (45 components)",
+    "principle": "\n\nRelated insight: Part of S19 series complexity progression: S19E01 (30) → S19E03 (44) → S19E02 (45). Represents high-complexity tier in this parametric surface workflow series.",
+    "components_needed": [
+      "Bifocals",
+      "Square",
+      "wlc_1",
+      "panel",
+      "Scale",
+      "Area",
+      "Gene Pool",
+      "Scale",
+      "Gene Pool",
+      "Explode",
+      "Explode",
+      "slider",
+      "Divide Curve",
+      "Curve Closest Point",
+      "Line",
+      "Shift List",
+      "Ruled Surface",
+      "Shortest List",
+      "Discontinuity",
+      "Discontinuity",
+      "Rectangle 2Pt",
+      "Surface",
+      "Path Mapper",
+      "Trim Tree",
+      "Merge",
+      "Extrude",
+      "Unit Z",
+      "Gene Pool",
+      "Multiplication",
+      "panel",
+      "Volume",
+      "Boolean",
+      "Dispatch",
+      "Surface",
+      "Mass Addition",
+      "Area",
+      "Relative Differences",
+      "Absolute",
+      "Mass Addition",
+      "Number",
+      "Number",
+      "Number",
+      "Wallacei X",
+      "One Over X",
+      "Wallacei X"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s19e02"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "04081616",
+    "4d112b4a",
+    "91aa15f3",
+    "6ec4ab92",
+    "0c27eec4"
+  ],
+  "tags": [
+    "parametric",
+    "data-tree",
+    "curve-division",
+    "surface-creation",
+    "45-components",
+    "high-complexity",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:10:28.552267",
+    "evolved_by": [
+      "0c27eec4"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:10:28.552267",
+        "trigger": "New pattern: 0c27eec4",
+        "changes": "S19E03 addition clarifies S19E02's position as high-complexity endpoint in the series"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "wlc_1",
+          "min": 90,
+          "max": 100,
+          "value": 97
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        }
+      ],
+      "panels": [
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R30",
+          "nick": "",
+          "content": "3.5"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/19/S19E02.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            40,
+            14
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            243,
+            174
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "nick": "wlc_1",
+          "pos": [
+            2.4,
+            173.2
+          ],
+          "min": 90,
+          "max": 100,
+          "value": 97
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            132.5,
+            196.4
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R5",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            454,
+            174
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            341,
+            181
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "GalapagosGeneListObject",
+          "nick": "wlc_2",
+          "name": "Gene Pool",
+          "pos": [
+            70.7,
+            250.3
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            584,
+            228
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "GalapagosGeneListObject",
+          "nick": "wlc_3",
+          "name": "Gene Pool",
+          "pos": [
+            75.9,
+            355.5
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            720,
+            169
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            719,
+            223
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            683,
+            271.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R13",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            936,
+            233
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1045,
+            132
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1178,
+            203
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_ShiftList",
+          "nick": "Shift",
+          "name": "Shift List",
+          "pos": [
+            1271,
+            287
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_RuledSurface",
+          "nick": "RuleSrf",
+          "name": "Ruled Surface",
+          "pos": [
+            1475,
+            219
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_MatchListShortest",
+          "nick": "Short",
+          "name": "Shortest List",
+          "pos": [
+            1358,
+            213
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            742,
+            451
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            742,
+            404
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Rectangle2Pt",
+          "nick": "Rec 2Pt",
+          "name": "Rectangle 2Pt",
+          "pos": [
+            852,
+            430
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1684.8,
+            337.9
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "PathMapper",
+          "name": "Path Mapper",
+          "pos": [
+            1576.7,
+            199.3
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "TrimTreeComponent",
+          "nick": "Trim",
+          "name": "Trim Tree",
+          "pos": [
+            1668,
+            273
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1810,
+            273
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Extrude",
+          "nick": "Extr",
+          "name": "Extrude",
+          "pos": [
+            1974,
+            267
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1829,
+            379
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "GalapagosGeneListObject",
+          "nick": "wlc_4",
+          "name": "Gene Pool",
+          "pos": [
+            76.7,
+            470.9
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            409,
+            577
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "panel",
+          "pos": [
+            227.3,
+            645.8
+          ],
+          "content": "3.5"
+        },
+        {
+          "id": "R31",
+          "type": "Component_VolumeProperties_OBSOLETE",
+          "name": "Volume",
+          "pos": [
+            2192,
+            316
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Param_Boolean",
+          "nick": "Bool",
+          "name": "Boolean",
+          "pos": [
+            1794.6,
+            493.6
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            2037,
+            456
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            2215.2,
+            476.1
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            2386,
+            366
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            2389,
+            435
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_RelativeDifferences",
+          "nick": "RelDif",
+          "name": "Relative Differences",
+          "pos": [
+            748,
+            635
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "OperatorAbsolute",
+          "nick": "Abs",
+          "name": "Absolute",
+          "pos": [
+            825,
+            634
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            2386,
+            504
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Param_Number",
+          "nick": "wlc_Volume",
+          "name": "Number",
+          "pos": [
+            2581.5,
+            380.5
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Param_Number",
+          "nick": "wlc_Area",
+          "name": "Number",
+          "pos": [
+            2582.1,
+            430.3
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Param_Number",
+          "nick": "wlc_Variation",
+          "name": "Number",
+          "pos": [
+            2582.5,
+            479.1
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "PlaceholderComponent",
+          "name": "Wallacei X",
+          "pos": [
+            2814,
+            310
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "FuncOneOverX",
+          "nick": "1/x",
+          "name": "One Over X",
+          "pos": [
+            2482,
+            494
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "PlaceholderComponent",
+          "name": "Wallacei X",
+          "pos": [
+            2778,
+            155
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R4.O0>R2.I2",
+        "R4.O0>R2.I3",
+        "R2.O0>R5.I0",
+        "R6.O1>R5.I1",
+        "R7.O0>R5.I2",
+        "R2.O0>R6.I0",
+        "R5.O0>R8.I0",
+        "R6.O1>R8.I1",
+        "R9.O0>R8.I2",
+        "R5.O0>R10.I0",
+        "R8.O0>R11.I0",
+        "R11.O0>R13.I0",
+        "R12.O0>R13.I1",
+        "R13.O0>R14.I0",
+        "R10.O0>R14.I1",
+        "R14.O0>R15.I0",
+        "R13.O0>R15.I1",
+        "R15.O0>R16.I0",
+        "R18.O0>R17.I0",
+        "R18.O1>R17.I1",
+        "R15.O0>R18.I0",
+        "R16.O0>R18.I1",
+        "R5.O0>R19.I0",
+        "R8.O0>R20.I0",
+        "R20.O0>R21.I1",
+        "R19.O0>R21.I2",
+        "R17.O0>R24.I0",
+        "R24.O0>R25.I0",
+        "R22.O0>R25.I1",
+        "R25.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R29.O0>R27.I0",
+        "R28.O0>R29.I0",
+        "R30.O0>R29.I1",
+        "R33.O0>R31.I0",
+        "R26.O0>R33.I0",
+        "R32.O0>R33.I1",
+        "R31.O0>R35.I0",
+        "R34.O0>R36.I0",
+        "R29.O0>R37.I0",
+        "R37.O0>R38.I0",
+        "R38.O0>R39.I0",
+        "R3.O0>R43.I0",
+        "R7.O0>R43.I0",
+        "R9.O0>R43.I0",
+        "R28.O0>R43.I0",
+        "R41.O0>R43.I1",
+        "R42.O0>R43.I1",
+        "R40.O0>R43.I1",
+        "R39.O0>R44.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_87ff6e5d",
+  "note_type": "component",
+  "name": "Point Cloud Closest Point",
+  "brief": "Point Cloud Closest Point | Inputs: P, Pc → P, I, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Point Cloud Closest Point. Inputs: P (Point), Pc (Point Cloud). Outputs: P (Point), I (Integer), D (Number).",
+  "keywords": [
+    "point cloud closest point",
+    "point",
+    "cloud",
+    "closest",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "point cloud closest point",
+    "point",
+    "cloud",
+    "closest"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Cloud Closest Point"
+  ],
+  "solution_principle": "Find the closest point in a point cloud",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_6d59d8a6",
+    "comp_b1520461",
+    "comp_d358731a",
+    "comp_d8c157c3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6e7f413c-7d1a-45bb-b337-90c3376f6a0b",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "Pc": "Point Cloud"
+    },
+    "outputs": {
+      "P": "Point",
+      "I": "Integer",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "571ca323-6e55-425a-bf9e-ee103c7ba4b9"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|point cloud closest point"
+  }
+}

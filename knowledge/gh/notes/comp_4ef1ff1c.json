@@ -1,0 +1,59 @@
+{
+  "note_id": "comp_4ef1ff1c",
+  "note_type": "component",
+  "name": "Cluster Input",
+  "brief": "Cluster Input | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Cluster Input.",
+  "keywords": [
+    "cluster input",
+    "cluster",
+    "input",
+    "param_utilities"
+  ],
+  "category": "param_utilities",
+  "tags": [
+    "param_utilities"
+  ],
+  "trigger_intents": [
+    "cluster input",
+    "cluster",
+    "input"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cluster Input"
+  ],
+  "solution_principle": "Represents a cluster input parameter",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_49fcea0d",
+    "comp_00dd8796",
+    "comp_a8859f74",
+    "comp_8a34358d",
+    "comp_b77812c7"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "448de216-3a12-43cf-a135-e3bfafc87744",
+    "category": "param_utilities",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|util|cluster input"
+  }
+}

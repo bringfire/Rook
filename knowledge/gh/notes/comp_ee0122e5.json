@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_ee0122e5",
+  "note_type": "component",
+  "name": "Orthocentre",
+  "brief": "Orthocentre | Inputs: A, B, C → C, AB, BC",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Orthocentre. Inputs: A (Point), B (Point), C (Point). Outputs: C (Point), AB (Line), BC (Line), CA (Line).",
+  "keywords": [
+    "orthocentre",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "orthocentre"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Orthocentre"
+  ],
+  "solution_principle": "Generate the triangle orthocentre from altitudes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ee1dcf99",
+    "comp_a98172dc",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_38c8d281"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "36dd5551-b6bd-4246-bd2f-1fd91eb2f02d",
+    "category": "trigonometry",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point"
+    },
+    "outputs": {
+      "C": "Point",
+      "AB": "Line",
+      "BC": "Line",
+      "CA": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "21d0767c-5340-4087-aa09-398d0e706908"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|orthocentre"
+  }
+}

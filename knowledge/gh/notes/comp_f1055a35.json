@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_f1055a35",
+  "note_type": "component",
+  "name": "FloorFriction",
+  "brief": "FloorFriction | Inputs: P, L, S → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: FloorFriction. Inputs: P (Point), L (Number), S (Number). Outputs: F (Generic Data).",
+  "keywords": [
+    "floorfriction",
+    "kangaroo2_goals-pt"
+  ],
+  "category": "kangaroo2_goals-pt",
+  "tags": [
+    "kangaroo2_goals-pt"
+  ],
+  "trigger_intents": [
+    "floorfriction",
+    "floor",
+    "friction"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "FloorFriction"
+  ],
+  "solution_principle": "Floor with static friction",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7c19522b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "780a08f2-c42d-4b8e-b8c9-8b3e09c318d0",
+    "category": "kangaroo2_goals-pt",
+    "inputs": {
+      "P": "Point",
+      "L": "Number",
+      "S": "Number"
+    },
+    "outputs": {
+      "F": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "14ac13f4-c22d-487c-be01-c6daf952f1be"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-pt|floorfriction"
+  }
+}

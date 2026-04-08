@@ -1,0 +1,641 @@
+{
+  "pattern_id": "61ea3072",
+  "name": "9-2",
+  "version": "1.0",
+  "created": "2026-02-22T14:22:13.205212Z",
+  "solution": {
+    "brief": "Recipe from FILES\\9\\9-2.gh (39 components)",
+    "principle": "",
+    "components_needed": [
+      "Enneper Surface",
+      "Surface Box",
+      "Divide Domain²",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Random Reduce",
+      "Number Slider",
+      "Number Slider",
+      "Populate 3D",
+      "Tree Statistics",
+      "Random",
+      "panel",
+      "Number Slider",
+      "Point In Brep",
+      "Cull Pattern",
+      "Sort List",
+      "Deconstruct",
+      "Split List",
+      "List Length",
+      "Division",
+      "Number Slider",
+      "Jitter",
+      "Number Slider",
+      "Proximity 3D",
+      "Create Settings",
+      "removeDuplicateLines",
+      "Number Slider",
+      "Curve To Volume",
+      "Pipe",
+      "Number Slider",
+      "Proximity 3D",
+      "Number Slider",
+      "Custom Preview",
+      "Custom Preview",
+      "Colour Swatch",
+      "Volume to Mesh",
+      "Colour Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "9 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "c25e9cf6",
+    "f44ca915",
+    "f2b6451c",
+    "3fa41da8"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "recipe",
+    "39-components",
+    "recipe-series",
+    "workflow",
+    "surface-creation",
+    "mid-complexity"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R6",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2.7
+        },
+        {
+          "id": "R7",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 2.37
+        },
+        {
+          "id": "R9",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 76
+        },
+        {
+          "id": "R10",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 187
+        },
+        {
+          "id": "R15",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 542
+        },
+        {
+          "id": "R23",
+          "nick": "Number Slider",
+          "min": 2,
+          "max": 20,
+          "value": 2
+        },
+        {
+          "id": "R25",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.546
+        },
+        {
+          "id": "R29",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 11,
+          "value": 0.02
+        },
+        {
+          "id": "R32",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.1
+        },
+        {
+          "id": "R34",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.06
+        }
+      ],
+      "panels": [
+        {
+          "id": "R14",
+          "nick": "",
+          "content": "1000"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/9/9-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Enneper",
+          "name": "Enneper Surface",
+          "pos": [
+            476,
+            347
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_CreateSurfaceBox",
+          "name": "Surface Box",
+          "pos": [
+            887,
+            367
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_Divide2DInterval",
+          "name": "Divide Domain²",
+          "pos": [
+            662,
+            393
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            337.1,
+            423
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 12
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            337.1,
+            447.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R6",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            536.2,
+            474
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.7
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            173,
+            328.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2.37
+        },
+        {
+          "id": "R8",
+          "type": "Component_RandomReduce",
+          "name": "Random Reduce",
+          "pos": [
+            1139,
+            393
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            826.6,
+            406.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 76
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            826.2,
+            431.6
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 187
+        },
+        {
+          "id": "R11",
+          "type": "Component_PopulateBox",
+          "name": "Populate 3D",
+          "pos": [
+            1600,
+            416
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Component_TreeStatistics",
+          "name": "Tree Statistics",
+          "pos": [
+            1258,
+            453
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1433,
+            426
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "panel",
+          "pos": [
+            1268.8,
+            395.9
+          ],
+          "content": "1000"
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1116.7,
+            490.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 542
+        },
+        {
+          "id": "R16",
+          "type": "Component_BrepVolumeInclusion",
+          "name": "Point In Brep",
+          "pos": [
+            1784,
+            333
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_CullPattern",
+          "name": "Cull Pattern",
+          "pos": [
+            1957,
+            323
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_SortList",
+          "name": "Sort List",
+          "pos": [
+            2327,
+            259
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            2111,
+            229
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_SplitList",
+          "name": "Split List",
+          "pos": [
+            2781,
+            260
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            2477,
+            284
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            2606,
+            298
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2339.9,
+            307.3
+          ],
+          "min": 2,
+          "max": 20,
+          "value": 2
+        },
+        {
+          "id": "R24",
+          "type": "Component_Jitter",
+          "name": "Jitter",
+          "pos": [
+            2602,
+            235
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2266.4,
+            207.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.546
+        },
+        {
+          "id": "R26",
+          "type": "Component_Proximity3D",
+          "name": "Proximity 3D",
+          "pos": [
+            3036,
+            319
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "VolumeSettings",
+          "name": "Create Settings",
+          "pos": [
+            3365,
+            426
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "removeDuplicateLines",
+          "pos": [
+            3240,
+            309
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3067.3,
+            387.3
+          ],
+          "min": 0,
+          "max": 11,
+          "value": 0.02
+        },
+        {
+          "id": "R30",
+          "type": "CurveToVolume",
+          "name": "Curve To Volume",
+          "pos": [
+            3602,
+            329
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            3854,
+            252
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3576.5,
+            243.7
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.1
+        },
+        {
+          "id": "R33",
+          "type": "Component_Proximity3D",
+          "name": "Proximity 3D",
+          "pos": [
+            3036,
+            200
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3172.3,
+            359.2
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.06
+        },
+        {
+          "id": "R35",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            4049,
+            348
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            3361,
+            190
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "colour",
+          "nick": "Colour Swatch",
+          "pos": [
+            3148,
+            194.8
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "VolumeToMesh",
+          "name": "Volume to Mesh",
+          "pos": [
+            3849,
+            339
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "colour",
+          "nick": "Colour Swatch",
+          "pos": [
+            3775.9,
+            386.8
+          ]
+        }
+      ],
+      "flows": [
+        "R7.O0>R1.I2",
+        "R1.O0>R2.I0",
+        "R3.O0>R2.I1",
+        "R6.O0>R2.I2",
+        "R1.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R3.I2",
+        "R2.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R10.O0>R8.I2",
+        "R8.O0>R11.I0",
+        "R13.O0>R11.I2",
+        "R8.O0>R12.I0",
+        "R14.O0>R13.I0",
+        "R12.O2>R13.I1",
+        "R15.O0>R13.I2",
+        "R8.O0>R16.I0",
+        "R11.O0>R16.I1",
+        "R11.O0>R17.I0",
+        "R16.O0>R17.I1",
+        "R19.O2>R18.I0",
+        "R17.O0>R18.I1",
+        "R17.O0>R19.I0",
+        "R24.O0>R20.I0",
+        "R22.O0>R20.I1",
+        "R18.O1>R21.I0",
+        "R21.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R18.O1>R24.I0",
+        "R25.O0>R24.I1",
+        "R20.O1>R26.I0",
+        "R29.O0>R27.I0",
+        "R26.O0>R28.I0",
+        "R28.O0>R30.I0",
+        "R34.O0>R30.I1",
+        "R27.O0>R30.I2",
+        "R28.O0>R31.I0",
+        "R32.O0>R31.I1",
+        "R20.O0>R33.I0",
+        "R38.O0>R35.I0",
+        "R39.O0>R35.I1",
+        "R33.O0>R36.I0",
+        "R37.O0>R36.I1",
+        "R30.O0>R38.I0",
+        "R27.O0>R38.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

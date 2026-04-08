@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_3a361351",
+  "note_type": "component",
+  "name": "Fit Loft",
+  "brief": "Fit Loft | Inputs: C, Nu, Du, Dv → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Fit Loft. Inputs: C (Curve), Nu (Integer), Du (Integer), Dv (Integer). Outputs: S (Surface).",
+  "keywords": [
+    "fit loft",
+    "fit",
+    "loft",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "fit loft",
+    "fit",
+    "loft"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Fit Loft"
+  ],
+  "solution_principle": "Create a loft fitted through a set of curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_63941b97",
+    "comp_2bb4a0a8",
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "342aa574-1327-4bc2-8daf-203da2a45676",
+    "category": "surface_ops",
+    "inputs": {
+      "C": "Curve",
+      "Nu": "Integer",
+      "Du": "Integer",
+      "Dv": "Integer"
+    },
+    "outputs": {
+      "S": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5c270622-ee80-45a4-b07a-bd8ffede92a2",
+      "45f19d16-1c9f-4b0f-a9a6-45a77f3d206c"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|fit loft"
+  }
+}

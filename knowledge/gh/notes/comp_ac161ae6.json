@@ -1,0 +1,95 @@
+{
+  "note_id": "comp_ac161ae6",
+  "note_type": "component",
+  "name": "Annotation Units Settings",
+  "brief": "Annotation Units Settings | Inputs: U, Lu, Lf, Lr → U, Lu, Lf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Annotation Units Settings. Inputs: U (Units Settings), Lu (Integer), Lf (Number), Lr (Integer), R (Number), P (Text), S (Text), Zs (Integer), Ff (Integer), Fs (Number), Au (Integer), Ar (Integer), Ao (Number), Az (Integer). Outputs: U (Units Settings), Lu (Integer), Lf (Number), Lr (Integer), R (Number), P (Text), S (Text), Zs (Integer), Ff (Integer), Fs (Number), Au (Integer), Ar (Integer), Ao (Number), Az (Integer).",
+  "keywords": [
+    "annotation units settings",
+    "annotation",
+    "units",
+    "settings",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation units settings",
+    "annotation",
+    "units",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Units Settings"
+  ],
+  "solution_principle": "Annotation Style Units Settings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d741f10",
+    "comp_375a03ab",
+    "comp_ec86ef0e",
+    "comp_a474810a",
+    "comp_c02c11a2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2eccca8b-b190-4eef-9ead-0659ac1ef900",
+    "category": "rhino_annotations",
+    "inputs": {
+      "U": "Units Settings",
+      "Lu": "Integer",
+      "Lf": "Number",
+      "Lr": "Integer",
+      "R": "Number",
+      "P": "Text",
+      "S": "Text",
+      "Zs": "Integer",
+      "Ff": "Integer",
+      "Fs": "Number",
+      "Au": "Integer",
+      "Ar": "Integer",
+      "Ao": "Number",
+      "Az": "Integer"
+    },
+    "outputs": {
+      "U": "Units Settings",
+      "Lu": "Integer",
+      "Lf": "Number",
+      "Lr": "Integer",
+      "R": "Number",
+      "P": "Text",
+      "S": "Text",
+      "Zs": "Integer",
+      "Ff": "Integer",
+      "Fs": "Number",
+      "Au": "Integer",
+      "Ar": "Integer",
+      "Ao": "Number",
+      "Az": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "169fee80-074f-4b6a-9e60-cde26129d10b",
+      "28f6d54b-68cf-4044-a1ff-6949aae1921b",
+      "3cfd77d3-30d0-45f6-adeb-ea8defed58d3"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation units settings"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_36f6bbd8",
+  "note_type": "component",
+  "name": "List Item",
+  "brief": "List Item | Inputs: L, i, W â†’ i",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: List Item. Inputs: L (Generic Data), i (Integer), W (Boolean). Outputs: i (Generic Data).",
+  "keywords": [
+    "list item",
+    "list",
+    "item"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "component",
+    "list-access",
+    "data-management",
+    "grasshopper-basics",
+    "list-manipulation",
+    "item-selection"
+  ],
+  "trigger_intents": [
+    "list item",
+    "list",
+    "item"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "List Item"
+  ],
+  "solution_principle": "Retrieve a specific item from a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_088f486f",
+    "teaching_62085558",
+    "teaching_e8ddc722",
+    "comp_669615fc",
+    "comp_698dccba"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "59daf374-bc21-4a5e-8282-5504fb7ae9ae",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "i": "Integer",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "i": "Generic Data"
+    },
+    "typical_wiring": [],
+    "usage_count": 244,
+    "stable_key": "sets|list|list item"
+  }
+}

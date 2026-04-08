@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_a950612e",
+  "note_type": "component",
+  "name": "VertexLoads",
+  "brief": "VertexLoads | Inputs: Mesh, Strength → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: VertexLoads. Inputs: Mesh (Mesh), Strength (Number). Outputs: L (Generic Data).",
+  "keywords": [
+    "vertexloads",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "vertexloads",
+    "vertex",
+    "loads"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "VertexLoads"
+  ],
+  "solution_principle": "Apply equal vertical loads to all vertices of a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64690b85",
+    "comp_0e24416c",
+    "comp_b6f7b7c7",
+    "comp_ec557765",
+    "comp_07a34b21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2b3f5029-cfec-4f95-96d1-757bd9c51da1",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "Mesh": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "L": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "24e2b0d2-d7b8-4478-8a83-1f04cba701a1"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|vertexloads"
+  }
+}

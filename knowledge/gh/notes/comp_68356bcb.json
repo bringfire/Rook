@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_68356bcb",
+  "note_type": "component",
+  "name": "Scale",
+  "brief": "Scale | Inputs: G, C, F â†’ G, X",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Scale. Inputs: G (Geometry), C (Point), F (Number). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "scale",
+    "scale"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transformation",
+    "geometry-manipulation",
+    "fundamental-component",
+    "parametric-tool",
+    "scaling"
+  ],
+  "trigger_intents": [
+    "scale"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Scale"
+  ],
+  "solution_principle": "Scale an object uniformly in all directions.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_336d7638",
+    "teaching_836d6f1c",
+    "comp_6cf612f1",
+    "comp_fcbdb34a",
+    "teaching_567ea1e1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "C": "Point",
+      "F": "Number"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "usage_count": 279,
+    "stable_key": "transform|affine|scale"
+  }
+}

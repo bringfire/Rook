@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_40dc966b",
+  "note_type": "component",
+  "name": "Klein Surface",
+  "brief": "Klein Surface | Inputs: U, V, R, T → Srf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Klein Surface. Inputs: U (Integer), V (Integer), R (Number), T (Number), S (Number), D1 (Domain), D2 (Domain). Outputs: Srf (Generic Data).",
+  "keywords": [
+    "klein surface",
+    "klein",
+    "surface",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "klein surface",
+    "klein",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Klein Surface"
+  ],
+  "solution_principle": "Create a parametric Klein surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_13d603c5",
+    "recipe_155ea82b",
+    "teaching_062630c1",
+    "teaching_21c34834",
+    "teaching_24f645a3",
+    "comp_b72c3416",
+    "comp_c33aa162"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "41910ccd-37aa-4c63-ba32-34632cd01f82",
+    "category": "lunchbox_form",
+    "inputs": {
+      "U": "Integer",
+      "V": "Integer",
+      "R": "Number",
+      "T": "Number",
+      "S": "Number",
+      "D1": "Domain",
+      "D2": "Domain"
+    },
+    "outputs": {
+      "Srf": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "20b86e86-2311-465d-9f3a-9e2f9cb662c9",
+      "38a071b4-9887-4828-86fb-d301d7f61fd6"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|klein surface"
+  }
+}

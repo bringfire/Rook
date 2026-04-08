@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_9ffe6eef",
+  "note_type": "component",
+  "name": "Import Model Material",
+  "brief": "Import Model Material | Inputs: F → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Import Model Material. Inputs: F (Text). Outputs: M (Model Material).",
+  "keywords": [
+    "import model material",
+    "import",
+    "model",
+    "material",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "import model material",
+    "import",
+    "model",
+    "material"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Import Model Material"
+  ],
+  "solution_principle": "Import Model Material",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f462047",
+    "comp_3c75688e",
+    "comp_580fe1e1",
+    "comp_1662c3ae",
+    "comp_d83bab54"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "722dd73f-2b6a-494e-b361-1118bf63b9e2",
+    "category": "rhino_render",
+    "inputs": {
+      "F": "Text"
+    },
+    "outputs": {
+      "M": "Model Material"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7062df7c-7f0e-484b-9354-902a8762499a"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|import model material"
+  }
+}

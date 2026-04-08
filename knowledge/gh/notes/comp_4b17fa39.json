@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_4b17fa39",
+  "note_type": "component",
+  "name": "Export Model Block Definition",
+  "brief": "Export Model Block Definition | Inputs: Bd, F, O → Bd, F, E",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Export Model Block Definition. Inputs: Bd (Model Block Definition), F (Text), O (Boolean). Outputs: Bd (Model Block Definition), F (Text), E (Boolean).",
+  "keywords": [
+    "export model block definition",
+    "export",
+    "model",
+    "block",
+    "definition",
+    "rhino_model"
+  ],
+  "category": "rhino_model",
+  "tags": [
+    "rhino_model"
+  ],
+  "trigger_intents": [
+    "export model block definition",
+    "export",
+    "model",
+    "block",
+    "definition"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Export Model Block Definition"
+  ],
+  "solution_principle": "Export a block definition as a file.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_84da874b",
+    "comp_2d8cfb46",
+    "comp_ad796399",
+    "comp_b4164a54",
+    "comp_ae5e70e3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "72030d3d-12fc-4f1f-8565-c924781eef67",
+    "category": "rhino_model",
+    "inputs": {
+      "Bd": "Model Block Definition",
+      "F": "Text",
+      "O": "Boolean"
+    },
+    "outputs": {
+      "Bd": "Model Block Definition",
+      "F": "Text",
+      "E": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6354d626-df14-488d-885d-ed51b2efe97f"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|model|export model block definition"
+  }
+}

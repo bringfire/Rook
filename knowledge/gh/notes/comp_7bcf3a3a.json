@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_7bcf3a3a",
+  "note_type": "component",
+  "name": "Mesh Edges",
+  "brief": "Mesh Edges | Inputs: M → E1, E2, E3",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Mesh Edges. Inputs: M (Mesh). Outputs: E1 (Line), E2 (Line), E3 (Line).",
+  "keywords": [
+    "mesh edges",
+    "mesh",
+    "edges",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "mesh edges",
+    "mesh",
+    "edges"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Edges"
+  ],
+  "solution_principle": "Get all the edges of a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c97d1752",
+    "comp_fff2002f",
+    "comp_38f1c08d",
+    "comp_0693fc0f",
+    "comp_bf1c655b",
+    "comp_7ec0071a",
+    "comp_686c9721",
+    "comp_437178bb",
+    "comp_ead277e0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2b9bf01d-5fe5-464c-b0b3-b469eb5f2efb",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "E1": "Line",
+      "E2": "Line",
+      "E3": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "743c7d57-100d-4418-b623-a7ca47a11d05",
+      "0b4ac802-fc4a-4201-9c66-0078b837c1eb"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|mesh edges"
+  }
+}

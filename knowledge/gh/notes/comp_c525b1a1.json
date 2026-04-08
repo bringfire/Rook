@@ -1,0 +1,85 @@
+{
+  "note_id": "comp_c525b1a1",
+  "note_type": "component",
+  "name": "Surface Closest Point",
+  "brief": "Surface Closest Point | Inputs: P, S → P, uvP, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Surface Closest Point. Inputs: P (Point), S (Surface). Outputs: P (Point), uvP (Point), D (Number).",
+  "keywords": [
+    "surface closest point",
+    "surface",
+    "closest",
+    "point",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "surface closest point",
+    "surface",
+    "closest",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface Closest Point"
+  ],
+  "solution_principle": "Find the closest point on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_28af3654",
+    "teaching_b85f762f",
+    "comp_93df8f05",
+    "comp_c9b05711",
+    "comp_d6ac8cfa",
+    "comp_c29b093f",
+    "comp_84222c76",
+    "comp_515d8f2a",
+    "comp_bef5b3c9",
+    "comp_20b1645f",
+    "comp_64864243",
+    "comp_4d4a3a69",
+    "comp_7cf8d3e5",
+    "comp_72822308"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4a9e9a8e-0943-4438-b360-129c30f2bb0f",
+    "category": "surface_analysis",
+    "inputs": {
+      "P": "Point",
+      "S": "Surface"
+    },
+    "outputs": {
+      "P": "Point",
+      "uvP": "Point",
+      "D": "Number"
+    },
+    "typical_wiring": [
+      {
+        "target": "Evaluate Surface",
+        "param": "Point",
+        "count": 14
+      }
+    ],
+    "similar_to": [
+      "4beead95-8aa2-4613-8bb9-24758a0f5c4c"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|surface closest point"
+  }
+}

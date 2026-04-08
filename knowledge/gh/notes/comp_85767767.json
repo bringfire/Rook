@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_85767767",
+  "note_type": "component",
+  "name": "Mesh Intersection",
+  "brief": "Mesh Intersection | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Mesh Intersection. Inputs: A (Mesh), B (Mesh). Outputs: R (Mesh).",
+  "keywords": [
+    "mesh intersection",
+    "mesh",
+    "intersection",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "mesh intersection",
+    "mesh",
+    "intersection"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Intersection"
+  ],
+  "solution_principle": "Perform a solid intersection on a set of meshes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_85550cda",
+    "comp_7d8acb67",
+    "comp_b3026bff",
+    "comp_6c86f7fd",
+    "teaching_22255d24"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "95aef4f6-66fc-477e-b8f8-32395a837831",
+    "category": "intersection_shape",
+    "inputs": {
+      "A": "Mesh",
+      "B": "Mesh"
+    },
+    "outputs": {
+      "R": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5723c845-cafc-442d-a667-8c76532845e6"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|mesh intersection"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_93df8f05",
+  "note_type": "component",
+  "name": "Brep Closest Point",
+  "brief": "Brep Closest Point | Inputs: P, B → P, N, D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Brep Closest Point. Inputs: P (Point), B (Brep). Outputs: P (Point), N (Vector), D (Number).",
+  "keywords": [
+    "brep closest point",
+    "brep",
+    "closest",
+    "point",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "brep closest point",
+    "brep",
+    "closest",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep Closest Point"
+  ],
+  "solution_principle": "Find the closest point on a brep",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_570eb369",
+    "comp_c525b1a1",
+    "comp_8c5cf0ba",
+    "comp_dc18aa71",
+    "comp_7cf8d3e5",
+    "comp_c29b093f",
+    "comp_84222c76",
+    "comp_515d8f2a",
+    "comp_4d4a3a69",
+    "comp_c177edf2",
+    "comp_72822308"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4beead95-8aa2-4613-8bb9-24758a0f5c4c",
+    "category": "surface_analysis",
+    "inputs": {
+      "P": "Point",
+      "B": "Brep"
+    },
+    "outputs": {
+      "P": "Point",
+      "N": "Vector",
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4a9e9a8e-0943-4438-b360-129c30f2bb0f"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|brep closest point"
+  }
+}

@@ -1,0 +1,422 @@
+{
+  "pattern_id": "169489f1",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T20:36:53.943623Z",
+  "solution": {
+    "brief": "Parametric workflow with 5 adjustable parameters",
+    "principle": "\n\nRelated insight: Part of complexity spectrum: simple (5 params) vs moderate (7 params) vs complex (54+ components)",
+    "components_needed": [
+      "Python Script",
+      "slider",
+      "Python Script",
+      "slider",
+      "slider",
+      "Timer",
+      "Button",
+      "Unit Z",
+      "Sphere",
+      "Populate Geometry",
+      "slider",
+      "Surface Closest Point",
+      "Surface",
+      "Evaluate Surface",
+      "slider",
+      "Custom Preview",
+      "Swatch",
+      "Curve",
+      "Explode",
+      "List Length",
+      "Series",
+      "Remap Numbers",
+      "Bounds",
+      "Gradient",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a sphere",
+      "number sequence",
+      "range of values",
+      "parametric sphere"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "15ebd329"
+  ],
+  "tags": [
+    "parametric",
+    "simple-workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T09:00:26.069375",
+    "evolved_by": [
+      "15ebd329"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:31:55.455648Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 26 wires -> 25 components, 26 flows"
+      },
+      {
+        "date": "2026-02-22T09:00:26.069375",
+        "trigger": "New pattern: 15ebd329",
+        "changes": "New pattern establishes complexity classification system for parametric workflows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.02
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Summer Firework.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "Python Script",
+          "pos": [
+            468,
+            119
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            4.5,
+            75
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "Python",
+          "name": "Python Script",
+          "pos": [
+            639,
+            281
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            5.8,
+            102.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            -3.1,
+            165.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R6",
+          "type": "Timer",
+          "name": "Timer",
+          "pos": [
+            128,
+            381
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            382,
+            285
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            180,
+            248
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            164,
+            -100
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_PopulateGeometry",
+          "nick": "PopGeo",
+          "name": "Populate Geometry",
+          "pos": [
+            277,
+            -42
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            36,
+            -61.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R12",
+          "type": "Component_SurfaceClosestPoint",
+          "nick": "Srf CP",
+          "name": "Surface Closest Point",
+          "pos": [
+            366,
+            -102
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            289.9,
+            -152.7
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_EvaluateSurface_OBSOLETE",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            468,
+            -138
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            -0.6,
+            202.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.02
+        },
+        {
+          "id": "R16",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            909,
+            404
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            781.6,
+            474.1
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            799,
+            194
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            888,
+            204
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            960,
+            312
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            1045,
+            292
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1242,
+            295
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1147,
+            295
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1307,
+            223
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1661,
+            197
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I0",
+        "R4.O0>R1.I1",
+        "R5.O0>R1.I2",
+        "R15.O0>R1.I3",
+        "R14.O2>R1.I4",
+        "R1.O1>R3.I0",
+        "R7.O0>R3.I1",
+        "R5.O0>R8.I0",
+        "R4.O0>R9.I1",
+        "R9.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R10.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R13.O0>R14.I0",
+        "R12.O1>R14.I1",
+        "R3.O2>R16.I0",
+        "R17.O0>R16.I1",
+        "R18.O0>R19.I0",
+        "R19.O0>R20.I0",
+        "R20.O0>R21.I2",
+        "R21.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R21.O0>R23.I0",
+        "R22.O0>R24.I2",
+        "R19.O0>R25.I0",
+        "R24.O0>R25.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

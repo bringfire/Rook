@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_28632a9a",
+  "note_type": "component",
+  "name": "Cylinder",
+  "brief": "Cylinder | Inputs: B, R, L → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Cylinder. Inputs: B (Plane), R (Number), L (Number). Outputs: C (Surface).",
+  "keywords": [
+    "cylinder",
+    "primitives"
+  ],
+  "category": "primitives",
+  "tags": [
+    "primitives"
+  ],
+  "trigger_intents": [
+    "cylinder"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cylinder"
+  ],
+  "solution_principle": "Create a cylindrical surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d391fb33",
+    "comp_7d5c54d0",
+    "comp_e3e04d00",
+    "comp_696c094f",
+    "comp_ffd7ba8d",
+    "comp_6d34b2c0",
+    "comp_66286a67"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0373008a-80ee-45be-887d-ab5a244afc29",
+    "category": "primitives",
+    "inputs": {
+      "B": "Plane",
+      "R": "Number",
+      "L": "Number"
+    },
+    "outputs": {
+      "C": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "03e331ed-c4d1-4a23-afa2-f57b87d2043c",
+      "dabc854d-f50e-408a-b001-d043c7de151d"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|primitive|cylinder"
+  }
+}

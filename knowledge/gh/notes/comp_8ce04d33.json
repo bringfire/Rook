@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_8ce04d33",
+  "note_type": "component",
+  "name": "Deconstruct",
+  "brief": "Deconstruct | Inputs: P â†’ X, Y, Z",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Deconstruct. Inputs: P (Point). Outputs: X (Number), Y (Number), Z (Number).",
+  "keywords": [
+    "deconstruct",
+    "deconstruct"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "component",
+    "analysis",
+    "geometry-decomposition",
+    "post-creation-analysis",
+    "fundamental",
+    "extraction",
+    "grasshopper-native"
+  ],
+  "trigger_intents": [
+    "deconstruct"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct"
+  ],
+  "solution_principle": "Deconstruct a point into its component parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64318335",
+    "comp_7418e715",
+    "comp_9be6479a",
+    "recipe_7de55487",
+    "recipe_bb37312d",
+    "recipe_1da6cd21",
+    "comp_c8e944af"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9abae6b7-fa1d-448c-9209-4a8155345841",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point"
+    },
+    "outputs": {
+      "X": "Number",
+      "Y": "Number",
+      "Z": "Number"
+    },
+    "typical_wiring": [],
+    "usage_count": 103,
+    "stable_key": "vector|point|deconstruct"
+  }
+}

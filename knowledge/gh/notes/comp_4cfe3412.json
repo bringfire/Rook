@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_4cfe3412",
+  "note_type": "component",
+  "name": "Box Array",
+  "brief": "Box Array | Inputs: G, C, X, Y → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Box Array. Inputs: G (Geometry), C (Box), X (Integer), Y (Integer), Z (Integer). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "box array",
+    "box",
+    "array",
+    "array_ops"
+  ],
+  "category": "array_ops",
+  "tags": [
+    "array_ops"
+  ],
+  "trigger_intents": [
+    "box array",
+    "box",
+    "array"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Box Array"
+  ],
+  "solution_principle": "Create a box array of geometry.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5e0594f6",
+    "comp_0e842fd0",
+    "comp_e0fd1f17",
+    "comp_3032b333",
+    "comp_51b11a9e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9f6f954c-ba7b-4428-bf1e-1768cdff666c",
+    "category": "array_ops",
+    "inputs": {
+      "G": "Geometry",
+      "C": "Box",
+      "X": "Integer",
+      "Y": "Integer",
+      "Z": "Integer"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "e521f7c8-92f4-481c-888b-eea109e3d6e9"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|array|box array"
+  }
+}

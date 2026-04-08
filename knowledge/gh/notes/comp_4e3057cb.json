@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_4e3057cb",
+  "note_type": "component",
+  "name": "Surface | Curve",
+  "brief": "Surface | Curve | Inputs: S, C → C, P, uv",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Surface | Curve. Inputs: S (Surface), C (Curve). Outputs: C (Curve), P (Point), uv (Point), N (Vector), t (Number), T (Vector).",
+  "keywords": [
+    "surface | curve",
+    "surface",
+    "|",
+    "curve",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "surface | curve",
+    "surface",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface | Curve"
+  ],
+  "solution_principle": "Solve intersection events for a surface and a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_df6a8c9a",
+    "comp_1f874e01",
+    "comp_1e6eaedf",
+    "comp_f3f53a23",
+    "comp_279c2a0b",
+    "comp_22d23745",
+    "comp_e8b825f1",
+    "comp_e70cf995",
+    "comp_1ed6f03d",
+    "comp_1db25892"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "68546dd0-aa82-471c-87e9-81cb16ac50ed",
+    "category": "intersection_physical",
+    "inputs": {
+      "S": "Surface",
+      "C": "Curve"
+    },
+    "outputs": {
+      "C": "Curve",
+      "P": "Point",
+      "uv": "Point",
+      "N": "Vector",
+      "t": "Number",
+      "T": "Vector"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "20ef81e8-df15-4a0c-acf1-993a7607cafb",
+      "7db14002-c09c-4d7b-9f80-e4e2b00dfa1d"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|surface | curve"
+  }
+}

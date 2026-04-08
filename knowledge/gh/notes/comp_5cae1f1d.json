@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_5cae1f1d",
+  "note_type": "component",
+  "name": "Convex Hull 3D",
+  "brief": "Convex Hull 3D | Inputs: P → H, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Convex Hull 3D. Inputs: P (Point). Outputs: H (Mesh), I (Integer).",
+  "keywords": [
+    "convex hull 3d",
+    "convex",
+    "hull",
+    "3d",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "convex hull 3d",
+    "convex",
+    "hull"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Convex Hull 3D"
+  ],
+  "solution_principle": "Compute the non planar, convex hull for a collection of points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb2d7d4d",
+    "comp_a2966434",
+    "comp_e4091ee2",
+    "comp_73a7cd7d",
+    "comp_57e41d52",
+    "comp_da8636fd",
+    "comp_3472c8c4",
+    "comp_f66c936d",
+    "comp_2196422c",
+    "comp_4cfdef19",
+    "comp_e47235e7",
+    "comp_23c0d526"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1faf27ba-663c-47c9-afc0-e476db3479e3",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point"
+    },
+    "outputs": {
+      "H": "Mesh",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9d0c5284-ea24-4f9f-a183-ef57fc48b5b8"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|convex hull 3d"
+  }
+}

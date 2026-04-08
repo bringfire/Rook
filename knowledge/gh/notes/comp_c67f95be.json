@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_c67f95be",
+  "note_type": "component",
+  "name": "Extrude Along",
+  "brief": "Extrude Along | Inputs: B, C → E",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Extrude Along. Inputs: B (Geometry), C (Curve). Outputs: E (Brep).",
+  "keywords": [
+    "extrude along",
+    "extrude",
+    "along",
+    "surface_ops"
+  ],
+  "category": "surface_ops",
+  "tags": [
+    "surface_ops"
+  ],
+  "trigger_intents": [
+    "extrude along",
+    "extrude",
+    "along"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Extrude Along"
+  ],
+  "solution_principle": "Extrude curves and surfaces along a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a27c5163",
+    "comp_37f9f9cc",
+    "comp_55a1bf04",
+    "comp_1a52845b",
+    "comp_5f73dc24"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "38a5638b-6d01-4417-bf11-976d925f8a71",
+    "category": "surface_ops",
+    "inputs": {
+      "B": "Geometry",
+      "C": "Curve"
+    },
+    "outputs": {
+      "E": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "962034e9-cc27-4394-afc4-5c16e3447cf9"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|freeform|extrude along"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_300b07e7",
+  "note_type": "component",
+  "name": "Smooth Numbers",
+  "brief": "Smooth Numbers | Inputs: N → N",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Smooth Numbers. Inputs: N (Number). Outputs: N (Number).",
+  "keywords": [
+    "smooth numbers",
+    "smooth",
+    "numbers",
+    "math_utilities"
+  ],
+  "category": "math_utilities",
+  "tags": [
+    "math_utilities"
+  ],
+  "trigger_intents": [
+    "smooth numbers",
+    "smooth",
+    "numbers"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Smooth Numbers"
+  ],
+  "solution_principle": "Smooth out changing numbers over time",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_cd8ca9b1",
+    "comp_82720415",
+    "comp_d1d2324d",
+    "comp_4d2f94f0",
+    "comp_139f0061"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5b424e1c-d061-43cd-8c20-db84564b0502",
+    "category": "math_utilities",
+    "inputs": {
+      "N": "Number"
+    },
+    "outputs": {
+      "N": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "57e1d392-e3fb-4de9-be98-982854a92351"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|util|smooth numbers"
+  }
+}

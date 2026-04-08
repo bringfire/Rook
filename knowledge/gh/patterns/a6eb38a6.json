@@ -1,0 +1,71 @@
+{
+  "pattern_id": "a6eb38a6",
+  "name": "wasp_16_teaching_2._Define_aggregatio",
+  "version": "1.0",
+  "created": "2026-03-19T18:02:50.031055Z",
+  "solution": {
+    "brief": "2. Define aggregation rules\r\nRules can be defined ina compact way\r\nwith a text string in the format:\r\n\"Part1|Connection1_Part2|Connection2\"",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Rule From Text",
+      "Wasp_Basic Part"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "compact",
+      "with",
+      "text",
+      "define",
+      "string",
+      "rules",
+      "format:",
+      "defined",
+      "aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

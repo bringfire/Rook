@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_56d72921",
+  "note_type": "component",
+  "name": "Point Deform",
+  "brief": "Point Deform | Inputs: G, P, M → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Point Deform. Inputs: G (Geometry), P (Point), M (Vector). Outputs: G (Geometry).",
+  "keywords": [
+    "point deform",
+    "point",
+    "deform",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "point deform",
+    "point",
+    "deform"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point Deform"
+  ],
+  "solution_principle": "Deform a shape by moving control-points individually",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d4249a4e",
+    "comp_27766a23",
+    "comp_6ba13139",
+    "teaching_0abb40f1",
+    "comp_ef96fa08"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4dbd15c7-ebcb-4af6-b3bd-32e80502520c",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "P": "Point",
+      "M": "Vector"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "transform|morph|point deform"
+  }
+}

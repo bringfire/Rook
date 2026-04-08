@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_4029dc8e",
+  "note_type": "component",
+  "name": "Sun Preview",
+  "brief": "Sun Preview | Inputs: S, L, D → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Sun Preview. Inputs: S (Number), L (Earth Location), D (Number).",
+  "keywords": [
+    "sun preview",
+    "sun",
+    "preview",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "sun preview",
+    "sun",
+    "preview"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sun Preview"
+  ],
+  "solution_principle": "Preview a sun or its related moon.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_07e6e9b8",
+    "comp_3f462047",
+    "comp_1662c3ae",
+    "comp_d83bab54",
+    "comp_7fb47f33",
+    "comp_870768ac"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4f381629-ece5-4012-ba3c-1906311e8b2e",
+    "category": "rhino_render",
+    "inputs": {
+      "S": "Number",
+      "L": "Earth Location",
+      "D": "Number"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|render|sun preview"
+  }
+}

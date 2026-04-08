@@ -1,0 +1,924 @@
+{
+  "pattern_id": "4379fa1a",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T20:31:11.805311Z",
+  "solution": {
+    "brief": "Parametric workflow with 13 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Square",
+      "slider",
+      "slider",
+      "Box Corners",
+      "Merge",
+      "Flatten Tree",
+      "Average",
+      "Deconstruct",
+      "Bounding Box",
+      "Deconstruct Brep",
+      "List Item",
+      "Surface",
+      "Evaluate Surface",
+      "MD Slider",
+      "MD Slider",
+      "MD Slider",
+      "Merge",
+      "Merge",
+      "Swatch",
+      "Swatch",
+      "Swatch",
+      "Sphere",
+      "slider",
+      "Custom Preview",
+      "Feature TensorSet",
+      "Deconstruct",
+      "Feature TensorSet",
+      "Add Noise",
+      "slider",
+      "Remap TSet",
+      "Maximum",
+      "Number",
+      "Random",
+      "slider",
+      "slider",
+      "slider",
+      "Split ARGB",
+      "Feature TensorSet",
+      "Add Noise",
+      "Random",
+      "slider",
+      "Merge TSet",
+      "Merge TSet",
+      "Backpropagation",
+      "panel",
+      "Construct Network",
+      "slider",
+      "Remap TSet",
+      "Compute",
+      "Deconstruct TensorSet",
+      "Deconstruct Tensor",
+      "Flip Matrix",
+      "Explode Tree",
+      "Colour RGB (f)",
+      "Center Box",
+      "Flatten Tree",
+      "Point",
+      "panel",
+      "Custom Preview",
+      "Merge",
+      "Mass Addition",
+      "Flip Matrix",
+      "slider",
+      "Remap Numbers",
+      "Bounds"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "create a sphere",
+      "parametric sphere"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:33:56.311720Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 72 wires -> 65 components, 72 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.02
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100000,
+          "value": 100000
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 342
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 300
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 501
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "panels": [
+        {
+          "id": "R45",
+          "nick": "",
+          "content": "2\r\n15\r\n3"
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "content": "0.5"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "2D Gradation.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_SquareGrid",
+          "nick": "SqGrid",
+          "name": "Square",
+          "pos": [
+            355,
+            159
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            96,
+            186.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 30
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            91.9,
+            156.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 50
+        },
+        {
+          "id": "R4",
+          "type": "Component_BoxCorners",
+          "name": "Box Corners",
+          "pos": [
+            584,
+            173
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            704,
+            181
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            463,
+            149
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_Average",
+          "nick": "Avr",
+          "name": "Average",
+          "pos": [
+            788,
+            174
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            925,
+            176
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            431,
+            426
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            517,
+            420
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            610,
+            420
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            702.7,
+            420
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_EvaluateSurface_OBSOLETE",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            860,
+            702
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            494.1,
+            486.6
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            493.7,
+            632.6
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            495,
+            781.3
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            727,
+            714
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            727,
+            1011
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            519.2,
+            967.6
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            520.9,
+            998.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            521.3,
+            1034.3
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            982,
+            835
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            751,
+            844
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R24",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1094,
+            954
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "PlaceholderComponent",
+          "name": "Feature TensorSet",
+          "pos": [
+            1041,
+            113
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_DeconstructPoint",
+          "nick": "pDecon",
+          "name": "Deconstruct",
+          "pos": [
+            1046,
+            401
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "PlaceholderComponent",
+          "name": "Feature TensorSet",
+          "pos": [
+            1153,
+            391
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "PlaceholderComponent",
+          "name": "Add Noise",
+          "pos": [
+            1425,
+            433
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            1176.1,
+            298.5
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.02
+        },
+        {
+          "id": "R30",
+          "type": "PlaceholderComponent",
+          "name": "Remap TSet",
+          "pos": [
+            1274,
+            433
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Operator_Maximum",
+          "nick": "Max",
+          "name": "Maximum",
+          "pos": [
+            356,
+            262
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Param_Number",
+          "nick": "Num",
+          "name": "Number",
+          "pos": [
+            1162.9,
+            442.4
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1271,
+            509
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            1037,
+            486
+          ],
+          "min": 0,
+          "max": 100000,
+          "value": 100000
+        },
+        {
+          "id": "R35",
+          "type": "slider",
+          "pos": [
+            1037.7,
+            553.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 342
+        },
+        {
+          "id": "R36",
+          "type": "slider",
+          "pos": [
+            1034.6,
+            519.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 300
+        },
+        {
+          "id": "R37",
+          "type": "Component_ColourSplitARGB",
+          "nick": "ARGB",
+          "name": "Split ARGB",
+          "pos": [
+            1050,
+            692
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "PlaceholderComponent",
+          "name": "Feature TensorSet",
+          "pos": [
+            1138,
+            702
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "PlaceholderComponent",
+          "name": "Add Noise",
+          "pos": [
+            1421,
+            585
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1271,
+            585
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "slider",
+          "pos": [
+            1042.2,
+            588.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 501
+        },
+        {
+          "id": "R42",
+          "type": "PlaceholderComponent",
+          "name": "Merge TSet",
+          "pos": [
+            1526,
+            433
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "PlaceholderComponent",
+          "name": "Merge TSet",
+          "pos": [
+            1525,
+            585
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "PlaceholderComponent",
+          "name": "Backpropagation",
+          "pos": [
+            1712,
+            483
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "panel",
+          "pos": [
+            1414.5,
+            215.8
+          ],
+          "content": "2\r\n15\r\n3"
+        },
+        {
+          "id": "R46",
+          "type": "PlaceholderComponent",
+          "name": "Construct Network",
+          "pos": [
+            1598,
+            281
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            1499,
+            686
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 500
+        },
+        {
+          "id": "R48",
+          "type": "PlaceholderComponent",
+          "name": "Remap TSet",
+          "pos": [
+            1185,
+            128
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "PlaceholderComponent",
+          "name": "Compute",
+          "pos": [
+            1867,
+            328
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct TensorSet",
+          "pos": [
+            1963,
+            328
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "PlaceholderComponent",
+          "name": "Deconstruct Tensor",
+          "pos": [
+            2046,
+            328
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            2148,
+            328
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "ExplodeTreeComponent",
+          "nick": "BANG!",
+          "name": "Explode Tree",
+          "pos": [
+            2257,
+            338
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_ColourRGB_Fractional",
+          "nick": "fRGB",
+          "name": "Colour RGB (f)",
+          "pos": [
+            2394,
+            328
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_CenterBox",
+          "nick": "Box",
+          "name": "Center Box",
+          "pos": [
+            2498,
+            84
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "FlattenTreeComponent",
+          "nick": "Flatten",
+          "name": "Flatten Tree",
+          "pos": [
+            872,
+            7
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            2397.4,
+            51.6
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "panel",
+          "pos": [
+            2364.2,
+            77.4
+          ],
+          "content": "0.5"
+        },
+        {
+          "id": "R59",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2542,
+            230
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1990,
+            148
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            2176,
+            148
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "FlipDataMatrixComponent",
+          "nick": "Flip",
+          "name": "Flip Matrix",
+          "pos": [
+            2077,
+            148
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "pos": [
+            2135.9,
+            205.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R64",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            2381,
+            163
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            2288,
+            163
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R1.I2",
+        "R2.O0>R1.I3",
+        "R6.O0>R4.I0",
+        "R4.O0>R5.I0",
+        "R4.O6>R5.I1",
+        "R1.O0>R6.I0",
+        "R5.O0>R7.I0",
+        "R7.O0>R8.I0",
+        "R6.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R10.O0>R11.I0",
+        "R12.O0>R13.I0",
+        "R17.O0>R13.I1",
+        "R14.O0>R17.I0",
+        "R15.O0>R17.I1",
+        "R16.O0>R17.I2",
+        "R19.O0>R18.I0",
+        "R20.O0>R18.I1",
+        "R21.O0>R18.I2",
+        "R13.O0>R22.I0",
+        "R23.O0>R22.I1",
+        "R22.O0>R24.I0",
+        "R18.O0>R24.I1",
+        "R13.O0>R26.I0",
+        "R30.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R33.O0>R28.I2",
+        "R32.O0>R30.I1",
+        "R3.O0>R31.I0",
+        "R2.O0>R31.I1",
+        "R34.O0>R33.I0",
+        "R36.O0>R33.I1",
+        "R35.O0>R33.I2",
+        "R18.O0>R37.I0",
+        "R29.O0>R39.I1",
+        "R40.O0>R39.I2",
+        "R34.O0>R40.I0",
+        "R36.O0>R40.I1",
+        "R41.O0>R40.I2",
+        "R28.O0>R42.I0",
+        "R39.O0>R43.I0",
+        "R46.O0>R44.I0",
+        "R42.O0>R44.I1",
+        "R43.O0>R44.I2",
+        "R47.O0>R44.I6",
+        "R45.O0>R46.I0",
+        "R32.O0>R48.I1",
+        "R44.O0>R49.I0",
+        "R48.O0>R49.I1",
+        "R49.O0>R50.I0",
+        "R50.O0>R51.I0",
+        "R51.O0>R52.I0",
+        "R52.O0>R53.I0",
+        "R53.O0>R54.I1",
+        "R53.O1>R54.I2",
+        "R53.O2>R54.I3",
+        "R57.O0>R55.I0",
+        "R58.O0>R55.I1",
+        "R58.O0>R55.I2",
+        "R64.O0>R55.I3",
+        "R7.O0>R56.I0",
+        "R55.O0>R59.I0",
+        "R54.O0>R59.I1",
+        "R53.O0>R60.I0",
+        "R53.O1>R60.I1",
+        "R53.O2>R60.I2",
+        "R62.O0>R61.I0",
+        "R60.O0>R62.I0",
+        "R61.O0>R64.I0",
+        "R65.O0>R64.I1",
+        "R63.O0>R64.I2",
+        "R61.O0>R65.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

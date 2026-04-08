@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_fc845a73",
+  "note_type": "component",
+  "name": "Grab",
+  "brief": "Grab | Inputs: On, Strength, Range → G, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Grab. Inputs: On (Boolean), Strength (Number), Range (Number). Outputs: G (Generic Data), A (Point).",
+  "keywords": [
+    "grab",
+    "kangaroo2_main"
+  ],
+  "category": "kangaroo2_main",
+  "tags": [
+    "kangaroo2_main"
+  ],
+  "trigger_intents": [
+    "grab"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Grab"
+  ],
+  "solution_principle": "This lets you drag particles in Rhino. Hold Alt key and drag with LMB, or toggle anchors with LMB+RMB",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ce7f5782"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4c53ba00-f4bd-4ede-8d26-55106278268d",
+    "category": "kangaroo2_main",
+    "inputs": {
+      "On": "Boolean",
+      "Strength": "Number",
+      "Range": "Number"
+    },
+    "outputs": {
+      "G": "Generic Data",
+      "A": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3d13a415-6ac5-4b59-9677-3975e4696a85",
+      "4c90aad1-0748-4800-99db-a27d690bb1e1"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|main|grab"
+  },
+  "deprecated": true,
+  "deprecated_by": "4c90aad1-0748-4800-99db-a27d690bb1e1"
+}

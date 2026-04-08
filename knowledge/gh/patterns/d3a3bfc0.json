@@ -1,0 +1,1851 @@
+{
+  "pattern_id": "d3a3bfc0",
+  "name": "wasp_33",
+  "version": "1.0",
+  "created": "2026-03-19T18:49:49.037394Z",
+  "solution": {
+    "brief": "Wasp example 33: constraints series continued",
+    "principle": "\n\nRelated insight: Related insight: wasp_stochastic_aggregation_smart_attributes demonstrates that smart attributes and directional connections can be combined with DisCo and connection-rule workflows — the same combination that wasp_33 targets. Smart attributes provide a mechanism for attribute-driven rule selection that complements the export and connection-configuration techniques in wasp_33.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Load From DisCo",
+      "Wasp_Save to DisCo",
+      "Wasp_DisCo Rule Group",
+      "Wasp_DisCo Rule Group",
+      "Wasp_Transform Part",
+      "Wasp_DisCo Player",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Basic Part",
+      "Wasp_Get Part Geometry",
+      "Wasp_Get Part Geometry",
+      "Brep",
+      "Point",
+      "Wasp_DisCo Aggregation Setup",
+      "Curve",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "PART_NAME",
+      "CONNECTION_TYPE",
+      "Point",
+      "Curve",
+      "CONNECTION_TYPE",
+      "Merge",
+      "Brep",
+      "Point",
+      "Curve",
+      "PART_NAME",
+      "CONNECTION_TYPE",
+      "Point",
+      "Curve",
+      "CONNECTION_TYPE",
+      "Merge",
+      "Point",
+      "Curve",
+      "CONNECTION_TYPE",
+      "Merge",
+      "PARTS_NUM",
+      "Button",
+      "Swatch",
+      "Swatch",
+      "CONNECTION_GRAMMAR_04",
+      "Scribble",
+      "Wasp_Rules Generator",
+      "Wasp_Filter Parts by Name",
+      "PART_NAME",
+      "PART_NAME",
+      "Custom Preview",
+      "Wasp_Filter Parts by Name",
+      "Custom Preview",
+      "Scribble",
+      "slider",
+      "Wasp_Get Part Geometry",
+      "Move",
+      "Unit Z",
+      "slider",
+      "Wasp_Mesh Constraint",
+      "Geometry",
+      "Toggle",
+      "Toggle",
+      "slider",
+      "Geometry",
+      "PROBABILITIES",
+      "Toggle",
+      "Wasp_DisCo Tool Settings",
+      "SPAWN",
+      "Wasp_DisCo Placement Settings",
+      "panel",
+      "panel",
+      "Wasp_DisCo IO Settings",
+      "Geometry",
+      "slider",
+      "panel",
+      "Box",
+      "Toggle",
+      "panel",
+      "Scribble",
+      "Wasp_DisCo Environment",
+      "panel",
+      "Box",
+      "Wasp_Get Part Geometry",
+      "Toggle",
+      "Button",
+      "Button",
+      "panel",
+      "Box",
+      "panel",
+      "Toggle",
+      "panel",
+      "Merge",
+      "Wasp_Export to DisCo",
+      "Box",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Toggle",
+      "Box",
+      "Point",
+      "slider",
+      "Merge",
+      "Curve",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "slider",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "set up a Wasp DisCo aggregation",
+      "create discrete aggregation with stochastic rules",
+      "define parts and connections for Wasp DisCo",
+      "export aggregation to DisCo player",
+      "build a Wasp part-based assembly with connection grammar",
+      "configure DisCo environment and placement settings",
+      "set up stochastic aggregation with mesh constraint",
+      "create multi-part assembly with rule groups in Wasp"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "35afaaf5",
+    "823e6778",
+    "a8db9228"
+  ],
+  "tags": [
+    "constraints",
+    "connection-rules",
+    "advanced",
+    "discrete-design",
+    "modular",
+    "DisCo",
+    "generative",
+    "constraint",
+    "stochastic",
+    "tutorial",
+    "constraint-based",
+    "wasp",
+    "part-based",
+    "rules-based",
+    "grasshopper",
+    "brep-geometry",
+    "multiple-part-types",
+    "aggregation",
+    "workflow",
+    "export",
+    "plugin-workflow",
+    "attribute-driven",
+    "smart-attributes",
+    "multi-part",
+    "connection-configurations",
+    "discrete-aggregation",
+    "mesh",
+    "custom-preview"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": "2026-03-19T15:14:46.357691",
+    "evolved_by": [
+      "a8db9228"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T15:14:46.357691",
+        "trigger": "New pattern: a8db9228",
+        "changes": "wasp_33 shares DisCo, connection-rules, discrete-aggregation, stochastic, and multiple-part-types with the new pattern; adding smart-attributes and attribute-driven tags reflects the convergence of these techniques in advanced Wasp workflows."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R43",
+          "nick": "PARTS_NUM",
+          "min": 0,
+          "max": 10000,
+          "value": 50
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.1
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R77",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R104",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R112",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R24",
+          "nick": "PART_NAME",
+          "content": "STICK"
+        },
+        {
+          "id": "R25",
+          "nick": "CONNECTION_TYPE",
+          "content": "SIDE"
+        },
+        {
+          "id": "R28",
+          "nick": "CONNECTION_TYPE",
+          "content": "END"
+        },
+        {
+          "id": "R33",
+          "nick": "PART_NAME",
+          "content": "BRANCH"
+        },
+        {
+          "id": "R34",
+          "nick": "CONNECTION_TYPE",
+          "content": "LONGSIDE"
+        },
+        {
+          "id": "R37",
+          "nick": "CONNECTION_TYPE",
+          "content": "END"
+        },
+        {
+          "id": "R41",
+          "nick": "CONNECTION_TYPE",
+          "content": "SHORTSIDE"
+        },
+        {
+          "id": "R47",
+          "nick": "CONNECTION_GRAMMAR_04",
+          "content": "END>END\r\nSIDE>SIDE\r\nSIDE>LONGSIDE\r\nLONGSIDE>SIDE\r\nSHORTSIDE>SHORTSIDE"
+        },
+        {
+          "id": "R51",
+          "nick": "PART_NAME",
+          "content": "STICK"
+        },
+        {
+          "id": "R52",
+          "nick": "PART_NAME",
+          "content": "BRANCH"
+        },
+        {
+          "id": "R68",
+          "nick": "PROBABILITIES",
+          "content": "0.3\r\n0.7"
+        },
+        {
+          "id": "R71",
+          "nick": "SPAWN",
+          "content": "100\r\n200"
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "content": "ENDS"
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced\\4_03_DisCo_Save"
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "content": "END>END"
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "content": "DisCo_Gh_Aggregation"
+        },
+        {
+          "id": "R84",
+          "nick": "",
+          "content": "END>END\r\nSIDE>SIDE\r\nSIDE>LONGSIDE\r\nLONGSIDE>SIDE\r\nSHORTSIDE>SHORTSIDE"
+        },
+        {
+          "id": "R90",
+          "nick": "",
+          "content": "SIDES"
+        },
+        {
+          "id": "R92",
+          "nick": "",
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced\\4_03_DisCo_Save\\Save_210322_15-14.json"
+        },
+        {
+          "id": "R94",
+          "nick": "",
+          "content": "DisCo_Example"
+        },
+        {
+          "id": "R99",
+          "nick": "",
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced"
+        },
+        {
+          "id": "R107",
+          "nick": "",
+          "content": "testPlayer"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            341,
+            1319
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            348,
+            1096
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            348,
+            899
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            344,
+            593
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            350,
+            391
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoLoad",
+          "name": "Wasp_Load From DisCo",
+          "pos": [
+            3061,
+            2098
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoSave",
+          "name": "Wasp_Save to DisCo",
+          "pos": [
+            3228,
+            1852
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleG",
+          "name": "Wasp_DisCo Rule Group",
+          "pos": [
+            1332,
+            1233
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleG",
+          "name": "Wasp_DisCo Rule Group",
+          "pos": [
+            1332,
+            1151
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ZuiPythonComponent",
+          "nick": "PartTr",
+          "name": "Wasp_Transform Part",
+          "pos": [
+            1236,
+            356
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoPlayer",
+          "name": "Wasp_DisCo Player",
+          "pos": [
+            3222,
+            1288
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            2040,
+            629
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            716,
+            854
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            704,
+            346
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            2596,
+            414
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            2578,
+            293
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            157.7,
+            326.8
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            160.2,
+            381.6
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoSetup",
+          "name": "Wasp_DisCo Aggregation Setup",
+          "pos": [
+            3198,
+            603
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            159.5,
+            429.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            2,
+            -189.8
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            226.2,
+            -272
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R23",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            41.7,
+            36
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            456.1,
+            257.6
+          ],
+          "content": "STICK"
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "nick": "CONNECTION_TYPE",
+          "pos": [
+            90.5,
+            473.1
+          ],
+          "content": "SIDE"
+        },
+        {
+          "id": "R26",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            157.2,
+            583.6
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            156.5,
+            631.7
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "panel",
+          "nick": "CONNECTION_TYPE",
+          "pos": [
+            87.5,
+            675.1
+          ],
+          "content": "END"
+        },
+        {
+          "id": "R29",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            573,
+            507
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Param_Brep",
+          "name": "Brep",
+          "pos": [
+            162.8,
+            834.9
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            165.4,
+            889.7
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            164.6,
+            937.8
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            466.7,
+            767.8
+          ],
+          "content": "BRANCH"
+        },
+        {
+          "id": "R34",
+          "type": "panel",
+          "nick": "CONNECTION_TYPE",
+          "pos": [
+            95.6,
+            981.1
+          ],
+          "content": "LONGSIDE"
+        },
+        {
+          "id": "R35",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            166.3,
+            1309.6
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            165.5,
+            1357.7
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "panel",
+          "nick": "CONNECTION_TYPE",
+          "pos": [
+            96.5,
+            1401.1
+          ],
+          "content": "END"
+        },
+        {
+          "id": "R38",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            592,
+            1096
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            161.7,
+            1079.4
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            161,
+            1127.5
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "panel",
+          "nick": "CONNECTION_TYPE",
+          "pos": [
+            91.9,
+            1170.8
+          ],
+          "content": "SHORTSIDE"
+        },
+        {
+          "id": "R42",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            966,
+            532
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "nick": "PARTS_NUM",
+          "pos": [
+            1743.6,
+            565.2
+          ],
+          "min": 0,
+          "max": 10000,
+          "value": 50
+        },
+        {
+          "id": "R44",
+          "type": "ButtonObject",
+          "nick": "RESET",
+          "name": "Button",
+          "pos": [
+            1838,
+            708
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2627.8,
+            343
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2632.8,
+            465.1
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "panel",
+          "nick": "CONNECTION_GRAMMAR_04",
+          "pos": [
+            972.1,
+            732
+          ],
+          "content": "END>END\r\nSIDE>SIDE\r\nSIDE>LONGSIDE\r\nLONGSIDE>SIDE\r\nSHORTSIDE>SHORTSIDE"
+        },
+        {
+          "id": "R48",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            978.6,
+            869.6
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            1320,
+            751
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            2429,
+            303
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            2243.8,
+            314.2
+          ],
+          "content": "STICK"
+        },
+        {
+          "id": "R52",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            2244.2,
+            436.7
+          ],
+          "content": "BRANCH"
+        },
+        {
+          "id": "R53",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2771,
+            303
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            2432,
+            424
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2771,
+            438
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            94.2,
+            151.5
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            1781.6,
+            649.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R58",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1413,
+            279
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1122,
+            395
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1031,
+            405
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "slider",
+          "pos": [
+            827.1,
+            406.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.1
+        },
+        {
+          "id": "R62",
+          "type": "ZuiPythonComponent",
+          "nick": "MeshConst",
+          "name": "Wasp_Mesh Constraint",
+          "pos": [
+            1487,
+            1519
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            1352.3,
+            1480.3
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            1291,
+            1503
+          ],
+          "value": false
+        },
+        {
+          "id": "R65",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2535,
+            1452
+          ],
+          "value": false
+        },
+        {
+          "id": "R66",
+          "type": "slider",
+          "pos": [
+            2967.6,
+            1001.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R67",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            3100.3,
+            958.9
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "panel",
+          "nick": "PROBABILITIES",
+          "pos": [
+            3007.3,
+            591.5
+          ],
+          "content": "0.3\r\n0.7"
+        },
+        {
+          "id": "R69",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            3023,
+            973
+          ],
+          "value": true
+        },
+        {
+          "id": "R70",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoTool",
+          "name": "Wasp_DisCo Tool Settings",
+          "pos": [
+            2739,
+            1260
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "panel",
+          "nick": "SPAWN",
+          "pos": [
+            3006.9,
+            671.1
+          ],
+          "content": "100\r\n200"
+        },
+        {
+          "id": "R72",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoPlace",
+          "name": "Wasp_DisCo Placement Settings",
+          "pos": [
+            2745,
+            1467
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "panel",
+          "pos": [
+            1191.4,
+            1131.2
+          ],
+          "content": "ENDS"
+        },
+        {
+          "id": "R74",
+          "type": "panel",
+          "pos": [
+            2764.3,
+            1833.4
+          ],
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced\\4_03_DisCo_Save"
+        },
+        {
+          "id": "R75",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoIO",
+          "name": "Wasp_DisCo IO Settings",
+          "pos": [
+            2740,
+            1628
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            3100.4,
+            925.8
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "slider",
+          "pos": [
+            2942.2,
+            1490.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.2
+        },
+        {
+          "id": "R78",
+          "type": "panel",
+          "pos": [
+            1133.3,
+            1158.1
+          ],
+          "content": "END>END"
+        },
+        {
+          "id": "R79",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            3100.2,
+            894.3
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2535,
+            1189
+          ],
+          "value": false
+        },
+        {
+          "id": "R81",
+          "type": "panel",
+          "pos": [
+            2870,
+            1861.9
+          ],
+          "content": "DisCo_Gh_Aggregation"
+        },
+        {
+          "id": "R82",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2327.8,
+            1952
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "ZuiPythonComponent",
+          "nick": "DisCoEnv",
+          "name": "Wasp_DisCo Environment",
+          "pos": [
+            3212,
+            958
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "panel",
+          "pos": [
+            1077.5,
+            1246.1
+          ],
+          "content": "END>END\r\nSIDE>SIDE\r\nSIDE>LONGSIDE\r\nLONGSIDE>SIDE\r\nSHORTSIDE>SHORTSIDE"
+        },
+        {
+          "id": "R85",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            2950.5,
+            1405.4
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            3227,
+            2113
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2533,
+            1249
+          ],
+          "value": false
+        },
+        {
+          "id": "R88",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            3038,
+            1886
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            3607,
+            1061
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "panel",
+          "pos": [
+            1190.7,
+            1219.6
+          ],
+          "content": "SIDES"
+        },
+        {
+          "id": "R91",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            2948.5,
+            1378.6
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "panel",
+          "pos": [
+            2417.1,
+            2089
+          ],
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced\\4_03_DisCo_Save\\Save_210322_15-14.json"
+        },
+        {
+          "id": "R93",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2539,
+            1329
+          ],
+          "value": false
+        },
+        {
+          "id": "R94",
+          "type": "panel",
+          "pos": [
+            3441.6,
+            1034.7
+          ],
+          "content": "DisCo_Example"
+        },
+        {
+          "id": "R95",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1483,
+            1196
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "ZuiPythonComponent",
+          "nick": "Wasp2DisCo",
+          "name": "Wasp_Export to DisCo",
+          "pos": [
+            3824,
+            990
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            2952.5,
+            1433.8
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2601.6,
+            1706
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "panel",
+          "pos": [
+            3442.1,
+            993.2
+          ],
+          "content": "D:\\Github\\Wasp\\ExampleFiles\\4.Advanced"
+        },
+        {
+          "id": "R100",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1015.8,
+            1027
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2538,
+            1396
+          ],
+          "value": false
+        },
+        {
+          "id": "R102",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            2949.7,
+            1352.6
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            3080.1,
+            1319.2
+          ]
+        },
+        {
+          "id": "R104",
+          "type": "slider",
+          "pos": [
+            2949.8,
+            1208.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R105",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3067,
+            1387
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            3076,
+            1461.2
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "panel",
+          "pos": [
+            3034.7,
+            1160.3
+          ],
+          "content": "testPlayer"
+        },
+        {
+          "id": "R108",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2528.4,
+            1060.5
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            2789.9,
+            785.3
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            3002.3,
+            507.3
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            3395.7,
+            834.1
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "slider",
+          "pos": [
+            2925.6,
+            1235.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.2
+        },
+        {
+          "id": "R113",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R115",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -94,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R30.O0>R1.I0",
+        "R35.O0>R1.I1",
+        "R36.O0>R1.I2",
+        "R37.O0>R1.I3",
+        "R30.O0>R2.I0",
+        "R39.O0>R2.I1",
+        "R40.O0>R2.I2",
+        "R41.O0>R2.I3",
+        "R30.O0>R3.I0",
+        "R31.O0>R3.I1",
+        "R32.O0>R3.I2",
+        "R34.O0>R3.I3",
+        "R17.O0>R4.I0",
+        "R26.O0>R4.I1",
+        "R27.O0>R4.I2",
+        "R28.O0>R4.I3",
+        "R17.O0>R5.I0",
+        "R18.O0>R5.I1",
+        "R20.O0>R5.I2",
+        "R25.O0>R5.I3",
+        "R42.O0>R6.I0",
+        "R92.O0>R6.I1",
+        "R12.O0>R7.I0",
+        "R74.O0>R7.I1",
+        "R81.O0>R7.I2",
+        "R88.O0>R7.I3",
+        "R90.O0>R8.I0",
+        "R84.O0>R8.I1",
+        "R73.O0>R9.I0",
+        "R78.O0>R9.I1",
+        "R14.O0>R10.I0",
+        "R59.O1>R10.I1",
+        "R107.O0>R11.I0",
+        "R104.O0>R11.I1",
+        "R112.O0>R11.I2",
+        "R70.O0>R11.I3",
+        "R72.O0>R11.I4",
+        "R75.O0>R11.I5",
+        "R103.O0>R11.I6",
+        "R105.O0>R11.I7",
+        "R106.O0>R11.I8",
+        "R77.O0>R11.I9",
+        "R42.O0>R12.I0",
+        "R10.O0>R12.I1",
+        "R43.O0>R12.I2",
+        "R49.O0>R12.I3",
+        "R57.O0>R12.I6",
+        "R62.O0>R12.I7",
+        "R44.O0>R12.I9",
+        "R33.O0>R13.I0",
+        "R30.O0>R13.I1",
+        "R38.O0>R13.I2",
+        "R24.O0>R14.I0",
+        "R17.O0>R14.I1",
+        "R29.O0>R14.I2",
+        "R54.O0>R15.I0",
+        "R50.O0>R16.I0",
+        "R42.O0>R19.I0",
+        "R49.O0>R19.I1",
+        "R95.O0>R19.I2",
+        "R71.O0>R19.I4",
+        "R5.O0>R29.I0",
+        "R4.O0>R29.I1",
+        "R3.O0>R38.I0",
+        "R2.O0>R38.I1",
+        "R1.O0>R38.I2",
+        "R14.O0>R42.I0",
+        "R13.O0>R42.I1",
+        "R42.O0>R49.I0",
+        "R47.O0>R49.I4",
+        "R12.O1>R50.I0",
+        "R51.O0>R50.I1",
+        "R16.O0>R53.I0",
+        "R45.O0>R53.I1",
+        "R12.O1>R54.I0",
+        "R52.O0>R54.I1",
+        "R15.O0>R55.I0",
+        "R46.O0>R55.I1",
+        "R10.O0>R58.I0",
+        "R60.O0>R59.I1",
+        "R61.O0>R60.I0",
+        "R63.O0>R62.I0",
+        "R64.O0>R62.I1",
+        "R80.O0>R70.I1",
+        "R87.O0>R70.I4",
+        "R93.O0>R70.I8",
+        "R101.O0>R72.I1",
+        "R65.O0>R72.I3",
+        "R79.O0>R83.I0",
+        "R76.O0>R83.I1",
+        "R67.O0>R83.I2",
+        "R69.O0>R83.I3",
+        "R66.O0>R83.I4",
+        "R6.O1>R86.I0",
+        "R9.O0>R95.I0",
+        "R8.O0>R95.I1",
+        "R19.O0>R96.I0",
+        "R83.O0>R96.I1",
+        "R11.O0>R96.I2",
+        "R99.O0>R96.I3",
+        "R94.O0>R96.I4",
+        "R89.O0>R96.I5",
+        "R102.O0>R105.I0",
+        "R91.O0>R105.I1",
+        "R85.O0>R105.I2",
+        "R97.O0>R105.I3",
+        "R113.O0>R115.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R22",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            226.2,
+            -272
+          ],
+          "nearby": [
+            "R115",
+            "R17",
+            "R113",
+            "R18",
+            "R5",
+            "R20",
+            "R14",
+            "R29"
+          ]
+        },
+        {
+          "panel_id": "R68",
+          "type": "panel",
+          "text": "0.3\r\n0.7",
+          "pos": [
+            3007.3,
+            591.5
+          ],
+          "nearby": [
+            "R19",
+            "R55",
+            "R79",
+            "R76",
+            "R53",
+            "R67",
+            "R69"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "4_03_Wasp_to_DisCo",
+          "text": "4_03_Wasp_to_DisCo",
+          "nearby_components": [
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            41.7,
+            36
+          ]
+        },
+        {
+          "step": "3",
+          "title": "WASP PARTS FOR DISCO",
+          "text": "WASP PARTS FOR DISCO\r\nDisCo works in meters, so the Rhino file should\r\nalso be in meters, and the size of the parts should\r\nbe compatible to what can be manipulated in VR.",
+          "nearby_components": [
+            "Brep",
+            "Wasp_Update File",
+            "Point",
+            "Curve",
+            "Wasp_Connection From Direction"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            94.2,
+            151.5
+          ]
+        },
+        {
+          "step": "4",
+          "title": "RULES FILTERS",
+          "text": "RULES FILTERS\r\nThe same rules grammars set in Wasp will be available\r\nin DisCo as rule filters, allowing to activate and deactivate\r\ndifferent rules during the VR choreographing process.",
+          "nearby_components": [
+            "Wasp_Basic Part",
+            "Merge",
+            "Wasp_Rules Generator",
+            "Merge",
+            "Wasp_DisCo Rule Group",
+            "Unit Z",
+            "NumberSlider",
+            "Move"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            978.6,
+            869.6
+          ]
+        },
+        {
+          "step": "5",
+          "title": "RULE GROUPS",
+          "text": "RULE GROUPS\r\nThe different connection grammars can be grouped.\r\nThese groups will be available on the DisCo controller,\r\nto quickly switch on and off several rule filters at once.",
+          "nearby_components": [
+            "Wasp_DisCo Rule Group",
+            "Wasp_Basic Part",
+            "Wasp_DisCo Rule Group",
+            "Wasp_Rules Generator",
+            "Merge",
+            "Merge",
+            "Merge",
+            "Toggle"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1015.8,
+            1027
+          ]
+        },
+        {
+          "step": "6",
+          "title": "LOAD FROM DISCO",
+          "text": "LOAD FROM DISCO\r\nThis component allows to load a DisCo-generated aggregation into Grasshopper.\r\nThe imported aggregation can be used as base for further aggregation\r\nby plugging the PART_OUT output to the PREV input of\r\nan aggregation component.",
+          "nearby_components": [
+            "Wasp_DisCo IO Settings",
+            "Toggle",
+            "Toggle",
+            "Wasp_DisCo Placement Settings",
+            "Toggle",
+            "Button",
+            "Toggle",
+            "Wasp_Load From DisCo"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2327.8,
+            1952
+          ]
+        },
+        {
+          "step": "7",
+          "title": "PLAYER SETTINGS",
+          "text": "PLAYER SETTINGS\r\nFor the new multiplayer mode of DisCo, these components\r\nenable to setup different players with different tools and\r\nconstraints applied to each of them.",
+          "nearby_components": [
+            "Toggle",
+            "Toggle"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2528.4,
+            1060.5
+          ]
+        },
+        {
+          "step": "8",
+          "title": "SAVE TO DISCO",
+          "text": "SAVE TO DISCO\r\nThis allows to save a Grasshopper-generated aggregation\r\nto load it in DisCo for further aggregation in VR.",
+          "nearby_components": [
+            "Wasp_DisCo IO Settings",
+            "Toggle",
+            "Wasp_DisCo Placement Settings",
+            "Toggle"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2601.6,
+            1706
+          ]
+        },
+        {
+          "step": "9",
+          "title": "ENVIRONMENT SETTINGS",
+          "text": "ENVIRONMENT SETTINGS\r\nSettings for the different parameters of the\r\ngame environment, including additional geometries\r\nand blueprints.",
+          "nearby_components": [
+            "NumberSlider",
+            "Toggle",
+            "Box",
+            "Geometry",
+            "Custom Preview",
+            "Geometry",
+            "Swatch",
+            "Wasp_Get Part Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            2789.9,
+            785.3
+          ]
+        },
+        {
+          "step": "10",
+          "title": "AGGREGATION SETTINGS",
+          "text": "AGGREGATION SETTINGS",
+          "nearby_components": [
+            "Wasp_DisCo Aggregation Setup",
+            "Custom Preview",
+            "Custom Preview",
+            "Swatch",
+            "Box",
+            "Swatch",
+            "Wasp_Get Part Geometry",
+            "Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            3002.3,
+            507.3
+          ]
+        },
+        {
+          "step": "11",
+          "title": "WASP 2 DISCO",
+          "text": "WASP 2 DISCO\r\nSaves a \"_setup\" and a \"_player\" json files, each storing\r\nall the given information. The files can be loaded from the\r\nDisCo settings tab.",
+          "nearby_components": [
+            "Wasp_DisCo Environment",
+            "Box",
+            "Wasp_DisCo Aggregation Setup",
+            "Geometry",
+            "Button",
+            "Geometry",
+            "Toggle"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            3395.7,
+            834.1
+          ]
+        }
+      ]
+    }
+  }
+}

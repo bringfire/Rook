@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_16f5762a",
+  "note_type": "component",
+  "name": "Delete Vertices",
+  "brief": "Delete Vertices | Inputs: M, I, S → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Delete Vertices. Inputs: M (Mesh), I (Integer), S (Boolean). Outputs: M (Mesh).",
+  "keywords": [
+    "delete vertices",
+    "delete",
+    "vertices",
+    "mesh_utilities"
+  ],
+  "category": "mesh_utilities",
+  "tags": [
+    "mesh_utilities"
+  ],
+  "trigger_intents": [
+    "delete vertices",
+    "delete",
+    "vertices"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Delete Vertices"
+  ],
+  "solution_principle": "Delete vertices from a mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d1c58c31",
+    "comp_993babbd",
+    "comp_32c46a57",
+    "comp_bb1ff081",
+    "comp_43cf236a",
+    "comp_29b31edd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "23d715f7-4bc6-4e69-b76d-7c04ca2ebf5f",
+    "category": "mesh_utilities",
+    "inputs": {
+      "M": "Mesh",
+      "I": "Integer",
+      "S": "Boolean"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "48a9fa10-8d3c-4767-aca6-81232271f6e0"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|util|delete vertices"
+  }
+}

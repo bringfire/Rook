@@ -1,0 +1,76 @@
+{
+  "pattern_id": "90e5220a",
+  "name": "wasp_17_teaching_FIELD_BOUNDARIES",
+  "version": "1.0",
+  "created": "2026-03-19T18:04:28.357168Z",
+  "solution": {
+    "brief": "FIELD BOUNDARIES\r\nIf the BOU input of the FieldPts component is provided with geometries, rather than a bounding box,\r\nthe Field grid will be initialized on the Union bounding box of all geometries.\r\nAdditionally, all points lying outside of the selected geometries will be automatically assigned value 0,\r\nhence not allowing aggregation growth outside the geometry.\r\n\r\nNB: this does not ensure that there will be no collisions between the boundary and the aggregated parts.\r\nIf you need to avoid collisions, check the Mesh Constraint component.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "NumberSlider",
+      "Brep",
+      "Wasp_Field Points",
+      "Bounding Box"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "field",
+      "with",
+      "than",
+      "fieldpts",
+      "provided",
+      "rather",
+      "geometries,",
+      "boundaries",
+      "input",
+      "component"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "field-driven",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

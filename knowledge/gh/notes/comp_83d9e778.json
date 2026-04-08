@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_83d9e778",
+  "note_type": "component",
+  "name": "Query Model Linetypes",
+  "brief": "Query Model Linetypes | Inputs: N → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Query Model Linetypes. Inputs: N (Text Pattern). Outputs: L (Model Linetype).",
+  "keywords": [
+    "query model linetypes",
+    "query",
+    "model",
+    "linetypes",
+    "rhino_drafting"
+  ],
+  "category": "rhino_drafting",
+  "tags": [
+    "rhino_drafting"
+  ],
+  "trigger_intents": [
+    "query model linetypes",
+    "query",
+    "model",
+    "linetypes"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Linetypes"
+  ],
+  "solution_principle": "Query a Rhino document for all available linetypes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_93098ea1",
+    "comp_6578d009",
+    "comp_21bfc521",
+    "comp_9d574fba",
+    "comp_e924254a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7e266319-a439-481e-afa5-daa09ab97417",
+    "category": "rhino_drafting",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "L": "Model Linetype"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "40abbc84-7bc1-4b05-bb32-10976d2e7157"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|drafting|query model linetypes"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "pattern_id": "c11eec4d",
+  "name": "teaching_5_01_Hierarchical_Aggregation",
+  "version": "1.0",
+  "created": "2026-03-19T19:25:25.755809Z",
+  "solution": {
+    "brief": "5_01_Hierarchical_Aggregation",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "5_01_hierarchical_aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

@@ -1,0 +1,575 @@
+{
+  "pattern_id": "f78deac4",
+  "name": "parametric_surface-creation",
+  "version": "1.0",
+  "created": "2026-02-02T19:39:49.358249Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "",
+    "components_needed": [
+      "Hexagonal",
+      "slider",
+      "slider",
+      "Bounding Box",
+      "Deconstruct Brep",
+      "Evaluate Surface",
+      "MD Slider",
+      "Point",
+      "Distance",
+      "Minimum",
+      "slider",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Scale",
+      "Curve",
+      "Equality",
+      "Dispatch",
+      "Dispatch",
+      "Dispatch",
+      "Move",
+      "Remap Numbers",
+      "Construct Domain",
+      "slider",
+      "slider",
+      "Dispatch",
+      "Unit Z",
+      "Negative",
+      "Merge",
+      "Loft",
+      "Boundary Surfaces",
+      "Merge",
+      "Brep Join",
+      "Custom Preview",
+      "Swatch"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "surface from curves",
+      "loft curves"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric",
+    "surface-creation"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:26:10.705255Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 47 wires -> 37 components, 47 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 20,
+          "value": 15
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 9.27
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.69
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R26",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "display",
+    "source_definition": "Lowpoly Attractor.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_HexagonalGrid",
+          "nick": "HexGrid",
+          "name": "Hexagonal",
+          "pos": [
+            387,
+            108
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            15.2,
+            88.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            104,
+            231.6
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 15
+        },
+        {
+          "id": "R4",
+          "type": "Component_BoundingBox",
+          "nick": "BBox",
+          "name": "Bounding Box",
+          "pos": [
+            501,
+            81
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            600,
+            81
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_EvaluateSurface_OBSOLETE",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            738,
+            72
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            257.8,
+            -228.8
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            748.8,
+            164
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            867,
+            75
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Operator_Minimum",
+          "nick": "Min",
+          "name": "Minimum",
+          "pos": [
+            979,
+            101
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            630.4,
+            260.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 9.27
+        },
+        {
+          "id": "R12",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1256,
+            125
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1154,
+            131
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1159,
+            219
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            883.7,
+            199.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.69
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            887.3,
+            229.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R17",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            1617,
+            -2
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            991,
+            -103
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_EqualTo",
+          "nick": "Equals",
+          "name": "Equality",
+          "pos": [
+            1337,
+            5
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            1470,
+            -99
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            1475,
+            -25
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            1483,
+            42
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1780,
+            118
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1265,
+            278
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1158,
+            305
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "pos": [
+            884.1,
+            286.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.4
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            887.7,
+            316.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0
+        },
+        {
+          "id": "R28",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            1481,
+            114
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            1678,
+            128
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "OperatorSign",
+          "nick": "Neg",
+          "name": "Negative",
+          "pos": [
+            1574,
+            140
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            1863,
+            -66
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1966,
+            -56
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            1955,
+            -152
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2094,
+            -81
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_BrepJoin",
+          "nick": "Join",
+          "name": "Brep Join",
+          "pos": [
+            2200,
+            -95
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2323,
+            -85
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            2155.8,
+            -6.2
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R3.O0>R1.I2",
+        "R3.O0>R1.I3",
+        "R1.O0>R4.I0",
+        "R4.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R9.I0",
+        "R8.O0>R9.I1",
+        "R9.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R10.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R14.O0>R12.I2",
+        "R10.O0>R13.I0",
+        "R15.O0>R14.I0",
+        "R16.O0>R14.I1",
+        "R20.O1>R17.I0",
+        "R21.O1>R17.I1",
+        "R22.O1>R17.I2",
+        "R12.O0>R19.I0",
+        "R18.O0>R20.I0",
+        "R19.O0>R20.I1",
+        "R8.O0>R21.I0",
+        "R19.O0>R21.I1",
+        "R12.O0>R22.I0",
+        "R19.O0>R22.I1",
+        "R17.O0>R23.I0",
+        "R29.O0>R23.I1",
+        "R10.O0>R24.I0",
+        "R13.O0>R24.I1",
+        "R25.O0>R24.I2",
+        "R26.O0>R25.I0",
+        "R27.O0>R25.I1",
+        "R24.O0>R28.I0",
+        "R19.O0>R28.I1",
+        "R30.O0>R29.I0",
+        "R28.O1>R30.I0",
+        "R23.O0>R31.I0",
+        "R20.O1>R31.I1",
+        "R31.O0>R32.I0",
+        "R20.O0>R33.I0",
+        "R33.O0>R34.I0",
+        "R32.O0>R34.I1",
+        "R34.O0>R35.I0",
+        "R35.O0>R36.I0",
+        "R37.O0>R36.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

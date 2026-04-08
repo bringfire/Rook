@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_57e41d52",
+  "note_type": "component",
+  "name": "3D Voronoi",
+  "brief": "3D Voronoi | Inputs: P, B → M, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: 3D Voronoi. Inputs: P (Point), B (Box). Outputs: M (Generic Data), C (Integer).",
+  "keywords": [
+    "3d voronoi",
+    "3d",
+    "voronoi",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "3d voronoi",
+    "voronoi"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "3D Voronoi"
+  ],
+  "solution_principle": "Computes the 3D voronoi cells of a pointcloud based on MIConvexHull by David Sehnal, Matthew Campbell",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_5cae1f1d",
+    "comp_9bce8961",
+    "comp_da8636fd",
+    "comp_f06438f9",
+    "comp_d9de95a0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "699b34f9-e985-4048-8b18-301210de8a3c",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point",
+      "B": "Box"
+    },
+    "outputs": {
+      "M": "Generic Data",
+      "C": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7b181be1-30e7-4a97-915a-1b461741aef8"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|3d voronoi"
+  }
+}

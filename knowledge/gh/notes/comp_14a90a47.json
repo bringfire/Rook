@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_14a90a47",
+  "note_type": "component",
+  "name": "Brep Join with Tolerance",
+  "brief": "Brep Join with Tolerance | Inputs: Brep, tol → Brep",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Brep Join with Tolerance. Inputs: Brep (Brep), tol (Number). Outputs: Brep (Generic Data).",
+  "keywords": [
+    "brep join with tolerance",
+    "brep",
+    "join",
+    "with",
+    "tolerance",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "brep join with tolerance",
+    "brep",
+    "join",
+    "with",
+    "tolerance"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep Join with Tolerance"
+  ],
+  "solution_principle": "Join Brep faces with a tolerance value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_52a1c40b",
+    "comp_3d7c1b11",
+    "comp_fced4dd4",
+    "comp_47c8c55a",
+    "comp_cdb1b8b1",
+    "comp_c4cf466f",
+    "comp_4d3f89f8",
+    "comp_aa74495c",
+    "comp_d3ee4423",
+    "comp_11e0782b",
+    "comp_d551bf52",
+    "comp_be584748"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0cdbe954-cbc8-49ab-a768-a31654027d39",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Brep": "Brep",
+      "tol": "Number"
+    },
+    "outputs": {
+      "Brep": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "8083a51c-2e58-4f1b-af42-a5c6d22eb6a5"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|brep join with tolerance"
+  }
+}

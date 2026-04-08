@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_19ec081c",
+  "note_type": "component",
+  "name": "Split List",
+  "brief": "Split List | Inputs: L, i → A, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Split List. Inputs: L (Generic Data), i (Integer). Outputs: A (Generic Data), B (Generic Data).",
+  "keywords": [
+    "split list",
+    "split",
+    "list",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "split list",
+    "split",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Split List"
+  ],
+  "solution_principle": "Split a list into separate parts.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_b573a316",
+    "comp_c633e36d",
+    "comp_04660496"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9ab93e1a-ebdf-4090-9296-b000cff7b202",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "i": "Integer"
+    },
+    "outputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5a93246d-2595-4c28-bc2d-90657634f92a"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|split list"
+  }
+}

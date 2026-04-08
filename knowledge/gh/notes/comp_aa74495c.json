@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_aa74495c",
+  "note_type": "component",
+  "name": "Sort Duplicate Curves",
+  "brief": "Sort Duplicate Curves | Inputs: Crvs → Unique, Indices",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Sort Duplicate Curves. Inputs: Crvs (Curve). Outputs: Unique (Generic Data), Indices (Generic Data).",
+  "keywords": [
+    "sort duplicate curves",
+    "sort",
+    "duplicate",
+    "curves",
+    "lunchbox_util"
+  ],
+  "category": "lunchbox_util",
+  "tags": [
+    "lunchbox_util"
+  ],
+  "trigger_intents": [
+    "sort duplicate curves",
+    "sort",
+    "duplicate",
+    "curves"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sort Duplicate Curves"
+  ],
+  "solution_principle": "Sort a list of curves based on duplicates using document tolerances.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3d7c1b11",
+    "teaching_47c6c682",
+    "comp_69ef4f26",
+    "teaching_21c34834",
+    "teaching_8f0b8816",
+    "comp_be584748",
+    "comp_d3ee4423",
+    "comp_d551bf52",
+    "comp_fced4dd4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6829530f-10ad-4d1b-9a41-8d110c9439a4",
+    "category": "lunchbox_util",
+    "inputs": {
+      "Crvs": "Curve"
+    },
+    "outputs": {
+      "Unique": "Generic Data",
+      "Indices": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "93705de7-bc3e-414f-a201-824b40e828b8"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|util|sort duplicate curves"
+  }
+}

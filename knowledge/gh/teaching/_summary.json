@@ -1,0 +1,58 @@
+{
+  "extracted_at": "2026-02-22T19:19:56.445991+00:00",
+  "total_files": 8,
+  "succeeded": 8,
+  "failed": 0,
+  "total_sections": 81,
+  "total_components": 3070,
+  "files": [
+    {
+      "name": "Unit-01-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-01-Class.gh",
+      "sections": 10,
+      "components": 134
+    },
+    {
+      "name": "Unit-02-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-02-Class.gh",
+      "sections": 17,
+      "components": 467
+    },
+    {
+      "name": "Unit-03-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced/Unit-03-Class.gh",
+      "sections": 9,
+      "components": 317
+    },
+    {
+      "name": "Unit-04-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-04-Class.gh",
+      "sections": 11,
+      "components": 414
+    },
+    {
+      "name": "Unit-05-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-05-Class.gh",
+      "sections": 8,
+      "components": 417
+    },
+    {
+      "name": "Unit-06-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-06-Class.gh",
+      "sections": 12,
+      "components": 364
+    },
+    {
+      "name": "Unit-07-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-07-Class.gh",
+      "sections": 6,
+      "components": 358
+    },
+    {
+      "name": "Unit-08-Class",
+      "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-08-Class.gh",
+      "sections": 8,
+      "components": 599
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_a49505b9",
+  "note_type": "component",
+  "name": "Text Join",
+  "brief": "Text Join | Inputs: T, J → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Text Join. Inputs: T (Text), J (Text). Outputs: R (Text).",
+  "keywords": [
+    "text join",
+    "text",
+    "join",
+    "text_ops"
+  ],
+  "category": "text_ops",
+  "tags": [
+    "text_ops"
+  ],
+  "trigger_intents": [
+    "text join",
+    "text",
+    "join"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Text Join"
+  ],
+  "solution_principle": "Join a collection of text fragments into one",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_77db0173",
+    "comp_dfb40a0b",
+    "comp_eae94e15",
+    "comp_eab5ee17",
+    "comp_5c80adad",
+    "comp_c64869fe",
+    "comp_37bfb447",
+    "comp_eadf18b9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1274d51a-81e6-4ccf-ad1f-0edf4c769cac",
+    "category": "text_ops",
+    "inputs": {
+      "T": "Text",
+      "J": "Text"
+    },
+    "outputs": {
+      "R": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2013e425-8713-42e2-a661-b57e78840337"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|text|text join"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_2964153b",
+  "note_type": "component",
+  "name": "Rotate Axis",
+  "brief": "Rotate Axis | Inputs: G, A, X → G, X",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Rotate Axis. Inputs: G (Geometry), A (Number), X (Line). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "rotate axis",
+    "rotate",
+    "axis",
+    "transforms"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transforms"
+  ],
+  "trigger_intents": [
+    "rotate axis",
+    "rotate",
+    "axis"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rotate Axis"
+  ],
+  "solution_principle": "Rotate an object around an axis.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b175c81a",
+    "comp_244d1b5f",
+    "comp_a9db3b5d",
+    "comp_d9a8dc72",
+    "comp_02a2143c",
+    "teaching_035b3907",
+    "comp_d36704e4",
+    "comp_e6c85431",
+    "comp_71142f9e",
+    "comp_f9f28dc8",
+    "comp_67c14e69",
+    "comp_1f42817a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3ac8e589-37f5-477d-aa61-6699702c5728",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "A": "Number",
+      "X": "Line"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "b7798b74-037e-4f0c-8ac7-dc1043d093e0"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|euclidean|rotate axis"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_e1a4465c",
+  "note_type": "component",
+  "name": "Aligned Dimension",
+  "brief": "Aligned Dimension | Inputs: P, A, B, O → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Aligned Dimension. Inputs: P (Plane), A (Point), B (Point), O (Number), T (Text), S (Number).",
+  "keywords": [
+    "aligned dimension",
+    "aligned",
+    "dimension",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "aligned dimension",
+    "aligned",
+    "dimension"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Aligned Dimension"
+  ],
+  "solution_principle": "Create a distance annotation between two points",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_c4606904",
+    "comp_7510f021",
+    "comp_6dc04629",
+    "comp_376372ef",
+    "comp_3f6fef15"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3de3d3a0-1a1b-488c-b3d9-3fba0fdf07a8",
+    "category": "display",
+    "inputs": {
+      "P": "Plane",
+      "A": "Point",
+      "B": "Point",
+      "O": "Number",
+      "T": "Text",
+      "S": "Number"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "1bd97813-4fec-4453-9645-4ac920844f9d"
+    ],
+    "usage_count": 0,
+    "stable_key": "display|dimensions|aligned dimension"
+  }
+}

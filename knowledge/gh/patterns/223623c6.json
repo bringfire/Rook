@@ -1,0 +1,77 @@
+{
+  "pattern_id": "223623c6",
+  "name": "wasp_15_teaching_The_Rules_from_Aggre",
+  "version": "1.0",
+  "created": "2026-03-19T17:58:03.100461Z",
+  "solution": {
+    "brief": "The Rules from Aggregation component also allow to modify\r\nthe generated rules sequence, by replacing the name of one\r\npart with another one.\r\nThis allows to re-create the same aggregation using completely\r\ndifferent parts, having the same topology as the base parts,\r\nbut different geometry.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Get Part Geometry",
+      "Wasp_Rules from Aggregation",
+      "Toggle",
+      "Wasp_Rules from Aggregation",
+      "Toggle",
+      "Wasp_Transform Part",
+      "Wasp_Graph-Grammar Aggregation",
+      "Scale NU"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "from",
+      "aggregation",
+      "modify",
+      "generated",
+      "sequence,",
+      "also",
+      "allow",
+      "rules",
+      "component"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

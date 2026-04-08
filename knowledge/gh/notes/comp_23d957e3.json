@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_23d957e3",
+  "note_type": "component",
+  "name": "Sift Pattern",
+  "brief": "Sift Pattern | Inputs: L, P → 0, 1",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Sift Pattern. Inputs: L (Generic Data), P (Integer). Outputs: 0 (Generic Data), 1 (Generic Data).",
+  "keywords": [
+    "sift pattern",
+    "sift",
+    "pattern",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "sift pattern",
+    "sift",
+    "pattern"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sift Pattern"
+  ],
+  "solution_principle": "Sift elements in a list using a repeating index pattern.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_535c0613",
+    "comp_b573a316"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3249222f-f536-467a-89f4-f0353fba455a",
+    "category": "list_operations",
+    "inputs": {
+      "L": "Generic Data",
+      "P": "Integer"
+    },
+    "outputs": {
+      "0": "Generic Data",
+      "1": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "d8332545-21b2-4716-96e3-8559a9876e17"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|list|sift pattern"
+  }
+}

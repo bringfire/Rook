@@ -1,0 +1,62 @@
+{
+  "note_id": "comp_a5ce99fe",
+  "note_type": "component",
+  "name": "Modulus",
+  "brief": "Modulus | Inputs: A, B → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Modulus. Inputs: A (Generic Data), B (Generic Data). Outputs: R (Generic Data).",
+  "keywords": [
+    "modulus",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "modulus"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Modulus"
+  ],
+  "solution_principle": "Divides two numbers and returns only the remainder.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8c2fe922",
+    "comp_464d3c31",
+    "comp_05f4e5c2",
+    "comp_e3ac3325",
+    "comp_fd8a342f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "431bc610-8ae1-4090-b217-1a9d9c519fe2",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Generic Data",
+      "B": "Generic Data"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9c007a04-d0d9-48e4-9da3-9ba142bc4d46"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|operators|modulus"
+  }
+}

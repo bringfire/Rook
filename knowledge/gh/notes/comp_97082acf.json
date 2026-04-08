@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_97082acf",
+  "note_type": "component",
+  "name": "Construct Mesh",
+  "brief": "Construct Mesh | Inputs: V, F, C → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Construct Mesh. Inputs: V (Point), F (Mesh face), C (Colour). Outputs: M (Mesh).",
+  "keywords": [
+    "construct mesh",
+    "construct",
+    "mesh",
+    "mesh_ops"
+  ],
+  "category": "mesh_ops",
+  "tags": [
+    "mesh_ops"
+  ],
+  "trigger_intents": [
+    "construct mesh",
+    "construct",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Construct Mesh"
+  ],
+  "solution_principle": "Construct a mesh from vertices, faces and optional colours.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_87d517e7",
+    "comp_bb6571be",
+    "comp_32b3df2f",
+    "comp_70d0de17",
+    "comp_435d6cd8"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e2c0f9db-a862-4bd9-810c-ef2610e7a56f",
+    "category": "mesh_ops",
+    "inputs": {
+      "V": "Point",
+      "F": "Mesh face",
+      "C": "Colour"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "mesh|primitive|construct mesh"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_580fe1e1",
+  "note_type": "component",
+  "name": "Query Model Textures",
+  "brief": "Query Model Textures | Inputs: N → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Query Model Textures. Inputs: N (Text Pattern). Outputs: T (Model Texture).",
+  "keywords": [
+    "query model textures",
+    "query",
+    "model",
+    "textures",
+    "rhino_render"
+  ],
+  "category": "rhino_render",
+  "tags": [
+    "rhino_render"
+  ],
+  "trigger_intents": [
+    "query model textures",
+    "query",
+    "model",
+    "textures"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Model Textures"
+  ],
+  "solution_principle": "Query a Rhino document for all available render textures",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3f462047",
+    "comp_3c75688e",
+    "comp_9ffe6eef",
+    "comp_acc717ff",
+    "comp_1662c3ae"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "91b5cfc2-a618-48e3-bdc5-1fbc356d4b68",
+    "category": "rhino_render",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "T": "Model Texture"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "00c2fe26-2082-44e4-a4ff-9460e8cecbd2"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|render|query model textures"
+  }
+}

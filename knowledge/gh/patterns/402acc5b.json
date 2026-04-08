@@ -1,0 +1,74 @@
+{
+  "pattern_id": "402acc5b",
+  "name": "wasp_04_field_driven_teaching_5._Replace_Geometry",
+  "version": "1.0",
+  "created": "2026-03-19T17:24:58.989391Z",
+  "solution": {
+    "brief": "5. Replace Geometry\r\nUsing the TR output from the DePart component,\r\nit is possible to replace the basic geometry of\r\nthe part with a different geometry (e.g. higher level\r\nof detail) without slowing down the aggregation process.\r\nThe MASK output of the NameFilter component provides\r\na boolean pattern to separate different part types.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Deconstruct Part",
+      "Wasp_Filter Parts by Name",
+      "Wasp_Stochastic Aggregation"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "basic",
+      "from",
+      "possible",
+      "output",
+      "depart",
+      "component,",
+      "replace",
+      "using",
+      "geometry"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "field-driven",
+    "scalar-field",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

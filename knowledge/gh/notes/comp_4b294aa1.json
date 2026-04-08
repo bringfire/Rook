@@ -1,0 +1,58 @@
+{
+  "note_id": "comp_4b294aa1",
+  "note_type": "component",
+  "name": "Point List",
+  "brief": "Point List | Inputs: Points, Size → output",
+  "version": "1.0",
+  "created": "2026-03-19T15:47:50.343399Z",
+  "context": "Grasshopper component: Point List. ",
+  "keywords": [
+    "point list",
+    "unknown",
+    "point",
+    "list"
+  ],
+  "category": "unknown",
+  "tags": [],
+  "trigger_intents": [
+    "point list",
+    "point",
+    "list",
+    "points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point List"
+  ],
+  "solution_principle": "Point List | Inputs: Points, Size → output",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "cc14daa5-911a-4fcc-8b3b-1149bf7f2eeb",
+    "category": "unknown",
+    "inputs": {
+      "Points": "Points",
+      "Size": "Size"
+    },
+    "outputs": {},
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|vector|point list"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

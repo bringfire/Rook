@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{B7E3A6D1-5F2C-4E8A-9D1B-3C7F0A2E4D6B}</ProjectGuid>
+    <RootNamespace>RookNative</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Dynamic</UseOfMfc>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <UseOfMfc>Dynamic</UseOfMfc>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <!-- Rhino SDK property sheet - handles include dirs, lib dirs, .rhp extension -->
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\McNeel\Rhinoceros\SDK\8.0', 'InstallPath', '', RegistryView.Registry64))PropertySheets\Rhino.Cpp.PlugIn.props" />
+  </ImportGroup>
+
+  <PropertyGroup>
+    <TargetName>RookNative</TargetName>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\$(Platform)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(ProjectName)\$(Configuration)\$(Platform)\</IntDir>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)vendor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!-- ws2_32.lib: Winsock2, required by cpp-httplib HTTP server (Phase 1) -->
+      <!-- comctl32.lib: SetWindowSubclass, required for modal-loop dispatch (Phase 5) -->
+      <AdditionalDependencies>ws2_32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;ROOKNATIVE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;ROOKNATIVE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- Source files -->
+  <ItemGroup>
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="RookNativePlugin.cpp" />
+    <ClCompile Include="Threading\MainThreadDispatcher.cpp" />
+    <ClCompile Include="RookServer.cpp" />
+    <ClCompile Include="Serialization\RhinoSerializer.cpp" />
+    <ClCompile Include="Handlers\DocumentHandler.cpp" />
+    <ClCompile Include="Handlers\LayersHandler.cpp" />
+    <ClCompile Include="Handlers\ObjectsHandler.cpp" />
+    <ClCompile Include="Handlers\GeometryHandler.cpp" />
+    <ClCompile Include="Handlers\CommandHandler.cpp" />
+    <ClCompile Include="Handlers\CreateHandler.cpp" />
+    <ClCompile Include="Handlers\GeometryOpsHandler.cpp" />
+    <ClCompile Include="Infrastructure\LayerHelpers.cpp" />
+    <ClCompile Include="Handlers\LayerOpsHandler.cpp" />
+    <ClCompile Include="Handlers\SelectionHandler.cpp" />
+    <ClCompile Include="Handlers\ViewportHandler.cpp" />
+    <ClCompile Include="Handlers\DisplayModeHandler.cpp" />
+    <ClCompile Include="Handlers\MeasureHandler.cpp" />
+    <ClCompile Include="Handlers\GroupsHandler.cpp" />
+    <ClCompile Include="Handlers\DocumentOpsHandler.cpp" />
+    <ClCompile Include="Handlers\MaterialsHandler.cpp" />
+    <ClCompile Include="Handlers\ImportExportHandler.cpp" />
+    <ClCompile Include="Handlers\BooleanHandler.cpp" />
+    <ClCompile Include="Handlers\FilletChamferHandler.cpp" />
+    <ClCompile Include="Handlers\AnalysisHandler.cpp" />
+    <ClCompile Include="Handlers\CurvesHandler.cpp" />
+    <ClCompile Include="Handlers\IntersectionHandler.cpp" />
+    <ClCompile Include="Handlers\SplitTrimHandler.cpp" />
+    <ClCompile Include="Handlers\OffsetBrepHandler.cpp" />
+    <ClCompile Include="Handlers\MeshHandler.cpp" />
+    <ClCompile Include="Handlers\SubDHandler.cpp" />
+    <ClCompile Include="Handlers\BlocksHandler.cpp" />
+    <ClCompile Include="Handlers\TextureMappingHandler.cpp" />
+    <ClCompile Include="Handlers\GameExportHandler.cpp" />
+    <ClCompile Include="SceneGraph\SceneGraph.cpp" />
+    <ClCompile Include="SceneGraph\SceneGraphWatcher.cpp" />
+    <ClCompile Include="SceneGraph\SceneGraphConduit.cpp" />
+    <ClCompile Include="Handlers\SceneGraphHandler.cpp" />
+    <ClCompile Include="Handlers\CommandInteractiveHandler.cpp" />
+    <ClCompile Include="Handlers\PromptHandler.cpp" />
+    <ClCompile Include="Handlers\GumballHandler.cpp" />
+    <ClCompile Include="Handlers\GumballContextHandler.cpp" />
+    <ClCompile Include="Handlers\SessionHandler.cpp" />
+    <ClCompile Include="Handlers\GrasshopperProxyHandler.cpp" />
+    <ClCompile Include="Interactive\PromptManager.cpp" />
+    <ClCompile Include="Interactive\GumballManager.cpp" />
+    <ClCompile Include="Interactive\GumballContextBuilder.cpp" />
+    <ClCompile Include="Interactive\SessionRecorder.cpp" />
+    <ClCompile Include="Commands\AIGumballCommand.cpp" />
+  </ItemGroup>
+
+  <!-- Header files -->
+  <ItemGroup>
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="RookNativePlugin.h" />
+    <ClInclude Include="Resource.h" />
+    <ClInclude Include="Threading\MainThreadDispatcher.h" />
+    <ClInclude Include="Threading\RequestContext.h" />
+    <ClInclude Include="RookServer.h" />
+    <ClInclude Include="Models\Snapshots.h" />
+    <ClInclude Include="Models\DocumentHelpers.h" />
+    <ClInclude Include="Serialization\RhinoSerializer.h" />
+    <ClInclude Include="Handlers\DocumentHandler.h" />
+    <ClInclude Include="Handlers\LayersHandler.h" />
+    <ClInclude Include="Handlers\ObjectsHandler.h" />
+    <ClInclude Include="Handlers\GeometryHandler.h" />
+    <ClInclude Include="Handlers\CommandHandler.h" />
+    <ClInclude Include="Handlers\CreateHandler.h" />
+    <ClInclude Include="Handlers\GeometryOpsHandler.h" />
+    <ClInclude Include="Handlers\LayerOpsHandler.h" />
+    <ClInclude Include="Handlers\SelectionHandler.h" />
+    <ClInclude Include="Handlers\ViewportHandler.h" />
+    <ClInclude Include="Handlers\DisplayModeHandler.h" />
+    <ClInclude Include="Handlers\MeasureHandler.h" />
+    <ClInclude Include="Infrastructure\LayerHelpers.h" />
+    <ClInclude Include="Infrastructure\UndoScope.h" />
+    <ClInclude Include="Infrastructure\JsonHelpers.h" />
+    <ClInclude Include="Infrastructure\ObjectDiffTracker.h" />
+    <ClInclude Include="Infrastructure\WriteResult.h" />
+    <ClInclude Include="Handlers\GroupsHandler.h" />
+    <ClInclude Include="Handlers\DocumentOpsHandler.h" />
+    <ClInclude Include="Handlers\MaterialsHandler.h" />
+    <ClInclude Include="Handlers\ImportExportHandler.h" />
+    <ClInclude Include="Handlers\BooleanHandler.h" />
+    <ClInclude Include="Handlers\FilletChamferHandler.h" />
+    <ClInclude Include="Handlers\AnalysisHandler.h" />
+    <ClInclude Include="Handlers\CurvesHandler.h" />
+    <ClInclude Include="Handlers\IntersectionHandler.h" />
+    <ClInclude Include="Handlers\SplitTrimHandler.h" />
+    <ClInclude Include="Handlers\OffsetBrepHandler.h" />
+    <ClInclude Include="Handlers\MeshHandler.h" />
+    <ClInclude Include="Handlers\SubDHandler.h" />
+    <ClInclude Include="Handlers\BlocksHandler.h" />
+    <ClInclude Include="Handlers\TextureMappingHandler.h" />
+    <ClInclude Include="Handlers\GameExportHandler.h" />
+    <ClInclude Include="SceneGraph\SceneGraphModels.h" />
+    <ClInclude Include="SceneGraph\SceneGraph.h" />
+    <ClInclude Include="SceneGraph\SceneGraphWatcher.h" />
+    <ClInclude Include="SceneGraph\SceneGraphConduit.h" />
+    <ClInclude Include="Handlers\SceneGraphHandler.h" />
+    <ClInclude Include="Handlers\CommandInteractiveHandler.h" />
+    <ClInclude Include="Handlers\PromptHandler.h" />
+    <ClInclude Include="Handlers\GumballHandler.h" />
+    <ClInclude Include="Handlers\GumballContextHandler.h" />
+    <ClInclude Include="Handlers\SessionHandler.h" />
+    <ClInclude Include="Handlers\GrasshopperProxyHandler.h" />
+    <ClInclude Include="Interactive\PromptManager.h" />
+    <ClInclude Include="Interactive\GumballManager.h" />
+    <ClInclude Include="Interactive\GumballContext.h" />
+    <ClInclude Include="Interactive\SessionRecorder.h" />
+  </ItemGroup>
+
+  <!-- Resource files -->
+  <ItemGroup>
+    <ResourceCompile Include="RookNative.rc" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+</Project>

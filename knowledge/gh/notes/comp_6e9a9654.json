@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_6e9a9654",
+  "note_type": "component",
+  "name": "removeDuplicateLines",
+  "brief": "removeDuplicateLines | Inputs: L, t → Q",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: removeDuplicateLines. Inputs: L (Line), t (Number). Outputs: Q (Line).",
+  "keywords": [
+    "removeduplicatelines",
+    "kangaroo2_utility"
+  ],
+  "category": "kangaroo2_utility",
+  "tags": [
+    "kangaroo2_utility"
+  ],
+  "trigger_intents": [
+    "removeduplicatelines",
+    "remove",
+    "duplicate",
+    "lines"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "removeDuplicateLines"
+  ],
+  "solution_principle": "Removes similar lines from a list.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3ea65cfe",
+    "recipe_012865d1",
+    "recipe_7de55487",
+    "recipe_81915ce5",
+    "recipe_81e14ed4",
+    "comp_d5b60c80",
+    "comp_e0f50326",
+    "comp_e8f5fb4e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5b882297-9063-439e-82b9-70961f743c5d",
+    "category": "kangaroo2_utility",
+    "inputs": {
+      "L": "Line",
+      "t": "Number"
+    },
+    "outputs": {
+      "Q": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5e2f9e3f-d467-46f6-870c-6fa7cd01e1ed"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|utility|removeduplicatelines"
+  }
+}

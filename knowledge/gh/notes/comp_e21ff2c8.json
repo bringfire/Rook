@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_e21ff2c8",
+  "note_type": "component",
+  "name": "Model Action",
+  "brief": "Model Action | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Model Action.",
+  "keywords": [
+    "model action",
+    "model",
+    "action",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "model action",
+    "model",
+    "action"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Model Action"
+  ],
+  "solution_principle": "Contains a collection of model actions",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b8042dc1",
+    "comp_cdd4f70a",
+    "comp_cd53e543",
+    "comp_59eaa50b",
+    "comp_6dead45e",
+    "comp_8028a5b0",
+    "comp_fdbe5275",
+    "comp_68560ebb",
+    "comp_465b7428",
+    "comp_47d03593",
+    "comp_97fcaa21"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "10f775d1-aea0-4ceb-a06e-107607b7522c",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "params|rhino|model action"
+  }
+}

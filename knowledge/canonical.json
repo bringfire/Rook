@@ -1,0 +1,594 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {
+    "name": "Rook Knowledge Graph",
+    "version": "0.1.0",
+    "created": "2025-12-20T00:00:00Z",
+    "updated": "2025-12-20T00:00:00Z"
+  },
+  "nodes": [
+    {
+      "id": "intent:create_nested_layer",
+      "type": "intent",
+      "labels": ["nested layer", "sublayer", "child layer", "layer hierarchy", "parent layer"],
+      "description": "Create a layer as a child of another layer",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "intent:create_layer",
+      "type": "intent",
+      "labels": ["layer", "new layer", "add layer"],
+      "description": "Create a new layer in the document",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_layer_create",
+      "type": "action",
+      "tool": "rhino_layer_create",
+      "description": "Create a new layer in Rhino",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:layer_use_parent_param",
+      "type": "pattern",
+      "params": {
+        "name": "<child_name>",
+        "parent": "<parent_layer_name>"
+      },
+      "note": "Use parent parameter to specify parent layer",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "antipattern:layer_colons_in_name",
+      "type": "antipattern",
+      "params": {
+        "name": "parent::child"
+      },
+      "reason": "Creates literal name with colons, not a hierarchy. Layer will have parentId: null",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "intent:delete_layer",
+      "type": "intent",
+      "labels": ["delete layer", "remove layer"],
+      "description": "Delete a layer from the document",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_layer_delete",
+      "type": "action",
+      "tool": "rhino_layer_delete",
+      "description": "Delete an empty layer from Rhino",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:layer_delete_by_name",
+      "type": "pattern",
+      "params": {
+        "name": "<layer_name>"
+      },
+      "note": "Use exact layer name as shown in fullPath",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "antipattern:layer_delete_with_colons",
+      "type": "antipattern",
+      "params": {
+        "name": "parent::child"
+      },
+      "reason": "If layer name literally contains ::, deletion may fail. Use rhino_execute with Python script instead",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "context:parent_layer_exists",
+      "type": "context",
+      "description": "The parent layer must exist before creating child layer",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "intent:create_geometry",
+      "type": "intent",
+      "labels": ["create geometry", "add geometry", "make geometry", "create shape", "add shape", "sphere", "box", "cylinder", "cone", "line", "circle", "point"],
+      "description": "Create geometric objects in Rhino",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_create",
+      "type": "action",
+      "tool": "rhino_create",
+      "description": "Create geometry using rhino_create tool",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:create_on_layer",
+      "type": "pattern",
+      "params": {
+        "type": "<GEOMETRY_TYPE>",
+        "layer": "<layer_name>"
+      },
+      "note": "Specify layer param to place geometry on specific layer",
+      "weight": 0.8,
+      "source": "canonical"
+    },
+    {
+      "id": "intent:capture_viewport",
+      "type": "intent",
+      "labels": ["viewport", "screenshot", "capture", "image", "see", "view"],
+      "description": "Capture current viewport as image",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_viewport",
+      "type": "action",
+      "tool": "rhino_viewport",
+      "description": "Capture viewport as base64 PNG",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:intersect_curves",
+      "type": "intent",
+      "labels": ["intersect curves", "curve intersection", "find intersection", "where curves cross"],
+      "description": "Find intersection points between two curves",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_intersect_curves",
+      "type": "action",
+      "tool": "rhino_intersect_curves",
+      "description": "Find intersections between two curves using Rhino.Geometry.Intersect.Intersection.CurveCurve",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:intersect_curves_tolerance",
+      "type": "pattern",
+      "params": {
+        "curveId1": "<guid>",
+        "curveId2": "<guid>",
+        "tolerance": 0.001
+      },
+      "note": "Tolerance defaults to document tolerance. Override for precise or loose matching.",
+      "weight": 0.8,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:intersect_breps",
+      "type": "intent",
+      "labels": ["intersect breps", "brep intersection", "solid intersection", "where solids meet"],
+      "description": "Find intersection curves between two breps",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_intersect_breps",
+      "type": "action",
+      "tool": "rhino_intersect_breps",
+      "description": "Find intersection curves between two breps",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:section_plane",
+      "type": "intent",
+      "labels": ["section", "slice", "cut plane", "plane intersection", "section cut"],
+      "description": "Create section curves where a plane cuts through geometry",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_intersect_plane",
+      "type": "action",
+      "tool": "rhino_intersect_plane",
+      "description": "Intersect a brep with a plane to get section curves",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:plane_definition",
+      "type": "pattern",
+      "params": {
+        "planeOrigin": [0, 0, 5],
+        "planeNormal": [0, 0, 1]
+      },
+      "note": "Define plane by origin point and normal vector. XY plane normal is [0,0,1], XZ is [0,1,0], YZ is [1,0,0]",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:project_curve",
+      "type": "intent",
+      "labels": ["project curve", "project onto", "projection", "map curve to surface"],
+      "description": "Project curves onto surfaces or breps along a direction",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_project_curve",
+      "type": "action",
+      "tool": "rhino_project_curve",
+      "description": "Project curves onto breps/surfaces along a direction",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:project_direction",
+      "type": "pattern",
+      "params": {
+        "curveIds": ["<guid1>", "<guid2>"],
+        "brepIds": ["<guid3>"],
+        "direction": [0, 0, -1]
+      },
+      "note": "Direction defines projection ray. Use [0,0,-1] for top-down projection.",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:pull_curve",
+      "type": "intent",
+      "labels": ["pull curve", "closest point", "pull to surface"],
+      "description": "Pull a curve to the closest points on a surface",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_pull_curve",
+      "type": "action",
+      "tool": "rhino_pull_curve",
+      "description": "Pull curve to closest points on brep face",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:offset_curve",
+      "type": "intent",
+      "labels": ["offset curve", "parallel curve", "inset", "outset"],
+      "description": "Create offset copies of curves at a specified distance",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_offset_curve",
+      "type": "action",
+      "tool": "rhino_offset_curve",
+      "description": "Offset a curve in a plane at specified distance",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:offset_curve_options",
+      "type": "pattern",
+      "params": {
+        "curveId": "<guid>",
+        "distance": 5.0,
+        "plane": "World",
+        "cornerStyle": "Sharp"
+      },
+      "note": "Use negative distance for opposite side. cornerStyle: None, Sharp, Round, Smooth, Chamfer",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:offset_brep",
+      "type": "intent",
+      "labels": ["offset brep", "shell", "thicken", "offset solid"],
+      "description": "Create a shell or thickened version of a brep",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_offset_brep",
+      "type": "action",
+      "tool": "rhino_offset_brep",
+      "description": "Create offset/shell of a brep with optional solid output",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:offset_brep_solid",
+      "type": "pattern",
+      "params": {
+        "brepId": "<guid>",
+        "distance": 2.0,
+        "solid": true
+      },
+      "note": "solid:true creates closed shell. Returns offsetIds, blendIds (corners), wallIds (edges).",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:split_brep",
+      "type": "intent",
+      "labels": ["split brep", "split solid", "cut brep", "divide brep"],
+      "description": "Split a brep into multiple pieces using cutting geometry",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_split_brep",
+      "type": "action",
+      "tool": "rhino_split_brep",
+      "description": "Split brep with plane or cutter objects",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:split_with_plane",
+      "type": "pattern",
+      "params": {
+        "brepId": "<guid>",
+        "planeOrigin": [0, 0, 5],
+        "planeNormal": [0, 0, 1]
+      },
+      "note": "Split with plane keeps both pieces. Use trim_brep to keep only one side.",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:split_with_cutters",
+      "type": "pattern",
+      "params": {
+        "brepId": "<guid>",
+        "cutterIds": ["<cutter_guid1>", "<cutter_guid2>"]
+      },
+      "note": "Cutters can be curves or other breps. All pieces are returned.",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+
+    {
+      "id": "intent:trim_brep",
+      "type": "intent",
+      "labels": ["trim brep", "trim solid", "cut and keep", "clip brep"],
+      "description": "Trim a brep with a plane and keep one side",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "action:rhino_trim_brep",
+      "type": "action",
+      "tool": "rhino_trim_brep",
+      "description": "Trim brep with plane, keeping specified side",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "pattern:trim_keep_side",
+      "type": "pattern",
+      "params": {
+        "brepId": "<guid>",
+        "planeOrigin": [0, 0, 5],
+        "planeNormal": [0, 0, 1],
+        "keepSide": "positive"
+      },
+      "note": "keepSide: 'positive' keeps above plane (along normal), 'negative' keeps below plane.",
+      "weight": 1.0,
+      "source": "canonical"
+    },
+    {
+      "id": "antipattern:trim_without_keepside",
+      "type": "antipattern",
+      "params": {
+        "brepId": "<guid>",
+        "planeOrigin": [0, 0, 5],
+        "planeNormal": [0, 0, 1]
+      },
+      "reason": "Missing keepSide parameter - trim_brep requires specifying which side to keep",
+      "weight": 1.0,
+      "source": "canonical"
+    }
+  ],
+  "links": [
+    {
+      "source": "intent:create_nested_layer",
+      "target": "action:rhino_layer_create",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "intent:create_layer",
+      "target": "action:rhino_layer_create",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_layer_create",
+      "target": "pattern:layer_use_parent_param",
+      "relation": "requires",
+      "weight": 1.0,
+      "context": "when creating nested/child layers"
+    },
+    {
+      "source": "action:rhino_layer_create",
+      "target": "antipattern:layer_colons_in_name",
+      "relation": "avoid",
+      "weight": 1.0
+    },
+    {
+      "source": "pattern:layer_use_parent_param",
+      "target": "context:parent_layer_exists",
+      "relation": "when",
+      "weight": 1.0
+    },
+    {
+      "source": "intent:delete_layer",
+      "target": "action:rhino_layer_delete",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_layer_delete",
+      "target": "pattern:layer_delete_by_name",
+      "relation": "requires",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_layer_delete",
+      "target": "antipattern:layer_delete_with_colons",
+      "relation": "avoid",
+      "weight": 0.8
+    },
+    {
+      "source": "intent:create_geometry",
+      "target": "action:rhino_create",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_create",
+      "target": "pattern:create_on_layer",
+      "relation": "requires",
+      "weight": 0.5,
+      "context": "when geometry should be on specific layer"
+    },
+    {
+      "source": "intent:capture_viewport",
+      "target": "action:rhino_viewport",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:intersect_curves",
+      "target": "action:rhino_intersect_curves",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_intersect_curves",
+      "target": "pattern:intersect_curves_tolerance",
+      "relation": "uses",
+      "weight": 0.8,
+      "context": "when precise intersection tolerance needed"
+    },
+
+    {
+      "source": "intent:intersect_breps",
+      "target": "action:rhino_intersect_breps",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:section_plane",
+      "target": "action:rhino_intersect_plane",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_intersect_plane",
+      "target": "pattern:plane_definition",
+      "relation": "requires",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:project_curve",
+      "target": "action:rhino_project_curve",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_project_curve",
+      "target": "pattern:project_direction",
+      "relation": "requires",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:pull_curve",
+      "target": "action:rhino_pull_curve",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:offset_curve",
+      "target": "action:rhino_offset_curve",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_offset_curve",
+      "target": "pattern:offset_curve_options",
+      "relation": "uses",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:offset_brep",
+      "target": "action:rhino_offset_brep",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_offset_brep",
+      "target": "pattern:offset_brep_solid",
+      "relation": "uses",
+      "weight": 1.0
+    },
+
+    {
+      "source": "intent:split_brep",
+      "target": "action:rhino_split_brep",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_split_brep",
+      "target": "pattern:split_with_plane",
+      "relation": "uses",
+      "weight": 1.0,
+      "context": "when splitting with a plane"
+    },
+    {
+      "source": "action:rhino_split_brep",
+      "target": "pattern:split_with_cutters",
+      "relation": "uses",
+      "weight": 1.0,
+      "context": "when splitting with curve or brep cutters"
+    },
+
+    {
+      "source": "intent:trim_brep",
+      "target": "action:rhino_trim_brep",
+      "relation": "solved_by",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_trim_brep",
+      "target": "pattern:trim_keep_side",
+      "relation": "requires",
+      "weight": 1.0
+    },
+    {
+      "source": "action:rhino_trim_brep",
+      "target": "antipattern:trim_without_keepside",
+      "relation": "avoid",
+      "weight": 1.0
+    }
+  ]
+}

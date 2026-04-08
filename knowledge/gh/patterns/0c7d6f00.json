@@ -1,0 +1,1689 @@
+{
+  "pattern_id": "0c7d6f00",
+  "name": "wasp_stochastic_aggregation_hierarchy",
+  "version": "1.0",
+  "created": "2026-03-19T19:29:52.169950Z",
+  "solution": {
+    "brief": "Sets up a Wasp stochastic aggregation workflow with advanced parts, connection directions, attribute filtering, part hierarchy assembly, and visual preview of assembled geometry.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Connection From Direction",
+      "Wasp_Get Attribute by Name",
+      "Wasp_Assemble Part Hierarchy",
+      "Wasp_Transform Part",
+      "Wasp_Get Attribute by Name",
+      "Wasp_Get Attribute by Name",
+      "Wasp_Assemble Part Hierarchy",
+      "Wasp_Transform Part",
+      "Wasp_Advanced Part",
+      "Wasp_Deconstruct Part",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Advanced Part",
+      "Wasp_Advanced Part",
+      "Wasp_Deconstruct Part",
+      "Wasp_Stochastic Aggregation",
+      "Geometry",
+      "Geometry",
+      "Deconstruct Brep",
+      "List Item",
+      "slider",
+      "Area",
+      "Line SDL",
+      "Unit X",
+      "panel",
+      "Unit Y",
+      "End Points",
+      "List Item",
+      "slider",
+      "Area",
+      "Line SDL",
+      "Unit X",
+      "panel",
+      "Unit Y",
+      "End Points",
+      "panel",
+      "Wasp_Attribute",
+      "panel",
+      "Toggle",
+      "Wasp_Rules Generator",
+      "panel",
+      "slider",
+      "Move",
+      "panel",
+      "Wasp_Rules Generator",
+      "panel",
+      "slider",
+      "panel",
+      "Wasp_Deconstruct Attribute",
+      "Solid Union",
+      "Wasp_Attribute",
+      "panel",
+      "Toggle",
+      "Button",
+      "Merge Faces",
+      "Wasp_Get Parts Hierarchy",
+      "slider",
+      "Button",
+      "Split List",
+      "List Length",
+      "panel",
+      "Custom Preview",
+      "Swatch",
+      "Custom Preview",
+      "Swatch",
+      "panel",
+      "panel",
+      "Unit X",
+      "Unit Y",
+      "Addition",
+      "Multiplication",
+      "slider",
+      "Move",
+      "panel",
+      "Wasp_Deconstruct Attribute",
+      "Solid Union",
+      "Wasp_Attribute",
+      "panel",
+      "Toggle",
+      "Merge Faces",
+      "panel",
+      "panel",
+      "Unit X",
+      "Unit Y",
+      "Addition",
+      "Multiplication",
+      "slider",
+      "Merge",
+      "Wasp_Filter Parts by Name",
+      "panel",
+      "Wasp_Filter Parts by Name",
+      "panel",
+      "panel",
+      "Custom Preview",
+      "Swatch",
+      "Mesh Union",
+      "Mesh Union",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "stochastic aggregation with wasp",
+      "discrete aggregation part hierarchy",
+      "wasp part assembly with rules",
+      "generative assembly from parts",
+      "wasp advanced part aggregation",
+      "hierarchical part-based design",
+      "wasp rules generator aggregation",
+      "random part assembly grasshopper"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "0574c25d",
+    "a848220a",
+    "823e6778",
+    "8611659f",
+    "18156490"
+  ],
+  "tags": [
+    "generative",
+    "assembly",
+    "parametric",
+    "stochastic",
+    "hierarchy",
+    "wasp",
+    "part-hierarchy",
+    "discrete-design",
+    "aggregation",
+    "discrete-element",
+    "part-based",
+    "rules-based",
+    "multiple-part-types",
+    "connection-configurations",
+    "multi-part",
+    "smart-attributes",
+    "attribute-driven",
+    "workflow",
+    "plugin-workflow",
+    "grasshopper",
+    "connections",
+    "rules",
+    "modular",
+    "constraint-based",
+    "advanced",
+    "discrete-assembly",
+    "brep-geometry",
+    "custom-preview",
+    "orientation",
+    "tutorial"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R42",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R47",
+          "nick": "",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R57",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R72",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R87",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        }
+      ],
+      "panels": [
+        {
+          "id": "R25",
+          "nick": "",
+          "content": "BOTTOM"
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "content": "TOP"
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "content": "BRICK"
+        },
+        {
+          "id": "R38",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R41",
+          "nick": "",
+          "content": "TOP>BOTTOM\r\nBOTTOM>TOP"
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "content": "L"
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "content": "TOP>BOTTOM\r\nBOTTOM>TOP"
+        },
+        {
+          "id": "R48",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R52",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "content": "0\r\n0\r\n0\r\n0\r\n1"
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "content": "1\r\n2\r\n3\r\n4\r\n4"
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "content": "5x1"
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "content": "0\r\n0\r\n0\r\n0\r\n0"
+        },
+        {
+          "id": "R82",
+          "nick": "",
+          "content": "1\r\n2\r\n3\r\n4\r\n5"
+        },
+        {
+          "id": "R90",
+          "nick": "",
+          "content": "L"
+        },
+        {
+          "id": "R92",
+          "nick": "",
+          "content": "5x1"
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "content": "DETAIL"
+        },
+        {
+          "id": "R105",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            681,
+            543
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            681,
+            280
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "GetAttr",
+          "name": "Wasp_Get Attribute by Name",
+          "pos": [
+            3916,
+            1177
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "PartHierarchy",
+          "name": "Wasp_Assemble Part Hierarchy",
+          "pos": [
+            2263,
+            1315
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "ZuiPythonComponent",
+          "nick": "PartTr",
+          "name": "Wasp_Transform Part",
+          "pos": [
+            1681,
+            1038
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "ZuiPythonComponent",
+          "nick": "GetAttr",
+          "name": "Wasp_Get Attribute by Name",
+          "pos": [
+            5083,
+            445
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "ZuiPythonComponent",
+          "nick": "GetAttr",
+          "name": "Wasp_Get Attribute by Name",
+          "pos": [
+            3925,
+            1048
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "ZuiPythonComponent",
+          "nick": "PartHierarchy",
+          "name": "Wasp_Assemble Part Hierarchy",
+          "pos": [
+            2228,
+            798
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "ZuiPythonComponent",
+          "nick": "PartTr",
+          "name": "Wasp_Transform Part",
+          "pos": [
+            1678,
+            539
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            2653,
+            1078
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "ZuiPythonComponent",
+          "nick": "DePart",
+          "name": "Wasp_Deconstruct Part",
+          "pos": [
+            1861,
+            1038
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            3529,
+            944
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            968,
+            285
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "ZuiPythonComponent",
+          "nick": "AdvPart",
+          "name": "Wasp_Advanced Part",
+          "pos": [
+            2660,
+            559
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ZuiPythonComponent",
+          "nick": "DePart",
+          "name": "Wasp_Deconstruct Part",
+          "pos": [
+            1860,
+            539
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            4709,
+            304
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            473.5,
+            876.7
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            94.6,
+            205
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_DeconstructBrep",
+          "nick": "DeBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            184,
+            344
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            307,
+            396
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            95.8,
+            389.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R22",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            397,
+            396
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            505,
+            457
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            412,
+            446
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "panel",
+          "pos": [
+            514.5,
+            325.2
+          ],
+          "content": "BOTTOM"
+        },
+        {
+          "id": "R26",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            413,
+            478
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            544,
+            291
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            311,
+            648
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            100.1,
+            642.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R30",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            401,
+            648
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_LineSDL",
+          "nick": "Line",
+          "name": "Line SDL",
+          "pos": [
+            509,
+            709
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            416,
+            698
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "panel",
+          "pos": [
+            518.8,
+            578
+          ],
+          "content": "TOP"
+        },
+        {
+          "id": "R34",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            417,
+            730
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_EndPoints",
+          "nick": "End",
+          "name": "End Points",
+          "pos": [
+            548,
+            543
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "panel",
+          "pos": [
+            791.5,
+            151
+          ],
+          "content": "BRICK"
+        },
+        {
+          "id": "R37",
+          "type": "ZuiPythonComponent",
+          "nick": "Attribute",
+          "name": "Wasp_Attribute",
+          "pos": [
+            699,
+            874
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "panel",
+          "pos": [
+            572.1,
+            828.9
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R39",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            531,
+            899
+          ],
+          "value": true
+        },
+        {
+          "id": "R40",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            4336,
+            417
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "panel",
+          "pos": [
+            4093.2,
+            434.5
+          ],
+          "content": "TOP>BOTTOM\r\nBOTTOM>TOP"
+        },
+        {
+          "id": "R42",
+          "type": "slider",
+          "pos": [
+            4445.4,
+            244.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R43",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1541,
+            587
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "panel",
+          "pos": [
+            2483.5,
+            438.1
+          ],
+          "content": "L"
+        },
+        {
+          "id": "R45",
+          "type": "ZuiPythonComponent",
+          "nick": "RuleGen",
+          "name": "Wasp_Rules Generator",
+          "pos": [
+            3199,
+            1016
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "panel",
+          "pos": [
+            3017.4,
+            1024.8
+          ],
+          "content": "TOP>BOTTOM\r\nBOTTOM>TOP"
+        },
+        {
+          "id": "R47",
+          "type": "slider",
+          "pos": [
+            3269,
+            884.2
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R48",
+          "type": "panel",
+          "pos": [
+            3763.6,
+            1090
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R49",
+          "type": "ZuiPythonComponent",
+          "nick": "DeAttr",
+          "name": "Wasp_Deconstruct Attribute",
+          "pos": [
+            2052,
+            656
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_BooleanUnion",
+          "nick": "SUnion",
+          "name": "Solid Union",
+          "pos": [
+            2159,
+            666
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "ZuiPythonComponent",
+          "nick": "Attribute",
+          "name": "Wasp_Attribute",
+          "pos": [
+            2438,
+            646
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "panel",
+          "pos": [
+            2315.9,
+            603.5
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R53",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2263,
+            708
+          ],
+          "value": true
+        },
+        {
+          "id": "R54",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            3333,
+            1023
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_MergeCoPlanarFaces",
+          "nick": "FMerge",
+          "name": "Merge Faces",
+          "pos": [
+            2239,
+            666
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "ZuiPythonComponent",
+          "nick": "GetHierarchy",
+          "name": "Wasp_Get Parts Hierarchy",
+          "pos": [
+            3997,
+            687
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "slider",
+          "pos": [
+            3765.5,
+            700.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R58",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            4505,
+            392
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_SplitList",
+          "nick": "Split",
+          "name": "Split List",
+          "pos": [
+            4870,
+            425
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            4738,
+            474
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            4945.2,
+            452.3
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R62",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            4038,
+            1058
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3886.2,
+            1094.5
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            5203,
+            456
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            5038.9,
+            494.9
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "panel",
+          "pos": [
+            1131.1,
+            488.9
+          ],
+          "content": "0\r\n0\r\n0\r\n0\r\n1"
+        },
+        {
+          "id": "R67",
+          "type": "panel",
+          "pos": [
+            1130.3,
+            603.5
+          ],
+          "content": "1\r\n2\r\n3\r\n4\r\n4"
+        },
+        {
+          "id": "R68",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            1231,
+            535
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            1230,
+            650
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            1332,
+            587
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1426,
+            597
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "slider",
+          "pos": [
+            1220.8,
+            670.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R73",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1541,
+            1086
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "panel",
+          "pos": [
+            2503.4,
+            945.1
+          ],
+          "content": "5x1"
+        },
+        {
+          "id": "R75",
+          "type": "ZuiPythonComponent",
+          "nick": "DeAttr",
+          "name": "Wasp_Deconstruct Attribute",
+          "pos": [
+            2052,
+            1155
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_BooleanUnion",
+          "nick": "SUnion",
+          "name": "Solid Union",
+          "pos": [
+            2159,
+            1165
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "ZuiPythonComponent",
+          "nick": "Attribute",
+          "name": "Wasp_Attribute",
+          "pos": [
+            2450,
+            1140
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "panel",
+          "pos": [
+            2317.6,
+            1102.7
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R79",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            2263,
+            1207
+          ],
+          "value": true
+        },
+        {
+          "id": "R80",
+          "type": "Component_MergeCoPlanarFaces",
+          "nick": "FMerge",
+          "name": "Merge Faces",
+          "pos": [
+            2239,
+            1165
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "panel",
+          "pos": [
+            1135.6,
+            982.9
+          ],
+          "content": "0\r\n0\r\n0\r\n0\r\n0"
+        },
+        {
+          "id": "R82",
+          "type": "panel",
+          "pos": [
+            1134.8,
+            1097.5
+          ],
+          "content": "1\r\n2\r\n3\r\n4\r\n5"
+        },
+        {
+          "id": "R83",
+          "type": "Component_UnitVectorX",
+          "nick": "X",
+          "name": "Unit X",
+          "pos": [
+            1234,
+            1029
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Component_UnitVectorY",
+          "nick": "Y",
+          "name": "Unit Y",
+          "pos": [
+            1233,
+            1144
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "Component_VariableAddition",
+          "nick": "A+B",
+          "name": "Addition",
+          "pos": [
+            1335,
+            1081
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "Component_VariableMultiplication",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1429,
+            1091
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "slider",
+          "pos": [
+            1225.3,
+            1164.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R88",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            2904,
+            856
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            3751,
+            1048
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "panel",
+          "pos": [
+            3628.7,
+            1058.8
+          ],
+          "content": "L"
+        },
+        {
+          "id": "R91",
+          "type": "ZuiPythonComponent",
+          "nick": "NameFilter",
+          "name": "Wasp_Filter Parts by Name",
+          "pos": [
+            3747,
+            1134
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "panel",
+          "pos": [
+            3608.4,
+            1149
+          ],
+          "content": "5x1"
+        },
+        {
+          "id": "R93",
+          "type": "panel",
+          "pos": [
+            3766.7,
+            1182.1
+          ],
+          "content": "DETAIL"
+        },
+        {
+          "id": "R94",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            4033,
+            1179
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            3878.2,
+            1216
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_MeshBooleanUnion",
+          "nick": "MUnion",
+          "name": "Mesh Union",
+          "pos": [
+            2063,
+            479
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Component_MeshBooleanUnion",
+          "nick": "MUnion",
+          "name": "Mesh Union",
+          "pos": [
+            2071,
+            978
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            73.8,
+            117.5
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1143.6,
+            375.4
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1132.4,
+            890
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            3032.5,
+            772.5
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            3761.9,
+            564.8
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            4103.4,
+            182.8
+          ]
+        },
+        {
+          "id": "R104",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -15.6,
+            -195.1
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "panel",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R106",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.9,
+            28.4
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -307,
+            59
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -93,
+            80
+          ]
+        }
+      ],
+      "flows": [
+        "R18.O0>R1.I0",
+        "R35.O0>R1.I1",
+        "R31.O0>R1.I2",
+        "R33.O0>R1.I3",
+        "R18.O0>R2.I0",
+        "R27.O0>R2.I1",
+        "R23.O0>R2.I2",
+        "R25.O0>R2.I3",
+        "R91.O0>R3.I0",
+        "R93.O0>R3.I1",
+        "R13.O0>R4.I0",
+        "R73.O1>R4.I1",
+        "R13.O0>R5.I0",
+        "R73.O1>R5.I1",
+        "R59.O1>R6.I0",
+        "R61.O0>R6.I1",
+        "R89.O0>R7.I0",
+        "R48.O0>R7.I1",
+        "R13.O0>R8.I0",
+        "R43.O1>R8.I1",
+        "R13.O0>R9.I0",
+        "R43.O1>R9.I1",
+        "R74.O0>R10.I0",
+        "R97.O0>R10.I1",
+        "R11.O4>R10.I2",
+        "R4.O0>R10.I5",
+        "R77.O0>R10.I6",
+        "R5.O0>R11.I0",
+        "R88.O0>R12.I0",
+        "R47.O0>R12.I2",
+        "R45.O0>R12.I3",
+        "R54.O0>R12.I9",
+        "R36.O0>R13.I0",
+        "R18.O0>R13.I1",
+        "R2.O0>R13.I2",
+        "R1.O0>R13.I2",
+        "R37.O0>R13.I6",
+        "R44.O0>R14.I0",
+        "R96.O0>R14.I1",
+        "R15.O4>R14.I2",
+        "R8.O0>R14.I5",
+        "R51.O0>R14.I6",
+        "R9.O0>R15.I0",
+        "R13.O0>R16.I0",
+        "R56.O0>R16.I1",
+        "R42.O0>R16.I2",
+        "R40.O0>R16.I3",
+        "R58.O0>R16.I9",
+        "R18.O0>R19.I0",
+        "R19.O0>R20.I0",
+        "R21.O0>R20.I1",
+        "R20.O0>R22.I0",
+        "R22.O1>R23.I0",
+        "R24.O0>R23.I1",
+        "R26.O0>R23.I1",
+        "R23.O0>R27.I0",
+        "R19.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R28.O0>R30.I0",
+        "R30.O1>R31.I0",
+        "R32.O0>R31.I1",
+        "R34.O0>R31.I1",
+        "R31.O0>R35.I0",
+        "R38.O0>R37.I0",
+        "R17.O0>R37.I1",
+        "R39.O0>R37.I2",
+        "R13.O0>R40.I0",
+        "R41.O0>R40.I4",
+        "R71.O0>R43.I1",
+        "R88.O0>R45.I0",
+        "R46.O0>R45.I4",
+        "R15.O10>R49.I0",
+        "R49.O1>R50.I0",
+        "R52.O0>R51.I0",
+        "R55.O0>R51.I1",
+        "R53.O0>R51.I2",
+        "R50.O0>R55.I0",
+        "R12.O0>R56.I0",
+        "R57.O0>R56.I1",
+        "R16.O1>R59.I0",
+        "R60.O0>R59.I1",
+        "R56.O0>R60.I0",
+        "R7.O0>R62.I0",
+        "R63.O0>R62.I1",
+        "R6.O0>R64.I0",
+        "R65.O0>R64.I1",
+        "R66.O0>R68.I0",
+        "R67.O0>R69.I0",
+        "R68.O0>R70.I0",
+        "R69.O0>R70.I1",
+        "R70.O0>R71.I0",
+        "R72.O0>R71.I1",
+        "R86.O0>R73.I1",
+        "R11.O10>R75.I0",
+        "R75.O1>R76.I0",
+        "R78.O0>R77.I0",
+        "R80.O0>R77.I1",
+        "R79.O0>R77.I2",
+        "R76.O0>R80.I0",
+        "R81.O0>R83.I0",
+        "R82.O0>R84.I0",
+        "R83.O0>R85.I0",
+        "R84.O0>R85.I1",
+        "R85.O0>R86.I0",
+        "R87.O0>R86.I1",
+        "R14.O0>R88.I0",
+        "R10.O0>R88.I1",
+        "R12.O1>R89.I0",
+        "R90.O0>R89.I1",
+        "R12.O1>R91.I0",
+        "R92.O0>R91.I1",
+        "R3.O0>R94.I0",
+        "R95.O0>R94.I1",
+        "R15.O2>R96.I0",
+        "R11.O2>R97.I0",
+        "R107.O0>R109.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R105",
+          "type": "panel",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "nearby": [
+            "R109",
+            "R18",
+            "R107",
+            "R19",
+            "R27",
+            "R21",
+            "R20",
+            "R22"
+          ]
+        }
+      ],
+      "curriculum": [
+        {
+          "step": "1",
+          "title": "Press the button to make sure the file is",
+          "text": "Press the button to make sure the file is\r\nupdated to latest Wasp version on your pc.",
+          "nearby_components": [
+            "Button"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            -334.2,
+            -7.6
+          ]
+        },
+        {
+          "step": "2",
+          "title": "5_02_Hierarchical_Aggregation_LEGO",
+          "text": "5_02_Hierarchical_Aggregation_LEGO",
+          "nearby_components": [
+            "Wasp_Update File",
+            "Geometry"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            22.9,
+            28.4
+          ]
+        },
+        {
+          "step": "1",
+          "title": "Base Part",
+          "text": "1. Base Part",
+          "nearby_components": [
+            "Geometry",
+            "Wasp_Update File"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            73.8,
+            117.5
+          ]
+        },
+        {
+          "step": "2a",
+          "title": "Hierarchical Part / 5x1 Stick",
+          "text": "2a. Hierarchical Part / 5x1 Stick",
+          "nearby_components": [
+            "Unit X",
+            "NumberSlider",
+            "Unit Y",
+            "Unit Y",
+            "Addition",
+            "NumberSlider"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1132.4,
+            890
+          ]
+        },
+        {
+          "step": "2a",
+          "title": "Hierarchical Part / L-Shape",
+          "text": "2a. Hierarchical Part / L-Shape",
+          "nearby_components": [
+            "Unit X",
+            "Wasp_Advanced Part",
+            "Addition",
+            "Unit Y",
+            "NumberSlider",
+            "Multiplication"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            1143.6,
+            375.4
+          ]
+        },
+        {
+          "step": "3",
+          "title": "Aggregation at level 0",
+          "text": "3. Aggregation at level 0",
+          "nearby_components": [
+            "Merge",
+            "NumberSlider",
+            "Wasp_Rules Generator"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            3032.5,
+            772.5
+          ]
+        },
+        {
+          "step": "4",
+          "title": "Extracting",
+          "text": "4. Extracting\r\nlevel 1 parts",
+          "nearby_components": [
+            "NumberSlider",
+            "Wasp_Get Parts Hierarchy"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            3761.9,
+            564.8
+          ]
+        },
+        {
+          "step": "5",
+          "title": "Level 1 aggregation",
+          "text": "5. Level 1 aggregation",
+          "nearby_components": [
+            "Wasp_Rules Generator",
+            "NumberSlider",
+            "Button",
+            "Wasp_Get Parts Hierarchy",
+            "Wasp_Stochastic Aggregation",
+            "NumberSlider"
+          ],
+          "annotation_type": "Scribble",
+          "pos": [
+            4103.4,
+            182.8
+          ]
+        }
+      ]
+    }
+  }
+}

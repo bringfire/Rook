@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_c16fa4ee",
+  "note_type": "component",
+  "name": "Sort List",
+  "brief": "Sort List | Inputs: K, A → K, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Sort List. Inputs: K (Number), A (Generic Data). Outputs: K (Number), A (Generic Data).",
+  "keywords": [
+    "sort list",
+    "sort",
+    "list",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "sort list",
+    "sort",
+    "list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sort List"
+  ],
+  "solution_principle": "Sort a list of numeric keys.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_1991bf81",
+    "comp_b573a316",
+    "comp_19ec081c",
+    "comp_c633e36d",
+    "comp_535c0613",
+    "comp_90238233",
+    "comp_8b8f3b4f",
+    "comp_04660496",
+    "comp_5eb04c57",
+    "comp_23d957e3",
+    "comp_b83b3d7e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6f93d366-919f-4dda-a35e-ba03dd62799b",
+    "category": "list_operations",
+    "inputs": {
+      "K": "Number",
+      "A": "Generic Data"
+    },
+    "outputs": {
+      "K": "Number",
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|list|sort list"
+  }
+}

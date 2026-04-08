@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net7.0;net48</TargetFrameworks>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <NoWarn>NU1701</NoWarn>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>1.4.5</Version>
+    <Title>Rook</Title>
+    <Company>Bringfire</Company>
+    <Description>Rook for Rhino 3D - HTTP server enabling AI-powered CAD operations</Description>
+    <Authors>Bringfire</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" Condition="'$(TargetFramework)' == 'net7.0'" />
+    <!-- DPAPI for secure API key storage -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" Condition="'$(TargetFramework)' == 'net7.0'" />
+    <!-- HttpClient for net48 -->
+    <PackageReference Include="System.Net.Http" Version="4.3.4" Condition="'$(TargetFramework)' == 'net48'" />
+  </ItemGroup>
+
+  <!-- Embedded resources for chat panel UI -->
+  <ItemGroup>
+    <EmbeddedResource Include="UI\Chat\Resources\**\*" />
+  </ItemGroup>
+
+  <!-- RUI toolbar file - copied to output for programmatic loading -->
+  <ItemGroup>
+    <None Include="UI\Rook.rui" CopyToOutputDirectory="PreserveNewest" Link="Rook.rui" />
+  </ItemGroup>
+
+  <!-- Deploy companion plugin to Rhino's plugin directory after build.
+       Only runs for the net7.0 target (Rhino 8 loads net7.0).
+       Mirrors the install.ps1 deployment logic. -->
+  <PropertyGroup>
+    <RhinoPluginDir>$(APPDATA)\McNeel\Rhinoceros\8.0\Plug-ins\RookNative</RhinoPluginDir>
+  </PropertyGroup>
+
+  <Target Name="DeployToRhino" AfterTargets="Build"
+          Condition="'$(TargetFramework)' == 'net7.0' AND Exists('$(RhinoPluginDir)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).deps.json"
+          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(TargetName).deps.json')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).runtimeconfig.json"
+          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(TargetName).runtimeconfig.json')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
+          DestinationFolder="$(RhinoPluginDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <Message Importance="high" Text="Deployed Rook.rhp to $(RhinoPluginDir)" />
+  </Target>
+
+</Project>

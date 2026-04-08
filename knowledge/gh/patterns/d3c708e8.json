@@ -1,0 +1,127 @@
+{
+  "pattern_id": "d3c708e8",
+  "name": "Fattener",
+  "version": "1.0",
+  "created": "2026-02-22T14:25:24.187988Z",
+  "solution": {
+    "brief": "Recipe from Fattener.gh (5 components)",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "Fatten",
+      "Surface",
+      "Curve",
+      "Weaverbird's Catmull-Clark Subdivision"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "fattener"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "85b7161d"
+  ],
+  "tags": [
+    "recipe",
+    "simple-tool",
+    "5-components",
+    "utility",
+    "lightweight"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Fattener.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            85.1,
+            55
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "PlaceholderComponent",
+          "name": "Fatten",
+          "pos": [
+            316,
+            115
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            80,
+            95
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            83.5,
+            138.8
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "CatmullClarkComponent",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            532,
+            100
+          ]
+        }
+      ],
+      "flows": [
+        "R1.O0>R2.I0",
+        "R3.O0>R2.I1",
+        "R4.O0>R2.I3",
+        "R2.O0>R5.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_63672325",
+  "note_type": "component",
+  "name": "Delete Consecutive",
+  "brief": "Delete Consecutive | Inputs: S, W → S, N",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Delete Consecutive. Inputs: S (Generic Data), W (Boolean). Outputs: S (Generic Data), N (Integer).",
+  "keywords": [
+    "delete consecutive",
+    "delete",
+    "consecutive",
+    "set_operations"
+  ],
+  "category": "set_operations",
+  "tags": [
+    "set_operations"
+  ],
+  "trigger_intents": [
+    "delete consecutive",
+    "delete",
+    "consecutive"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Delete Consecutive"
+  ],
+  "solution_principle": "Delete consecutive similar members in a set.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e4d5c4f3",
+    "comp_afef693b",
+    "comp_4c0bfd03",
+    "comp_a983a843",
+    "comp_02db7147",
+    "comp_93c6ad35",
+    "comp_3da2c6c5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "190d042c-2270-4bc1-81c0-4f90c170c9c9",
+    "category": "set_operations",
+    "inputs": {
+      "S": "Generic Data",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "S": "Generic Data",
+      "N": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "98c3c63a-e78a-43ea-a111-514fcf312c95"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|sets|delete consecutive"
+  }
+}

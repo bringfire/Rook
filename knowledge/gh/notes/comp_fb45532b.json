@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_fb45532b",
+  "note_type": "component",
+  "name": "Curve Nearest Object",
+  "brief": "Curve Nearest Object | Inputs: C, G → A, B, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Curve Nearest Object. Inputs: C (Curve), G (Geometry). Outputs: A (Point), B (Point), I (Integer).",
+  "keywords": [
+    "curve nearest object",
+    "curve",
+    "nearest",
+    "object",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "curve nearest object",
+    "curve",
+    "nearest",
+    "object"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve Nearest Object"
+  ],
+  "solution_principle": "Find the object nearest to a curve.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_667ae0e9",
+    "comp_07cd32cc",
+    "comp_3ab80c58",
+    "comp_e6aa0ae1",
+    "comp_262f1d29"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "748f214a-bc64-4556-9da5-4fa59a30c5c7",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "G": "Geometry"
+    },
+    "outputs": {
+      "A": "Point",
+      "B": "Point",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6b7ba278-5c9d-42f1-a61d-6209cbd44907"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|curve nearest object"
+  }
+}

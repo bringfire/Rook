@@ -1,0 +1,5054 @@
+{
+  "pattern_id": "370b1d02",
+  "name": "Unit-06-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:28:21.775502Z",
+  "solution": {
+    "brief": "Recipe from Unit-06-Class.gh (364 components)",
+    "principle": "\n\nRelated insight: Unit-07-Class (358 components) creates a tight complexity cluster with Unit-06-Class (364), with only 6 components difference, suggesting highly similar algorithmic complexity in this range.",
+    "components_needed": [
+      "List Item",
+      "List Item",
+      "Number Slider",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Scribble",
+      "Square",
+      "Number Slider",
+      "MD Slider",
+      "Point",
+      "Distance",
+      "panel",
+      "Move",
+      "Vector 2Pt",
+      "Amplitude",
+      "Number Slider",
+      "Line",
+      "Move",
+      "Amplitude",
+      "Line",
+      "Remap Numbers",
+      "Bounds",
+      "Construct Domain",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Bounds",
+      "panel",
+      "Bounds",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "Closest Point",
+      "Vector 2Pt",
+      "Division",
+      "Number Slider",
+      "Number Slider",
+      "Maximum",
+      "panel",
+      "Amplitude",
+      "Move",
+      "Online Resource for this part of Definition",
+      "panel",
+      "Scribble",
+      "Move",
+      "Line",
+      "Move",
+      "Point",
+      "MD Slider",
+      "Square",
+      "Number Slider",
+      "Construct Point",
+      "Isotrim",
+      "Surface",
+      "Divide Domain²",
+      "Number Slider",
+      "Number Slider",
+      "Deconstruct Brep",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Extrude",
+      "Amplitude",
+      "List Item",
+      "Move",
+      "Loft",
+      "Merge",
+      "Flip Curve",
+      "Move",
+      "Loft",
+      "Merge",
+      "Flip Curve",
+      "Amplitude",
+      "Unit Z",
+      "Number Slider",
+      "Move",
+      "Unit Z",
+      "Number Slider",
+      "Merge",
+      "Unit Z",
+      "Number Slider",
+      "Unit Z",
+      "Number Slider",
+      "Unit Z",
+      "Number Slider",
+      "4Point Surface",
+      "List Item",
+      "Move",
+      "4Point Surface",
+      "List Item",
+      "Amplitude",
+      "Merge",
+      "Amplitude",
+      "Amplitude",
+      "Amplitude",
+      "Point List",
+      "Number Slider",
+      "List Item",
+      "Deconstruct Brep",
+      "panel",
+      "Extrude",
+      "Number Slider",
+      "Unit Z",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Sphere",
+      "Number Slider",
+      "Isotrim",
+      "Divide Domain²",
+      "Number Slider",
+      "Number Slider",
+      "Deconstruct Brep",
+      "Bounding Box",
+      "Surface Box",
+      "Box Morph",
+      "Twisted Box",
+      "Geometry",
+      "Scribble",
+      "Scribble",
+      "Number Slider",
+      "Graph Mapper",
+      "panel",
+      "Number Slider",
+      "Graph Mapper",
+      "panel",
+      "Number Slider",
+      "Graph Mapper",
+      "panel",
+      "Scribble",
+      "Number Slider",
+      "Graph Mapper",
+      "panel",
+      "Number Slider",
+      "Number Slider",
+      "Graph Mapper",
+      "Number Slider",
+      "Merge",
+      "Scribble",
+      "Graph Mapper",
+      "panel",
+      "Number Slider",
+      "Range",
+      "Construct Domain",
+      "Number Slider",
+      "Number Slider",
+      "Construct Point",
+      "Deconstruct",
+      "Circle",
+      "Construct Point",
+      "Loft",
+      "Graph Mapper",
+      "panel",
+      "Construct Point",
+      "Deconstruct",
+      "Circle",
+      "Construct Point",
+      "Loft",
+      "Graph Mapper",
+      "panel",
+      "Construct Point",
+      "Deconstruct",
+      "Circle",
+      "Construct Point",
+      "Loft",
+      "Line",
+      "panel",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "panel",
+      "Interpolate",
+      "Revolution",
+      "Curve",
+      "Surface",
+      "MD Slider",
+      "Curve",
+      "Curve",
+      "Graph Mapper",
+      "panel",
+      "Number Slider",
+      "Range",
+      "Construct Domain",
+      "Number Slider",
+      "Number Slider",
+      "panel",
+      "Sketch",
+      "Graph Mapper",
+      "panel",
+      "Construct Point",
+      "Deconstruct",
+      "Circle",
+      "Construct Point",
+      "Loft",
+      "Deconstruct Brep",
+      "panel",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "Bounding Box",
+      "Box Morph",
+      "Geometry",
+      "Deconstruct Brep",
+      "List Item",
+      "Twisted Box",
+      "Bounding Box",
+      "Box Morph",
+      "Geometry",
+      "Deconstruct Brep",
+      "List Item",
+      "Diamond Panels",
+      "Number Slider",
+      "Number Slider",
+      "Extrude",
+      "Amplitude",
+      "panel",
+      "Amplitude",
+      "Extrude",
+      "Construct Domain",
+      "Range",
+      "Remap Numbers",
+      "Graph Mapper",
+      "Scribble",
+      "panel",
+      "Remap Numbers",
+      "panel",
+      "panel",
+      "panel",
+      "Bounds",
+      "panel",
+      "panel",
+      "panel",
+      "Number Slider",
+      "panel",
+      "Deconstruct Brep",
+      "List Item",
+      "Number Slider",
+      "Deconstruct Brep",
+      "List Item",
+      "Construct Domain",
+      "Scale",
+      "Volume",
+      "Vector Display",
+      "panel",
+      "Move",
+      "Line",
+      "panel",
+      "List Item",
+      "Deconstruct Brep",
+      "MD Slider",
+      "MD Slider",
+      "MD Slider",
+      "MD Slider",
+      "panel",
+      "Vector Display",
+      "panel",
+      "Point",
+      "Scale NU",
+      "Number Slider",
+      "Move",
+      "Unit Z",
+      "Number Slider",
+      "Scribble",
+      "Point",
+      "Twisted Box",
+      "Curve",
+      "Curve",
+      "panel",
+      "panel",
+      "panel",
+      "Graph Mapper",
+      "panel",
+      "Loft",
+      "Sketch",
+      "Number Slider",
+      "panel",
+      "List Item",
+      "Number Slider",
+      "Twisted Box",
+      "Deconstruct Brep",
+      "List Item",
+      "Vector Display",
+      "MD Slider",
+      "Data",
+      "Data",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Bounding Box",
+      "Box Morph",
+      "Geometry",
+      "List Item",
+      "Deconstruct Brep",
+      "MD Slider",
+      "List Item",
+      "List Item",
+      "List Item",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Surface",
+      "Quad Panels",
+      "Point",
+      "Vector 2Pt",
+      "Orient",
+      "Plane Normal",
+      "Orient Direction",
+      "Amplitude",
+      "Line",
+      "Area",
+      "Vector Display",
+      "panel",
+      "Scribble",
+      "panel",
+      "Surface",
+      "Vector 2Pt",
+      "Vector Display",
+      "Vector Display",
+      "Vector Display",
+      "Multiplication",
+      "Circle",
+      "panel",
+      "Subtraction",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "panel",
+      "Evaluate Surface",
+      "Evaluate Surface",
+      "Sketch",
+      "Evaluate Surface",
+      "Offset Surface",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Point List",
+      "Number Slider",
+      "MD Slider",
+      "Area",
+      "List Item",
+      "Number Slider",
+      "Surface",
+      "MD Slider",
+      "MD Slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 06 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "c802b64e",
+    "8a71e405",
+    "048b08a3",
+    "fdbc67df",
+    "c02352fa",
+    "f18add2b"
+  ],
+  "tags": [
+    "panelization",
+    "unit-series",
+    "unit-06-class",
+    "ultra-complex-cluster",
+    "surface-creation",
+    "high-complexity",
+    "364-components",
+    "recipe",
+    "parametric",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:29:24.435384",
+    "evolved_by": [
+      "f18add2b"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:29:24.435384",
+        "trigger": "New pattern: f18add2b",
+        "changes": "Unit-07-Class proximity reveals Unit-06-Class is part of a tight complexity cluster in the 350-370 range"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 3,
+          "value": 0
+        },
+        {
+          "id": "R15",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R23",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0.577
+        },
+        {
+          "id": "R31",
+          "nick": "Number Slider",
+          "min": -30,
+          "max": 25,
+          "value": 16.48
+        },
+        {
+          "id": "R32",
+          "nick": "Number Slider",
+          "min": -60,
+          "max": 200,
+          "value": -28.39
+        },
+        {
+          "id": "R43",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 6
+        },
+        {
+          "id": "R44",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R58",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R63",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R64",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R82",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 8
+        },
+        {
+          "id": "R85",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R88",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R90",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 14
+        },
+        {
+          "id": "R92",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R104",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R109",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R115",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R118",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R119",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R128",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.08
+        },
+        {
+          "id": "R131",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 2,
+          "value": 0.5
+        },
+        {
+          "id": "R134",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 2,
+          "value": 0.66
+        },
+        {
+          "id": "R138",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.12
+        },
+        {
+          "id": "R141",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R142",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.21
+        },
+        {
+          "id": "R144",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.45
+        },
+        {
+          "id": "R149",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 25,
+          "value": 17
+        },
+        {
+          "id": "R152",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 25,
+          "value": 1
+        },
+        {
+          "id": "R153",
+          "nick": "Number Slider",
+          "min": 0.01,
+          "max": 25,
+          "value": 0.01
+        },
+        {
+          "id": "R175",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.63
+        },
+        {
+          "id": "R176",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.72
+        },
+        {
+          "id": "R188",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 25,
+          "value": 11
+        },
+        {
+          "id": "R191",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 25,
+          "value": 5
+        },
+        {
+          "id": "R192",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 25,
+          "value": 0
+        },
+        {
+          "id": "R220",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R221",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R241",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R245",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 76
+        },
+        {
+          "id": "R267",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R270",
+          "nick": "Number Slider",
+          "min": -12,
+          "max": 1,
+          "value": -3.41
+        },
+        {
+          "id": "R283",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 40,
+          "value": 0
+        },
+        {
+          "id": "R286",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R357",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R361",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 76
+        }
+      ],
+      "panels": [
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R46",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R49",
+          "nick": "Online Resource for this part of Definition",
+          "content": "The following bit of code below is inspired by the source mentioned here.\r\n\r\nThe main feature of this definition is that we can control:\r\n1- Radius of effect\r\n2- Strength of effect\r\n\r\nOnline source:\r\nhttps://generativelandscapes.wordpress.com/2014/08/21/multiple-point-vector-field-example-6-2"
+        },
+        {
+          "id": "R50",
+          "nick": "",
+          "content": "Often, what you want to code in Grasshopper has already been done by others before you.\r\nIt would be interesting to make a quick online research and find helpful resources.\r\nOne of the main online resources for Grasshopper definitions is:\r\nhttps://discourse.mcneel.com/c/grasshopper/2\r\n\r\nOR:\r\n\r\nJust search in Google: \"Grasshopper [WHAT I WANT TO DESIGN]\" and check out the results."
+        },
+        {
+          "id": "R67",
+          "nick": "",
+          "content": "Assignment 6a: Use the definition above to manipulate vertecies and make a similar effect as done with manipulating edges.\r\n\r\nC- Manipulating Vertecies:\r\n\r\nZ direction:\r\n\r\n1- Move each of the 4 vertecies of each panel, with different values, in the Z direction.\r\n\r\n2- Make \"4Point Surface\" from the moved points.\r\n\r\n\r\nNormal to surface:\r\n\r\n3- Repeat the same steps (1) & (2) but now moving the points Normal to surface.\r\n\r\nHINT: EACH of the 4 POINTS of EACH SURFACE has a UNIQUE NORMAL VECTOR!"
+        },
+        {
+          "id": "R107",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R130",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R133",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R136",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R140",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R148",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R160",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R167",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R174",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R177",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R178",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R187",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R193",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R196",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R203",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R204",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R207",
+          "nick": "",
+          "content": "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain."
+        },
+        {
+          "id": "R224",
+          "nick": "",
+          "content": "WARNING\r\n\r\nThe operations on the right side are heavy and may crash your GH file.\r\n\r\nPlease enable and disable components while trying them, so that not all of them would be running simultaneously.\r\n\r\nTry to disable all components on the right side, except for the ones needed to run the components.\r\n\r\nAlso, try to Lock Solver if needed by Right-Clicking anywhere and selecting \"Lock Solver\""
+        },
+        {
+          "id": "R232",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R234",
+          "nick": "",
+          "content": "10"
+        },
+        {
+          "id": "R235",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R236",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R238",
+          "nick": "",
+          "content": "20"
+        },
+        {
+          "id": "R239",
+          "nick": "",
+          "content": "500"
+        },
+        {
+          "id": "R240",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R242",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R252",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R255",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R262",
+          "nick": "",
+          "content": "Be careful to find the correct point order"
+        },
+        {
+          "id": "R264",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R276",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R277",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R278",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R280",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R284",
+          "nick": "",
+          "content": "0.8"
+        },
+        {
+          "id": "R296",
+          "nick": "",
+          "content": "1- Attractor Logic: One of Grasshopper's most powerful parametric strategies.\r\n\r\n- Attractor Logic is a very simple design concept based on distances. However the results could become amazing.\r\n\r\n- We will build a simple parametric definition below and understand how attractors work in Grasshopper.\r\n\r\n- Build a squarish grid of points: S 10, Ex 10, Ey 10.\r\n\r\n- Construct a Point and keep in without any INPUTS.\r\n\r\n- Use a \"Move\" component and feed in the Point. Use an MD Slider to feed to direction.\r\n\r\n- Change the MD Slider's domains to 100 in both X & Y.\r\n\r\n- Get the Points from the Squarish grid and flatten them\r\n\r\n- Get the Ditances between the flattened points of the squarish grid and the moved point.\r\n\r\n- Check out the distances using a panel.\r\n\r\n- Find the minimum & maximum of all distances by using the \"Bounds\" component.\r\n\r\n- Use a \"Vector 2Pt\" component:\r\n1t Point Input = Constructed Point\r\n1st Point Input = All Points of the squarish grid\r\n\r\n- Move all the points of the squarish grid by using the \"Vector 2Pt\" as translation vectors.\r\n\r\n- Make Lines between the points of the squarish grid and the newly moved ones.\r\n\r\n- The Lines represent the \"Attraction\" between the constructed point and the squarish grid points.\r\n\r\n- Find below numerous examples of how to affect this attraction effect, by:\r\n- Manipulating vector lengths with commands, such as multiplication.\r\n- Remapping data."
+        },
+        {
+          "id": "R297",
+          "nick": "",
+          "content": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain²\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain² information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface."
+        },
+        {
+          "id": "R298",
+          "nick": "",
+          "content": "8- Geometry Morphing:\r\n\r\nAnother powerful way of panelization is to morph geometry onto a panelized surface, with a customized base shape.\r\n\r\nWe will use the previous definition and morph a modeled geometry in Rhino.\r\n\r\n- First, reference the modeled geometry in Rhino in a \"Geometry\" component.\r\n\r\n- Use a \"Bounding Box\" and plug in the referenced geometry in the C INPUT.\r\n\r\n- Use a \"Surface Box\" and plug in:\r\n1- Base surface in S INPUT.\r\n2- Divide Domain² OUTPUT in D INPUT.\r\n3- Number in H INPUT.\r\n\r\n- Use a \"Box Morph\" and plug in:\r\n1- Referenced geometry in G INPUT.\r\n2- The first B OUTPUT from \"Bounding Box\" in R INPUT.\r\n3- OUTPUT of \"Surface Box\" in T INPUT.\r\n\r\n- Note that you can always change the referenced geometry and then reference it again, and the final result will update accordingly.\r\n\r\nIMPORTANT:\r\n\r\n- If, for any reason, you would need to construct a non-regular surface division (without Domain Division), then you would need to construct Twisted Boxs without using the \"Surface Box\".\r\n\r\nFor this purpose, you will use the parameters of that non-regular surface divisions and use the \"Twisted Box\" component to generate Twisted Boxes, which can then be used for the T INPUT of the \"Box Morph\"."
+        },
+        {
+          "id": "R299",
+          "nick": "",
+          "content": "7- Paneling: Practical Example\r\n\r\nLet us use the result from the previous definition to make interesting panelization options:\r\n\r\n\r\nA- Manipulating Faces\r\n\r\n1- Extrude all faces in the Z direction\r\n\r\n2- Extrude / Offset all faces Normal to Surface.\r\n\r\n\r\nB- Manipualting Edges:\r\n\r\nZ direction:\r\n\r\n1- Move one edge of the panels in the Z direction.\r\n\r\n2- Loft the moved edges with their respective facing edges.\r\n\r\nNormal to Surface:\r\n\r\n3- Repeat step (1) but now the edges being moved Normal to the surface.\r\n\r\n4- Loft the moved edges with their respective facing edges."
+        },
+        {
+          "id": "R300",
+          "nick": "",
+          "content": "2- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Make a number slider between 0-1\r\n\r\n- Make a \"Graph Mapper\":\r\n1- Right-Click on the \"Graph Mapper\" and click on \"Graph Types\" and choose \"Bezier\".\r\n2- Bring a Panel and watch the output of the Graph Mapper.\r\n\r\n- Notice the red line illustrating the INPUT value (along the X axis).\r\n- The Y value is the mapped value of X, following the bezier function.\r\n\r\n\r\n- Copy the Graph Mapper and start manipulating the X & Y domains by double-clicking on the Graph Mapper.\r\n\r\n"
+        },
+        {
+          "id": "R301",
+          "nick": "",
+          "content": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also notive that the default number of steps is 10, illustrated by the N INPUT.\r\n\r\n- You can change both the D & N values by contructing a new \"Domain\" and using an integer slider.\r\n\r\n>> Be Careful! If the domain range goes beyond the Graph Mapper's domain, there will be missed output results!"
+        },
+        {
+          "id": "R302",
+          "nick": "",
+          "content": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and feed its Z with the deconstructed Point above Z value.\r\n- Feed these new Z values into the Plane INPUT of the Circle.\r\n- Feed the X OUTPUT of the Deconstructed Point into the Radius INPUT of the Circle.\r\n- Check the results in Perspective view in Rhino while selecting the Circle.\r\n- Final touch: Loft the circles together.\r\n\r\n- If you have a low quality preview of the loft, click on \"Preview Mesh Quality\" at the Top Right corner of your viewport and select \"High Quality\".\r\n\r\n- Change the type of the Graph Mapper and check out the results!"
+        },
+        {
+          "id": "R303",
+          "nick": "",
+          "content": "4- Graph Mapper: Maps a number of values using a function.\r\n\r\nIn case we had a domain of values beyond the domain of the graph mapper, we can remap the INPUT values to match a standard (0.0 to 1.0) domain of the graph, use the graph, then remap the OUTPUT values back to the original domain."
+        },
+        {
+          "id": "R313",
+          "nick": "",
+          "content": "0"
+        },
+        {
+          "id": "R314",
+          "nick": "",
+          "content": "1"
+        },
+        {
+          "id": "R315",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R316",
+          "nick": "",
+          "content": "3"
+        },
+        {
+          "id": "R328",
+          "nick": "",
+          "content": ""
+        },
+        {
+          "id": "R330",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R338",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R347",
+          "nick": "",
+          "content": "9- Exercise: Sun Orientation\r\n\r\nStart with preparing the geometries:\r\n\r\n1- Place a Point to represent the sun Position\r\n2- Construct a Surface and divide it to get sub-surfaces\r\n3- Evaluate the sub-surfaces in order to extract the points and their respective normal vectors\r\n\r\nOrientation Method 1:  Using the \"Orient\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point (Using Vector 2Pt)\r\n2- Build planes normal to the vectors\r\n3- Orient the sub-surfaces according the planes normal to the vectors\r\n\r\nOrientation Method 2: Using the \"Orient Direction\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point\r\n2- Adjust amplitude of the vectors to match the original vector lengths\r\n>> These would be used for the Direction B input of the component\r\n3- Use the Centroids of the sub-surfaces as Point A and Point B\r\n4- Direction A: Original normal vectors of the sub-surfaces"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Unit-06-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13021,
+            4822
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13959,
+            2169
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13635.2,
+            2205.7
+          ],
+          "min": 0,
+          "max": 3,
+          "value": 0
+        },
+        {
+          "id": "R4",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            473.5,
+            -37.2
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            622,
+            859
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            307,
+            860.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R16",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            267.9,
+            1009.8
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            747.3,
+            879.6
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_Distance",
+          "name": "Distance",
+          "pos": [
+            1005,
+            1164
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            1354.3,
+            495.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R20",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1007,
+            1621
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Vector2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            1007,
+            1055
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            808,
+            1632
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            248.1,
+            1652.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.577
+        },
+        {
+          "id": "R24",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1172,
+            1569
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            2172,
+            2104
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            1941,
+            2116
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            2399,
+            2029
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            1787,
+            1898
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            1570,
+            1897
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            1586,
+            2017
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1256.7,
+            1975.7
+          ],
+          "min": -30,
+          "max": 25,
+          "value": 16.48
+        },
+        {
+          "id": "R32",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1251.7,
+            2043.9
+          ],
+          "min": -60,
+          "max": 200,
+          "value": -28.39
+        },
+        {
+          "id": "R33",
+          "type": "panel",
+          "pos": [
+            1754.7,
+            1756.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R34",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            2102,
+            1878
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "panel",
+          "pos": [
+            2224.4,
+            1856.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R36",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            1436,
+            934
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "panel",
+          "pos": [
+            1535.8,
+            903.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R38",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12044.9,
+            -37.2
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            15922.1,
+            -37.2
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_ClosestPoint",
+          "name": "Closest Point",
+          "pos": [
+            10261,
+            701
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_Vector2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            10551,
+            755
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Operator_Division",
+          "name": "Division",
+          "pos": [
+            10342,
+            980
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10059.7,
+            987.8
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 6
+        },
+        {
+          "id": "R44",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            10066.4,
+            889.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 5
+        },
+        {
+          "id": "R45",
+          "type": "Operator_Maximum",
+          "name": "Maximum",
+          "pos": [
+            10643,
+            980
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "panel",
+          "pos": [
+            10546.7,
+            988.4
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R47",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            10846,
+            726
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            11116,
+            858
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "panel",
+          "nick": "Online Resource for this part of Definition",
+          "pos": [
+            10026.4,
+            342.9
+          ],
+          "content": "The following bit of code below is inspired by the source mentioned here.\r\n\r\nThe main feature of this definition is that we can control:\r\n1- Radius of effect\r\n2- Strength of effect\r\n\r\nOnline source:\r\nhttps://generativelandscapes.wordpress.com/2014/08/21/multiple-point-vector-field-example-6-2"
+        },
+        {
+          "id": "R50",
+          "type": "panel",
+          "pos": [
+            10026,
+            66.7
+          ],
+          "content": "Often, what you want to code in Grasshopper has already been done by others before you.\r\nIt would be interesting to make a quick online research and find helpful resources.\r\nOne of the main online resources for Grasshopper definitions is:\r\nhttps://discourse.mcneel.com/c/grasshopper/2\r\n\r\nOR:\r\n\r\nJust search in Google: \"Grasshopper [WHAT I WANT TO DESIGN]\" and check out the results."
+        },
+        {
+          "id": "R51",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            10030.8,
+            -37.2
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1541,
+            1256
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1791,
+            1229
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            9906,
+            899
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            9931,
+            786.1
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            9747.2,
+            965.9
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_SquareGrid",
+          "name": "Square",
+          "pos": [
+            9687,
+            764
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            9370.7,
+            766.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R59",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            9684,
+            883
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "Component_IsoTrim",
+          "name": "Isotrim",
+          "pos": [
+            12508,
+            1010
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            12068.6,
+            996.6
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "Component_Divide2DInterval",
+          "name": "Divide Domain²",
+          "pos": [
+            12236,
+            1108
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11903.9,
+            1098.9
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R64",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            11901.2,
+            1135.7
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R65",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            12825,
+            873
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12950.6,
+            -37.2
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "panel",
+          "pos": [
+            13506.6,
+            3546.8
+          ],
+          "content": "Assignment 6a: Use the definition above to manipulate vertecies and make a similar effect as done with manipulating edges.\r\n\r\nC- Manipulating Vertecies:\r\n\r\nZ direction:\r\n\r\n1- Move each of the 4 vertecies of each panel, with different values, in the Z direction.\r\n\r\n2- Make \"4Point Surface\" from the moved points.\r\n\r\n\r\nNormal to surface:\r\n\r\n3- Repeat the same steps (1) & (2) but now moving the points Normal to surface.\r\n\r\nHINT: EACH of the 4 POINTS of EACH SURFACE has a UNIQUE NORMAL VECTOR!"
+        },
+        {
+          "id": "R68",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            13511.6,
+            3474.7
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            17598,
+            1663
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            17422,
+            1700
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13686,
+            2392
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            14179,
+            2723
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            14430,
+            2396
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            14246,
+            2386
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Component_FlipCurve",
+          "name": "Flip Curve",
+          "pos": [
+            14073,
+            2527
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            14045,
+            3130
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            14415,
+            3074
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            14288,
+            3064
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Component_FlipCurve",
+          "name": "Flip Curve",
+          "pos": [
+            13835,
+            3002
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            13734,
+            3125
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            13979,
+            2739
+          ]
+        },
+        {
+          "id": "R82",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13326.5,
+            2730.2
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 8
+        },
+        {
+          "id": "R83",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            14529,
+            4228
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            14125,
+            3985
+          ]
+        },
+        {
+          "id": "R85",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13673.6,
+            3971.2
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R86",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            14355,
+            4102
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            14125,
+            4048
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13673.2,
+            4035.4
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R89",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            14125,
+            4111
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13673.8,
+            4102.5
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 14
+        },
+        {
+          "id": "R91",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            14125,
+            4175
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13673.1,
+            4166.1
+          ],
+          "min": 0,
+          "max": 30,
+          "value": 0
+        },
+        {
+          "id": "R93",
+          "type": "Component_4PointSurface",
+          "name": "4Point Surface",
+          "pos": [
+            14884,
+            4227
+          ]
+        },
+        {
+          "id": "R94",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            14724,
+            4227
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            14541,
+            4356
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_4PointSurface",
+          "name": "4Point Surface",
+          "pos": [
+            14884,
+            4374
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            14723,
+            4371
+          ]
+        },
+        {
+          "id": "R98",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14132,
+            4425
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            14411,
+            4662
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14132,
+            4590
+          ]
+        },
+        {
+          "id": "R101",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14132,
+            4748
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14132,
+            4911
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            13779,
+            911
+          ]
+        },
+        {
+          "id": "R104",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13483.2,
+            925.6
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R105",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13511,
+            854
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            13605,
+            853
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "panel",
+          "pos": [
+            13727.8,
+            753.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R108",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            14344,
+            1279
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13584.2,
+            1285
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 14
+        },
+        {
+          "id": "R110",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            14030,
+            1294
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12935.1,
+            1391.7
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            12518.5,
+            2767.9
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            11884.2,
+            4117.2
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "Component_Sphere",
+          "name": "Sphere",
+          "pos": [
+            16140,
+            704
+          ]
+        },
+        {
+          "id": "R115",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15843.2,
+            708
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R116",
+          "type": "Component_IsoTrim",
+          "name": "Isotrim",
+          "pos": [
+            16353,
+            972
+          ]
+        },
+        {
+          "id": "R117",
+          "type": "Component_Divide2DInterval",
+          "name": "Divide Domain²",
+          "pos": [
+            16180,
+            1083
+          ]
+        },
+        {
+          "id": "R118",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15859.8,
+            1074.3
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R119",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            15859.8,
+            1113
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R120",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            16489,
+            972
+          ]
+        },
+        {
+          "id": "R121",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            18466,
+            445
+          ]
+        },
+        {
+          "id": "R122",
+          "type": "Component_CreateSurfaceBox",
+          "name": "Surface Box",
+          "pos": [
+            18430,
+            580
+          ]
+        },
+        {
+          "id": "R123",
+          "type": "Component_BoxMorph",
+          "name": "Box Morph",
+          "pos": [
+            18784,
+            414
+          ]
+        },
+        {
+          "id": "R124",
+          "type": "Component_CreateTwistedBox",
+          "name": "Twisted Box",
+          "pos": [
+            19171,
+            2495
+          ]
+        },
+        {
+          "id": "R125",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            18323.3,
+            357.1
+          ]
+        },
+        {
+          "id": "R126",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            -37.7
+          ]
+        },
+        {
+          "id": "R127",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2205,
+            -37.2
+          ]
+        },
+        {
+          "id": "R128",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2192.2,
+            650.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.08
+        },
+        {
+          "id": "R129",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            2418.1,
+            585.6
+          ]
+        },
+        {
+          "id": "R130",
+          "type": "panel",
+          "pos": [
+            2607.5,
+            629.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R131",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2175,
+            1023
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.5
+        },
+        {
+          "id": "R132",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            2417.7,
+            954.4
+          ]
+        },
+        {
+          "id": "R133",
+          "type": "panel",
+          "pos": [
+            2607.5,
+            997.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R134",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2187.6,
+            841.5
+          ],
+          "min": 0,
+          "max": 2,
+          "value": 0.66
+        },
+        {
+          "id": "R135",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            2417.7,
+            768
+          ]
+        },
+        {
+          "id": "R136",
+          "type": "panel",
+          "pos": [
+            2607.5,
+            814.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R137",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3186.1,
+            -37.2
+          ]
+        },
+        {
+          "id": "R138",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3211.7,
+            648.3
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.12
+        },
+        {
+          "id": "R139",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            3615.9,
+            586.6
+          ]
+        },
+        {
+          "id": "R140",
+          "type": "panel",
+          "pos": [
+            3805.7,
+            623.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R141",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3214.9,
+            678.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.44
+        },
+        {
+          "id": "R142",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3213.4,
+            788.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.21
+        },
+        {
+          "id": "R143",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            3615.9,
+            767
+          ]
+        },
+        {
+          "id": "R144",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3214,
+            859.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.45
+        },
+        {
+          "id": "R145",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3517,
+            842
+          ]
+        },
+        {
+          "id": "R146",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            6722.1,
+            -37.2
+          ]
+        },
+        {
+          "id": "R147",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            7036.6,
+            840.5
+          ]
+        },
+        {
+          "id": "R148",
+          "type": "panel",
+          "pos": [
+            7326.6,
+            730.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R149",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6545.9,
+            1061.9
+          ],
+          "min": 0,
+          "max": 25,
+          "value": 17
+        },
+        {
+          "id": "R150",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            6861,
+            1059
+          ]
+        },
+        {
+          "id": "R151",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            6683,
+            943
+          ]
+        },
+        {
+          "id": "R152",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6368.9,
+            964
+          ],
+          "min": 0,
+          "max": 25,
+          "value": 1
+        },
+        {
+          "id": "R153",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            6374.1,
+            901.8
+          ],
+          "min": 0.01,
+          "max": 25,
+          "value": 0.01
+        },
+        {
+          "id": "R154",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            7419,
+            1069
+          ]
+        },
+        {
+          "id": "R155",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            7642,
+            1109
+          ]
+        },
+        {
+          "id": "R156",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            8194,
+            1068
+          ]
+        },
+        {
+          "id": "R157",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            7981,
+            1197
+          ]
+        },
+        {
+          "id": "R158",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            8374,
+            1078
+          ]
+        },
+        {
+          "id": "R159",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            7139.9,
+            1987.8
+          ]
+        },
+        {
+          "id": "R160",
+          "type": "panel",
+          "pos": [
+            7494.6,
+            1960.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R161",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            7497,
+            2309
+          ]
+        },
+        {
+          "id": "R162",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            7749,
+            2309
+          ]
+        },
+        {
+          "id": "R163",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            8225,
+            2278
+          ]
+        },
+        {
+          "id": "R164",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            8003,
+            2210
+          ]
+        },
+        {
+          "id": "R165",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            8384,
+            2287
+          ]
+        },
+        {
+          "id": "R166",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            7139.9,
+            2472.6
+          ]
+        },
+        {
+          "id": "R167",
+          "type": "panel",
+          "pos": [
+            7494.6,
+            2442
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R168",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            7497,
+            2789
+          ]
+        },
+        {
+          "id": "R169",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            7749,
+            2789
+          ]
+        },
+        {
+          "id": "R170",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            8231,
+            2748
+          ]
+        },
+        {
+          "id": "R171",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            8039,
+            2678
+          ]
+        },
+        {
+          "id": "R172",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            8384,
+            2758
+          ]
+        },
+        {
+          "id": "R173",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1025,
+            1267
+          ]
+        },
+        {
+          "id": "R174",
+          "type": "panel",
+          "pos": [
+            923.7,
+            1330.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R175",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3213.4,
+            813.2
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.63
+        },
+        {
+          "id": "R176",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3213.4,
+            835.9
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.72
+        },
+        {
+          "id": "R177",
+          "type": "panel",
+          "pos": [
+            3805.6,
+            789.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R178",
+          "type": "panel",
+          "pos": [
+            6770.9,
+            1133
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R179",
+          "type": "Component_InterpCurve",
+          "name": "Interpolate",
+          "pos": [
+            7662,
+            930
+          ]
+        },
+        {
+          "id": "R180",
+          "type": "Component_RevSurface",
+          "name": "Revolution",
+          "pos": [
+            7935,
+            929
+          ]
+        },
+        {
+          "id": "R181",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            7824.2,
+            929
+          ]
+        },
+        {
+          "id": "R182",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            13474.4,
+            1113.4
+          ]
+        },
+        {
+          "id": "R183",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13525.8,
+            1445.3
+          ]
+        },
+        {
+          "id": "R184",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13832.5,
+            2493.9
+          ]
+        },
+        {
+          "id": "R185",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13831.7,
+            2298.5
+          ]
+        },
+        {
+          "id": "R186",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            3551,
+            1154.2
+          ]
+        },
+        {
+          "id": "R187",
+          "type": "panel",
+          "pos": [
+            3909.1,
+            1096.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R188",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            3097.4,
+            1267.1
+          ],
+          "min": 0,
+          "max": 25,
+          "value": 11
+        },
+        {
+          "id": "R189",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            3411,
+            1245
+          ]
+        },
+        {
+          "id": "R190",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            3241,
+            1183
+          ]
+        },
+        {
+          "id": "R191",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2897.9,
+            1211.2
+          ],
+          "min": 0,
+          "max": 25,
+          "value": 5
+        },
+        {
+          "id": "R192",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2903.4,
+            1141.1
+          ],
+          "min": 0,
+          "max": 25,
+          "value": 0
+        },
+        {
+          "id": "R193",
+          "type": "panel",
+          "pos": [
+            3539.7,
+            1323.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R194",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3587.5,
+            1120.8
+          ]
+        },
+        {
+          "id": "R195",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            7139.9,
+            2990.8
+          ]
+        },
+        {
+          "id": "R196",
+          "type": "panel",
+          "pos": [
+            7494.6,
+            2917
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R197",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            7497,
+            3264
+          ]
+        },
+        {
+          "id": "R198",
+          "type": "Component_DeconstructPoint",
+          "name": "Deconstruct",
+          "pos": [
+            7749,
+            3264
+          ]
+        },
+        {
+          "id": "R199",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            8236,
+            3227
+          ]
+        },
+        {
+          "id": "R200",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            8064,
+            3161
+          ]
+        },
+        {
+          "id": "R201",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            8384,
+            3237
+          ]
+        },
+        {
+          "id": "R202",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            13043,
+            2363
+          ]
+        },
+        {
+          "id": "R203",
+          "type": "panel",
+          "pos": [
+            13286.6,
+            1888.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R204",
+          "type": "panel",
+          "pos": [
+            13042.9,
+            2475.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R205",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "R206",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3558.6,
+            1341
+          ]
+        },
+        {
+          "id": "R207",
+          "type": "panel",
+          "pos": [
+            3153.4,
+            974.3
+          ],
+          "content": "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain."
+        },
+        {
+          "id": "R208",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            18944,
+            2305
+          ]
+        },
+        {
+          "id": "R209",
+          "type": "Component_BoxMorph",
+          "name": "Box Morph",
+          "pos": [
+            19576,
+            2261
+          ]
+        },
+        {
+          "id": "R210",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            18773.6,
+            2238
+          ]
+        },
+        {
+          "id": "R211",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            18727,
+            2401
+          ]
+        },
+        {
+          "id": "R212",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            18934,
+            2495
+          ]
+        },
+        {
+          "id": "R213",
+          "type": "Component_CreateTwistedBox",
+          "name": "Twisted Box",
+          "pos": [
+            19169,
+            3756
+          ]
+        },
+        {
+          "id": "R214",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            18181,
+            1207
+          ]
+        },
+        {
+          "id": "R215",
+          "type": "Component_BoxMorph",
+          "name": "Box Morph",
+          "pos": [
+            19563,
+            956
+          ]
+        },
+        {
+          "id": "R216",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            17933.7,
+            920
+          ]
+        },
+        {
+          "id": "R217",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            18828,
+            3662
+          ]
+        },
+        {
+          "id": "R218",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            18983,
+            3756
+          ]
+        },
+        {
+          "id": "R219",
+          "type": "Diamond",
+          "name": "Diamond Panels",
+          "pos": [
+            17473,
+            3167
+          ]
+        },
+        {
+          "id": "R220",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            17166.1,
+            3161.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 40
+        },
+        {
+          "id": "R221",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            17164.5,
+            3199.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R222",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            18437,
+            3153
+          ]
+        },
+        {
+          "id": "R223",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            18296,
+            3306
+          ]
+        },
+        {
+          "id": "R224",
+          "type": "panel",
+          "pos": [
+            15566.3,
+            26.3
+          ],
+          "content": "WARNING\r\n\r\nThe operations on the right side are heavy and may crash your GH file.\r\n\r\nPlease enable and disable components while trying them, so that not all of them would be running simultaneously.\r\n\r\nTry to disable all components on the right side, except for the ones needed to run the components.\r\n\r\nAlso, try to Lock Solver if needed by Right-Clicking anywhere and selecting \"Lock Solver\""
+        },
+        {
+          "id": "R225",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            14081,
+            1457
+          ]
+        },
+        {
+          "id": "R226",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            14347,
+            1433
+          ]
+        },
+        {
+          "id": "R227",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            4433,
+            715
+          ]
+        },
+        {
+          "id": "R228",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            4656,
+            728
+          ]
+        },
+        {
+          "id": "R229",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            5766,
+            891
+          ]
+        },
+        {
+          "id": "R230",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            5488.2,
+            622.3
+          ]
+        },
+        {
+          "id": "R231",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            4643.9,
+            -37.2
+          ]
+        },
+        {
+          "id": "R232",
+          "type": "panel",
+          "pos": [
+            4743.8,
+            876.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R233",
+          "type": "Component_RemapNumbers",
+          "name": "Remap Numbers",
+          "pos": [
+            5355,
+            767
+          ]
+        },
+        {
+          "id": "R234",
+          "type": "panel",
+          "pos": [
+            4525.1,
+            759.4
+          ],
+          "content": "10"
+        },
+        {
+          "id": "R235",
+          "type": "panel",
+          "pos": [
+            5526,
+            989
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R236",
+          "type": "panel",
+          "pos": [
+            6046.1,
+            734.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R237",
+          "type": "Component_NumericBounds",
+          "name": "Bounds",
+          "pos": [
+            4980,
+            818
+          ]
+        },
+        {
+          "id": "R238",
+          "type": "panel",
+          "pos": [
+            4239.7,
+            663.3
+          ],
+          "content": "20"
+        },
+        {
+          "id": "R239",
+          "type": "panel",
+          "pos": [
+            4241.3,
+            730.9
+          ],
+          "content": "500"
+        },
+        {
+          "id": "R240",
+          "type": "panel",
+          "pos": [
+            5748.7,
+            539.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R241",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            17160.5,
+            1088.6
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 25
+        },
+        {
+          "id": "R242",
+          "type": "panel",
+          "pos": [
+            4918.1,
+            884.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R243",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            13192,
+            4260
+          ]
+        },
+        {
+          "id": "R244",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            18710,
+            1692
+          ]
+        },
+        {
+          "id": "R245",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            18418.6,
+            1696.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 76
+        },
+        {
+          "id": "R246",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            18812,
+            1693
+          ]
+        },
+        {
+          "id": "R247",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            19035,
+            1787
+          ]
+        },
+        {
+          "id": "R248",
+          "type": "Component_ConstructDomain",
+          "name": "Construct Domain",
+          "pos": [
+            5298,
+            963
+          ]
+        },
+        {
+          "id": "R249",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            18667,
+            1268
+          ]
+        },
+        {
+          "id": "R250",
+          "type": "Component_VolumeProperties_OBSOLETE",
+          "name": "Volume",
+          "pos": [
+            18368,
+            1296
+          ]
+        },
+        {
+          "id": "R251",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            1139,
+            848
+          ]
+        },
+        {
+          "id": "R252",
+          "type": "panel",
+          "pos": [
+            5114.9,
+            910.5
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R253",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1530,
+            1091
+          ]
+        },
+        {
+          "id": "R254",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            1793,
+            1139
+          ]
+        },
+        {
+          "id": "R255",
+          "type": "panel",
+          "pos": [
+            5114.9,
+            974.1
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R256",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13640,
+            2131
+          ]
+        },
+        {
+          "id": "R257",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            13757,
+            2131
+          ]
+        },
+        {
+          "id": "R258",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13551,
+            4384.9
+          ]
+        },
+        {
+          "id": "R259",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13553.1,
+            4542.8
+          ]
+        },
+        {
+          "id": "R260",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13553.1,
+            4708.6
+          ]
+        },
+        {
+          "id": "R261",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13553.6,
+            4894.4
+          ]
+        },
+        {
+          "id": "R262",
+          "type": "panel",
+          "pos": [
+            13290.4,
+            4704.7
+          ],
+          "content": "Be careful to find the correct point order"
+        },
+        {
+          "id": "R263",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            13772,
+            3249
+          ]
+        },
+        {
+          "id": "R264",
+          "type": "panel",
+          "pos": [
+            16337,
+            1206.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R265",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            597.8,
+            1131.6
+          ]
+        },
+        {
+          "id": "R266",
+          "type": "Component_ScaleNU",
+          "name": "Scale NU",
+          "pos": [
+            18670,
+            1056
+          ]
+        },
+        {
+          "id": "R267",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            18295.4,
+            1074.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.8
+        },
+        {
+          "id": "R268",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            19313,
+            1037
+          ]
+        },
+        {
+          "id": "R269",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            19087,
+            1092
+          ]
+        },
+        {
+          "id": "R270",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            18782.9,
+            1094.5
+          ],
+          "min": -12,
+          "max": 1,
+          "value": -3.41
+        },
+        {
+          "id": "R271",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            15541.6,
+            -40.9
+          ]
+        },
+        {
+          "id": "R272",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            13461.7,
+            4223.7
+          ]
+        },
+        {
+          "id": "R273",
+          "type": "Component_CreateTwistedBox",
+          "name": "Twisted Box",
+          "pos": [
+            19178,
+            1787
+          ]
+        },
+        {
+          "id": "R274",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13831.8,
+            2395.5
+          ]
+        },
+        {
+          "id": "R275",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            13831.7,
+            2563.8
+          ]
+        },
+        {
+          "id": "R276",
+          "type": "panel",
+          "pos": [
+            13154.2,
+            3800.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R277",
+          "type": "panel",
+          "pos": [
+            14646.9,
+            3499
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R278",
+          "type": "panel",
+          "pos": [
+            18989.8,
+            1903.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R279",
+          "type": "GraphMapper",
+          "name": "Graph Mapper",
+          "pos": [
+            7877.8,
+            1419.2
+          ]
+        },
+        {
+          "id": "R280",
+          "type": "panel",
+          "pos": [
+            8129.9,
+            1447.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R281",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            8381,
+            1405
+          ]
+        },
+        {
+          "id": "R282",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            11973.1,
+            1251.6
+          ]
+        },
+        {
+          "id": "R283",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            13216.2,
+            846.1
+          ],
+          "min": 0,
+          "max": 40,
+          "value": 0
+        },
+        {
+          "id": "R284",
+          "type": "panel",
+          "pos": [
+            18518.1,
+            1311.4
+          ],
+          "content": "0.8"
+        },
+        {
+          "id": "R285",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            18728,
+            2971
+          ]
+        },
+        {
+          "id": "R286",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            18438.1,
+            2966.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 34
+        },
+        {
+          "id": "R287",
+          "type": "Component_CreateTwistedBox",
+          "name": "Twisted Box",
+          "pos": [
+            19180,
+            3065
+          ]
+        },
+        {
+          "id": "R288",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            18829,
+            2971
+          ]
+        },
+        {
+          "id": "R289",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            18994,
+            3065
+          ]
+        },
+        {
+          "id": "R290",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            14066,
+            1618
+          ]
+        },
+        {
+          "id": "R291",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            13179.6,
+            3209
+          ]
+        },
+        {
+          "id": "R292",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            4788.2,
+            728
+          ]
+        },
+        {
+          "id": "R293",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            5942,
+            863.3
+          ]
+        },
+        {
+          "id": "R294",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            46.6
+          ]
+        },
+        {
+          "id": "R295",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            46.9,
+            112.9
+          ]
+        },
+        {
+          "id": "R296",
+          "type": "panel",
+          "pos": [
+            478.8,
+            28.9
+          ],
+          "content": "1- Attractor Logic: One of Grasshopper's most powerful parametric strategies.\r\n\r\n- Attractor Logic is a very simple design concept based on distances. However the results could become amazing.\r\n\r\n- We will build a simple parametric definition below and understand how attractors work in Grasshopper.\r\n\r\n- Build a squarish grid of points: S 10, Ex 10, Ey 10.\r\n\r\n- Construct a Point and keep in without any INPUTS.\r\n\r\n- Use a \"Move\" component and feed in the Point. Use an MD Slider to feed to direction.\r\n\r\n- Change the MD Slider's domains to 100 in both X & Y.\r\n\r\n- Get the Points from the Squarish grid and flatten them\r\n\r\n- Get the Ditances between the flattened points of the squarish grid and the moved point.\r\n\r\n- Check out the distances using a panel.\r\n\r\n- Find the minimum & maximum of all distances by using the \"Bounds\" component.\r\n\r\n- Use a \"Vector 2Pt\" component:\r\n1t Point Input = Constructed Point\r\n1st Point Input = All Points of the squarish grid\r\n\r\n- Move all the points of the squarish grid by using the \"Vector 2Pt\" as translation vectors.\r\n\r\n- Make Lines between the points of the squarish grid and the newly moved ones.\r\n\r\n- The Lines represent the \"Attraction\" between the constructed point and the squarish grid points.\r\n\r\n- Find below numerous examples of how to affect this attraction effect, by:\r\n- Manipulating vector lengths with commands, such as multiplication.\r\n- Remapping data."
+        },
+        {
+          "id": "R297",
+          "type": "panel",
+          "pos": [
+            12031,
+            28.9
+          ],
+          "content": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain²\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain² information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface."
+        },
+        {
+          "id": "R298",
+          "type": "panel",
+          "pos": [
+            15910.5,
+            28.9
+          ],
+          "content": "8- Geometry Morphing:\r\n\r\nAnother powerful way of panelization is to morph geometry onto a panelized surface, with a customized base shape.\r\n\r\nWe will use the previous definition and morph a modeled geometry in Rhino.\r\n\r\n- First, reference the modeled geometry in Rhino in a \"Geometry\" component.\r\n\r\n- Use a \"Bounding Box\" and plug in the referenced geometry in the C INPUT.\r\n\r\n- Use a \"Surface Box\" and plug in:\r\n1- Base surface in S INPUT.\r\n2- Divide Domain² OUTPUT in D INPUT.\r\n3- Number in H INPUT.\r\n\r\n- Use a \"Box Morph\" and plug in:\r\n1- Referenced geometry in G INPUT.\r\n2- The first B OUTPUT from \"Bounding Box\" in R INPUT.\r\n3- OUTPUT of \"Surface Box\" in T INPUT.\r\n\r\n- Note that you can always change the referenced geometry and then reference it again, and the final result will update accordingly.\r\n\r\nIMPORTANT:\r\n\r\n- If, for any reason, you would need to construct a non-regular surface division (without Domain Division), then you would need to construct Twisted Boxs without using the \"Surface Box\".\r\n\r\nFor this purpose, you will use the parameters of that non-regular surface divisions and use the \"Twisted Box\" component to generate Twisted Boxes, which can then be used for the T INPUT of the \"Box Morph\"."
+        },
+        {
+          "id": "R299",
+          "type": "panel",
+          "pos": [
+            12936.8,
+            28.9
+          ],
+          "content": "7- Paneling: Practical Example\r\n\r\nLet us use the result from the previous definition to make interesting panelization options:\r\n\r\n\r\nA- Manipulating Faces\r\n\r\n1- Extrude all faces in the Z direction\r\n\r\n2- Extrude / Offset all faces Normal to Surface.\r\n\r\n\r\nB- Manipualting Edges:\r\n\r\nZ direction:\r\n\r\n1- Move one edge of the panels in the Z direction.\r\n\r\n2- Loft the moved edges with their respective facing edges.\r\n\r\nNormal to Surface:\r\n\r\n3- Repeat step (1) but now the edges being moved Normal to the surface.\r\n\r\n4- Loft the moved edges with their respective facing edges."
+        },
+        {
+          "id": "R300",
+          "type": "panel",
+          "pos": [
+            2200.7,
+            28.9
+          ],
+          "content": "2- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Make a number slider between 0-1\r\n\r\n- Make a \"Graph Mapper\":\r\n1- Right-Click on the \"Graph Mapper\" and click on \"Graph Types\" and choose \"Bezier\".\r\n2- Bring a Panel and watch the output of the Graph Mapper.\r\n\r\n- Notice the red line illustrating the INPUT value (along the X axis).\r\n- The Y value is the mapped value of X, following the bezier function.\r\n\r\n\r\n- Copy the Graph Mapper and start manipulating the X & Y domains by double-clicking on the Graph Mapper.\r\n\r\n"
+        },
+        {
+          "id": "R301",
+          "type": "panel",
+          "pos": [
+            3181,
+            28.9
+          ],
+          "content": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also notive that the default number of steps is 10, illustrated by the N INPUT.\r\n\r\n- You can change both the D & N values by contructing a new \"Domain\" and using an integer slider.\r\n\r\n>> Be Careful! If the domain range goes beyond the Graph Mapper's domain, there will be missed output results!"
+        },
+        {
+          "id": "R302",
+          "type": "panel",
+          "pos": [
+            6709.7,
+            28.9
+          ],
+          "content": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and feed its Z with the deconstructed Point above Z value.\r\n- Feed these new Z values into the Plane INPUT of the Circle.\r\n- Feed the X OUTPUT of the Deconstructed Point into the Radius INPUT of the Circle.\r\n- Check the results in Perspective view in Rhino while selecting the Circle.\r\n- Final touch: Loft the circles together.\r\n\r\n- If you have a low quality preview of the loft, click on \"Preview Mesh Quality\" at the Top Right corner of your viewport and select \"High Quality\".\r\n\r\n- Change the type of the Graph Mapper and check out the results!"
+        },
+        {
+          "id": "R303",
+          "type": "panel",
+          "pos": [
+            4630.1,
+            28.9
+          ],
+          "content": "4- Graph Mapper: Maps a number of values using a function.\r\n\r\nIn case we had a domain of values beyond the domain of the graph mapper, we can remap the INPUT values to match a standard (0.0 to 1.0) domain of the graph, use the graph, then remap the OUTPUT values back to the original domain."
+        },
+        {
+          "id": "R304",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            19011,
+            3509
+          ]
+        },
+        {
+          "id": "R305",
+          "type": "Component_BoxMorph",
+          "name": "Box Morph",
+          "pos": [
+            19534,
+            3457
+          ]
+        },
+        {
+          "id": "R306",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            18834.2,
+            3431.5
+          ]
+        },
+        {
+          "id": "R307",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            12516,
+            4503
+          ]
+        },
+        {
+          "id": "R308",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            12677,
+            4706
+          ]
+        },
+        {
+          "id": "R309",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            12758.5,
+            4458.1
+          ]
+        },
+        {
+          "id": "R310",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13021,
+            4653
+          ]
+        },
+        {
+          "id": "R311",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13021,
+            4736
+          ]
+        },
+        {
+          "id": "R312",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            13021,
+            4905
+          ]
+        },
+        {
+          "id": "R313",
+          "type": "panel",
+          "pos": [
+            12901.4,
+            4645.1
+          ],
+          "content": "0"
+        },
+        {
+          "id": "R314",
+          "type": "panel",
+          "pos": [
+            12901.1,
+            4726.8
+          ],
+          "content": "1"
+        },
+        {
+          "id": "R315",
+          "type": "panel",
+          "pos": [
+            12901.1,
+            4813.4
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R316",
+          "type": "panel",
+          "pos": [
+            12901.1,
+            4895.1
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R317",
+          "type": "Param_Surface",
+          "nick": "Surface (Internalized Surface)",
+          "name": "Surface",
+          "pos": [
+            20236,
+            997.3
+          ]
+        },
+        {
+          "id": "R318",
+          "type": "QuadA",
+          "name": "Quad Panels",
+          "pos": [
+            20429,
+            1025
+          ]
+        },
+        {
+          "id": "R319",
+          "type": "Param_Point",
+          "nick": "Sun (Internalized Point)",
+          "name": "Point",
+          "pos": [
+            20249.9,
+            706.7
+          ]
+        },
+        {
+          "id": "R320",
+          "type": "Component_Vector2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            20901,
+            1538
+          ]
+        },
+        {
+          "id": "R321",
+          "type": "Component_Orient",
+          "name": "Orient",
+          "pos": [
+            21629,
+            1004
+          ]
+        },
+        {
+          "id": "R322",
+          "type": "Component_PlaneNormal",
+          "name": "Plane Normal",
+          "pos": [
+            21191,
+            864
+          ]
+        },
+        {
+          "id": "R323",
+          "type": "Component_OrientDir",
+          "name": "Orient Direction",
+          "pos": [
+            21629,
+            1224
+          ]
+        },
+        {
+          "id": "R324",
+          "type": "Component_VectorAmplitude",
+          "name": "Amplitude",
+          "pos": [
+            21270,
+            1416
+          ]
+        },
+        {
+          "id": "R325",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            22072,
+            715
+          ]
+        },
+        {
+          "id": "R326",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            21833,
+            1195
+          ]
+        },
+        {
+          "id": "R327",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            20695,
+            1569
+          ]
+        },
+        {
+          "id": "R328",
+          "type": "panel",
+          "pos": [
+            19758.7,
+            26.3
+          ],
+          "content": ""
+        },
+        {
+          "id": "R329",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            20129.2,
+            -93.8
+          ]
+        },
+        {
+          "id": "R330",
+          "type": "panel",
+          "pos": [
+            13645.9,
+            1536.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R331",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            12364,
+            4483.4
+          ]
+        },
+        {
+          "id": "R332",
+          "type": "Component_Vector2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            20867,
+            908
+          ]
+        },
+        {
+          "id": "R333",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            20889,
+            774
+          ]
+        },
+        {
+          "id": "R334",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            21241,
+            1565
+          ]
+        },
+        {
+          "id": "R335",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            21553,
+            1405
+          ]
+        },
+        {
+          "id": "R336",
+          "type": "Component_VariableMultiplication",
+          "name": "Multiplication",
+          "pos": [
+            506,
+            1638
+          ]
+        },
+        {
+          "id": "R337",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            8195,
+            1399
+          ]
+        },
+        {
+          "id": "R338",
+          "type": "panel",
+          "pos": [
+            7738.2,
+            1416.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R339",
+          "type": "Component_VariableSubtraction",
+          "name": "Subtraction",
+          "pos": [
+            10475,
+            961
+          ]
+        },
+        {
+          "id": "R340",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13752,
+            1465
+          ]
+        },
+        {
+          "id": "R341",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13429,
+            3194
+          ]
+        },
+        {
+          "id": "R342",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            12957,
+            4464
+          ]
+        },
+        {
+          "id": "R343",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13785,
+            4405
+          ]
+        },
+        {
+          "id": "R344",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13785,
+            4563
+          ]
+        },
+        {
+          "id": "R345",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13785,
+            4729
+          ]
+        },
+        {
+          "id": "R346",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            13785,
+            4915
+          ]
+        },
+        {
+          "id": "R347",
+          "type": "panel",
+          "pos": [
+            20125.8,
+            28.9
+          ],
+          "content": "9- Exercise: Sun Orientation\r\n\r\nStart with preparing the geometries:\r\n\r\n1- Place a Point to represent the sun Position\r\n2- Construct a Surface and divide it to get sub-surfaces\r\n3- Evaluate the sub-surfaces in order to extract the points and their respective normal vectors\r\n\r\nOrientation Method 1:  Using the \"Orient\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point (Using Vector 2Pt)\r\n2- Build planes normal to the vectors\r\n3- Orient the sub-surfaces according the planes normal to the vectors\r\n\r\nOrientation Method 2: Using the \"Orient Direction\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point\r\n2- Adjust amplitude of the vectors to match the original vector lengths\r\n>> These would be used for the Direction B input of the component\r\n3- Use the Centroids of the sub-surfaces as Point A and Point B\r\n4- Direction A: Original normal vectors of the sub-surfaces"
+        },
+        {
+          "id": "R348",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            20600,
+            1251
+          ]
+        },
+        {
+          "id": "R349",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            17204,
+            1780
+          ]
+        },
+        {
+          "id": "R350",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            17112.3,
+            1733.8
+          ]
+        },
+        {
+          "id": "R351",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            18093,
+            3231
+          ]
+        },
+        {
+          "id": "R352",
+          "type": "OffsetSurface",
+          "name": "Offset Surface",
+          "pos": [
+            14359,
+            1608
+          ]
+        },
+        {
+          "id": "R353",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            13200,
+            1037
+          ]
+        },
+        {
+          "id": "R354",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            12814,
+            1917.1
+          ]
+        },
+        {
+          "id": "R355",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            12246,
+            3498
+          ]
+        },
+        {
+          "id": "R356",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            12834,
+            4897
+          ]
+        },
+        {
+          "id": "R357",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            12538.5,
+            4912.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R358",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            20393.4,
+            1231.9
+          ]
+        },
+        {
+          "id": "R359",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            21834,
+            988
+          ]
+        },
+        {
+          "id": "R360",
+          "type": "Component_ListItemVariable",
+          "name": "List Item",
+          "pos": [
+            17140,
+            1296
+          ]
+        },
+        {
+          "id": "R361",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            16850.9,
+            1289.8
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 76
+        },
+        {
+          "id": "R362",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            16843.2,
+            1390.2
+          ]
+        },
+        {
+          "id": "R363",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            16957.6,
+            1748.1
+          ]
+        },
+        {
+          "id": "R364",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            17848.5,
+            3288.2
+          ]
+        }
+      ],
+      "flows": [
+        "R308.O2>R1.I0",
+        "R315.O0>R1.I1",
+        "R257.O1>R2.I0",
+        "R3.O0>R2.I1",
+        "R15.O0>R14.I1",
+        "R15.O0>R14.I2",
+        "R15.O0>R14.I3",
+        "R265.O0>R18.I0",
+        "R17.O0>R18.I1",
+        "R18.O0>R19.I0",
+        "R17.O0>R20.I0",
+        "R22.O0>R20.I1",
+        "R265.O0>R21.I0",
+        "R17.O0>R21.I1",
+        "R21.O0>R22.I0",
+        "R336.O0>R22.I1",
+        "R17.O0>R24.I0",
+        "R20.O0>R24.I1",
+        "R17.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R21.O0>R26.I0",
+        "R28.O0>R26.I1",
+        "R17.O0>R27.I0",
+        "R25.O0>R27.I1",
+        "R18.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R30.O0>R28.I2",
+        "R18.O0>R29.I0",
+        "R31.O0>R30.I0",
+        "R32.O0>R30.I1",
+        "R29.O0>R33.I0",
+        "R28.O0>R34.I0",
+        "R34.O0>R35.I0",
+        "R18.O0>R36.I0",
+        "R36.O0>R37.I0",
+        "R55.O0>R40.I0",
+        "R54.O0>R40.I1",
+        "R40.O0>R41.I0",
+        "R55.O0>R41.I1",
+        "R40.O2>R42.I0",
+        "R43.O0>R42.I1",
+        "R339.O0>R45.I0",
+        "R46.O0>R45.I1",
+        "R41.O0>R47.I0",
+        "R45.O0>R47.I1",
+        "R55.O0>R48.I0",
+        "R47.O0>R48.I1",
+        "R17.O0>R52.I0",
+        "R173.O0>R52.I1",
+        "R17.O0>R53.I0",
+        "R52.O0>R53.I1",
+        "R59.O0>R54.I0",
+        "R56.O0>R54.I1",
+        "R58.O0>R57.I1",
+        "R58.O0>R57.I2",
+        "R58.O0>R57.I3",
+        "R61.O0>R60.I0",
+        "R62.O0>R60.I1",
+        "R61.O0>R62.I0",
+        "R63.O0>R62.I1",
+        "R64.O0>R62.I2",
+        "R60.O0>R65.I0",
+        "R362.O0>R69.I0",
+        "R70.O0>R69.I1",
+        "R349.O1>R70.I0",
+        "R241.O0>R70.I1",
+        "R202.O1>R71.I0",
+        "R75.O0>R72.I0",
+        "R81.O0>R72.I1",
+        "R74.O0>R73.I0",
+        "R185.O0>R74.I0",
+        "R72.O0>R74.I1",
+        "R184.O0>R75.I0",
+        "R79.O0>R76.I0",
+        "R80.O0>R76.I1",
+        "R78.O0>R77.I0",
+        "R71.O0>R78.I0",
+        "R76.O0>R78.I1",
+        "R184.O0>R79.I0",
+        "R341.O1>R80.I0",
+        "R82.O0>R80.I1",
+        "R82.O0>R81.I0",
+        "R272.O0>R83.I0",
+        "R86.O0>R83.I1",
+        "R85.O0>R84.I0",
+        "R84.O0>R86.I0",
+        "R87.O0>R86.I1",
+        "R89.O0>R86.I2",
+        "R91.O0>R86.I3",
+        "R88.O0>R87.I0",
+        "R90.O0>R89.I0",
+        "R92.O0>R91.I0",
+        "R94.O0>R93.I0",
+        "R94.O1>R93.I1",
+        "R94.O2>R93.I2",
+        "R94.O3>R93.I3",
+        "R83.O0>R94.I0",
+        "R272.O0>R95.I0",
+        "R99.O0>R95.I1",
+        "R97.O0>R96.I0",
+        "R97.O1>R96.I1",
+        "R97.O2>R96.I2",
+        "R97.O3>R96.I3",
+        "R95.O0>R97.I0",
+        "R343.O1>R98.I0",
+        "R85.O0>R98.I1",
+        "R98.O0>R99.I0",
+        "R100.O0>R99.I1",
+        "R101.O0>R99.I2",
+        "R102.O0>R99.I3",
+        "R344.O1>R100.I0",
+        "R88.O0>R100.I1",
+        "R345.O1>R101.I0",
+        "R90.O0>R101.I1",
+        "R346.O1>R102.I0",
+        "R92.O0>R102.I1",
+        "R106.O2>R103.I0",
+        "R104.O0>R103.I1",
+        "R65.O0>R105.I0",
+        "R283.O0>R105.I1",
+        "R105.O0>R106.I0",
+        "R106.O2>R107.I0",
+        "R182.O0>R108.I0",
+        "R110.O0>R108.I1",
+        "R109.O0>R110.I0",
+        "R115.O0>R114.I1",
+        "R114.O0>R116.I0",
+        "R117.O0>R116.I1",
+        "R114.O0>R117.I0",
+        "R118.O0>R117.I1",
+        "R119.O0>R117.I2",
+        "R116.O0>R120.I0",
+        "R125.O0>R121.I0",
+        "R114.O0>R122.I0",
+        "R117.O0>R122.I1",
+        "R241.O0>R122.I2",
+        "R125.O0>R123.I0",
+        "R121.O0>R123.I1",
+        "R122.O0>R123.I2",
+        "R212.O0>R124.I0",
+        "R212.O1>R124.I1",
+        "R212.O2>R124.I2",
+        "R212.O3>R124.I3",
+        "R212.O4>R124.I4",
+        "R212.O5>R124.I5",
+        "R212.O6>R124.I6",
+        "R212.O7>R124.I7",
+        "R129.O0>R130.I0",
+        "R132.O0>R133.I0",
+        "R135.O0>R136.I0",
+        "R139.O0>R140.I0",
+        "R142.O0>R145.I0",
+        "R175.O0>R145.I1",
+        "R176.O0>R145.I2",
+        "R144.O0>R145.I3",
+        "R147.O0>R148.I0",
+        "R151.O0>R150.I0",
+        "R149.O0>R150.I1",
+        "R153.O0>R151.I0",
+        "R152.O0>R151.I1",
+        "R150.O0>R154.I0",
+        "R147.O0>R154.I2",
+        "R154.O0>R155.I0",
+        "R157.O0>R156.I0",
+        "R155.O0>R156.I1",
+        "R155.O2>R157.I2",
+        "R156.O0>R158.I0",
+        "R159.O0>R160.I0",
+        "R150.O0>R161.I0",
+        "R159.O0>R161.I2",
+        "R161.O0>R162.I0",
+        "R164.O0>R163.I0",
+        "R162.O0>R163.I1",
+        "R162.O2>R164.I2",
+        "R163.O0>R165.I0",
+        "R166.O0>R167.I0",
+        "R150.O0>R168.I0",
+        "R166.O0>R168.I2",
+        "R168.O0>R169.I0",
+        "R171.O0>R170.I0",
+        "R169.O0>R170.I1",
+        "R169.O2>R171.I2",
+        "R170.O0>R172.I0",
+        "R265.O0>R173.I0",
+        "R17.O0>R173.I1",
+        "R336.O0>R174.I0",
+        "R143.O0>R177.I0",
+        "R150.O0>R178.I0",
+        "R154.O0>R179.I0",
+        "R179.O0>R180.I0",
+        "R181.O0>R180.I1",
+        "R186.O0>R187.I0",
+        "R190.O0>R189.I0",
+        "R188.O0>R189.I1",
+        "R192.O0>R190.I0",
+        "R191.O0>R190.I1",
+        "R189.O0>R193.I0",
+        "R195.O0>R196.I0",
+        "R150.O0>R197.I0",
+        "R195.O0>R197.I2",
+        "R197.O0>R198.I0",
+        "R200.O0>R199.I0",
+        "R198.O0>R199.I1",
+        "R198.O2>R200.I2",
+        "R199.O0>R201.I0",
+        "R60.O0>R202.I0",
+        "R202.O0>R203.I0",
+        "R202.O1>R204.I0",
+        "R210.O0>R208.I0",
+        "R210.O0>R209.I0",
+        "R208.O0>R209.I1",
+        "R124.O0>R209.I2",
+        "R69.O0>R211.I0",
+        "R211.O2>R212.I0",
+        "R218.O0>R213.I0",
+        "R218.O1>R213.I1",
+        "R218.O2>R213.I2",
+        "R218.O3>R213.I3",
+        "R218.O4>R213.I4",
+        "R218.O5>R213.I5",
+        "R218.O6>R213.I6",
+        "R218.O7>R213.I7",
+        "R216.O0>R214.I0",
+        "R216.O0>R215.I0",
+        "R268.O0>R215.I1",
+        "R122.O0>R215.I2",
+        "R222.O0>R217.I0",
+        "R217.O2>R218.I0",
+        "R114.O0>R219.I0",
+        "R220.O0>R219.I1",
+        "R221.O0>R219.I2",
+        "R219.O0>R222.I0",
+        "R223.O0>R222.I1",
+        "R351.O1>R223.I0",
+        "R241.O0>R223.I1",
+        "R340.O1>R225.I0",
+        "R109.O0>R225.I1",
+        "R182.O0>R226.I0",
+        "R225.O0>R226.I1",
+        "R238.O0>R227.I0",
+        "R239.O0>R227.I1",
+        "R227.O0>R228.I0",
+        "R234.O0>R228.I1",
+        "R230.O0>R229.I0",
+        "R248.O0>R229.I1",
+        "R237.O0>R229.I2",
+        "R292.O0>R232.I0",
+        "R292.O0>R233.I0",
+        "R237.O0>R233.I1",
+        "R248.O0>R233.I2",
+        "R233.O0>R235.I0",
+        "R293.O0>R236.I0",
+        "R292.O0>R237.I0",
+        "R230.O0>R240.I0",
+        "R237.O0>R242.I0",
+        "R60.O0>R243.I0",
+        "R69.O0>R244.I0",
+        "R245.O0>R244.I1",
+        "R244.O0>R246.I0",
+        "R246.O2>R247.I0",
+        "R252.O0>R248.I0",
+        "R255.O0>R248.I1",
+        "R214.O0>R249.I0",
+        "R250.O1>R249.I1",
+        "R284.O0>R249.I2",
+        "R214.O0>R250.I0",
+        "R265.O0>R251.I0",
+        "R21.O0>R251.I1",
+        "R17.O0>R253.I0",
+        "R21.O0>R253.I1",
+        "R17.O0>R254.I0",
+        "R253.O0>R254.I1",
+        "R202.O0>R256.I0",
+        "R256.O0>R257.I0",
+        "R341.O0>R263.I0",
+        "R80.O0>R263.I1",
+        "R120.O2>R264.I0",
+        "R214.O0>R266.I0",
+        "R250.O1>R266.I1",
+        "R267.O0>R266.I2",
+        "R267.O0>R266.I3",
+        "R267.O0>R266.I4",
+        "R266.O0>R268.I0",
+        "R269.O0>R268.I1",
+        "R270.O0>R269.I0",
+        "R247.O0>R273.I0",
+        "R247.O1>R273.I1",
+        "R247.O2>R273.I2",
+        "R247.O3>R273.I3",
+        "R247.O4>R273.I4",
+        "R247.O5>R273.I5",
+        "R247.O6>R273.I6",
+        "R247.O7>R273.I7",
+        "R272.O0>R276.I0",
+        "R83.O0>R277.I0",
+        "R246.O2>R278.I0",
+        "R279.O0>R280.I0",
+        "R337.O0>R281.I0",
+        "R222.O0>R285.I0",
+        "R286.O0>R285.I1",
+        "R289.O0>R287.I0",
+        "R289.O1>R287.I1",
+        "R289.O2>R287.I2",
+        "R289.O3>R287.I3",
+        "R289.O4>R287.I4",
+        "R289.O5>R287.I5",
+        "R289.O6>R287.I6",
+        "R289.O7>R287.I7",
+        "R285.O0>R288.I0",
+        "R288.O2>R289.I0",
+        "R340.O0>R290.I0",
+        "R340.O1>R290.I1",
+        "R306.O0>R304.I0",
+        "R306.O0>R305.I0",
+        "R304.O0>R305.I1",
+        "R213.O0>R305.I2",
+        "R331.O0>R307.I0",
+        "R307.O0>R308.I0",
+        "R308.O2>R310.I0",
+        "R313.O0>R310.I1",
+        "R308.O2>R311.I0",
+        "R314.O0>R311.I1",
+        "R308.O2>R312.I0",
+        "R316.O0>R312.I1",
+        "R317.O0>R318.I0",
+        "R348.O0>R320.I0",
+        "R319.O0>R320.I1",
+        "R318.O0>R321.I0",
+        "R348.O4>R321.I1",
+        "R322.O0>R321.I2",
+        "R348.O0>R322.I0",
+        "R332.O0>R322.I1",
+        "R318.O0>R323.I0",
+        "R348.O0>R323.I1",
+        "R348.O1>R323.I2",
+        "R348.O0>R323.I3",
+        "R324.O0>R323.I4",
+        "R320.O0>R324.I0",
+        "R348.O1>R324.I1",
+        "R319.O0>R325.I0",
+        "R326.O1>R325.I1",
+        "R323.O0>R326.I0",
+        "R348.O0>R327.I0",
+        "R348.O1>R327.I1",
+        "R340.O1>R330.I0",
+        "R348.O0>R332.I0",
+        "R319.O0>R332.I1",
+        "R348.O0>R333.I0",
+        "R332.O0>R333.I1",
+        "R348.O0>R334.I0",
+        "R320.O0>R334.I1",
+        "R348.O0>R335.I0",
+        "R324.O0>R335.I1",
+        "R18.O0>R336.I0",
+        "R23.O0>R336.I1",
+        "R157.O0>R337.I0",
+        "R279.O0>R337.I1",
+        "R155.O0>R338.I0",
+        "R44.O0>R339.I0",
+        "R42.O0>R339.I1",
+        "R182.O0>R340.I0",
+        "R183.O0>R340.I1",
+        "R202.O0>R341.I0",
+        "R291.O0>R341.I1",
+        "R307.O0>R342.I0",
+        "R309.O0>R342.I1",
+        "R243.O0>R343.I0",
+        "R258.O0>R343.I1",
+        "R243.O0>R344.I0",
+        "R259.O0>R344.I1",
+        "R243.O0>R345.I0",
+        "R260.O0>R345.I1",
+        "R243.O0>R346.I0",
+        "R261.O0>R346.I1",
+        "R318.O0>R348.I0",
+        "R358.O0>R348.I1",
+        "R362.O0>R349.I0",
+        "R363.O0>R349.I1",
+        "R219.O0>R351.I0",
+        "R364.O0>R351.I1",
+        "R182.O0>R352.I0",
+        "R109.O0>R352.I1",
+        "R308.O2>R356.I0",
+        "R357.O0>R356.I1",
+        "R321.O0>R359.I0",
+        "R362.O0>R360.I0",
+        "R361.O0>R360.I1"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R49",
+          "text": "The following bit of code below is inspired by the source mentioned here.\r\n\r\nThe main feature of this definition is that we can control:\r\n1- Radius of effect\r\n2- Strength of effect\r\n\r\nOnline source:\r\nhttps://generativelandscapes.wordpress.com/2014/08/21/multiple-point-vector-field-example-6-2",
+          "pos": [
+            10026.4,
+            342.9
+          ],
+          "nearby": [
+            "R51",
+            "R40",
+            "R55",
+            "R57",
+            "R44",
+            "R54",
+            "R59",
+            "R43"
+          ]
+        },
+        {
+          "panel_id": "R50",
+          "text": "Often, what you want to code in Grasshopper has already been done by others before you.\r\nIt would be interesting to make a quick online research and find helpful resources.\r\nOne of the main online resources for Grasshopper definitions is:\r\nhttps://discourse.mcneel.com/c/grasshopper/2\r\n\r\nOR:\r\n\r\nJust search in Google: \"Grasshopper [WHAT I WANT TO DESIGN]\" and check out the results.",
+          "pos": [
+            10026,
+            66.7
+          ],
+          "nearby": [
+            "R51"
+          ]
+        },
+        {
+          "panel_id": "R67",
+          "text": "Assignment 6a: Use the definition above to manipulate vertecies and make a similar effect as done with manipulating edges.\r\n\r\nC- Manipulating Vertecies:\r\n\r\nZ direction:\r\n\r\n1- Move each of the 4 vertecies of each panel, with different values, in the Z direction.\r\n\r\n2- Make \"4Point Surface\" from the moved points.\r\n\r\n\r\nNormal to surface:\r\n\r\n3- Repeat the same steps (1) & (2) but now moving the points Normal to surface.\r\n\r\nHINT: EACH of the 4 POINTS of EACH SURFACE has a UNIQUE NORMAL VECTOR!",
+          "pos": [
+            13506.6,
+            3546.8
+          ],
+          "nearby": [
+            "R68"
+          ]
+        },
+        {
+          "panel_id": "R207",
+          "text": "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain.",
+          "pos": [
+            3153.4,
+            974.3
+          ],
+          "nearby": [
+            "R144",
+            "R176",
+            "R175",
+            "R142",
+            "R190"
+          ]
+        },
+        {
+          "panel_id": "R224",
+          "text": "WARNING\r\n\r\nThe operations on the right side are heavy and may crash your GH file.\r\n\r\nPlease enable and disable components while trying them, so that not all of them would be running simultaneously.\r\n\r\nTry to disable all components on the right side, except for the ones needed to run the components.\r\n\r\nAlso, try to Lock Solver if needed by Right-Clicking anywhere and selecting \"Lock Solver\"",
+          "pos": [
+            15566.3,
+            26.3
+          ],
+          "nearby": [
+            "R271"
+          ]
+        },
+        {
+          "panel_id": "R262",
+          "text": "Be careful to find the correct point order",
+          "pos": [
+            13290.4,
+            4704.7
+          ],
+          "nearby": [
+            "R260",
+            "R311",
+            "R310",
+            "R1",
+            "R259",
+            "R261",
+            "R312",
+            "R342"
+          ]
+        },
+        {
+          "panel_id": "R296",
+          "text": "1- Attractor Logic: One of Grasshopper's most powerful parametric strategies.\r\n\r\n- Attractor Logic is a very simple design concept based on distances. However the results could become amazing.\r\n\r\n- We will build a simple parametric definition below and understand how attractors work in Grasshopper.\r\n\r\n- Build a squarish grid of points: S 10, Ex 10, Ey 10.\r\n\r\n- Construct a Point and keep in without any INPUTS.\r\n\r\n- Use a \"Move\" component and feed in the Point. Use an MD Slider to feed to direction.\r\n\r\n- Change the MD Slider's domains to 100 in both X & Y.\r\n\r\n- Get the Points from the Squarish grid and flatten them\r\n\r\n- Get the Ditances between the flattened points of the squarish grid and the moved point.\r\n\r\n- Check out the distances using a panel.\r\n\r\n- Find the minimum & maximum of all distances by using the \"Bounds\" component.\r\n\r\n- Use a \"Vector 2Pt\" component:\r\n1t Point Input = Constructed Point\r\n1st Point Input = All Points of the squarish grid\r\n\r\n- Move all the points of the squarish grid by using the \"Vector 2Pt\" as translation vectors.\r\n\r\n- Make Lines between the points of the squarish grid and the newly moved ones.\r\n\r\n- The Lines represent the \"Attraction\" between the constructed point and the squarish grid points.\r\n\r\n- Find below numerous examples of how to affect this attraction effect, by:\r\n- Manipulating vector lengths with commands, such as multiplication.\r\n- Remapping data.",
+          "pos": [
+            478.8,
+            28.9
+          ],
+          "nearby": [
+            "R13"
+          ]
+        },
+        {
+          "panel_id": "R297",
+          "text": "6- Paneling: \r\n\r\n1- Model a non-planar surface in Rhino\r\n\r\n2- Use the \"Divide Domain²\" component to divide the domain of the surface in both U & V directions.\r\n\r\n3- Use the \"isoTrim\" component to make sub-surfaces based on the divide domain² information.\r\n\r\n4- Use the \"DeConstruct Brep\" to extract:\r\na- Faces (surfaces)\r\nb- Edges\r\nc- Vertecies\r\n\r\n5- Now you have a panelized surface.",
+          "pos": [
+            12031,
+            28.9
+          ],
+          "nearby": [
+            "R38"
+          ]
+        },
+        {
+          "panel_id": "R298",
+          "text": "8- Geometry Morphing:\r\n\r\nAnother powerful way of panelization is to morph geometry onto a panelized surface, with a customized base shape.\r\n\r\nWe will use the previous definition and morph a modeled geometry in Rhino.\r\n\r\n- First, reference the modeled geometry in Rhino in a \"Geometry\" component.\r\n\r\n- Use a \"Bounding Box\" and plug in the referenced geometry in the C INPUT.\r\n\r\n- Use a \"Surface Box\" and plug in:\r\n1- Base surface in S INPUT.\r\n2- Divide Domain² OUTPUT in D INPUT.\r\n3- Number in H INPUT.\r\n\r\n- Use a \"Box Morph\" and plug in:\r\n1- Referenced geometry in G INPUT.\r\n2- The first B OUTPUT from \"Bounding Box\" in R INPUT.\r\n3- OUTPUT of \"Surface Box\" in T INPUT.\r\n\r\n- Note that you can always change the referenced geometry and then reference it again, and the final result will update accordingly.\r\n\r\nIMPORTANT:\r\n\r\n- If, for any reason, you would need to construct a non-regular surface division (without Domain Division), then you would need to construct Twisted Boxs without using the \"Surface Box\".\r\n\r\nFor this purpose, you will use the parameters of that non-regular surface divisions and use the \"Twisted Box\" component to generate Twisted Boxes, which can then be used for the T INPUT of the \"Box Morph\".",
+          "pos": [
+            15910.5,
+            28.9
+          ],
+          "nearby": [
+            "R39"
+          ]
+        },
+        {
+          "panel_id": "R299",
+          "text": "7- Paneling: Practical Example\r\n\r\nLet us use the result from the previous definition to make interesting panelization options:\r\n\r\n\r\nA- Manipulating Faces\r\n\r\n1- Extrude all faces in the Z direction\r\n\r\n2- Extrude / Offset all faces Normal to Surface.\r\n\r\n\r\nB- Manipualting Edges:\r\n\r\nZ direction:\r\n\r\n1- Move one edge of the panels in the Z direction.\r\n\r\n2- Loft the moved edges with their respective facing edges.\r\n\r\nNormal to Surface:\r\n\r\n3- Repeat step (1) but now the edges being moved Normal to the surface.\r\n\r\n4- Loft the moved edges with their respective facing edges.",
+          "pos": [
+            12936.8,
+            28.9
+          ],
+          "nearby": [
+            "R66"
+          ]
+        },
+        {
+          "panel_id": "R300",
+          "text": "2- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Make a number slider between 0-1\r\n\r\n- Make a \"Graph Mapper\":\r\n1- Right-Click on the \"Graph Mapper\" and click on \"Graph Types\" and choose \"Bezier\".\r\n2- Bring a Panel and watch the output of the Graph Mapper.\r\n\r\n- Notice the red line illustrating the INPUT value (along the X axis).\r\n- The Y value is the mapped value of X, following the bezier function.\r\n\r\n\r\n- Copy the Graph Mapper and start manipulating the X & Y domains by double-clicking on the Graph Mapper.\r\n\r\n",
+          "pos": [
+            2200.7,
+            28.9
+          ],
+          "nearby": [
+            "R127"
+          ]
+        },
+        {
+          "panel_id": "R301",
+          "text": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also notive that the default number of steps is 10, illustrated by the N INPUT.\r\n\r\n- You can change both the D & N values by contructing a new \"Domain\" and using an integer slider.\r\n\r\n>> Be Careful! If the domain range goes beyond the Graph Mapper's domain, there will be missed output results!",
+          "pos": [
+            3181,
+            28.9
+          ],
+          "nearby": [
+            "R137"
+          ]
+        },
+        {
+          "panel_id": "R302",
+          "text": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and feed its Z with the deconstructed Point above Z value.\r\n- Feed these new Z values into the Plane INPUT of the Circle.\r\n- Feed the X OUTPUT of the Deconstructed Point into the Radius INPUT of the Circle.\r\n- Check the results in Perspective view in Rhino while selecting the Circle.\r\n- Final touch: Loft the circles together.\r\n\r\n- If you have a low quality preview of the loft, click on \"Preview Mesh Quality\" at the Top Right corner of your viewport and select \"High Quality\".\r\n\r\n- Change the type of the Graph Mapper and check out the results!",
+          "pos": [
+            6709.7,
+            28.9
+          ],
+          "nearby": [
+            "R146"
+          ]
+        },
+        {
+          "panel_id": "R303",
+          "text": "4- Graph Mapper: Maps a number of values using a function.\r\n\r\nIn case we had a domain of values beyond the domain of the graph mapper, we can remap the INPUT values to match a standard (0.0 to 1.0) domain of the graph, use the graph, then remap the OUTPUT values back to the original domain.",
+          "pos": [
+            4630.1,
+            28.9
+          ],
+          "nearby": [
+            "R231"
+          ]
+        },
+        {
+          "panel_id": "R347",
+          "text": "9- Exercise: Sun Orientation\r\n\r\nStart with preparing the geometries:\r\n\r\n1- Place a Point to represent the sun Position\r\n2- Construct a Surface and divide it to get sub-surfaces\r\n3- Evaluate the sub-surfaces in order to extract the points and their respective normal vectors\r\n\r\nOrientation Method 1:  Using the \"Orient\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point (Using Vector 2Pt)\r\n2- Build planes normal to the vectors\r\n3- Orient the sub-surfaces according the planes normal to the vectors\r\n\r\nOrientation Method 2: Using the \"Orient Direction\" component\r\n\r\n1- Build Vectors between each of the sub-surfaces and the sun point\r\n2- Adjust amplitude of the vectors to match the original vector lengths\r\n>> These would be used for the Direction B input of the component\r\n3- Use the Centroids of the sub-surfaces as Point A and Point B\r\n4- Direction A: Original normal vectors of the sub-surfaces",
+          "pos": [
+            20125.8,
+            28.9
+          ],
+          "nearby": [
+            "R329"
+          ]
+        }
+      ]
+    }
+  }
+}

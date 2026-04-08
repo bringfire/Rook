@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_bf1c655b",
+  "note_type": "component",
+  "name": "Mesh NakedEdge",
+  "brief": "Mesh NakedEdge | Inputs: M → V, A, B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Mesh NakedEdge. Inputs: M (Mesh). Outputs: V (Point), A (Integer), B (Integer).",
+  "keywords": [
+    "mesh nakededge",
+    "mesh",
+    "nakededge",
+    "mesh_analysis"
+  ],
+  "category": "mesh_analysis",
+  "tags": [
+    "mesh_analysis"
+  ],
+  "trigger_intents": [
+    "mesh nakededge",
+    "mesh",
+    "naked",
+    "edge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh NakedEdge"
+  ],
+  "solution_principle": "Find naked edges",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7bcf3a3a",
+    "comp_c97d1752",
+    "comp_fff2002f",
+    "comp_38f1c08d",
+    "comp_0693fc0f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "743c7d57-100d-4418-b623-a7ca47a11d05",
+    "category": "mesh_analysis",
+    "inputs": {
+      "M": "Mesh"
+    },
+    "outputs": {
+      "V": "Point",
+      "A": "Integer",
+      "B": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2b9bf01d-5fe5-464c-b0b3-b469eb5f2efb"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|analysis|mesh nakededge"
+  }
+}

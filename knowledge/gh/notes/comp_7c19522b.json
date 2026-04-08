@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_7c19522b",
+  "note_type": "component",
+  "name": "Load",
+  "brief": "Load | Inputs: P, FV → U",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Load. Inputs: P (Generic Data), FV (Vector). Outputs: U (Generic Data).",
+  "keywords": [
+    "load",
+    "kangaroo2_goals-pt"
+  ],
+  "category": "kangaroo2_goals-pt",
+  "tags": [
+    "kangaroo2_goals-pt"
+  ],
+  "trigger_intents": [
+    "load"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Load"
+  ],
+  "solution_principle": "Load",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_012865d1",
+    "recipe_197f9935",
+    "recipe_220a9e75",
+    "recipe_7de55487",
+    "recipe_81915ce5",
+    "comp_f1055a35"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "580a1a0c-314d-4033-a54c-c129400b4b58",
+    "category": "kangaroo2_goals-pt",
+    "inputs": {
+      "P": "Generic Data",
+      "FV": "Vector"
+    },
+    "outputs": {
+      "U": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2019c995-53af-4eb2-976d-95b1fdc823fa"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-pt|load"
+  },
+  "deprecated": true,
+  "deprecated_by": "2019c995-53af-4eb2-976d-95b1fdc823fa"
+}

@@ -1,0 +1,142 @@
+{
+  "note_id": "teaching_e26477b2",
+  "note_type": "teaching",
+  "name": "U06 - Graph Mapper: Maps a number of values using a function",
+  "brief": "Teaching: Graph Mapper: Maps a number of values using a function.",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also no",
+  "keywords": [
+    "graph",
+    "mapper",
+    "maps",
+    "number",
+    "values",
+    "using",
+    "function",
+    "line",
+    "graph mapper",
+    "numberslider",
+    "construct domain",
+    "unit 06 class",
+    "remapping"
+  ],
+  "category": "Unit 06",
+  "tags": [
+    "unit-06",
+    "intermediate-advanced",
+    "teaching",
+    "tutorial",
+    "hands-on",
+    "annotated",
+    "remapping values",
+    "function-mapping",
+    "value-remapping",
+    "data-transformation",
+    "parameter-control",
+    "graph-mapper",
+    "function-based-remapping"
+  ],
+  "trigger_intents": [
+    "graph mapper: maps a number of values using a function",
+    "how to use graph mapper: maps a number of values using a function",
+    "how to use line",
+    "how to use graph mapper",
+    "how to use construct domain",
+    "using multiple inputs:",
+    "get a panel and watch the results",
+    "use a \"range\" of values to input more values",
+    "domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line",
+    "Graph Mapper",
+    "NumberSlider",
+    "Construct Domain"
+  ],
+  "solution_principle": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also notive that the default number of steps is 10, illustrated by the N INPUT.\r\n\r\n- You can change both the D & N values by contructing a new \"Domain\" and using an integer slider.\r\n\r\n>> Be Careful! If the domain range goes beyond the Graph Mapper's domain, there will be missed output results!",
+  "anti_patterns": [],
+  "preconditions": [
+    "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain."
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_d50d21aa",
+    "teaching_64feecee",
+    "teaching_d7542586",
+    "teaching_6712adae",
+    "teaching_e8ddc722",
+    "teaching_801cb203"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-06-Class",
+    "unit_number": 6,
+    "section_number": 3,
+    "section_index": 2,
+    "x_range": [
+      2205,
+      3181.1
+    ],
+    "full_teaching_text": "3- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Using Multiple INPUTS:\r\n- Take the previous example and input a seconf value.\r\n\r\n- Get a Panel and watch the results.\r\n\r\n- Important: The resulting data depends on the order of the values you input. Try to use the \"Merge\" component to keep track of that order of inputs.\r\n\r\n- Use a \"Range\" of values to input more values.\r\n- Notice that the \"Domain\" D INPUT of the \"Range\" component comes with a default domain between 0 & 1.\r\n- Also notive that the default number of steps is 10, illustrated by the N INPUT.\r\n\r\n- You can change both the D & N values by contructing a new \"Domain\" and using an integer slider.\r\n\r\n>> Be Careful! If the domain range goes beyond the Graph Mapper's domain, there will be missed output results!",
+    "sub_annotations": [
+      {
+        "id": "C207",
+        "text": "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain.",
+        "topic": "If the domain of values is greater than the domain of the Graph Mapper, the Graph Mapper will only affect the values within its own domain.",
+        "pos": [
+          3153.4,
+          974.3
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C27",
+      "C129",
+      "C132",
+      "C135",
+      "C191",
+      "C192",
+      "C190"
+    ],
+    "intra_section_flows": [
+      "C129.O0>C130.I0",
+      "C132.O0>C133.I0",
+      "C135.O0>C136.I0",
+      "C192.O0>C190.I0",
+      "C191.O0>C190.I1"
+    ],
+    "groups": [
+      {
+        "group_id": "G45",
+        "name": "Remapping values",
+        "colour": "#FF333396"
+      }
+    ],
+    "components_demonstrated": {
+      "Line": 1,
+      "Graph Mapper": 3,
+      "NumberSlider": 2,
+      "Construct Domain": 1
+    },
+    "stats": {
+      "teaching_panels": 2,
+      "sub_annotations": 1,
+      "working_components": 7,
+      "sub_labels": 0,
+      "connected_panels": 3,
+      "flows": 5,
+      "groups": 1
+    }
+  }
+}

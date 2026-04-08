@@ -1,0 +1,78 @@
+{
+  "note_id": "comp_e3ac3325",
+  "note_type": "component",
+  "name": "Gate Not",
+  "brief": "Gate Not | Inputs: A → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Gate Not. Inputs: A (Boolean). Outputs: R (Boolean).",
+  "keywords": [
+    "gate not",
+    "gate",
+    "not",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "gate not",
+    "gate",
+    "not"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Gate Not"
+  ],
+  "solution_principle": "Perform boolean negation (NOT gate).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_8c2fe922",
+    "comp_fd8a342f",
+    "comp_ee5571b6",
+    "comp_bf182481",
+    "comp_6fbc1b75",
+    "comp_88aab490",
+    "comp_464d3c31",
+    "comp_05f4e5c2",
+    "comp_a5ce99fe",
+    "comp_90eb5b83",
+    "comp_8f51eab2",
+    "comp_ce2a0f8e",
+    "comp_285ef86c",
+    "comp_e1298bdb",
+    "comp_743fe0b0",
+    "comp_7b738741",
+    "comp_b419add1",
+    "comp_45e8aff0",
+    "comp_39c5db5b",
+    "comp_304f1221"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "cb2c7d3c-41b4-4c6d-a6bd-9235bd2851bb",
+    "category": "math_operators",
+    "inputs": {
+      "A": "Boolean"
+    },
+    "outputs": {
+      "R": "Boolean"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|operators|gate not"
+  }
+}

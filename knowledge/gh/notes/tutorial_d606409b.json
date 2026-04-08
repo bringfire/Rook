@@ -1,0 +1,88 @@
+{
+  "note_id": "tutorial_d606409b",
+  "note_type": "teaching",
+  "name": "Professional 7-1: List Extraction Methods \u00e2\u20ac\u201d List Item, Cull Index, Cull Pattern, Cull Nth",
+  "brief": "Three approaches: Char Sequence \u00e2\u2020\u2019 List Item (indices 2,6,8,10,12 \u00e2\u2020\u2019 C,G,I,K,A) + Cull Index (removes those indices), Cull Pattern (0,0,1 cycle), Cull Nth (frequency=3).",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:55.905824Z",
+  "context": "Three clusters comparing list extraction/filtering methods. All use Char Sequence (Count=12) \u00e2\u2020\u2019 A through L. Cluster 1: List Item (Index from Panel: 2,6,8,10,12) \u00e2\u2020\u2019 extracts items at those indices: C,G,I,K,A (Wrap brings 12 back to A). Cull Index (same Indices: 2,6,8,10,12) \u00e2\u2020\u2019 REMOVES those indices, keeps the rest: B,D,E,F,H,J. List Item SELECTS specific indices. Cull Index REMOVES specific indices. Complementary operations. Cluster 2: Cull Pattern (Pattern from Panel: 0,0,1) \u00e2\u2020\u2019 removes every 3rd item: keeps B,C,E,F,H,I,K,L. Pattern cycles: 0=keep, 1=remove (repeating). Cluster 3: Cull Nth (Cull frequency from Panel: 3) \u00e2\u2020\u2019 removes every Nth item: A,B,D,E,G,H,J,K. Every 3rd item (C,F,I,L) is removed.",
+  "keywords": [
+    "list item",
+    "cull index",
+    "cull pattern",
+    "cull nth",
+    "list extraction",
+    "index selection",
+    "frequency culling",
+    "char sequence"
+  ],
+  "category": "Professional - Advanced List Ops Planes Orient Isotrim",
+  "tags": [
+    "professional",
+    "alternatives",
+    "list-operations",
+    "cull-index",
+    "cull-pattern",
+    "cull-nth",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "list item vs cull index",
+    "cull pattern vs cull nth",
+    "list extraction methods",
+    "remove items by index",
+    "frequency based culling",
+    "select vs remove from list"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Number Slider",
+    "Char Sequence",
+    "Panel",
+    "List Item",
+    "Cull Index",
+    "Cull Pattern",
+    "Cull Nth"
+  ],
+  "solution_principle": "List Item: SELECTS items at specific indices (positive selection). Cull Index: REMOVES items at specific indices (negative selection). Cull Pattern: removes/keeps based on repeating boolean pattern. 0=keep, 1=remove. Cull Nth: removes every Nth item \u00e2\u20ac\u201d simple frequency-based culling. Choose based on whether you know WHICH items you want (List Item), WHICH to remove (Cull Index), or want PATTERN-based filtering (Cull Pattern/Nth).",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_2b517157",
+    "tutorial_0bd27730",
+    "tutorial_640c1c9e",
+    "tutorial_b52a5b50",
+    "tutorial_36e3a473",
+    "tutorial_1afdc366"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:55.905824Z",
+  "citations": [],
+  "created_from": "professional_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Professional",
+    "image": "7-1.jpg",
+    "lesson_number": 7,
+    "step_number": 1,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Number Slider": 1,
+      "Char Sequence": 1,
+      "Panel": 1,
+      "List Item": 1,
+      "Cull Index": 1,
+      "Cull Pattern": 1,
+      "Cull Nth": 1
+    }
+  }
+}

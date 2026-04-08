@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_7340243b",
+  "note_type": "component",
+  "name": "Deconstruct Arc",
+  "brief": "Deconstruct Arc | Inputs: A → B, R, A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Deconstruct Arc. Inputs: A (Arc). Outputs: B (Plane), R (Number), A (Domain).",
+  "keywords": [
+    "deconstruct arc",
+    "deconstruct",
+    "arc",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "deconstruct arc",
+    "deconstruct",
+    "arc"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Arc"
+  ],
+  "solution_principle": "Retrieve the base plane, radius and angle domain of an arc.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0d20e65c",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_b59df947"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "23862862-049a-40be-b558-2418aacbd916",
+    "category": "curve_analysis",
+    "inputs": {
+      "A": "Arc"
+    },
+    "outputs": {
+      "B": "Plane",
+      "R": "Number",
+      "A": "Domain"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|deconstruct arc"
+  }
+}

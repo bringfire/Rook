@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_3b7aeb69",
+  "note_type": "component",
+  "name": "Reverse Surface",
+  "brief": "Reverse Surface | Inputs: S, U, V, W → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Reverse Surface. Inputs: S (Surface), U (Boolean), V (Boolean), W (Boolean). Outputs: S (Surface).",
+  "keywords": [
+    "reverse surface",
+    "reverse",
+    "surface",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "reverse surface",
+    "reverse",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Reverse Surface"
+  ],
+  "solution_principle": "Reverse directions of surface parameterization (U, V, and W)",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_46c625c1",
+    "comp_025306a9",
+    "comp_aae57ed7",
+    "comp_f5af2dcf",
+    "comp_31bee512"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "847cf05e-e195-4bc7-b472-e05459b9792b",
+    "category": "surface_utilities",
+    "inputs": {
+      "S": "Surface",
+      "U": "Boolean",
+      "V": "Boolean",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "S": "Surface"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|util|reverse surface"
+  }
+}

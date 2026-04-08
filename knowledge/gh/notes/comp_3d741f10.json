@@ -1,0 +1,77 @@
+{
+  "note_id": "comp_3d741f10",
+  "note_type": "component",
+  "name": "Query Annotation Styles",
+  "brief": "Query Annotation Styles | Inputs: N → As",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Query Annotation Styles. Inputs: N (Text Pattern). Outputs: As (Model Annotation Style).",
+  "keywords": [
+    "query annotation styles",
+    "query",
+    "annotation",
+    "styles",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "query annotation styles",
+    "query",
+    "annotation",
+    "styles"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Annotation Styles"
+  ],
+  "solution_principle": "Query a Rhino document for all available annotation styles",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6e038908",
+    "comp_375a03ab",
+    "comp_ec86ef0e",
+    "comp_8bf7b320",
+    "comp_ac161ae6",
+    "comp_c63df18b",
+    "comp_f805e573",
+    "comp_e4c56a6c",
+    "comp_237876e8",
+    "comp_a474810a",
+    "comp_737a969f",
+    "comp_1b8d5f48",
+    "comp_226ccb6f",
+    "comp_2cd7d271",
+    "comp_50399de9",
+    "comp_ccfa6e09",
+    "comp_f427ada5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0233a5e5-91d3-4cd6-be0f-6d7ce5de3202",
+    "category": "rhino_annotations",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "As": "Model Annotation Style"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|query annotation styles"
+  }
+}

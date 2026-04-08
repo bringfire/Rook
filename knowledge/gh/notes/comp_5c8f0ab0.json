@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_5c8f0ab0",
+  "note_type": "component",
+  "name": "Fillet Edge",
+  "brief": "Fillet Edge | Inputs: S, B, M, E → B",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Fillet Edge. Inputs: S (Brep), B (Integer), M (Integer), E (Integer), R (Number). Outputs: B (Brep).",
+  "keywords": [
+    "fillet edge",
+    "fillet",
+    "edge",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "fillet edge",
+    "fillet",
+    "edge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Fillet Edge"
+  ],
+  "solution_principle": "Fillet some edges of a brep.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f5af2dcf",
+    "comp_31bee512",
+    "comp_46c625c1",
+    "comp_f55f4eea",
+    "comp_025306a9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4b87eb13-f87c-4ff1-ae0e-6c9f1f2aecbd",
+    "category": "surface_utilities",
+    "inputs": {
+      "S": "Brep",
+      "B": "Integer",
+      "M": "Integer",
+      "E": "Integer",
+      "R": "Number"
+    },
+    "outputs": {
+      "B": "Brep"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|util|fillet edge"
+  }
+}

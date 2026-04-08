@@ -1,0 +1,357 @@
+{
+  "pattern_id": "a047dfae",
+  "name": "parametric",
+  "version": "1.0",
+  "created": "2026-02-02T04:54:21.781728Z",
+  "solution": {
+    "brief": "Parametric workflow with 4 adjustable parameters",
+    "principle": "",
+    "components_needed": [
+      "Sphere",
+      "slider",
+      "Mesh Brep",
+      "Settings (Custom)",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "C# Script",
+      "Image Sampler",
+      "Image Sampler",
+      "Mesh Colours",
+      "Mesh",
+      "Image Sampler",
+      "Deconstruct Mesh",
+      "Remap Numbers",
+      "slider",
+      "Amplitude",
+      "Move",
+      "Construct Mesh",
+      "Image Sampler",
+      "Weaverbird's Catmull-Clark Subdivision"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "parametric sphere",
+      "create a sphere"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "parametric"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:32:09.985434Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 21 wires -> 21 components, 21 flows"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 100
+        }
+      ],
+      "panels": []
+    },
+    "output_type": "unknown",
+    "source_definition": "Texture Displacement.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Sphere",
+          "nick": "Sph",
+          "name": "Sphere",
+          "pos": [
+            498,
+            246
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            237.8,
+            263
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R3",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            665,
+            256
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "Component_MeshSettingsCustom",
+          "nick": "Custom Mesh Settings",
+          "name": "Settings (Custom)",
+          "pos": [
+            511,
+            463
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "pos": [
+            48.4,
+            500.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R6",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            845,
+            96
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            515.3,
+            31.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R8",
+          "type": "Component_CSNET_Script",
+          "nick": "C#",
+          "name": "C# Script",
+          "pos": [
+            940,
+            338
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            1043.4,
+            -91.3
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            1051.7,
+            291.4
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "Component_MeshColour",
+          "nick": "MCol",
+          "name": "Mesh Colours",
+          "pos": [
+            1293,
+            269
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Mesh",
+          "name": "Mesh",
+          "pos": [
+            820.3,
+            256.1
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            1042.8,
+            469.7
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1423,
+            269
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1504,
+            492
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            1227.5,
+            620.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 100
+        },
+        {
+          "id": "R17",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            1589,
+            385
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1721,
+            258
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            1854,
+            261
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "ImageSampler",
+          "nick": "Image",
+          "name": "Image Sampler",
+          "pos": [
+            1039.4,
+            90.7
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            2002,
+            304
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R1.O0>R3.I0",
+        "R4.O0>R3.I1",
+        "R5.O0>R4.I8",
+        "R5.O0>R4.I9",
+        "R3.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R12.O0>R8.I0",
+        "R12.O0>R11.I0",
+        "R10.O0>R11.I1",
+        "R11.O0>R14.I0",
+        "R13.O0>R15.I0",
+        "R16.O0>R15.I2",
+        "R14.O3>R17.I0",
+        "R15.O0>R17.I1",
+        "R14.O0>R18.I0",
+        "R17.O0>R18.I1",
+        "R18.O0>R19.I0",
+        "R14.O1>R19.I1",
+        "R14.O2>R19.I2",
+        "R19.O0>R21.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

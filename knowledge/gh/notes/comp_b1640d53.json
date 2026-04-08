@@ -1,0 +1,75 @@
+{
+  "note_id": "comp_b1640d53",
+  "note_type": "component",
+  "name": "Diamond Grid",
+  "brief": "Diamond Grid | Inputs: Srf, U, V → C1, C2, C3",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Diamond Grid. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: C1 (Generic Data), C2 (Generic Data), C3 (Generic Data), C4 (Generic Data), MPt (Generic Data), N (Generic Data).",
+  "keywords": [
+    "diamond grid",
+    "diamond",
+    "grid",
+    "lunchbox_panels"
+  ],
+  "category": "lunchbox_panels",
+  "tags": [
+    "lunchbox_panels"
+  ],
+  "trigger_intents": [
+    "diamond grid",
+    "diamond",
+    "grid"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Diamond Grid"
+  ],
+  "solution_principle": "Creates a diamond corner point grid on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a204d663",
+    "comp_6ae4ed88",
+    "teaching_220e8091",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "comp_bcbf180c",
+    "comp_d184690d",
+    "comp_fb66c313"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7cf46619-66b8-4313-a493-edd54e7133b9",
+    "category": "lunchbox_panels",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "C1": "Generic Data",
+      "C2": "Generic Data",
+      "C3": "Generic Data",
+      "C4": "Generic Data",
+      "MPt": "Generic Data",
+      "N": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "56dba203-8834-40e4-8e98-cf64f2b791a6"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|panels|diamond grid"
+  }
+}

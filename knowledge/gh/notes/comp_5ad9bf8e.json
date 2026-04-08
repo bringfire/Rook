@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_5ad9bf8e",
+  "note_type": "component",
+  "name": "Conoid Surface",
+  "brief": "Conoid Surface | Inputs: U, V, R, T → Srf",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Conoid Surface. Inputs: U (Integer), V (Integer), R (Number), T (Number), S (Number), D1 (Domain), D2 (Domain). Outputs: Srf (Generic Data).",
+  "keywords": [
+    "conoid surface",
+    "conoid",
+    "surface",
+    "lunchbox_form"
+  ],
+  "category": "lunchbox_form",
+  "tags": [
+    "lunchbox_form"
+  ],
+  "trigger_intents": [
+    "conoid surface",
+    "conoid",
+    "surface"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Conoid Surface"
+  ],
+  "solution_principle": "Create Plucker's Conoid surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_296f5f71",
+    "comp_3b748e5f",
+    "comp_f058c665",
+    "comp_40dc966b",
+    "comp_b72c3416",
+    "comp_13d603c5",
+    "comp_c33aa162"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "38a071b4-9887-4828-86fb-d301d7f61fd6",
+    "category": "lunchbox_form",
+    "inputs": {
+      "U": "Integer",
+      "V": "Integer",
+      "R": "Number",
+      "T": "Number",
+      "S": "Number",
+      "D1": "Domain",
+      "D2": "Domain"
+    },
+    "outputs": {
+      "Srf": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "20b86e86-2311-465d-9f3a-9e2f9cb662c9",
+      "41910ccd-37aa-4c63-ba32-34632cd01f82"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|form|conoid surface"
+  }
+}

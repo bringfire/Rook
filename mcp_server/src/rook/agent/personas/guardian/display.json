@@ -1,0 +1,8 @@
+{
+  "label": "Guardian",
+  "description": "Monitors agent trajectories for issues",
+  "color": "#ffd400",
+  "model_role": "guardian",
+  "tool_access": "readonly",
+  "avatar": null
+}

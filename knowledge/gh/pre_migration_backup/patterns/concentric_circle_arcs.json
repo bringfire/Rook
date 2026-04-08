@@ -1,0 +1,98 @@
+{
+  "pattern_id": "concentric_circle_arcs",
+  "name": "Concentric Circle Arc Extraction",
+  "version": "1.0",
+  "created": "2026-01-30",
+  "learned_from": "spiral_staircase_tread_depth_session",
+
+  "description": "Extract arcs from concentric circles that span the same angular amount",
+
+  "problem": "When extracting SubCurve arcs from circles of different radii, using the same domain value produces different angular spans because circles use arc-length parameterization",
+
+  "solution": {
+    "principle": "Scale domain by each circle's radius to achieve equal angles",
+    "formula": "domain_end = desired_angle_radians × circle_radius",
+    "explanation": "Circle parameterization is 0 to 2πR (arc length), so domain/radius = angle"
+  },
+
+  "components_needed": [
+    {
+      "purpose": "Calculate base angle",
+      "type": "Any expression giving radians"
+    },
+    {
+      "purpose": "Scale for inner circle",
+      "type": "Multiplication",
+      "inputs": ["base_angle", "inner_radius"],
+      "output": "inner_domain_end"
+    },
+    {
+      "purpose": "Scale for outer circle",
+      "type": "Multiplication",
+      "inputs": ["base_angle", "outer_radius"],
+      "output": "outer_domain_end"
+    },
+    {
+      "purpose": "Inner arc domain",
+      "type": "Construct Domain",
+      "inputs": ["0", "inner_domain_end"],
+      "connects_to": "Inner SubCurve"
+    },
+    {
+      "purpose": "Outer arc domain",
+      "type": "Construct Domain",
+      "inputs": ["0", "outer_domain_end"],
+      "connects_to": "Outer SubCurve"
+    }
+  ],
+
+  "wiring_diagram": {
+    "description": "ASCII representation of component flow",
+    "diagram": [
+      "base_angle ──┬──> [× inner_radius] ──> [Construct Domain] ──> Inner SubCurve",
+      "             │",
+      "             └──> [× outer_radius] ──> [Construct Domain] ──> Outer SubCurve"
+    ]
+  },
+
+  "anti_patterns": [
+    {
+      "mistake": "Using same domain for both circles",
+      "symptom": "Non-wedge shapes, inner arc spans different angle than outer",
+      "why_wrong": "Arc-length parameterization means same domain ≠ same angle"
+    },
+    {
+      "mistake": "Assuming circles are parameterized 0-1 or 0-2π",
+      "symptom": "Domain values produce microscopic or invisible changes",
+      "why_wrong": "Default is 0 to 2πR (arc-length)"
+    }
+  ],
+
+  "use_cases": [
+    "Spiral staircase wedge treads",
+    "Pie/pizza slice geometry",
+    "Annular sector shapes",
+    "Fan blade profiles",
+    "Gear tooth profiles"
+  ],
+
+  "diagnostic_questions": [
+    {
+      "question": "Are you extracting arcs from circles of different sizes?",
+      "if_yes": "You likely need separate domains scaled by radius"
+    },
+    {
+      "question": "Are the resulting shapes distorted (not proper wedges)?",
+      "if_yes": "The inner and outer arcs probably span different angles"
+    },
+    {
+      "question": "Are slider changes producing microscopic effects?",
+      "if_yes": "Domain values are probably wrong scale for the curve parameterization"
+    }
+  ],
+
+  "verification": {
+    "test": "Set base_angle to π/4 (45°)",
+    "expected": "Both arcs should visually span 45°, but outer arc is longer"
+  }
+}

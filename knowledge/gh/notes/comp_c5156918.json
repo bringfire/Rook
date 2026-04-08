@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_c5156918",
+  "note_type": "component",
+  "name": "Unit Z",
+  "brief": "Unit Z | Inputs: F â†’ V",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Unit Z. Inputs: F (Number). Outputs: V (Vector).",
+  "keywords": [
+    "unit z",
+    "unit",
+    "z"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector",
+    "unit-vector",
+    "z-direction",
+    "3d-geometry",
+    "fundamental-operation",
+    "direction",
+    "component"
+  ],
+  "trigger_intents": [
+    "unit z",
+    "unit"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Unit Z"
+  ],
+  "solution_principle": "Unit vector parallel to the world {z} axis.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_52a7679a",
+    "recipe_155ea82b",
+    "comp_d3a0b860",
+    "recipe_4da99b59",
+    "recipe_fd023ae3",
+    "recipe_f446ae67"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9103c240-a6a9-4223-9b42-dbd19bf38e2b",
+    "category": "vector_ops",
+    "inputs": {
+      "F": "Number"
+    },
+    "outputs": {
+      "V": "Vector"
+    },
+    "typical_wiring": [],
+    "usage_count": 532,
+    "stable_key": "vector|vector|unit z"
+  }
+}

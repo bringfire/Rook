@@ -1,0 +1,62 @@
+{
+  "pattern_id": "edf4f4e4",
+  "name": "wasp_16_teaching_2_01_Field_Basics",
+  "version": "1.0",
+  "created": "2026-03-19T18:02:50.014808Z",
+  "solution": {
+    "brief": "2_01_Field_Basics",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "2_01_field_basics"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

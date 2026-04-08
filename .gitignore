@@ -1,0 +1,156 @@
+# Extracted SDK docs (local reference only)
+docs/gh_sdk_extracted/
+docs/gh_tests/
+docs/brainstorm/
+docs/plans/
+docs/engram-reference/
+docs/DisCoPaper_DMSB_rg.pdf
+docs/INTERACTION_MODEL.md
+docs/KNOWLEDGE_SYSTEMS_EVOLUTION.md
+docs/KNOWLEDGE_SYSTEMS_ARCHITECTURE.md
+docs/FEATURE_ROADMAP.md
+docs/knowledge/
+
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.log
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Visual Studio Code
+.vscode/
+
+# Rider
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+*.env
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# uv
+.uv/
+uv.lock
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+*.swp
+*.swo
+*~
+
+# Project specific
+*.rhp.bak
+.mcp.json
+.codex/config.toml
+
+# Runtime data (generated during operation)
+knowledge/context_history.json
+knowledge/mab_model.pkl
+knowledge/scaler.pkl
+knowledge/feature_flags.json
+knowledge/metrics.json
+knowledge/agent_tool_catalog.json
+
+# Bootstrap local knowledge (unvalidated, session-specific)
+knowledge/local/
+!knowledge/local/.gitkeep
+mcp_server/knowledge/local/
+
+# Canonical knowledge is tracked (validated, production)
+# knowledge/canonical/ is NOT ignored
+# mcp_server/knowledge/canonical/ is also tracked
+
+# Injection capture logs (testing/validation)
+injection_capture.jsonl
+*.capture.jsonl
+
+# Images (only track README logo and installer icon)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.ico
+*.svg
+*.webp
+*.tiff
+*.tif
+*.psd
+!docs/Images/Rook_02.png
+!installer/rook-icon.ico
+
+# Temporary files
+nul
+.pytest_tmp/
+.codex_tmp/
+check_*.py
+
+# Reference materials (large, not source)
+references/
+# But track skill reference docs
+!skills/*/references/
+!.claude/skills/*/references/
+
+# Claude local settings
+.claude/settings.local.json
+
+# Git worktrees
+.worktrees/
+
+# Archive (historical plans, conversations — not needed for public repo)
+docs/archive/
+
+# MAB model binaries (regenerable from observation data)
+knowledge/commands/*.pkl
+knowledge/commands/*.pkl.bak
+
+# Session recordings (runtime artifacts, not reference data)
+knowledge/gh/sessions/
+
+# Installer output (distributed via GitHub Releases, not git)
+installer/output/
+
+# Private drafts (announcements, marketing, internal notes)
+drafts/

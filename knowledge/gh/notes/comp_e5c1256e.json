@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_e5c1256e",
+  "note_type": "component",
+  "name": "Mesh Sphere Ex",
+  "brief": "Mesh Sphere Ex | Inputs: B, R, C → M",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Mesh Sphere Ex. Inputs: B (Plane), R (Number), C (Integer). Outputs: M (Mesh).",
+  "keywords": [
+    "mesh sphere ex",
+    "mesh",
+    "sphere",
+    "ex",
+    "mesh_ops"
+  ],
+  "category": "mesh_ops",
+  "tags": [
+    "mesh_ops"
+  ],
+  "trigger_intents": [
+    "mesh sphere ex",
+    "mesh",
+    "sphere"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Sphere Ex"
+  ],
+  "solution_principle": "Create a mesh sphere from square patches.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_32b3df2f",
+    "teaching_2a15f208",
+    "teaching_ecde5523",
+    "comp_87d517e7",
+    "comp_bb6571be"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "76f85ee4-5a88-4511-8ba7-30df07e50533",
+    "category": "mesh_ops",
+    "inputs": {
+      "B": "Plane",
+      "R": "Number",
+      "C": "Integer"
+    },
+    "outputs": {
+      "M": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0a391eac-5048-443c-9c1b-f592299b6dd6"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|primitive|mesh sphere ex"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_5cd2c908",
+  "note_type": "component",
+  "name": "Offset Curve Loose",
+  "brief": "Offset Curve Loose | Inputs: C, D, P → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Offset Curve Loose. Inputs: C (Curve), D (Number), P (Plane). Outputs: C (Curve).",
+  "keywords": [
+    "offset curve loose",
+    "offset",
+    "curve",
+    "loose",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "offset curve loose",
+    "offset",
+    "curve",
+    "loose"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Offset Curve Loose"
+  ],
+  "solution_principle": "Offset the control-points of a curve with a specified distance.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_7d656ef6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "80e55fc2-933b-4bfb-a353-12358786dba8",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "D": "Number",
+      "P": "Plane"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1a38d325-98de-455c-93f1-bca431bc1243"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|util|offset curve loose"
+  }
+}

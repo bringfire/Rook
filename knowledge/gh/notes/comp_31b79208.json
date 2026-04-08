@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_31b79208",
+  "note_type": "component",
+  "name": "Object Linetype",
+  "brief": "Object Linetype | Inputs: none → output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Object Linetype.",
+  "keywords": [
+    "object linetype",
+    "object",
+    "linetype",
+    "rhino_params"
+  ],
+  "category": "rhino_params",
+  "tags": [
+    "rhino_params"
+  ],
+  "trigger_intents": [
+    "object linetype",
+    "object",
+    "linetype"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Object Linetype"
+  ],
+  "solution_principle": "Contains a collection of object linetypes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_faffb0cf",
+    "comp_77883b08",
+    "comp_525a73a1",
+    "comp_8c1d7fca",
+    "comp_59eaa50b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8ff0c4b8-0798-49c0-8f2e-e726edfe1b48",
+    "category": "rhino_params",
+    "inputs": {},
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [
+      "8aa197e1-20fc-4662-8c05-1474668d3636"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|params|object linetype"
+  }
+}

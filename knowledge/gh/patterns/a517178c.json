@@ -1,0 +1,79 @@
+{
+  "pattern_id": "a517178c",
+  "name": "wasp_03_graph_grammar_teaching_1b._Connections_from",
+  "version": "1.0",
+  "created": "2026-03-19T17:23:00.598277Z",
+  "solution": {
+    "brief": "1b. Connections from Vertex\r\nWhen creating a connection from a part vertex, it is not possible\r\nto calculate directly its orientation. Hence it is necessary to define\r\nits orientation plane in Grasshopper, and then create a connection\r\nwith the \"ConnectionFromPlane\" component.\r\nConventionally, planes have the Z axis directed outside of the part.",
+    "principle": "",
+    "components_needed": [
+      "Brep",
+      "List Item",
+      "Mesh Brep",
+      "XY Plane",
+      "Deconstruct Brep",
+      "List Item",
+      "XY Plane",
+      "Deconstruct Plane"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "from",
+      "connection",
+      "connections",
+      "possible",
+      "when",
+      "vertex,",
+      "creating",
+      "vertex",
+      "part"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "graph-grammar",
+    "deterministic",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

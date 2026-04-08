@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_d8c157c3",
+  "note_type": "component",
+  "name": "Pull Point",
+  "brief": "Pull Point | Inputs: P, G → P, D, I",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Pull Point. Inputs: P (Point), G (Geometry). Outputs: P (Point), D (Number), I (Integer).",
+  "keywords": [
+    "pull point",
+    "pull",
+    "point",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "pull point",
+    "pull",
+    "point"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Pull Point"
+  ],
+  "solution_principle": "Pull a point to a variety of geometry.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_b1520461",
+    "comp_87ff6e5d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "902289da-28dc-454b-98d4-b8f8aa234516",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "G": "Geometry"
+    },
+    "outputs": {
+      "P": "Point",
+      "D": "Number",
+      "I": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "5184b8cb-b71e-4def-a590-cd2c9bc58906"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|pull point"
+  }
+}

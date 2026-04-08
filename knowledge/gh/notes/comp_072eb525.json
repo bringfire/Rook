@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_072eb525",
+  "note_type": "component",
+  "name": "Deconstruct Matrix",
+  "brief": "Deconstruct Matrix | Inputs: M \u2192 R, C, V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Deconstruct Matrix. Inputs: M (Matrix). Outputs: R (Integer), C (Integer), V (Number).",
+  "keywords": [
+    "deconstruct matrix",
+    "deconstruct",
+    "matrix",
+    "matrix_ops"
+  ],
+  "category": "matrix_ops",
+  "tags": [
+    "matrix_ops"
+  ],
+  "trigger_intents": [
+    "deconstruct matrix",
+    "deconstruct",
+    "matrix"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Deconstruct Matrix"
+  ],
+  "solution_principle": "Deconstruct a matrix into its component parts",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b0b4c36b",
+    "comp_2febcf4a",
+    "comp_4521b827",
+    "comp_c244c2bd",
+    "teaching_e8ddc722"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3aa2a080-e322-4be3-8c6e-baf6c8000cf1",
+    "category": "matrix_ops",
+    "inputs": {
+      "M": "Matrix"
+    },
+    "outputs": {
+      "R": "Integer",
+      "C": "Integer",
+      "V": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "54ac80cf-74f3-43f7-834c-0e3fe94632c6",
+      "0e90b1f3-b870-4e09-8711-4bf819675d90"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|matrix|deconstruct matrix",
+    "family": "matrix_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

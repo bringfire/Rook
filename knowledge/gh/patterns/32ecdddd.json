@@ -1,0 +1,74 @@
+{
+  "pattern_id": "32ecdddd",
+  "name": "wasp_basic_aggregation_teaching_2._Define_aggregatio",
+  "version": "1.0",
+  "created": "2026-03-19T15:47:48.750401Z",
+  "solution": {
+    "brief": "2. Define aggregation rules\r\nRules define which connection of which part can be\r\nconnected with each other to for the aggregation.\r\n\r\nNB: Rules are directional! So if you want to connect 1 to 2 and 2 to 1,\r\nyou need to write two separate rules.",
+    "principle": "",
+    "components_needed": [
+      "Curve",
+      "NumberSlider",
+      "NumberSlider",
+      "Point",
+      "NumberSlider",
+      "Brep"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "which",
+      "part",
+      "define",
+      "aggregation",
+      "connected",
+      "rules",
+      "connection"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "aggregation",
+    "tutorial"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

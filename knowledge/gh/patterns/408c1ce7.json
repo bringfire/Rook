@@ -1,0 +1,77 @@
+{
+  "pattern_id": "408c1ce7",
+  "name": "wasp_27_teaching_SUPPORTS",
+  "version": "1.0",
+  "created": "2026-03-19T18:32:53.171837Z",
+  "solution": {
+    "brief": "SUPPORTS\r\nIn order to specify custom support conditions to be checked during aggregation\r\n(e.g., minimum 2 points supported, or just the center point), it is possible to use\r\nthe Support component to define group of points to be supported.\r\nIn order to specify a support direction, a line segment intersecting the Part geometry\r\nis used.",
+    "principle": "",
+    "components_needed": [
+      "NumberSlider",
+      "NumberSlider",
+      "Random",
+      "Curve",
+      "Jitter",
+      "NumberSlider",
+      "Brep"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "support",
+      "supports",
+      "aggregation",
+      "custom",
+      "checked",
+      "during",
+      "specify",
+      "order",
+      "(e.g.,",
+      "conditions"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

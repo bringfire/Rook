@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_ee1dcf99",
+  "note_type": "component",
+  "name": "Sine",
+  "brief": "Sine | Inputs: x → y",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Sine. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "sine",
+    "trigonometry"
+  ],
+  "category": "trigonometry",
+  "tags": [
+    "trigonometry"
+  ],
+  "trigger_intents": [
+    "sine"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Sine"
+  ],
+  "solution_principle": "Compute the sine of a value",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_a98172dc",
+    "comp_a513c68a",
+    "comp_77d10d36",
+    "comp_38c8d281",
+    "comp_fb444524",
+    "comp_146e6e67",
+    "comp_cea798a6",
+    "comp_99a9eab9",
+    "comp_ee0122e5",
+    "comp_f64033e5",
+    "comp_bae2f7d3",
+    "comp_acd09dc2"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "7663efbb-d9b8-4c6a-a0da-c3750a7bbe77",
+    "category": "trigonometry",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [
+      {
+        "target": "Remap Numbers",
+        "param": "Value",
+        "count": 13
+      }
+    ],
+    "similar_to": [
+      "d2d2a900-780c-4d58-9a35-1f9d8d35df6f",
+      "0f31784f-7177-4104-8500-1f4f4a306df4",
+      "a2d9503d-a83c-4d71-81e0-02af8d09cd0c"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|trig|sine"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_35e1539e",
+  "note_type": "component",
+  "name": "Cull Duplicates",
+  "brief": "Cull Duplicates | Inputs: P, T → P, I, V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Cull Duplicates. Inputs: P (Point), T (Number). Outputs: P (Point), I (Integer), V (Integer).",
+  "keywords": [
+    "cull duplicates",
+    "cull",
+    "duplicates",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "cull duplicates",
+    "cull",
+    "duplicates"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Cull Duplicates"
+  ],
+  "solution_principle": "Cull points that are coincident within tolerance",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_9b720f9d",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_6d59d8a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "6eaffbb2-3392-441a-8556-2dc126aa8910",
+    "category": "geometry_primitives",
+    "inputs": {
+      "P": "Point",
+      "T": "Number"
+    },
+    "outputs": {
+      "P": "Point",
+      "I": "Integer",
+      "V": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "81f6afc9-22d9-49f0-8579-1fd7e0df6fa6"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|cull duplicates"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_85134c60",
+  "note_type": "component",
+  "name": "Mesh Reduce",
+  "brief": "Mesh Reduce | Inputs: Mesh, Size, Dist, Accuracy → RedMsh",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Mesh Reduce. Inputs: Mesh (Mesh), Size (Integer), Dist (Boolean), Accuracy (Number), Normalize (Boolean). Outputs: RedMsh (Generic Data).",
+  "keywords": [
+    "mesh reduce",
+    "mesh",
+    "reduce",
+    "lunchbox_mesh"
+  ],
+  "category": "lunchbox_mesh",
+  "tags": [
+    "lunchbox_mesh"
+  ],
+  "trigger_intents": [
+    "mesh reduce",
+    "mesh",
+    "reduce"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh Reduce"
+  ],
+  "solution_principle": "Reduce mesh polygons to simplify.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0b96a579",
+    "teaching_0ae1e0de",
+    "teaching_0f847371",
+    "teaching_22255d24",
+    "teaching_2a15f208",
+    "comp_ead277e0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a3c33654-0db2-4aeb-8551-d7a48b763128",
+    "category": "lunchbox_mesh",
+    "inputs": {
+      "Mesh": "Mesh",
+      "Size": "Integer",
+      "Dist": "Boolean",
+      "Accuracy": "Number",
+      "Normalize": "Boolean"
+    },
+    "outputs": {
+      "RedMsh": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "lunchbox|mesh|mesh reduce"
+  }
+}

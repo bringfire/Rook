@@ -1,0 +1,101 @@
+{
+  "commands_since_last": 0,
+  "last_consolidation": "2026-01-14T08:32:01.179171",
+  "recent_failures": [
+    {
+      "command": "-Cylinder",
+      "reason": "Request timed out",
+      "context": {
+        "intent": "create a box from 0,0,0 to 20,15,0 with height 10 for the main house body",
+        "mode": "default",
+        "full_command": "_-Cylinder center_point radius height",
+        "params": {}
+      },
+      "timestamp": "2026-01-14T08:32:01.179367"
+    },
+    {
+      "command": "-Dot",
+      "reason": "Request timed out",
+      "context": {
+        "intent": "create a triangular prism for the roof, spanning from 0,0,10 to 20,0,10 with peak at 10,7.5,15",
+        "mode": "default",
+        "full_command": "_-Dot",
+        "params": {}
+      },
+      "timestamp": "2026-01-14T08:36:34.894957"
+    },
+    {
+      "command": "-Box",
+      "reason": "",
+      "context": {
+        "intent": "create a box from 0,0,0 to 0.05,0.05,0 with height 0.45 for front-left leg",
+        "mode": "default",
+        "full_command": "_-Box 0,0,0 0.05,0.05,0.45",
+        "params": {
+          "first_corner": "0,0,0",
+          "opposite_corner": "0.05,0.05,0.45"
+        }
+      },
+      "timestamp": "2026-01-19T05:25:34.935906"
+    },
+    {
+      "command": "-Box",
+      "reason": "",
+      "context": {
+        "intent": "create a box from 0,0,0 to 0.05,0.05,0.45 for front left leg",
+        "mode": "default",
+        "full_command": "_-Box 0,0,0 0.05,0.05,0.45",
+        "params": {
+          "corner1": "0,0,0",
+          "corner2": "0.05,0.05,0.45"
+        }
+      },
+      "timestamp": "2026-01-23T09:41:52.033664"
+    },
+    {
+      "command": "-Box",
+      "reason": "",
+      "context": {
+        "intent": "create a box from 0,0.40,0 to 0.05,0.45,0.45 for back left leg",
+        "mode": "default",
+        "full_command": "_-Box 0,0.40,0 0.05,0.45,0.45",
+        "params": {
+          "corner1": "0,0.40,0",
+          "corner2": "0.05,0.45,0.45"
+        }
+      },
+      "timestamp": "2026-01-23T09:42:44.303499"
+    },
+    {
+      "command": "-Points",
+      "reason": "",
+      "context": {
+        "intent": "create a surface from 4 corner points at 0,0,0 and 20,0,0 and 0,20,5 and 20,20,3",
+        "mode": "coordinate_list",
+        "full_command": "_-Points 0,0,0 20,0,0 0,20,5 20,20,3",
+        "params": {
+          "coordinates": [
+            "0,0,0",
+            "20,0,0",
+            "0,20,5",
+            "20,20,3"
+          ]
+        }
+      },
+      "timestamp": "2026-02-20T21:35:58.811965"
+    },
+    {
+      "command": "-Loft",
+      "reason": "{'command': '_-Loft', 'executed': False, 'error': 'Command went interactive \u2014 missing required input. Provide all parameters in the scripted command string.', 'waitingFor': 'Location of point object. Press Enter when done ( Undo )', 'objectsCreated': 0, 'objectIds': []}",
+      "context": {
+        "intent": "create a lofted surface through the two lines I just created",
+        "mode": "default",
+        "full_command": "_-Loft",
+        "params": {}
+      },
+      "timestamp": "2026-02-20T21:36:23.134757"
+    }
+  ],
+  "new_commands": [],
+  "versions": []
+}

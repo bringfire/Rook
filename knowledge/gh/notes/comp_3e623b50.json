@@ -1,0 +1,74 @@
+{
+  "note_id": "comp_3e623b50",
+  "note_type": "component",
+  "name": "Weaverbird's Mesh Dipyramid",
+  "brief": "Weaverbird's Mesh Dipyramid | Inputs: P, W, S, T → O",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.463899Z",
+  "context": "Grasshopper component: Weaverbird's Mesh Dipyramid. Inputs: P (Plane), W (Number), S (Integer), T (Point), C (Boolean). Outputs: O (Mesh).",
+  "keywords": [
+    "weaverbird's mesh dipyramid",
+    "weaverbird's",
+    "mesh",
+    "dipyramid",
+    "wb_define"
+  ],
+  "category": "wb_define",
+  "tags": [
+    "wb_define"
+  ],
+  "trigger_intents": [
+    "weaverbird's mesh dipyramid",
+    "weaverbird's",
+    "mesh",
+    "dipyramid"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Mesh Dipyramid"
+  ],
+  "solution_principle": "Construct a solid shape (dipyramid)\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_191f4d10",
+    "comp_e830aa31",
+    "comp_8a356582",
+    "comp_76f5f626",
+    "comp_8b382489",
+    "comp_a8036aeb"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1098ec7a-819a-b1ee-9ca2-8186577e21f8",
+    "category": "wb_define",
+    "inputs": {
+      "P": "Plane",
+      "W": "Number",
+      "S": "Integer",
+      "T": "Point",
+      "C": "Boolean"
+    },
+    "outputs": {
+      "O": "Mesh"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1098ec4a-818a-b1ed-9ccc-86865d7e22e0",
+      "1098ec7a-819a-b1ed-9cac-86865d7e21f8",
+      "1098ec7a-819a-b1ed-9ccc-86865d7e21f9"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|define|weaverbird's mesh dipyramid"
+  }
+}

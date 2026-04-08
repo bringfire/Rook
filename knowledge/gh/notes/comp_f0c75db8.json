@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_f0c75db8",
+  "note_type": "component",
+  "name": "Print Width",
+  "brief": "Print Width | Inputs: Pw, S, W → Pw, S, W",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Print Width. Inputs: Pw (Print Width), S (Integer), W (Print Width). Outputs: Pw (Print Width), S (Integer), W (Print Width).",
+  "keywords": [
+    "print width",
+    "print",
+    "width",
+    "rhino_objects"
+  ],
+  "category": "rhino_objects",
+  "tags": [
+    "rhino_objects"
+  ],
+  "trigger_intents": [
+    "print width",
+    "print",
+    "width"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Print Width"
+  ],
+  "solution_principle": "Object print width attributes",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f355701d",
+    "comp_00e8e127",
+    "comp_6882f6f6",
+    "comp_e7c02afd",
+    "comp_525a73a1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "52a53903-46bf-42c2-818f-c23344fc53c5",
+    "category": "rhino_objects",
+    "inputs": {
+      "Pw": "Print Width",
+      "S": "Integer",
+      "W": "Print Width"
+    },
+    "outputs": {
+      "Pw": "Print Width",
+      "S": "Integer",
+      "W": "Print Width"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "7fe5b7ab-f156-48e2-bc80-b97a046e109f",
+      "3ec83758-5dcf-4f26-9400-f8232f471b88"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|objects|print width"
+  }
+}

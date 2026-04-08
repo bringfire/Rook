@@ -1,0 +1,739 @@
+{
+  "document": {
+    "name": "Unit-01-Class",
+    "path": "C:/UDEV/GrasshopperHowTos/BeginnerToAdvanced\\Unit-01-Class.gh"
+  },
+  "total_components": 134,
+  "total_flows": 55,
+  "total_groups": 20,
+  "total_columns": 11,
+  "meaningful_sections": 10,
+  "sections": [
+    {
+      "column_index": 1,
+      "header_id": "C80",
+      "x_range": [
+        439.9,
+        758.5
+      ],
+      "section_title": "Interface",
+      "section_number": null,
+      "teaching_text": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass",
+      "teaching_panel_id": "C3",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C130",
+          "text": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse.mcneel.com/t/panel-font-size-issue/101554/3\r\n\r\nDownload:\r\nhttps://www.food4rhino.com/en/app/pancake#downloads_list",
+          "topic": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes",
+          "pos": [
+            438.4,
+            590.1
+          ]
+        }
+      ],
+      "concepts_taught": [],
+      "components_demonstrated": {},
+      "working_component_ids": [],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C131"
+      ],
+      "intra_section_flows": [],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 0,
+        "sub_labels": 1,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 2,
+      "header_id": "C75",
+      "x_range": [
+        763.5,
+        1446.0
+      ],
+      "section_title": "Referencing Points",
+      "section_number": 1,
+      "teaching_text": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper component, it says:\r\n\"3 locally defined values...\r\nReferenced Point\r\nReferenced Point\r\nReferenced Point\"",
+      "teaching_panel_id": "C4",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C35",
+          "text": "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled",
+          "topic": "Color Coding",
+          "pos": [
+            761.8,
+            709
+          ]
+        },
+        {
+          "id": "C40",
+          "text": "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\"",
+          "topic": "Icon Style",
+          "pos": [
+            761.8,
+            1023
+          ]
+        },
+        {
+          "id": "C43",
+          "text": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+          "topic": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+          "pos": [
+            761.8,
+            1224.5
+          ]
+        },
+        {
+          "id": "C54",
+          "text": "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n- Name\r\n- Color\r\n- Other options\r\n\r\nSub-groups can be made within a bigger group\r\nTo change order, Edit > Arrange.",
+          "topic": "Grouping",
+          "pos": [
+            761.8,
+            1492.8
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Point",
+        "Reference ONE Rhino point:",
+        "Empty Point Parameter",
+        "Set One Point",
+        "Reference MULTIPLE Rhino points."
+      ],
+      "components_demonstrated": {
+        "Point": 21,
+        "BooleanToggle": 1
+      },
+      "working_component_ids": [
+        "C5",
+        "C6",
+        "C9",
+        "C33",
+        "C34",
+        "C36",
+        "C37",
+        "C38",
+        "C39",
+        "C41",
+        "C42",
+        "C46",
+        "C47",
+        "C48",
+        "C49",
+        "C50",
+        "C51",
+        "C52",
+        "C53",
+        "C55",
+        "C56",
+        "C57"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [
+        "C7",
+        "C8",
+        "C10"
+      ],
+      "intra_section_flows": [],
+      "groups": [
+        {
+          "group_id": "G16",
+          "name": "Group",
+          "colour": "#00E5FA75"
+        },
+        {
+          "group_id": "G18",
+          "name": "Group 3",
+          "colour": "#825CF787"
+        },
+        {
+          "group_id": "G13",
+          "name": "Group + Subgroup",
+          "colour": "#2CD4517D"
+        },
+        {
+          "group_id": "G14",
+          "name": "",
+          "colour": "#2373CF96"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 4,
+        "working_components": 22,
+        "sub_labels": 3,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 4
+      }
+    },
+    {
+      "column_index": 3,
+      "header_id": "C76",
+      "x_range": [
+        1451,
+        2104.5
+      ],
+      "section_title": "Constructing Points & Number Generators",
+      "section_number": 2,
+      "teaching_text": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options.",
+      "teaching_panel_id": "C11",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C44",
+          "text": "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component is selected, all wires show in green-black gradient.",
+          "topic": "Wire Display",
+          "pos": [
+            1534.9,
+            949.1
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Construct a Point",
+        "Select the option \"Construct a Point\".",
+        "Construct Point",
+        "Point",
+        "0.0",
+        "The X & Y & Z need NUMBERS.",
+        "Edit"
+      ],
+      "components_demonstrated": {
+        "Construct Point": 2,
+        "NumberSlider": 1,
+        "Digit Scroller": 1,
+        "Control Knob": 1,
+        "Point": 1
+      },
+      "working_component_ids": [
+        "C12",
+        "C13",
+        "C14",
+        "C16",
+        "C17",
+        "C45"
+      ],
+      "connected_panel_ids": [
+        "C15"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C13.O0>C12.I0",
+        "C14.O0>C12.I1",
+        "C15.O0>C12.I2",
+        "C16.O0>C17.I0",
+        "C14.O0>C17.I1",
+        "C15.O0>C17.I2"
+      ],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 6,
+        "sub_labels": 0,
+        "connected_panels": 1,
+        "flows": 6,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 4,
+      "header_id": "C77",
+      "x_range": [
+        2109.5,
+        2769.3
+      ],
+      "section_title": "Panels",
+      "section_number": 3,
+      "teaching_text": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving...",
+      "teaching_panel_id": "C18",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Used to UNDERSTAND what is happening."
+      ],
+      "components_demonstrated": {
+        "NumberSlider": 1
+      },
+      "working_component_ids": [
+        "C21"
+      ],
+      "connected_panel_ids": [
+        "C19",
+        "C20",
+        "C22"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C21.O0>C22.I0"
+      ],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 1,
+        "sub_labels": 0,
+        "connected_panels": 3,
+        "flows": 1,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 5,
+      "header_id": "C78",
+      "x_range": [
+        2774.3,
+        3534.0
+      ],
+      "section_title": "Lines",
+      "section_number": 4,
+      "teaching_text": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line.",
+      "teaching_panel_id": "C23",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C58",
+          "text": "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing parameters of the points that make the Line...\r\n\r\nThis is a very simplifed example of what Grasshopper can do...",
+          "topic": "Parametric Line!",
+          "pos": [
+            2771.9,
+            1156.8
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "A Line is a CONNECTION between TWO POINTS.",
+        "Line",
+        "Create line between two points"
+      ],
+      "components_demonstrated": {
+        "Construct Point": 2,
+        "Line": 1,
+        "End Points": 1,
+        "Point": 4,
+        "NumberSlider": 6
+      },
+      "working_component_ids": [
+        "C24",
+        "C25",
+        "C32",
+        "C105",
+        "C106",
+        "C107",
+        "C118",
+        "C119",
+        "C26",
+        "C27",
+        "C28",
+        "C29",
+        "C30",
+        "C31"
+      ],
+      "connected_panel_ids": [
+        "C92",
+        "C93",
+        "C123"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C26.O0>C24.I0",
+        "C27.O0>C24.I1",
+        "C28.O0>C24.I2",
+        "C29.O0>C25.I0",
+        "C30.O0>C25.I1",
+        "C31.O0>C25.I2",
+        "C24.O0>C32.I0",
+        "C25.O0>C32.I1",
+        "C32.O0>C92.I0",
+        "C24.O0>C93.I0",
+        "C32.O0>C105.I0",
+        "C106.O0>C123.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G4",
+          "name": "",
+          "colour": "#FF000096"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 14,
+        "sub_labels": 0,
+        "connected_panels": 3,
+        "flows": 12,
+        "groups": 1
+      }
+    },
+    {
+      "column_index": 6,
+      "header_id": "C79",
+      "x_range": [
+        3539,
+        4471.6
+      ],
+      "section_title": "Vectors",
+      "section_number": 5,
+      "teaching_text": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously.",
+      "teaching_panel_id": "C59",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Vector",
+        "There are many options, choose \"Vector 2pt\".",
+        "Vector 2pt",
+        "Use the previous Points to make the vector.",
+        "Vector Display"
+      ],
+      "components_demonstrated": {
+        "Vector 2Pt": 1,
+        "Vector Display": 1,
+        "Construct Point": 1
+      },
+      "working_component_ids": [
+        "C60",
+        "C61",
+        "C122"
+      ],
+      "connected_panel_ids": [
+        "C62",
+        "C103"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C122.O0>C61.I0",
+        "C60.O0>C61.I1",
+        "C60.O1>C62.I0",
+        "C60.O0>C103.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G5",
+          "name": "Vector Length",
+          "colour": "#FF000096"
+        },
+        {
+          "group_id": "G2",
+          "name": "Anchor at Origin",
+          "colour": "#006BD66A"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 3,
+        "sub_labels": 0,
+        "connected_panels": 2,
+        "flows": 4,
+        "groups": 2
+      }
+    },
+    {
+      "column_index": 7,
+      "header_id": "C82",
+      "x_range": [
+        4476.6,
+        5569.7
+      ],
+      "section_title": "Vector De/Construction",
+      "section_number": 6,
+      "teaching_text": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector.",
+      "teaching_panel_id": "C81",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "deconstructed",
+        "A VECTOR can also be constructed with XYZ INPUTS.",
+        "Deconstructing a Vector:",
+        "Deconstruct",
+        "Deconstruct Vector",
+        "Deconstruct the vector on the left.",
+        "Vector",
+        "Vector XYZ",
+        "Vector Display"
+      ],
+      "components_demonstrated": {
+        "Vector XYZ": 2,
+        "Vector Display": 2,
+        "NumberSlider": 1,
+        "Multiplication": 1,
+        "Deconstruct Vector": 2
+      },
+      "working_component_ids": [
+        "C95",
+        "C96",
+        "C121",
+        "C125",
+        "C126",
+        "C132",
+        "C94",
+        "C124"
+      ],
+      "connected_panel_ids": [
+        "C127"
+      ],
+      "sub_label_ids": [],
+      "intra_section_flows": [
+        "C94.O0>C95.I0",
+        "C94.O1>C95.I1",
+        "C95.O0>C96.I1",
+        "C124.O0>C125.I0",
+        "C124.O1>C125.I1",
+        "C132.O0>C125.I2",
+        "C125.O0>C126.I1",
+        "C124.O2>C132.I0",
+        "C127.O0>C132.I1"
+      ],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 8,
+        "sub_labels": 0,
+        "connected_panels": 1,
+        "flows": 9,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 8,
+      "header_id": "C85",
+      "x_range": [
+        5574.7,
+        6590.0
+      ],
+      "section_title": "Curves have the following properties",
+      "section_number": 7,
+      "teaching_text": "7- Curves have the following properties:\r\n\r\n- Control Points\r\n- Degree\r\n- Weight\r\n\r\n- Draw a Curve in Rhino and follow with options.\r\n\r\n- Type Weight and check out what it does.\r\n\r\n- Open the Point Edit sub-tab and check out the different options.\r\n\r\n- Try to Rebuild the drawn Curve in Rhino\r\n\r\n- Reference the drawn Curve inside Grasshopper and check out the following components:\r\n\r\n- \"Evaluate Curve\"\r\n- \"Rebuild Curve\"",
+      "teaching_panel_id": "C84",
+      "additional_teaching_panels": [],
+      "sub_annotations": [
+        {
+          "id": "C63",
+          "text": "Making Lines, Polylines, Closed Polylines and Curves in Grasshopper can be done in many ways...\r\n\r\nAssignment 1:\r\n\r\n- Type \"Line\" anywhere inside the Grasshopper workspace\r\n- Choose \"Line SDL\"\r\n\r\n- Go to the \"Curve\" tab, then \"Primitive\" and choose:\r\n- \"Circle\"\r\n- \"Rectangle\"\r\n- \"Polygon\"\r\n\r\n- Go to the \"Curve\" tab, then \"Spline\" and choose:\r\n- \"Polyline\"\r\n- \"Interpolate\"\r\n\r\n- Hover the cursor over the INPUTS and try to make new geometries from these components\r\n\r\n- Type \"Divide\" anywhere inside the Grasshopper workspace\r\n- Choose \"Divide Curve\"\r\n- Try to divide the above made geometries with the \"Divide Curve\" component\r\n\r\n- Go to the \"Curve\" tab, then \"Analysis\" and choose:\r\n- \"End Points\"\r\n- \"Point On Curve\"\r\n- \"Length\"\r\nUse these components to analyze the previously made geometries",
+          "topic": "Making Lines, Polylines, Closed Polylines and Curves in Grasshopper can be done in many ways...",
+          "pos": [
+            5573.6,
+            1357.8
+          ]
+        }
+      ],
+      "concepts_taught": [
+        "Control Points",
+        "Degree",
+        "Weight",
+        "Draw a Curve in Rhino and follow with options.",
+        "Try to Rebuild the drawn Curve in Rhino",
+        "Evaluate Curve",
+        "Rebuild Curve"
+      ],
+      "components_demonstrated": {
+        "Line SDL": 1,
+        "PolyLine": 1,
+        "Circle": 1,
+        "Polygon": 1,
+        "Rectangle": 1,
+        "Divide Curve": 1,
+        "Interpolate": 1,
+        "End Points": 1,
+        "Point On Curve": 1,
+        "Length": 2,
+        "Evaluate Curve": 3,
+        "Rebuild Curve": 1,
+        "NumberSlider": 2,
+        "Point": 1,
+        "Extrude": 1,
+        "Unit Z": 1,
+        "Geometry": 1,
+        "Curve": 2,
+        "Data": 1,
+        "BooleanToggle": 1
+      },
+      "working_component_ids": [
+        "C65",
+        "C66",
+        "C67",
+        "C68",
+        "C69",
+        "C70",
+        "C71",
+        "C72",
+        "C73",
+        "C74",
+        "C86",
+        "C91",
+        "C97",
+        "C104",
+        "C108",
+        "C109",
+        "C110",
+        "C111",
+        "C112",
+        "C113",
+        "C120",
+        "C133",
+        "C89",
+        "C90",
+        "C114"
+      ],
+      "connected_panel_ids": [
+        "C134"
+      ],
+      "sub_label_ids": [
+        "C64",
+        "C88"
+      ],
+      "intra_section_flows": [
+        "C108.O0>C66.I0",
+        "C108.O0>C71.I0",
+        "C114.O0>C71.I2",
+        "C89.O0>C86.I0",
+        "C90.O0>C86.I1",
+        "C89.O0>C91.I0",
+        "C97.O0>C91.I2",
+        "C91.O0>C104.I0",
+        "C90.O0>C104.I1",
+        "C66.O0>C109.I0",
+        "C110.O0>C109.I1",
+        "C89.O0>C120.I0",
+        "C89.O0>C133.I0",
+        "C133.O0>C134.I0"
+      ],
+      "groups": [
+        {
+          "group_id": "G12",
+          "name": "",
+          "colour": "#33AAFF96"
+        },
+        {
+          "group_id": "G11",
+          "name": "",
+          "colour": "#33AAFF96"
+        },
+        {
+          "group_id": "G9",
+          "name": "",
+          "colour": "#32C72896"
+        },
+        {
+          "group_id": "G10",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G8",
+          "name": "",
+          "colour": "#FF333396"
+        },
+        {
+          "group_id": "G19",
+          "name": "",
+          "colour": "#00FFFB"
+        },
+        {
+          "group_id": "G3",
+          "name": "Curve after being REBUILT & REPARAMETRIZED",
+          "colour": "#FF0000"
+        },
+        {
+          "group_id": "G6",
+          "name": "",
+          "colour": "#47B3FF37"
+        },
+        {
+          "group_id": "G7",
+          "name": "",
+          "colour": "#00FFFB"
+        }
+      ],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 1,
+        "working_components": 25,
+        "sub_labels": 2,
+        "connected_panels": 1,
+        "flows": 14,
+        "groups": 9
+      }
+    },
+    {
+      "column_index": 9,
+      "header_id": "C101",
+      "x_range": [
+        6595,
+        7743.6
+      ],
+      "section_title": "Quick Find Components in Toolbars",
+      "section_number": null,
+      "teaching_text": "Quick Find Components in Toolbars:\r\n\r\nIf you want to find the location of a certain component in the toolbars, click\r\n\"ctrl+alt+click\"\r\non component while holding.\r\n\r\nTry this out with the \"Rebuild Curve\" component.",
+      "teaching_panel_id": "C100",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "ctrl+alt+click",
+        "Rebuild Curve"
+      ],
+      "components_demonstrated": {
+        "Rebuild Curve": 1
+      },
+      "working_component_ids": [
+        "C102"
+      ],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 1,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 0
+      }
+    },
+    {
+      "column_index": 10,
+      "header_id": "C129",
+      "x_range": [
+        7748.6,
+        null
+      ],
+      "section_title": "Right-Click, select \"Find\", type the name of the component to find",
+      "section_number": null,
+      "teaching_text": "Right-Click, select \"Find\", type the name of the component to find",
+      "teaching_panel_id": "C128",
+      "additional_teaching_panels": [],
+      "sub_annotations": [],
+      "concepts_taught": [
+        "Find"
+      ],
+      "components_demonstrated": {},
+      "working_component_ids": [],
+      "connected_panel_ids": [],
+      "sub_label_ids": [],
+      "intra_section_flows": [],
+      "groups": [],
+      "stats": {
+        "teaching_panels": 1,
+        "sub_annotations": 0,
+        "working_components": 0,
+        "sub_labels": 0,
+        "connected_panels": 0,
+        "flows": 0,
+        "groups": 0
+      }
+    }
+  ]
+}

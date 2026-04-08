@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_c177edf2",
+  "note_type": "component",
+  "name": "Brep Topology",
+  "brief": "Brep Topology | Inputs: B → FF, FE, EF",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Brep Topology. Inputs: B (Brep). Outputs: FF (Integer), FE (Integer), EF (Integer).",
+  "keywords": [
+    "brep topology",
+    "brep",
+    "topology",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "brep topology",
+    "brep",
+    "topology"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Brep Topology"
+  ],
+  "solution_principle": "Get and display the topology of a brep.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_570eb369",
+    "comp_8c5cf0ba",
+    "comp_93df8f05",
+    "comp_dc18aa71",
+    "comp_28af3654"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "866ee39d-9ebf-4e1d-b209-324c56825605",
+    "category": "surface_analysis",
+    "inputs": {
+      "B": "Brep"
+    },
+    "outputs": {
+      "FF": "Integer",
+      "FE": "Integer",
+      "EF": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "859daa86-3ab7-49cb-9eda-f2811c984070"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|brep topology"
+  }
+}

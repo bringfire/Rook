@@ -1,0 +1,57 @@
+{
+  "note_id": "comp_80a9609c",
+  "note_type": "component",
+  "name": "Timeline",
+  "brief": "Timeline | Inputs: A → A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Timeline. Inputs: A (Domain). Outputs: A (Number).",
+  "keywords": [
+    "timeline",
+    "special_params"
+  ],
+  "category": "special_params",
+  "tags": [
+    "special_params"
+  ],
+  "trigger_intents": [
+    "timeline"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Timeline"
+  ],
+  "solution_principle": "A timeline of values",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_40eb9310"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "33eb59b9-5f81-4ef5-8c89-46e6e744522b",
+    "category": "special_params",
+    "inputs": {
+      "A": "Domain"
+    },
+    "outputs": {
+      "A": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6d62dc91-25dc-415c-a3b3-03d0a39c575a"
+    ],
+    "usage_count": 0,
+    "stable_key": "params|special|timeline"
+  }
+}

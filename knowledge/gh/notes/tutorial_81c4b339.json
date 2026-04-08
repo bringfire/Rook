@@ -1,0 +1,89 @@
+{
+  "note_id": "tutorial_81c4b339",
+  "note_type": "teaching",
+  "name": "Intermediate 4-13: Sub List \u00e2\u20ac\u201d Selecting Panel Ranges with Domain",
+  "brief": "Five Sub List operations with different domains (0-27, 14-27, 13-25, 42-81, 62-48) showing how domain ranges select different subsets of quad panels.",
+  "version": "1.0",
+  "created": "2026-02-23T04:31:36.218590Z",
+  "context": "Demonstrates Sub List component for range-based data selection. Quad Panels on a surface provide the input panel list. Five purple-highlighted groups, each with Sub List component using a different Domain: Sub List #1: Domain '0 to 27' \u00e2\u20ac\u201d selects first 28 panels. Sub List #2: Domain '14 to 27' \u00e2\u20ac\u201d selects middle range. Sub List #3: Domain '13 to 25' \u00e2\u20ac\u201d similar middle range with different bounds. Sub List #4: Domain '42 to 81' \u00e2\u20ac\u201d selects a later range. Sub List #5: Domain '62 to 48' \u00e2\u20ac\u201d REVERSED domain (end < start) selects items in reverse order. Each Sub List \u00e2\u2020\u2019 Quad Panels output \u00e2\u2020\u2019 Custom Preview with different visualization. Shows how domain ranges control which subset of panels is selected.",
+  "keywords": [
+    "sub list",
+    "range selection",
+    "domain",
+    "panel subset",
+    "contiguous range",
+    "reversed domain",
+    "region selection"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "alternatives",
+    "sub-list",
+    "list-operations",
+    "range-selection",
+    "quad-panels",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "sub list range grasshopper",
+    "select range from list",
+    "sub list domain",
+    "panel subset selection",
+    "extract contiguous range",
+    "sub list reversed domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Surface",
+    "Quad Panels",
+    "Sub List",
+    "Construct Domain",
+    "Custom Preview",
+    "Number Slider",
+    "Panel"
+  ],
+  "solution_principle": "Sub List extracts a contiguous range of items from a list using a Domain (start, end). Different domains select different panel subsets \u00e2\u20ac\u201d useful for region-specific operations. Reversed domains (end < start) return items in reverse order. Sub List is more efficient than multiple List Item calls for extracting ranges.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_50eb6be6",
+    "tutorial_73280c22",
+    "tutorial_24373789",
+    "tutorial_0e7af367",
+    "tutorial_20a9ede0",
+    "tutorial_a3d0f1ab",
+    "tutorial_36e3a473",
+    "tutorial_4b544741"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:31:36.218590Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-13.jpg",
+    "lesson_number": 4,
+    "step_number": 13,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Surface": 1,
+      "Quad Panels": 1,
+      "Sub List": 1,
+      "Construct Domain": 1,
+      "Custom Preview": 1,
+      "Number Slider": 1,
+      "Panel": 1
+    }
+  }
+}

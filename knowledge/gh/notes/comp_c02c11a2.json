@@ -1,0 +1,93 @@
+{
+  "note_id": "comp_c02c11a2",
+  "note_type": "component",
+  "name": "Annotation Text Settings",
+  "brief": "Annotation Text Settings | Inputs: Te, F, Th, Tg → Te, F, Th",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Annotation Text Settings. Inputs: Te (Text Settings), F (Font), Th (Number), Tg (Number), M (Integer), Mc (Colour), Mm (Number), Mf (Integer), Vo (Boolean), Df (Boolean), Ha (Integer), Va (Integer), Ft (Integer). Outputs: Te (Text Settings), F (Font), Th (Number), Tg (Number), M (Integer), Mc (Colour), Mm (Number), Mf (Integer), Vo (Boolean), Df (Boolean), Ha (Integer), Va (Integer), Ft (Integer).",
+  "keywords": [
+    "annotation text settings",
+    "annotation",
+    "text",
+    "settings",
+    "rhino_annotations"
+  ],
+  "category": "rhino_annotations",
+  "tags": [
+    "rhino_annotations"
+  ],
+  "trigger_intents": [
+    "annotation text settings",
+    "annotation",
+    "text",
+    "settings"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Annotation Text Settings"
+  ],
+  "solution_principle": "Annotation Style Text Settings",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6e038908",
+    "comp_375a03ab",
+    "comp_ec86ef0e",
+    "comp_ac161ae6",
+    "comp_a474810a",
+    "comp_50399de9",
+    "comp_f427ada5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "67f33fe0-84aa-4c2d-869b-bcd9506d1174",
+    "category": "rhino_annotations",
+    "inputs": {
+      "Te": "Text Settings",
+      "F": "Font",
+      "Th": "Number",
+      "Tg": "Number",
+      "M": "Integer",
+      "Mc": "Colour",
+      "Mm": "Number",
+      "Mf": "Integer",
+      "Vo": "Boolean",
+      "Df": "Boolean",
+      "Ha": "Integer",
+      "Va": "Integer",
+      "Ft": "Integer"
+    },
+    "outputs": {
+      "Te": "Text Settings",
+      "F": "Font",
+      "Th": "Number",
+      "Tg": "Number",
+      "M": "Integer",
+      "Mc": "Colour",
+      "Mm": "Number",
+      "Mf": "Integer",
+      "Vo": "Boolean",
+      "Df": "Boolean",
+      "Ha": "Integer",
+      "Va": "Integer",
+      "Ft": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "76c87974-75f6-40b1-a6f6-3ced07a6c903"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|annotations|annotation text settings"
+  }
+}

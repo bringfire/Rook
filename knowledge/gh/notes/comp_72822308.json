@@ -1,0 +1,81 @@
+{
+  "note_id": "comp_72822308",
+  "note_type": "component",
+  "name": "Box Corners",
+  "brief": "Box Corners | Inputs: B → A, B, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Box Corners. Inputs: B (Box). Outputs: A (Point), B (Point), C (Point), D (Point), E (Point), F (Point), G (Point), H (Point).",
+  "keywords": [
+    "box corners",
+    "box",
+    "corners",
+    "surface_analysis"
+  ],
+  "category": "surface_analysis",
+  "tags": [
+    "surface_analysis"
+  ],
+  "trigger_intents": [
+    "box corners",
+    "box",
+    "corners"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Box Corners"
+  ],
+  "solution_principle": "Extract all 8 corners of a box.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_515d8f2a",
+    "comp_570eb369",
+    "comp_28af3654",
+    "comp_c525b1a1",
+    "comp_93df8f05"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a10e8cdf-7c7a-4aac-aa70-ddb7010ab231",
+    "category": "surface_analysis",
+    "inputs": {
+      "B": "Box"
+    },
+    "outputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point",
+      "D": "Point",
+      "E": "Point",
+      "F": "Point",
+      "G": "Point",
+      "H": "Point"
+    },
+    "typical_wiring": [
+      {
+        "target": "Distance",
+        "param": "Point A",
+        "count": 15
+      },
+      {
+        "target": "Distance",
+        "param": "Point B",
+        "count": 15
+      }
+    ],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|analysis|box corners"
+  }
+}

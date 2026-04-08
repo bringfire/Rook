@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_f84b6af5",
+  "note_type": "component",
+  "name": "Line Charge",
+  "brief": "Line Charge | Inputs: L, C, B → F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Line Charge. Inputs: L (Line), C (Number), B (Box). Outputs: F (Field).",
+  "keywords": [
+    "line charge",
+    "line",
+    "charge",
+    "field_ops"
+  ],
+  "category": "field_ops",
+  "tags": [
+    "field_ops"
+  ],
+  "trigger_intents": [
+    "line charge",
+    "line",
+    "charge"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line Charge"
+  ],
+  "solution_principle": "Create a field due to a line charge",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_49e0398f",
+    "comp_e41980d1",
+    "comp_39792588",
+    "comp_4cf29e02",
+    "comp_13c22f6b"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8cc9eb88-26a7-4baa-a896-13e5fc12416a",
+    "category": "field_ops",
+    "inputs": {
+      "L": "Line",
+      "C": "Number",
+      "B": "Box"
+    },
+    "outputs": {
+      "F": "Field"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "4b59e893-d4ee-4e31-ae24-a489611d1088"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|field|line charge"
+  }
+}

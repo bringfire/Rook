@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_fcefbd42",
+  "note_type": "component",
+  "name": "Divide",
+  "brief": "Divide | Inputs: V, F → V, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Divide. Inputs: V (Vector), F (Number). Outputs: V (Vector), L (Number).",
+  "keywords": [
+    "divide",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "divide"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Divide"
+  ],
+  "solution_principle": "Perform vector-scalar division.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_53b0ce5c",
+    "comp_b9817b61",
+    "comp_5557fa99"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "310e1065-d03a-4858-bcd1-809d39c042af",
+    "category": "vector_ops",
+    "inputs": {
+      "V": "Vector",
+      "F": "Number"
+    },
+    "outputs": {
+      "V": "Vector",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "6ec39468-dae7-4ffa-a766-f2ab22a2c62e",
+      "63fff845-7c61-4dfb-ba12-44d481b4bf0f"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|divide"
+  }
+}

@@ -1,0 +1,852 @@
+{
+  "pattern_id": "da5e2260",
+  "name": "12-3",
+  "version": "1.0",
+  "created": "2026-02-22T13:57:20.882869Z",
+  "solution": {
+    "brief": "Recipe from FILES\\12\\12-3.gh (58 components)",
+    "principle": "\n\nRelated insight: Part of recipe quartet (12-1, 12-2, 12-3, 12-4) with complexity progression 57→82→58→38 components, indicating specialized approaches rather than linear development.\n\nRelated insight: Recipe series extends beyond quartet to at least 12-8, with complexity pattern 57→82→58→38→...→70→41 components, suggesting specialized approaches across broader range.\n\nRelated insight: Cross-series comparison: S18 series introduced (S18E06 with 17 components) shows different naming convention (episode-style) vs numbered approach, suggesting multiple recipe organization strategies.",
+    "components_needed": [
+      "Bifocals",
+      "Plane Surface",
+      "slider",
+      "slider",
+      "Triangle Panels C",
+      "Simple Mesh",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "Curve",
+      "Discontinuity",
+      "BouncySolver",
+      "Anchor",
+      "EdgeLengths",
+      "VertexLoads",
+      "Point",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "Button",
+      "Toggle",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "panel",
+      "Evaluate Surface",
+      "MD Slider",
+      "Closest Point",
+      "Deconstruct Mesh",
+      "Anchor",
+      "Unit Z",
+      "slider",
+      "Snub+1",
+      "slider",
+      "Plane Surface",
+      "slider",
+      "slider",
+      "Triangle Panels C",
+      "Simple Mesh",
+      "Mesh Join",
+      "Mesh WeldVertices",
+      "Curve",
+      "Discontinuity",
+      "BouncySolver",
+      "Anchor",
+      "EdgeLengths",
+      "VertexLoads",
+      "Point",
+      "Show",
+      "Clean Tree",
+      "List Item",
+      "Button",
+      "Toggle",
+      "Evaluate Surface",
+      "MD Slider",
+      "Deconstruct Mesh",
+      "Anchor",
+      "Unit Z",
+      "slider",
+      "Closest Points",
+      "slider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "12 3"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "1498dbbd",
+    "206f987f",
+    "913ece0b",
+    "fdc3f209",
+    "daf3263d",
+    "64ff9dee"
+  ],
+  "tags": [
+    "cross-series",
+    "extended-series",
+    "recipe",
+    "parametric",
+    "workflow",
+    "series"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:08:18.916664",
+    "evolved_by": [
+      "913ece0b",
+      "fdc3f209",
+      "64ff9dee"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T08:58:04.576639",
+        "trigger": "New pattern: 913ece0b",
+        "changes": "Added context about the complete quartet series and complexity pattern"
+      },
+      {
+        "date": "2026-02-22T08:59:23.861706",
+        "trigger": "New pattern: fdc3f209",
+        "changes": "New pattern shows the series is more extensive than the quartet pattern previously identified"
+      },
+      {
+        "date": "2026-02-22T09:08:18.916664",
+        "trigger": "New pattern: 64ff9dee",
+        "changes": "S18 series provides new data point for understanding recipe series patterns beyond the 12-series"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R29",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.063
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R33",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R34",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R56",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.063
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 6
+        }
+      ],
+      "panels": [
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "2"
+        }
+      ]
+    },
+    "output_type": "unknown",
+    "source_definition": "FILES/12/12-3.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            61,
+            23
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            326,
+            221
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            94.1,
+            220.5
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            90,
+            250.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R5",
+          "type": "TriC",
+          "nick": "TriC",
+          "name": "Triangle Panels C",
+          "pos": [
+            422,
+            240
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            530,
+            240
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            618,
+            240
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            705,
+            250
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            417.5,
+            386.2
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            498,
+            396
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1053,
+            354
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            648,
+            406
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            886,
+            184
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            899,
+            262
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            533.7,
+            454.6
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            889,
+            129
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1173,
+            450
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1256,
+            471
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            796,
+            425
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            793,
+            452
+          ],
+          "value": false
+        },
+        {
+          "id": "R21",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1489,
+            446
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            1265,
+            511.4
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R23",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            418,
+            649
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            118.4,
+            635
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ClosestPoint",
+          "nick": "CP",
+          "name": "Closest Point",
+          "pos": [
+            786,
+            637
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            705,
+            549
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            873,
+            533
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            766,
+            307
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "pos": [
+            539.7,
+            306.8
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.063
+        },
+        {
+          "id": "R30",
+          "type": "Component_VBNET_Script",
+          "nick": "m+Snub+1",
+          "name": "Snub+1",
+          "pos": [
+            1359,
+            621
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "pos": [
+            1141.3,
+            604
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1.25
+        },
+        {
+          "id": "R32",
+          "type": "Component_PlaneSurface",
+          "nick": "PlaneSrf",
+          "name": "Plane Surface",
+          "pos": [
+            326,
+            975
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "slider",
+          "pos": [
+            95.7,
+            976.2
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 13
+        },
+        {
+          "id": "R34",
+          "type": "slider",
+          "pos": [
+            91.6,
+            1006.1
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R35",
+          "type": "TriC",
+          "nick": "TriC",
+          "name": "Triangle Panels C",
+          "pos": [
+            422,
+            994
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_MeshBrepSimple",
+          "nick": "SMesh",
+          "name": "Simple Mesh",
+          "pos": [
+            530,
+            994
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_MeshJoin",
+          "nick": "MJoin",
+          "name": "Mesh Join",
+          "pos": [
+            618,
+            994
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_Weld",
+          "nick": "weldVertices",
+          "name": "Mesh WeldVertices",
+          "pos": [
+            705,
+            1004
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            419.1,
+            1141.9
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_CurveDiscontinuity",
+          "nick": "Disc",
+          "name": "Discontinuity",
+          "pos": [
+            498,
+            1150
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "KangarooBounce",
+          "name": "BouncySolver",
+          "pos": [
+            1053,
+            1108
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            655,
+            1189
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "EdgeLengthsComponent",
+          "name": "EdgeLengths",
+          "pos": [
+            886,
+            938
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "VertexLoadsComponent",
+          "name": "VertexLoads",
+          "pos": [
+            899,
+            1016
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            515.7,
+            1243.2
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "GeometryComponent",
+          "name": "Show",
+          "pos": [
+            889,
+            883
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "CleanTreeComponent",
+          "nick": "Clean",
+          "name": "Clean Tree",
+          "pos": [
+            1173,
+            1204
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            1256,
+            1225
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            796,
+            1179
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "toggle",
+          "nick": "Toggle",
+          "pos": [
+            800,
+            1209
+          ],
+          "value": true
+        },
+        {
+          "id": "R51",
+          "type": "Component_EvaluateSurface",
+          "nick": "EvalSrf",
+          "name": "Evaluate Surface",
+          "pos": [
+            449,
+            1359
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            124.8,
+            1335.5
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            716,
+            1300
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "Anchor2Component",
+          "name": "Anchor",
+          "pos": [
+            936,
+            1301
+          ]
+        },
+        {
+          "id": "R55",
+          "type": "Component_UnitVectorZ",
+          "nick": "Z",
+          "name": "Unit Z",
+          "pos": [
+            766,
+            1061
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "slider",
+          "pos": [
+            541.3,
+            1062.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.063
+        },
+        {
+          "id": "R57",
+          "type": "Component_ClosestPoints",
+          "nick": "CPs",
+          "name": "Closest Points",
+          "pos": [
+            802,
+            1399
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "slider",
+          "pos": [
+            552,
+            1410.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 6
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R4.O0>R2.I2",
+        "R2.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R6.O0>R7.I0",
+        "R7.O0>R8.I0",
+        "R9.O0>R10.I0",
+        "R12.O0>R11.I0",
+        "R13.O0>R11.I0",
+        "R14.O0>R11.I0",
+        "R16.O0>R11.I0",
+        "R27.O0>R11.I0",
+        "R19.O0>R11.I1",
+        "R20.O0>R11.I6",
+        "R10.O0>R12.I0",
+        "R15.O0>R12.I1",
+        "R8.O1>R13.I0",
+        "R8.O1>R14.I0",
+        "R28.O0>R14.I1",
+        "R7.O0>R16.I0",
+        "R11.O2>R17.I3",
+        "R17.O0>R18.I0",
+        "R30.O1>R21.I0",
+        "R22.O0>R21.I1",
+        "R2.O0>R23.I0",
+        "R24.O0>R23.I1",
+        "R23.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R8.O1>R26.I0",
+        "R25.O0>R27.I0",
+        "R29.O0>R28.I0",
+        "R31.O0>R30.I3",
+        "R33.O0>R32.I1",
+        "R34.O0>R32.I2",
+        "R32.O0>R35.I0",
+        "R35.O0>R36.I0",
+        "R36.O0>R37.I0",
+        "R37.O0>R38.I0",
+        "R39.O0>R40.I0",
+        "R42.O0>R41.I0",
+        "R43.O0>R41.I0",
+        "R44.O0>R41.I0",
+        "R46.O0>R41.I0",
+        "R54.O0>R41.I0",
+        "R49.O0>R41.I1",
+        "R50.O0>R41.I6",
+        "R40.O0>R42.I0",
+        "R45.O0>R42.I1",
+        "R38.O1>R43.I0",
+        "R38.O1>R44.I0",
+        "R55.O0>R44.I1",
+        "R37.O0>R46.I0",
+        "R41.O2>R47.I3",
+        "R47.O0>R48.I0",
+        "R32.O0>R51.I0",
+        "R52.O0>R51.I1",
+        "R38.O1>R53.I0",
+        "R57.O0>R54.I0",
+        "R56.O0>R55.I0",
+        "R51.O0>R57.I0",
+        "R53.O0>R57.I1",
+        "R58.O0>R57.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

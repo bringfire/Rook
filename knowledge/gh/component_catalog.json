@@ -1,0 +1,777 @@
+{
+  "version": "1.0",
+  "created": "2026-01-25",
+  "description": "Grasshopper component catalog with verified GUIDs for reliable component creation",
+
+  "core_components": {
+    "_description": "Essential components for common workflows - USE THESE GUIDs",
+
+    "primitives": {
+      "Sphere": {
+        "guid": "dabc854d-f50e-408a-b001-d043c7de151d",
+        "nickName": "Sph",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a spherical surface.",
+        "note": "Primary sphere component - use this GUID for reliable creation"
+      },
+      "Cylinder": {
+        "guid": "0373008a-80ee-45be-887d-ab5a244afc29",
+        "nickName": "Cyl",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a cylindrical surface."
+      },
+      "Cone": {
+        "guid": "03e331ed-c4d1-4a23-afa2-f57b87d2043c",
+        "nickName": "Cone",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a conical surface"
+      },
+      "Box 2Pt": {
+        "guid": "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+        "nickName": "Box",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a box defined by two points."
+      },
+      "Center Box": {
+        "guid": "28061aae-04fb-4cb5-ac45-16f3b66bc0a4",
+        "nickName": "Box",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a box centered on a plane."
+      },
+      "Domain Box": {
+        "guid": "79aa7f47-397c-4d3f-9761-aaf421bb7f5f",
+        "nickName": "Box",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a box defined by a base plane and size domains."
+      },
+      "Bounding Box": {
+        "guid": "0bb3d234-9097-45db-9998-621639c87d3b",
+        "nickName": "BBox",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Solve oriented geometry bounding boxes."
+      },
+      "Quad Sphere": {
+        "guid": "361790d6-9d66-4808-8c5a-8de9c218c227",
+        "nickName": "QSph",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a spherical brep made from quad nurbs patches."
+      },
+      "Sphere 4Pt": {
+        "guid": "b083c06d-9a71-4f40-b354-1d80bba1e858",
+        "nickName": "Sph4Pt",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a spherical surface from 4 points."
+      },
+      "Sphere Fit": {
+        "guid": "e7ffb3af-2d77-4804-a260-755308bf8285",
+        "nickName": "SFit",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Fit a sphere to a 3D collection of points"
+      },
+      "Plane Surface": {
+        "guid": "439a55a5-2f9e-4f66-9de2-32f24fec2ef5",
+        "nickName": "PlaneSrf",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a plane surface"
+      }
+    },
+
+    "curves": {
+      "Line": {
+        "guid": "4c4e56eb-2f04-43f9-95a3-cc46a14f495a",
+        "nickName": "Ln",
+        "category": "Curve",
+        "subCategory": "Primitive",
+        "description": "Create a line between two points."
+      },
+      "Line SDL": {
+        "guid": "4c619bc9-39fd-4717-82a6-1e07ea237bbe",
+        "nickName": "Line",
+        "category": "Curve",
+        "subCategory": "Primitive",
+        "description": "Create a line segment defined by start point, tangent and length."
+      },
+      "Circle 3Pt": {
+        "guid": "47886835-e3ff-4516-a3ed-1b419f055464",
+        "nickName": "Circle",
+        "category": "Curve",
+        "subCategory": "Primitive",
+        "description": "Create a circle defined by three points."
+      },
+      "Ellipse": {
+        "guid": "46b5564d-d3eb-4bf1-ae16-15ed132cfd88",
+        "nickName": "Ellipse",
+        "category": "Curve",
+        "subCategory": "Primitive",
+        "description": "Create an ellipse defined by base plane and two radii."
+      },
+      "Rectangle 2Pt": {
+        "guid": "575660b1-8c79-4b8d-9222-7ab4a6ddb359",
+        "nickName": "Rec 2Pt",
+        "category": "Curve",
+        "subCategory": "Primitive",
+        "description": "Create a rectangle from a base plane and two points"
+      },
+      "PolyLine": {
+        "guid": "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+        "nickName": "PLine",
+        "category": "Curve",
+        "subCategory": "Spline",
+        "description": "Create a polyline connecting a number of points."
+      },
+      "Interpolate": {
+        "guid": "2b2a4145-3dff-41d4-a8de-1ea9d29eef33",
+        "nickName": "IntCrv",
+        "category": "Curve",
+        "subCategory": "Spline",
+        "description": "Create an interpolated curve through a set of points."
+      }
+    },
+
+    "math_operators": {
+      "Addition": {
+        "guid": "a0d62394-a118-422d-abb3-6af115c75b25",
+        "nickName": "A+B",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical addition",
+        "note": "This is the CORRECT modern Addition component"
+      },
+      "Subtraction": {
+        "guid": "9c007a04-d0d9-48e4-9da3-9ba142bc4d46",
+        "nickName": "A-B",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical subtraction"
+      },
+      "Multiplication": {
+        "guid": "ce46b74e-00c9-43c4-805a-193b69ea4a11",
+        "nickName": "A×B",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical multiplication",
+        "note": "This is the CORRECT modern Multiplication component"
+      },
+      "Division": {
+        "guid": "9c85271f-89fa-4e9f-9f4a-d75802120ccc",
+        "nickName": "A/B",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical division"
+      },
+      "Mass Addition": {
+        "guid": "5b850221-b527-4bd6-8c62-e94168cd6efa",
+        "nickName": "MA",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform mass addition of a list of items"
+      },
+      "Mass Multiplication": {
+        "guid": "e44c1bd7-72cc-4697-80c9-02787baf7bb4",
+        "nickName": "MM",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform mass multiplication of a list of items"
+      },
+      "Power": {
+        "guid": "78fed580-851b-46fe-af2f-6519a9d378e0",
+        "nickName": "Pow",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Raise a value to a power."
+      },
+      "Modulus": {
+        "guid": "431bc610-8ae1-4090-b217-1a9d9c519fe2",
+        "nickName": "Mod",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Divides two numbers and returns only the remainder."
+      },
+      "Absolute": {
+        "guid": "28124995-cf99-4298-b6f4-c75a8e379f18",
+        "nickName": "Abs",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Compute the absolute of a value."
+      },
+      "Negative": {
+        "guid": "a3371040-e552-4bc8-b0ff-10a840258e88",
+        "nickName": "Neg",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Compute the negative of a value."
+      }
+    },
+
+    "comparison": {
+      "Larger Than": {
+        "guid": "30d58600-1aab-42db-80a3-f1ea6c4269a0",
+        "nickName": "Larger",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Larger than (or equal to)"
+      },
+      "Smaller Than": {
+        "guid": "ae840986-cade-4e5a-96b0-570f007d4fc0",
+        "nickName": "Smaller",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Smaller than (or equal to)"
+      },
+      "Equality": {
+        "guid": "5db0fb89-4f22-4f09-a777-fa5e55aed7ec",
+        "nickName": "Equals",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Test for (in)equality of two numbers"
+      }
+    },
+
+    "boolean_logic": {
+      "Gate And": {
+        "guid": "040f195d-0b4e-4fe0-901f-fedb2fd3db15",
+        "nickName": "And",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform boolean conjunction (AND gate)."
+      },
+      "Gate Or": {
+        "guid": "5cad70f9-5a53-4c5c-a782-54a479b4abe3",
+        "nickName": "Or",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform boolean disjunction (OR gate)."
+      },
+      "Gate Nand": {
+        "guid": "5ca5de6b-bc71-46c4-a8f7-7f30d7040acb",
+        "nickName": "Nand",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform boolean alternative denial (NAND gate)."
+      },
+      "Gate Nor": {
+        "guid": "548177c2-d1db-4172-b667-bec979e2d38b",
+        "nickName": "Nor",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Perform boolean joint denial (NOR gate)."
+      }
+    },
+
+    "input_params": {
+      "Number Slider": {
+        "guid": "57da07bd-ecab-415d-9d86-af36d7073abc",
+        "nickName": "",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "Numeric slider for single values"
+      },
+      "Panel": {
+        "guid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+        "nickName": "",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "A panel for custom notes and text values"
+      },
+      "Boolean Toggle": {
+        "guid": "2e78987b-9dfb-42a2-8b76-3923ac8bd91a",
+        "nickName": "Toggle",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "Boolean (true/false) toggle"
+      },
+      "Value List": {
+        "guid": "00027467-0d24-4fa7-b178-8dc0ac5f42ec",
+        "nickName": "List",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "Provides a list of preset values to choose from"
+      },
+      "Gradient": {
+        "guid": "6da9f120-3ad0-4b6e-9fe0-f8cde3a649b7",
+        "nickName": "Gradient",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "Represents a multiple colour gradient"
+      },
+      "Colour Picker": {
+        "guid": "339c0ee1-cf11-444f-8e10-65c9150ea755",
+        "nickName": "Colour",
+        "category": "Params",
+        "subCategory": "Input",
+        "description": "Provides a colour picker object"
+      }
+    },
+
+    "geometry_params": {
+      "Point": {
+        "guid": "3ede854e-c753-40eb-84cb-b48008f14fd4",
+        "nickName": "Pt",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "note": "Text param - need to find actual Point param"
+      },
+      "Vector": {
+        "guid": "16ef3e75-e315-4899-b531-d3166b42dac9",
+        "nickName": "Vec",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of three-dimensional vectors"
+      },
+      "Plane": {
+        "guid": "4f8984c4-7c7a-4d69-b0a2-183cbb330d20",
+        "nickName": "Pln",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of three-dimensional axis-systems"
+      },
+      "Line": {
+        "guid": "8529dbdf-9b6f-42e9-8e1f-c7a2bde56a70",
+        "nickName": "Line",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of line segments"
+      },
+      "Circular Arc": {
+        "guid": "04d3eace-deaa-475e-9e69-8f804d687998",
+        "nickName": "Arc",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of circular arcs"
+      },
+      "Mesh": {
+        "guid": "1e936df3-0eea-4246-8549-514cb8862b7a",
+        "nickName": "Mesh",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of polygon meshes"
+      },
+      "Transform": {
+        "guid": "28f40e48-e739-4211-91bd-f4aefa5965f8",
+        "nickName": "Transform",
+        "category": "Params",
+        "subCategory": "Geometry",
+        "description": "Contains a collection of three-dimensional transformations"
+      }
+    },
+
+    "utility_params": {
+      "Number": {
+        "guid": "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312",
+        "nickName": "Num",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of floating point numbers"
+      },
+      "Integer": {
+        "guid": "2e3ab970-8545-46bb-836c-1c11e5610bce",
+        "nickName": "Int",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of integer numbers"
+      },
+      "Text": {
+        "guid": "3ede854e-c753-40eb-84cb-b48008f14fd4",
+        "nickName": "Txt",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of text fragments"
+      },
+      "Domain": {
+        "guid": "15b7afe5-d0d0-43e1-b894-34fcfe3be384",
+        "nickName": "Domain",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of numeric domains"
+      },
+      "Colour": {
+        "guid": "203a91c3-287a-43b6-a9c5-ebb96240a650",
+        "nickName": "Col",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of RGB colours"
+      },
+      "Data": {
+        "guid": "8ec86459-bf01-4409-baee-174d0d2b13d0",
+        "nickName": "Data",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "description": "Contains a collection of generic data"
+      }
+    },
+
+    "surface_operations": {
+      "Loft Options": {
+        "guid": "45f19d16-1c9f-4a9a6-45a77f3d206c",
+        "nickName": "Loft Opt",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create loft options from atomic inputs"
+      },
+      "Extrude": {
+        "guid": "962034e9-cc27-4394-afc4-5c16e3447cf9",
+        "nickName": "Extr",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Extrude points, curves and surfaces along a vector."
+      },
+      "Extrude Linear": {
+        "guid": "8efd5eb9-a896-486e-9f98-d8d1a07a49f3",
+        "nickName": "Extrude",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Extrude curves and surfaces along a straight path."
+      },
+      "Sweep2": {
+        "guid": "75164624-395a-4d24-b60b-6bf91cab0194",
+        "nickName": "Swp2",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a sweep surface with two rail curves."
+      },
+      "Ruled Surface": {
+        "guid": "6e5de495-ba76-42d0-9985-a5c265e9aeca",
+        "nickName": "RuleSrf",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a surface between two curves."
+      },
+      "Edge Surface": {
+        "guid": "36132830-e2ef-4476-8ea1-6a43922344f0",
+        "nickName": "EdgeSrf",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a surface from two, three or four edge curves."
+      },
+      "Network Surface": {
+        "guid": "71506fa8-9bf0-432d-b897-b2e0c5ac316c",
+        "nickName": "NetSurf",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a surface from curve networks"
+      },
+      "Patch": {
+        "guid": "57b2184c-8931-4e70-9220-612ec5b3809a",
+        "nickName": "Patch",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a patch surface"
+      },
+      "Pipe Variable": {
+        "guid": "3e6bb383-d3dc-4bd2-b44d-d47b5a5d3e45",
+        "nickName": "VPipe",
+        "category": "Surface",
+        "subCategory": "Freeform",
+        "description": "Create a pipe surface with variable radii around a rail curve."
+      }
+    },
+
+    "surface_analysis": {
+      "Evaluate Surface": {
+        "guid": "353b206e-bde5-4f02-a913-b3b8a977d4b9",
+        "nickName": "EvalSrf",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Evaluate local surface properties at a {uv} coordinate."
+      },
+      "Surface Closest Point": {
+        "guid": "4a9e9a8e-0943-4438-b360-129c30f2bb0f",
+        "nickName": "Srf CP",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Find the closest point on a surface."
+      },
+      "Surface Curvature": {
+        "guid": "4139f3a3-cf93-4fc0-b5e0-18a3acd0b003",
+        "nickName": "Curvature",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Evaluate the surface curvature at a {uv} coordinate."
+      },
+      "Brep Closest Point": {
+        "guid": "4beead95-8aa2-4613-8bb9-24758a0f5c4c",
+        "nickName": "Brep CP",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Find the closest point on a brep"
+      },
+      "Deconstruct Brep": {
+        "guid": "8d372bdc-9800-45e9-8a26-6e33c5253e21",
+        "nickName": "DeBrep",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Deconstruct a brep into its constituent parts."
+      },
+      "Brep Edges": {
+        "guid": "0148a65d-6f42-414a-9db7-9a9b2eb78437",
+        "nickName": "Edges",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Extract the edge curves of a brep."
+      },
+      "Area": {
+        "guid": "86b28a7e-94d9-4791-8306-e13e10d5f8d5",
+        "nickName": "Area",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Solve area properties for breps, meshes and planar closed curves."
+      },
+      "Volume": {
+        "guid": "7c0523e8-79c9-45a2-8777-cf0d46bc5432",
+        "nickName": "Volume",
+        "category": "Surface",
+        "subCategory": "Analysis",
+        "description": "Solve volume properties for closed breps and meshes."
+      }
+    },
+
+    "curve_operations": {
+      "Divide Curve": {
+        "guid": "2162e72e-72fc-4bf9-9459-d4d82fa8aa14",
+        "nickName": "Divide",
+        "category": "Curve",
+        "subCategory": "Division",
+        "description": "Divide a curve into equal length segments"
+      },
+      "Curve Frames": {
+        "guid": "0e94542a-2e46-4793-9f98-2200b06b28f4",
+        "nickName": "Frames",
+        "category": "Curve",
+        "subCategory": "Division",
+        "description": "Generate a number of equally spaced curve frames."
+      },
+      "Offset Curve": {
+        "guid": "1a38d325-98de-455c-93f1-bca431bc1243",
+        "nickName": "Offset",
+        "category": "Curve",
+        "subCategory": "Util",
+        "description": "Offset a curve with a specified distance."
+      },
+      "Fillet": {
+        "guid": "2f407944-81c3-4062-a485-276454ec4b8c",
+        "nickName": "Fillet",
+        "category": "Curve",
+        "subCategory": "Util",
+        "description": "Fillet the sharp corners of a curve."
+      },
+      "Extend Curve": {
+        "guid": "62cc9684-6a39-422e-aefa-ed44643557b9",
+        "nickName": "Ext",
+        "category": "Curve",
+        "subCategory": "Util",
+        "description": "Extend a curve by a specified distance."
+      },
+      "Curve Closest Point": {
+        "guid": "2dc44b22-b1dd-460a-a704-6462d6e91096",
+        "nickName": "Crv CP",
+        "category": "Curve",
+        "subCategory": "Analysis",
+        "description": "Find the closest point on a curve."
+      },
+      "End Points": {
+        "guid": "11bbd48b-bb0a-4f1b-8167-fa297590390d",
+        "nickName": "End",
+        "category": "Curve",
+        "subCategory": "Analysis",
+        "description": "Extract the end points of a curve."
+      }
+    },
+
+    "mesh": {
+      "Mesh Sphere": {
+        "guid": "0a391eac-5048-443c-9c1b-f592299b6dd6",
+        "nickName": "MSphere",
+        "category": "Mesh",
+        "subCategory": "Primitive",
+        "description": "Create a mesh sphere."
+      }
+    },
+
+    "subd": {
+      "SubD Box": {
+        "guid": "10487e4e-a405-48b5-b188-5a8a6328418b",
+        "nickName": "SubDBox",
+        "category": "Surface",
+        "subCategory": "SubD",
+        "description": "Create a subdivision box"
+      },
+      "SubD from Mesh": {
+        "guid": "855a2c73-31c0-41d2-b061-57d54229d11b",
+        "nickName": "SubDMesh",
+        "category": "Surface",
+        "subCategory": "SubD",
+        "description": "Create a SubD from a control mesh"
+      },
+      "MultiPipe": {
+        "guid": "4bfe1bf6-fbc9-4ad2-bf28-a7402e1392ee",
+        "nickName": "MP",
+        "category": "Surface",
+        "subCategory": "SubD",
+        "description": "Create a branching pipe around a network of lines/curves"
+      }
+    }
+  },
+
+  "duplicate_names": {
+    "_description": "Components where multiple versions exist with the same name - USE GUIDs",
+    "Addition": [
+      {
+        "guid": "a0d62394-a118-422d-abb3-6af115c75b25",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical addition",
+        "recommended": true
+      },
+      {
+        "guid": "fb012ef9-4734-4049-84a0-b92b85bb09da",
+        "category": "Vector",
+        "subCategory": "Vector",
+        "description": "Perform vector-vector addition.",
+        "recommended": false,
+        "note": "Use for vector addition specifically"
+      }
+    ],
+    "Multiplication": [
+      {
+        "guid": "ce46b74e-00c9-43c4-805a-193b69ea4a11",
+        "category": "Maths",
+        "subCategory": "Operators",
+        "description": "Mathematical multiplication",
+        "recommended": true
+      },
+      {
+        "guid": "63fff845-7c61-4dfb-ba12-44d481b4bf0f",
+        "category": "Vector",
+        "subCategory": "Vector",
+        "nickName": "VMul",
+        "description": "Perform vector-scalar multiplication.",
+        "recommended": false,
+        "note": "Use for vector-scalar multiplication"
+      }
+    ],
+    "Sphere": [
+      {
+        "guid": "dabc854d-f50e-408a-b001-d043c7de151d",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "description": "Create a spherical surface.",
+        "recommended": true
+      },
+      {
+        "guid": "27766e5c-d889-407a-9ab7-d7bdefbd552f",
+        "category": "Axolotl",
+        "subCategory": "1 Primitives",
+        "description": "Sphere (Axolotl SDF)",
+        "recommended": false,
+        "note": "Axolotl plugin sphere - for SDF operations"
+      }
+    ],
+    "Box": [
+      {
+        "guid": "2a43ef96-8f87-4892-8b94-237a47e8d3cf",
+        "name": "Box 2Pt",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "recommended": true
+      },
+      {
+        "guid": "28061aae-04fb-4cb5-ac45-16f3b66bc0a4",
+        "name": "Center Box",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "recommended": false
+      },
+      {
+        "guid": "79aa7f47-397c-4d3f-9761-aaf421bb7f5f",
+        "name": "Domain Box",
+        "category": "Surface",
+        "subCategory": "Primitive",
+        "recommended": false
+      }
+    ],
+    "Integer": [
+      {
+        "guid": "2e3ab970-8545-46bb-836c-1c11e5610bce",
+        "category": "Params",
+        "subCategory": "Primitive",
+        "recommended": true,
+        "note": "Multiple Integer params exist with same structure"
+      },
+      {
+        "guid": "29fa3b21-fe33-43aa-95ec-8bda10536e46",
+        "category": "Params",
+        "subCategory": "Primitive"
+      },
+      {
+        "guid": "34a22050-8484-44cf-b2ee-974739434b18",
+        "category": "Params",
+        "subCategory": "Primitive"
+      },
+      {
+        "guid": "831aceec-b30d-439e-99ce-bae5daf25bfe",
+        "category": "Params",
+        "subCategory": "Primitive"
+      }
+    ]
+  },
+
+  "obsolete_warning": {
+    "_description": "Components that may have obsolete versions - investigation needed",
+    "observed_issues": [
+      {
+        "component": "Addition",
+        "observation": "Creating by name returned an obsolete Component_Addition_OBSOLETE version",
+        "date": "2026-01-25",
+        "solution": "Always use GUID: a0d62394-a118-422d-abb3-6af115c75b25"
+      }
+    ],
+    "detection_strategy": "Obsolete components are NOT marked 'OBSOLETE' in their name in the library search. They appear as regular components. Must track by testing and observation."
+  },
+
+  "categories_found": [
+    "Maths",
+    "Params",
+    "Surface",
+    "Curve",
+    "Mesh",
+    "Vector",
+    "Sets",
+    "Transform",
+    "Intersect",
+    "Display"
+  ],
+
+  "third_party_plugins": {
+    "_description": "Components from third-party plugins that appeared in searches",
+    "plugins": [
+      "Kangaroo2",
+      "Pufferfish",
+      "Parakeet",
+      "LunchBox",
+      "Wombat",
+      "V-Ray",
+      "Axolotl",
+      "Wasp",
+      "Heteroptera",
+      "Human",
+      "eleFront",
+      "TTToolbox",
+      "Bumblebee2",
+      "LunchBoxML",
+      "Horster",
+      "Leafvein",
+      "Raven"
+    ]
+  }
+}

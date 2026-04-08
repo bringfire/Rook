@@ -1,0 +1,56 @@
+{
+  "note_id": "comp_423504a1",
+  "note_type": "component",
+  "name": "Conicalize",
+  "brief": "Conicalize | Inputs: M, Strength → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Conicalize. Inputs: M (Mesh), Strength (Number). Outputs: C (Generic Data).",
+  "keywords": [
+    "conicalize",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "conicalize"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Conicalize"
+  ],
+  "solution_principle": "Adjust a quad mesh to make vertices conical - so the mesh has a face-face offset (See the paper 'The focal geometry of circular and conical meshes' for details). Use together with Planarize",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "54443347-13e2-4ad6-b68f-53c878d32c84",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "C": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "856bd786-9f29-4052-b721-0d64b7b3f3ea"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|conicalize"
+  }
+}

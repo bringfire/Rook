@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_27766a23",
+  "note_type": "component",
+  "name": "Spatial Deform (custom)",
+  "brief": "Spatial Deform (custom) | Inputs: G, S, F, f → G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Spatial Deform (custom). Inputs: G (Geometry), S (Point), F (Vector), f (Text). Outputs: G (Geometry).",
+  "keywords": [
+    "spatial deform (custom)",
+    "spatial",
+    "deform",
+    "(custom)",
+    "morphing"
+  ],
+  "category": "morphing",
+  "tags": [
+    "morphing"
+  ],
+  "trigger_intents": [
+    "spatial deform (custom)",
+    "spatial",
+    "deform",
+    "(custom)"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Spatial Deform (custom)"
+  ],
+  "solution_principle": "Perform spatial deformation based on custom space syntax.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d4249a4e",
+    "comp_6ba13139",
+    "comp_56d72921",
+    "teaching_0abb40f1",
+    "comp_ef96fa08"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "331b74f1-1f1f-4f37-b253-24fcdada29e3",
+    "category": "morphing",
+    "inputs": {
+      "G": "Geometry",
+      "S": "Point",
+      "F": "Vector",
+      "f": "Text"
+    },
+    "outputs": {
+      "G": "Geometry"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "66e6596f-6c8f-4ac3-99e0-0c4b7a59a7f7"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|morph|spatial deform (custom)"
+  }
+}

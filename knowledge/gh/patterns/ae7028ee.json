@@ -1,0 +1,67 @@
+{
+  "pattern_id": "ae7028ee",
+  "name": "wasp_31_teaching_VISUALIZE_PLANE_CONS",
+  "version": "1.0",
+  "created": "2026-03-19T18:46:20.104735Z",
+  "solution": {
+    "brief": "VISUALIZE PLANE CONSTRAINTS",
+    "principle": "",
+    "components_needed": [
+      "Toggle",
+      "Toggle",
+      "Toggle"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "plane",
+      "visualize",
+      "constraints"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "constraints",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

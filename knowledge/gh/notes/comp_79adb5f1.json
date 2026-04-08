@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_79adb5f1",
+  "note_type": "component",
+  "name": "Panel",
+  "brief": "Panel | Inputs: none â†’ output",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Panel.",
+  "keywords": [
+    "panel",
+    "panel"
+  ],
+  "category": "input_params",
+  "tags": [
+    "ui-component",
+    "data-display",
+    "parameter-input",
+    "debugging",
+    "visualization",
+    "grasshopper-basics"
+  ],
+  "trigger_intents": [
+    "panel"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Panel"
+  ],
+  "solution_principle": "A panel for custom notes and text values",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_29a07f2a",
+    "recipe_36b862a1",
+    "comp_cb2615cb",
+    "teaching_47c6c682",
+    "teaching_90de351e",
+    "comp_bb3b6d27"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+    "category": "input_params",
+    "inputs": [],
+    "outputs": [],
+    "typical_wiring": [],
+    "usage_count": 2049,
+    "stable_key": "params|input|panel"
+  }
+}

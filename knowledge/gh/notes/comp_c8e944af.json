@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_c8e944af",
+  "note_type": "component",
+  "name": "Negative",
+  "brief": "Negative | Inputs: x â†’ y",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Negative. Inputs: x (Generic Data). Outputs: y (Generic Data).",
+  "keywords": [
+    "negative",
+    "negative"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "mathematical-operation",
+    "value-manipulation",
+    "arithmetic",
+    "component",
+    "fundamental",
+    "number-processing",
+    "inversion",
+    "negation"
+  ],
+  "trigger_intents": [
+    "negative"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Negative"
+  ],
+  "solution_principle": "Compute the negative of a value.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_be35941a",
+    "comp_1fd660b8",
+    "comp_64318335",
+    "comp_8028bb73",
+    "comp_8ce04d33"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "a3371040-e552-4bc8-b0ff-10a840258e88",
+    "category": "math_operators",
+    "inputs": {
+      "x": "Generic Data"
+    },
+    "outputs": {
+      "y": "Generic Data"
+    },
+    "typical_wiring": [],
+    "usage_count": 247,
+    "stable_key": "maths|operators|negative"
+  }
+}

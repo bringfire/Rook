@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_7d656ef6",
+  "note_type": "component",
+  "name": "Extend Curve",
+  "brief": "Extend Curve | Inputs: C, T, L0, L1 → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.457850Z",
+  "context": "Grasshopper component: Extend Curve. Inputs: C (Curve), T (Integer), L0 (Number), L1 (Number). Outputs: C (Curve).",
+  "keywords": [
+    "extend curve",
+    "extend",
+    "curve",
+    "curve_utilities"
+  ],
+  "category": "curve_utilities",
+  "tags": [
+    "curve_utilities"
+  ],
+  "trigger_intents": [
+    "extend curve",
+    "extend",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Extend Curve"
+  ],
+  "solution_principle": "Extend a curve by a specified distance.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_61fb6287",
+    "comp_5cacaaa2",
+    "comp_78a65673",
+    "comp_5a41baef",
+    "comp_f452b4cc",
+    "comp_6760e68b",
+    "comp_5cd2c908",
+    "comp_c51e4d42"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "62cc9684-6a39-422e-aefa-ed44643557b9",
+    "category": "curve_utilities",
+    "inputs": {
+      "C": "Curve",
+      "T": "Integer",
+      "L0": "Number",
+      "L1": "Number"
+    },
+    "outputs": {
+      "C": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|util|extend curve"
+  }
+}

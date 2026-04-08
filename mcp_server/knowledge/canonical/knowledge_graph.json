@@ -1,0 +1,515 @@
+{
+  "schema_version": "2.0.0",
+  "patterns": {
+    "pattern:rhino_ping:4674": {
+      "tool": "rhino_ping",
+      "notes": [
+        "rhino_ping requires no parameters"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077884",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_document:2700": {
+      "tool": "rhino_document",
+      "notes": [
+        "rhino_document returns name, units, and object count"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077892",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_layers:1004": {
+      "tool": "rhino_layers",
+      "notes": [
+        "rhino_layers returns all layers with properties"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077895",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:1946": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects with no params returns all objects"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077897",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:6080": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects type filter uses geometry type names like 'Curve', 'Brep'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077899",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:6941": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects layer filter uses layer path string"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077900",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_selection:3082": {
+      "tool": "rhino_selection",
+      "notes": [
+        "rhino_selection returns currently selected objects"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077902",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:5587": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport captures current view as PNG"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077903",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:7901": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport view param accepts 'Top', 'Front', 'Right', 'Perspective'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077904",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_instances:8209": {
+      "tool": "rhino_instances",
+      "notes": [
+        "rhino_instances lists all Rhino windows with the Rook plugin loaded"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:43:50.077909",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_ping:5548": {
+      "tool": "rhino_ping",
+      "notes": [
+        "rhino_ping requires no parameters"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734107",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_document:317": {
+      "tool": "rhino_document",
+      "notes": [
+        "rhino_document returns name, units, and object count"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734117",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_layers:6976": {
+      "tool": "rhino_layers",
+      "notes": [
+        "rhino_layers returns all layers with properties"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734120",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:5110": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects with no params returns all objects"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734122",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:126": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects type filter uses geometry type names like 'Curve', 'Brep'"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734124",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:5941": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects layer filter uses layer path string"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734127",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_selection:1045": {
+      "tool": "rhino_selection",
+      "notes": [
+        "rhino_selection returns currently selected objects"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734128",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:1893": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport captures current view as PNG"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734130",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:9621": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport view param accepts 'Top', 'Front', 'Right', 'Perspective'"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734131",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_instances:515": {
+      "tool": "rhino_instances",
+      "notes": [
+        "rhino_instances lists all Rhino windows with the Rook plugin loaded"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T17:52:44.734132",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_ping:878": {
+      "tool": "rhino_ping",
+      "notes": [
+        "rhino_ping requires no parameters"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015730",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_document:9531": {
+      "tool": "rhino_document",
+      "notes": [
+        "rhino_document returns name, units, and object count"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015743",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_layers:7805": {
+      "tool": "rhino_layers",
+      "notes": [
+        "rhino_layers returns all layers with properties"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015747",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:130": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects with no params returns all objects"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015749",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:2786": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects type filter uses geometry type names like 'Curve', 'Brep'"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015751",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_objects:2066": {
+      "tool": "rhino_objects",
+      "notes": [
+        "rhino_objects layer filter uses layer path string"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015752",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_selection:7838": {
+      "tool": "rhino_selection",
+      "notes": [
+        "rhino_selection returns currently selected objects"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015754",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:1790": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport captures current view as PNG"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015755",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_viewport:4206": {
+      "tool": "rhino_viewport",
+      "notes": [
+        "rhino_viewport view param accepts 'Top', 'Front', 'Right', 'Perspective'"
+      ],
+      "success_count": 2,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015756",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_instances:2906": {
+      "tool": "rhino_instances",
+      "notes": [
+        "rhino_instances lists all Rhino windows with the Rook plugin loaded"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015759",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:3724": {
+      "tool": "rhino_create",
+      "notes": [
+        "POINT requires 'point' param as [x, y, z] array"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015766",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:3383": {
+      "tool": "rhino_create",
+      "notes": [
+        "LINE requires 'start' and 'end' as [x, y, z] arrays"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015767",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:137": {
+      "tool": "rhino_create",
+      "notes": [
+        "CIRCLE requires 'center' and 'radius'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015769",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:819": {
+      "tool": "rhino_create",
+      "notes": [
+        "SPHERE requires 'center' and 'radius'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015773",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:7031": {
+      "tool": "rhino_create",
+      "notes": [
+        "Color as [r, g, b] array works"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015775",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:4468": {
+      "tool": "rhino_create",
+      "notes": [
+        "Color as {r, g, b} object works"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015776",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:5809": {
+      "tool": "rhino_create",
+      "notes": [
+        "BOX requires 'origin', 'width', 'depth', 'height'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015777",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:1738": {
+      "tool": "rhino_create",
+      "notes": [
+        "CYLINDER requires 'center', 'radius', 'height'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015779",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:3663": {
+      "tool": "rhino_create",
+      "notes": [
+        "CONE requires 'center', 'radius', 'height'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015780",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:1085": {
+      "tool": "rhino_create",
+      "notes": [
+        "POLYLINE requires 'points' as array of [x, y, z] arrays"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015781",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:1736": {
+      "tool": "rhino_create",
+      "notes": [
+        "RECTANGLE requires 'origin', 'width', 'height'"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015783",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:8593": {
+      "tool": "rhino_create",
+      "notes": [
+        "ARC requires 'center', 'radius', 'startAngle', 'endAngle' (degrees)"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015784",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:4648": {
+      "tool": "rhino_create",
+      "notes": [
+        "Objects can be named with 'name' param"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015785",
+      "source": "bootstrap"
+    },
+    "pattern:rhino_create:6062": {
+      "tool": "rhino_create",
+      "notes": [
+        "Objects can be placed on layer with 'layer' param"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "weight": 1.0,
+      "created_at": "2025-12-21T18:01:21.015787",
+      "source": "bootstrap"
+    }
+  },
+  "relationships": [],
+  "mab_state": {},
+  "antipatterns": [
+    {
+      "tool": "rhino_create",
+      "note": "LINE fails without 'end' param",
+      "source": "bootstrap",
+      "source_test": "create-004",
+      "added_at": "2025-12-21T18:01:21.015791"
+    },
+    {
+      "tool": "rhino_create",
+      "note": "BOX fails with negative dimensions",
+      "source": "bootstrap",
+      "source_test": "create-013",
+      "added_at": "2025-12-21T18:01:21.015793"
+    },
+    {
+      "tool": "rhino_create",
+      "note": "POLYLINE requires at least 2 points",
+      "source": "bootstrap",
+      "source_test": "create-017",
+      "added_at": "2025-12-21T18:01:21.015795"
+    }
+  ],
+  "last_updated": "2025-12-21T18:01:21.015993"
+}

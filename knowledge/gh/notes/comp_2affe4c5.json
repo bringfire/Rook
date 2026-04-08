@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_2affe4c5",
+  "note_type": "component",
+  "name": "Line SDL",
+  "brief": "Line SDL | Inputs: S, D, L â†’ L",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.822291Z",
+  "context": "Grasshopper component: Line SDL. Inputs: S (Point), D (Vector), L (Number). Outputs: L (Line).",
+  "keywords": [
+    "line sdl",
+    "line",
+    "sdl"
+  ],
+  "category": "curves",
+  "tags": [
+    "geometry-creation",
+    "line",
+    "SDL",
+    "grasshopper-component",
+    "basic-geometry",
+    "vector-based"
+  ],
+  "trigger_intents": [
+    "line sdl",
+    "line"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line SDL"
+  ],
+  "solution_principle": "Create a line segment defined by start point, tangent and length.}",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_13c22f6b",
+    "teaching_b85f762f",
+    "teaching_e23cfc74",
+    "comp_1328b7f4",
+    "comp_2b7b6770"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "4c619bc9-39fd-4717-82a6-1e07ea237bbe",
+    "category": "curves",
+    "inputs": {
+      "S": "Point",
+      "D": "Vector",
+      "L": "Number"
+    },
+    "outputs": {
+      "L": "Line"
+    },
+    "typical_wiring": [],
+    "usage_count": 62,
+    "stable_key": "curve|primitive|line sdl"
+  }
+}

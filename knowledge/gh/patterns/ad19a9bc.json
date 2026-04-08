@@ -1,0 +1,115 @@
+{
+  "pattern_id": "ad19a9bc",
+  "name": "Wasp Rules Are Directional — Must Define Both Directions",
+  "version": "1.0",
+  "created": "2026-03-19T13:22:33.665665Z",
+  "solution": {
+    "brief": "Wasp rules are directional; create two separate Wasp_Rule components (A→B and B→A) for bidirectional part connections.",
+    "principle": "Wasp_Rule encodes a directed graph edge, not an undirected one. The aggregation engine only permits connections matching the exact source→target direction specified, so symmetry must be explicitly declared by doubling rules in both orientations.\n\nRelated insight: The connection IDs that Wasp_Rule references are determined by the sequential input order into Wasp_Connection From Direction. Each connection plane is defined by a center point (origin) and a direction curve (X-axis). Reordering inputs changes IDs, which silently breaks rule references — a common source of aggregation failures.\n\nRelated insight: Related insight: Wasp_Rule references connection indices using 0-based numbering. When defining the two rules for a bidirectional connection, the indices are 'swapped' — if A's connection 0 mates with B's connection 1, the reverse rule uses B's connection 1 mating with A's connection 0. Misremembering that indices are 0-based (not 1-based) is a silent failure point.\n\nRelated insight: Related insight: The directional rules defined here feed into Wasp_Stochastic Aggregation as required inputs. The aggregation component is stateful and additive — it uses these rules each step to randomly select valid connections and grow the assembly incrementally. Incomplete rule sets (missing one direction of a bidirectional pair) will silently limit growth to one direction only.",
+    "components_needed": [
+      "Wasp_Rule",
+      "Merge",
+      "Wasp_Stochastic Aggregation"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I make parts connect in both directions in Wasp",
+      "my Wasp aggregation is sparse or asymmetric",
+      "why are some connections not forming in stochastic aggregation",
+      "I want two parts to connect to each other bidirectionally",
+      "Wasp aggregation not using all connection points"
+    ],
+    "symptoms": [
+      "aggregation produces fewer connections than expected or looks sparse",
+      "parts only connect in one orientation but not the reverse",
+      "some connection indices are never used during aggregation",
+      "aggregation result is asymmetric despite symmetric geometry"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Using Wasp plugin for discrete aggregation",
+      "At least one Wasp_Rule component is defined connecting two part connections",
+      "Stochastic Aggregation or similar Wasp aggregation component is being used",
+      "User expects parts to connect symmetrically or bidirectionally"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "842e394c",
+    "fe6b0648",
+    "e429efda",
+    "c19bb3ff",
+    "d1f677ba"
+  ],
+  "tags": [
+    "wasp-connection",
+    "connectivity",
+    "component-reference",
+    "connections",
+    "domain-wasp",
+    "direction-curves",
+    "rules",
+    "directionality",
+    "bidirectional",
+    "growth",
+    "gotcha",
+    "0-based-index",
+    "aggregation",
+    "wasp",
+    "discrete-design",
+    "sequential-id"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T09:27:37.040660",
+    "evolved_by": [
+      "e429efda",
+      "c19bb3ff",
+      "d1f677ba"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:24:12.899838",
+        "trigger": "New pattern: e429efda",
+        "changes": "Wasp_Rule references connection IDs, and those IDs come from sequential ordering in Wasp_Connection From Direction. This is a critical gotcha: the directionality of rules depends on correctly ordered connection IDs upstream."
+      },
+      {
+        "date": "2026-03-19T09:26:10.285316",
+        "trigger": "New pattern: c19bb3ff",
+        "changes": "New pattern explicitly introduces '0-based connection indices' and 'swapped-index' framing for bidirectional rules — specific details not yet present in this neighbor's context."
+      },
+      {
+        "date": "2026-03-19T09:27:37.040660",
+        "trigger": "New pattern: d1f677ba",
+        "changes": "The new pattern's description of how aggregation consumes rules and grows incrementally adds useful downstream context to this pattern about directionality, reinforcing why both directions must be defined."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

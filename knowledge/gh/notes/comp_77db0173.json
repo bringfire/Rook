@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_77db0173",
+  "note_type": "component",
+  "name": "Text Split",
+  "brief": "Text Split | Inputs: T, C → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Text Split. Inputs: T (Text), C (Text). Outputs: R (Text).",
+  "keywords": [
+    "text split",
+    "text",
+    "split",
+    "text_ops"
+  ],
+  "category": "text_ops",
+  "tags": [
+    "text_ops"
+  ],
+  "trigger_intents": [
+    "text split",
+    "text",
+    "split"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Text Split"
+  ],
+  "solution_principle": "Split some text into fragments using separators",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_dfb40a0b",
+    "comp_a49505b9",
+    "comp_eae94e15",
+    "comp_eab5ee17",
+    "comp_5c80adad",
+    "comp_c64869fe",
+    "comp_37bfb447",
+    "comp_eadf18b9"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "04887d01-504c-480e-b2a2-01ea19cc5922",
+    "category": "text_ops",
+    "inputs": {
+      "T": "Text",
+      "C": "Text"
+    },
+    "outputs": {
+      "R": "Text"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "07e0811f-034a-4504-bca0-2d03b2c46217",
+      "86503240-d884-43f9-9323-efe30488a6e1"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|text|text split"
+  }
+}

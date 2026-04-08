@@ -1,0 +1,63 @@
+{
+  "pattern_id": "43d90743",
+  "name": "wasp_26_teaching_2_11_Combining_Field",
+  "version": "1.0",
+  "created": "2026-03-19T18:27:36.278546Z",
+  "solution": {
+    "brief": "2_11_Combining_Fields",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Geometry"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "2_11_combining_fields"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "pattern_id": "842e394c",
+  "name": "Wasp Basic Aggregation Workflow (4-Step Foundation)",
+  "version": "1.0",
+  "created": "2026-03-19T13:21:45.030559Z",
+  "solution": {
+    "brief": "Four-step Wasp workflow: Build Part → Define Directional Rules → Stochastic Aggregation → Visualize with PartGeo + Custom Preview.",
+    "principle": "Wasp aggregation requires explicitly defining bidirectional connections as two separate rules because connections are directional by design; each step builds on the previous, and the stochastic aggregator randomly selects parts and rules to grow assemblies incrementally.\n\nRelated insight: Conceptually, each Wasp_Rule encodes a directed graph edge (A→B), not an undirected one — the engine only permits connections matching the exact source→target direction. This is a common gotcha: forgetting to define both directions results in one-way connections only.\n\nRelated insight: Connections are built using Wasp_Connection From Direction: the center point sets the connection plane origin and the direction curve sets the X-axis. Sequential input order determines connection IDs — these IDs must match what Wasp_Rule references, so ordering inputs to Wasp_Connection From Direction is critical to rule correctness.\n\nRelated insight: Related insight: Wasp_Basic Part is the component that creates WaspPart objects — it takes geometry, WaspConnection objects, and a name string as inputs. The name string is the critical identifier: it is referenced in Wasp_Rule definitions to specify which part types are allowed to connect where. Using an incorrect or inconsistent name string silently breaks rule matching.\n\nRelated insight: Related insight: Wasp_Rule connection indices are 0-based. The bidirectional rule pair uses 'swapped' indices — Part_A[0]→Part_B[1] and Part_B[1]→Part_A[0] are the two complementary rules. Both the part name string and the 0-based connection index must precisely match their definitions in Wasp_Basic Part and Wasp_Connection From Direction respectively.\n\nRelated insight: Related insight: Wasp_Stochastic Aggregation is stateful and additive — it accumulates parts on top of its previous state each time it runs. Increasing N grows the assembly incrementally rather than regenerating from scratch. RESET is the only mechanism to clear accumulated state and restart the assembly from zero. This is a frequent gotcha: re-running the component without RESET produces unexpected cumulative growth. In Step 4 (Visualize), geometry is not a direct output of the aggregation component — it must be extracted via Wasp_Get Part Geometry connected to PART_OUT, then passed to Custom Preview.\n\nRelated insight: PartGeo detail: Wasp_Get Part Geometry transforms the abstract WaspPart objects' underlying geometry into world-space placements — parts exist as abstract objects with position/orientation data until PartGeo applies those transforms, making geometry accessible to standard GH visualization components.\n\nRelated insight: Related insight: The canonical Wasp tutorial uses a hexagonal part with 6 connection faces as the reference geometry. This 6-face hex part is a useful mental model: each face becomes a named connection point, and the bidirectional rule set covers all 6×6 possible face pairings (or a subset). The hex geometry also illustrates why sequential input order to Wasp_Connection From Direction matters — with 6 connections, any reordering silently reassigns IDs 0–5 and invalidates all rule references.\n\nRelated insight: Related insight: The foundation 4-step workflow extends naturally to multi-part assemblies. When two or more distinct parts are involved, each part is defined separately with its own Brep geometry and connections, and assembly rules are expressed as text strings (e.g., 'PartA|0|PartB|1') rather than purely through component wiring. Text-based rules allow compact specification of all valid part-to-part connection pairs across a multi-part vocabulary, and the same stochastic aggregation engine governs growth regardless of part count.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Basic Part",
+      "Wasp_Rule",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Get Part Geometry",
+      "Merge",
+      "Custom Preview",
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "how do I start a basic Wasp aggregation",
+      "how to set up Wasp parts and rules from scratch",
+      "Wasp aggregation not working or not connecting parts",
+      "what is the minimum setup needed for Wasp discrete aggregation",
+      "how do I visualize Wasp aggregation results"
+    ],
+    "symptoms": [
+      "parts not connecting or aggregation producing no results despite rules being defined",
+      "aggregation only works in one direction but not the reverse",
+      "blank or no geometry output from Wasp aggregation",
+      "user has no prior Wasp setup and needs to build from zero"
+    ]
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [
+      "Wasp plugin is installed in Grasshopper",
+      "At least one piece of geometry (Brep or Mesh) is available to define a part",
+      "User understands basic Grasshopper wiring and component usage",
+      "A RESET button component is present to trigger aggregation restart"
+    ],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "fe6b0648",
+    "ad19a9bc",
+    "e429efda",
+    "e1f1c3cf",
+    "c19bb3ff",
+    "d1f677ba",
+    "414ec8c8",
+    "5c0baa38",
+    "490bc17e"
+  ],
+  "tags": [
+    "stateful",
+    "visualization",
+    "workflow",
+    "plugin-workflow",
+    "rules",
+    "part-based",
+    "component-reference",
+    "gotcha",
+    "connections",
+    "bidirectional",
+    "hexagonal",
+    "discrete-design",
+    "part-geometry",
+    "wasp-connection",
+    "sequential-id",
+    "brep-geometry",
+    "two-parts",
+    "geometry-extraction",
+    "foundation",
+    "discrete-assembly",
+    "generative",
+    "tutorial",
+    "0-based-index",
+    "directionality",
+    "multi-part",
+    "grasshopper",
+    "reset",
+    "growth",
+    "text-rules",
+    "aggregation",
+    "wasppart",
+    "part-definition",
+    "wasp",
+    "direction-curves",
+    "stochastic"
+  ],
+  "evolution": {
+    "created_from": "manual",
+    "last_evolved": "2026-03-19T11:51:11.748525",
+    "evolved_by": [
+      "ad19a9bc",
+      "e429efda",
+      "e1f1c3cf",
+      "c19bb3ff",
+      "d1f677ba",
+      "414ec8c8",
+      "5c0baa38",
+      "490bc17e"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:23:02.502026",
+        "trigger": "New pattern: ad19a9bc",
+        "changes": "New pattern clarifies the directed-graph-edge mental model and frames directionality as a gotcha; adding these tags and context makes the workflow pattern more precise and warns users of the common mistake."
+      },
+      {
+        "date": "2026-03-19T09:24:12.899838",
+        "trigger": "New pattern: e429efda",
+        "changes": "The new pattern clarifies the internal mechanics of how connections are defined and how their IDs are assigned sequentially. This directly affects Step 1 (Build Part) and Step 2 (Define Rules) of the 4-step workflow, since mismatched IDs lead to broken rule references."
+      },
+      {
+        "date": "2026-03-19T09:25:04.565044",
+        "trigger": "New pattern: e1f1c3cf",
+        "changes": "The new pattern clarifies that the Part name string is the rule-linking key — this is a gotcha that belongs in the workflow foundation pattern, which already tracks directionality and sequential-ID gotchas."
+      },
+      {
+        "date": "2026-03-19T09:26:10.285316",
+        "trigger": "New pattern: c19bb3ff",
+        "changes": "New pattern's emphasis on 0-based indexing and swapped-index pattern for bidirectionality adds precision to this workflow pattern's gotcha documentation."
+      },
+      {
+        "date": "2026-03-19T09:27:37.040660",
+        "trigger": "New pattern: d1f677ba",
+        "changes": "The 4-step workflow pattern is missing the stateful behavior of the aggregation component, the RESET mechanism, and the correct geometry extraction pipeline (PART_OUT → Wasp_Get Part Geometry → Custom Preview). These are operationally critical details."
+      },
+      {
+        "date": "2026-03-19T09:28:32.406448",
+        "trigger": "New pattern: 414ec8c8",
+        "changes": "New pattern clarifies the world-space transformation mechanic of PartGeo; adding part-geometry and geometry-extraction tags improves cross-pattern discoverability."
+      },
+      {
+        "date": "2026-03-19T11:47:48.725130",
+        "trigger": "New pattern: 5c0baa38",
+        "changes": "New pattern explicitly identifies the hexagonal 6-connection-face part as the tutorial's canonical example. This concrete geometry detail anchors the abstract workflow steps and reinforces why connection ordering and ID management are critical."
+      },
+      {
+        "date": "2026-03-19T11:51:11.748525",
+        "trigger": "New pattern: 490bc17e",
+        "changes": "New pattern introduces multi-part (two-parts) assemblies with Brep geometry and text-based rules as a direct extension of this foundation workflow. Neighbors should know this progression exists."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

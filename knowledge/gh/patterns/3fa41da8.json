@@ -1,0 +1,984 @@
+{
+  "pattern_id": "3fa41da8",
+  "name": "8-1",
+  "version": "1.0",
+  "created": "2026-02-22T14:19:02.023598Z",
+  "solution": {
+    "brief": "Recipe from FILES\\8\\8-1.gh (68 components)",
+    "principle": "\n\nRelated insight: Series progression confirmed: 8-1 (68 components, mid-high) → 8-2 (86 components, high complexity with pipe-output/boolean operations).\n\nRelated insight: Expanded progression context: 9-2 (39, mid) → 8-1 (68, mid-high) → 8-2 (86, high). Series 9 validates the lower complexity baseline for the established progression pattern.",
+    "components_needed": [
+      "Bifocals",
+      "Voronoi",
+      "Populate 2D",
+      "Number Slider",
+      "Number Slider",
+      "Bounding Box",
+      "Evaluate Surface",
+      "MD Slider",
+      "Circle",
+      "Number Slider",
+      "Populate Geometry",
+      "Surface",
+      "MD Slider",
+      "Voronoi",
+      "Populate 2D",
+      "Number Slider",
+      "Number Slider",
+      "Bounding Box",
+      "Scale",
+      "Loft",
+      "Explode",
+      "Explode",
+      "Param Viewer",
+      "Param Viewer",
+      "Move",
+      "Unit Z",
+      "Point",
+      "Closest Point",
+      "Remap+",
+      "Number Slider",
+      "Number Slider",
+      "Custom Preview",
+      "Colour Swatch",
+      "Voronoi 3D",
+      "Populate 3D",
+      "Populate Geometry",
+      "Box",
+      "Move",
+      "Unit X",
+      "Number Slider",
+      "Voronoi 3D",
+      "Random Reduce",
+      "List Length",
+      "Multiplication",
+      "Number Slider",
+      "Number Slider",
+      "Panel Frame",
+      "Deconstruct Brep",
+      "Custom Preview",
+      "Custom Preview",
+      "Colour Swatch",
+      "Voronoi",
+      "Populate 2D",
+      "Number Slider",
+      "Number Slider",
+      "Scale",
+      "Loft",
+      "Explode",
+      "Explode",
+      "Custom Preview",
+      "Colour Swatch",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "Simple Mesh",
+      "Mesh Join",
+      "panel",
+      "Weaverbird's Mesh Thicken",
+      "Number Slider",
+      "Custom Preview"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "8 1"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "f44ca915",
+    "6a391ba0",
+    "91aa15f3",
+    "c25e9cf6",
+    "f2b6451c",
+    "61ea3072"
+  ],
+  "tags": [
+    "mid-high-complexity",
+    "parametric",
+    "recipe-series",
+    "surface-creation",
+    "complexity-tier-validation",
+    "68-components",
+    "series-progression",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:22:42.530519",
+    "evolved_by": [
+      "f2b6451c",
+      "61ea3072"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:19:51.108597",
+        "trigger": "New pattern: f2b6451c",
+        "changes": "8-2 establishes the progression within the 8-series, showing complexity evolution from 8-1 to 8-2"
+      },
+      {
+        "date": "2026-02-22T09:22:42.530519",
+        "trigger": "New pattern: 61ea3072",
+        "changes": "9-2 provides context for the full complexity spectrum, validating 8-1's position in the mid-high tier"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R4",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 130
+        },
+        {
+          "id": "R5",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 233
+        },
+        {
+          "id": "R10",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 3.5
+        },
+        {
+          "id": "R16",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 130
+        },
+        {
+          "id": "R17",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 421
+        },
+        {
+          "id": "R30",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 0.1,
+          "value": 0.05
+        },
+        {
+          "id": "R31",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.88
+        },
+        {
+          "id": "R40",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R45",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R46",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 392
+        },
+        {
+          "id": "R54",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R55",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1000,
+          "value": 183
+        },
+        {
+          "id": "R67",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 0.5
+        }
+      ],
+      "panels": [
+        {
+          "id": "R65",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/8/8-1.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            54,
+            44
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            1394,
+            244
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "Component_PopulateRectangle",
+          "name": "Populate 2D",
+          "pos": [
+            372,
+            204
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            90,
+            182.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 130
+        },
+        {
+          "id": "R5",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            91.3,
+            208.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 233
+        },
+        {
+          "id": "R6",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            568,
+            236
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_EvaluateSurface",
+          "name": "Evaluate Surface",
+          "pos": [
+            726,
+            282
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            438.8,
+            292.2
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            954,
+            342
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            670.5,
+            343
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3.5
+        },
+        {
+          "id": "R11",
+          "type": "Component_PopulateGeometry",
+          "name": "Populate Geometry",
+          "pos": [
+            1213,
+            376
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "Param_Surface",
+          "name": "Surface",
+          "pos": [
+            1080.9,
+            346.3
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "MultiDimensionalSlider",
+          "nick": "MD Slider",
+          "pos": [
+            325.9,
+            292.4
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            747,
+            642
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "Component_PopulateRectangle",
+          "name": "Populate 2D",
+          "pos": [
+            404,
+            616
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            93,
+            611.4
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 130
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            91.4,
+            637.9
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 421
+        },
+        {
+          "id": "R18",
+          "type": "Component_BoundingBox",
+          "name": "Bounding Box",
+          "pos": [
+            588,
+            651
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            897,
+            695
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1449,
+            596
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1249,
+            652
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            1247,
+            702
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1390.6,
+            467.6
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "ParamViewer",
+          "name": "Param Viewer",
+          "pos": [
+            1387.5,
+            643.5
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1080,
+            716
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            844,
+            772
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            377,
+            796
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_ClosestPoint",
+          "name": "Closest Point",
+          "pos": [
+            484,
+            780
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            665,
+            820
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            371.3,
+            824.8
+          ],
+          "min": 0,
+          "max": 0.1,
+          "value": 0.05
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            371.3,
+            844.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.88
+        },
+        {
+          "id": "R32",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            1681,
+            573
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "colour",
+          "nick": "Colour Swatch",
+          "pos": [
+            1427.6,
+            745.8
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_VolumeVoronoi",
+          "name": "Voronoi 3D",
+          "pos": [
+            990,
+            1043
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_PopulateBox",
+          "name": "Populate 3D",
+          "pos": [
+            793,
+            953
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_PopulateGeometry",
+          "name": "Populate Geometry",
+          "pos": [
+            806,
+            1055
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Param_Box",
+          "name": "Box",
+          "pos": [
+            414.9,
+            927.6
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            586,
+            1141
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_UnitVectorX",
+          "name": "Unit X",
+          "pos": [
+            364,
+            1149
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            89.7,
+            1144
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 20
+        },
+        {
+          "id": "R41",
+          "type": "Component_VolumeVoronoi",
+          "name": "Voronoi 3D",
+          "pos": [
+            995,
+            1126
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_RandomReduce",
+          "name": "Random Reduce",
+          "pos": [
+            1544,
+            1016
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_ListLength",
+          "name": "List Length",
+          "pos": [
+            1208,
+            1051
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_VariableMultiplication",
+          "name": "Multiplication",
+          "pos": [
+            1339,
+            1061
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1067.2,
+            1072
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.5
+        },
+        {
+          "id": "R46",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1191.7,
+            1106.1
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 392
+        },
+        {
+          "id": "R47",
+          "type": "Frame",
+          "name": "Panel Frame",
+          "pos": [
+            1838,
+            1053
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_DeconstructBrep",
+          "name": "Deconstruct Brep",
+          "pos": [
+            1663,
+            1063
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            2036,
+            1018
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            2035,
+            1086
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "colour",
+          "nick": "Colour Swatch",
+          "pos": [
+            1804.3,
+            1114.5
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_PlanarVoronoi",
+          "name": "Voronoi",
+          "pos": [
+            567,
+            1326
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Component_PopulateRectangle",
+          "name": "Populate 2D",
+          "pos": [
+            364,
+            1285
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            86.5,
+            1265.7
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 80
+        },
+        {
+          "id": "R55",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            87.8,
+            1285.3
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 183
+        },
+        {
+          "id": "R56",
+          "type": "Component_Scale",
+          "name": "Scale",
+          "pos": [
+            755,
+            1370
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            1129,
+            1296
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            936,
+            1287
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "Component_ExplodeCurve",
+          "name": "Explode",
+          "pos": [
+            934,
+            1349
+          ]
+        },
+        {
+          "id": "R60",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            2203,
+            1302
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "colour",
+          "nick": "Colour Swatch",
+          "pos": [
+            1987.1,
+            1302.5
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "CatmullClarkComponent",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1980,
+            1375
+          ]
+        },
+        {
+          "id": "R63",
+          "type": "Component_MeshBrepSimple",
+          "name": "Simple Mesh",
+          "pos": [
+            1275,
+            1351
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "Component_MeshJoin",
+          "name": "Mesh Join",
+          "pos": [
+            1413,
+            1358
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "panel",
+          "pos": [
+            1783.1,
+            1369.7
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R66",
+          "type": "ThickenComponent",
+          "name": "Weaverbird's Mesh Thicken",
+          "pos": [
+            1600,
+            1378
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1264.1,
+            1378.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0.5
+        },
+        {
+          "id": "R68",
+          "type": "CustomPreviewComponent",
+          "name": "Custom Preview",
+          "pos": [
+            2208,
+            1395
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I0",
+        "R11.O0>R2.I0",
+        "R6.O0>R2.I2",
+        "R4.O0>R3.I1",
+        "R5.O0>R3.I2",
+        "R3.O0>R6.I0",
+        "R6.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R13.O0>R7.I1",
+        "R7.O0>R9.I0",
+        "R10.O0>R9.I1",
+        "R12.O0>R11.I0",
+        "R15.O0>R14.I0",
+        "R18.O0>R14.I2",
+        "R16.O0>R15.I1",
+        "R17.O0>R15.I2",
+        "R15.O0>R18.I0",
+        "R14.O0>R19.I0",
+        "R15.O0>R19.I1",
+        "R21.O0>R20.I0",
+        "R22.O0>R20.I0",
+        "R14.O0>R21.I0",
+        "R25.O0>R22.I0",
+        "R19.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R29.O0>R26.I0",
+        "R15.O0>R28.I0",
+        "R27.O0>R28.I1",
+        "R28.O2>R29.I0",
+        "R30.O0>R29.I1",
+        "R31.O0>R29.I2",
+        "R20.O0>R32.I0",
+        "R33.O0>R32.I1",
+        "R35.O0>R34.I0",
+        "R37.O0>R34.I1",
+        "R37.O0>R35.I0",
+        "R38.O0>R36.I0",
+        "R37.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R40.O0>R39.I0",
+        "R36.O0>R41.I0",
+        "R38.O0>R41.I1",
+        "R34.O0>R42.I0",
+        "R44.O0>R42.I1",
+        "R46.O0>R42.I2",
+        "R34.O0>R43.I0",
+        "R43.O0>R44.I0",
+        "R45.O0>R44.I1",
+        "R48.O0>R47.I0",
+        "R42.O0>R48.I0",
+        "R47.O0>R49.I0",
+        "R47.O1>R50.I0",
+        "R51.O0>R50.I1",
+        "R53.O0>R52.I0",
+        "R54.O0>R53.I1",
+        "R55.O0>R53.I2",
+        "R52.O0>R56.I0",
+        "R53.O0>R56.I1",
+        "R58.O0>R57.I0",
+        "R59.O0>R57.I0",
+        "R52.O0>R58.I0",
+        "R56.O0>R59.I0",
+        "R57.O0>R60.I0",
+        "R61.O0>R60.I1",
+        "R66.O0>R62.I0",
+        "R65.O0>R62.I1",
+        "R57.O0>R63.I0",
+        "R63.O0>R64.I0",
+        "R64.O0>R66.I0",
+        "R67.O0>R66.I1",
+        "R62.O0>R68.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

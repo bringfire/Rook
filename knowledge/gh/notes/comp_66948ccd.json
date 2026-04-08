@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_66948ccd",
+  "note_type": "component",
+  "name": "Rectangular",
+  "brief": "Rectangular | Inputs: P, Sx, Sy, Ex → C, P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Rectangular. Inputs: P (Plane), Sx (Number), Sy (Number), Ex (Integer), Ey (Integer). Outputs: C (Rectangle), P (Point).",
+  "keywords": [
+    "rectangular",
+    "grid_ops"
+  ],
+  "category": "grid_ops",
+  "tags": [
+    "grid_ops"
+  ],
+  "trigger_intents": [
+    "rectangular"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Rectangular"
+  ],
+  "solution_principle": "2D grid with rectangular cells",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0e842fd0",
+    "comp_bf6b0e1b",
+    "comp_8d55aa57",
+    "comp_b42eaf19",
+    "comp_aa8d491f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "1a25aae0-0b56-497a-85b2-cc5bf7e4b96b",
+    "category": "grid_ops",
+    "inputs": {
+      "P": "Plane",
+      "Sx": "Number",
+      "Sy": "Number",
+      "Ex": "Integer",
+      "Ey": "Integer"
+    },
+    "outputs": {
+      "C": "Rectangle",
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "717a1e25-a075-4530-bc80-d43ecc2500d9"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|grid|rectangular"
+  }
+}

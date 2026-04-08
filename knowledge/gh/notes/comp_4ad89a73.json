@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_4ad89a73",
+  "note_type": "component",
+  "name": "LengthRatio",
+  "brief": "LengthRatio | Inputs: LineA, LineB, Ratio, Strength → A",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: LengthRatio. Inputs: LineA (Line), LineB (Line), Ratio (Number), Strength (Number). Outputs: A (Generic Data).",
+  "keywords": [
+    "lengthratio",
+    "kangaroo2_goals-lin"
+  ],
+  "category": "kangaroo2_goals-lin",
+  "tags": [
+    "kangaroo2_goals-lin"
+  ],
+  "trigger_intents": [
+    "lengthratio",
+    "length",
+    "ratio"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "LengthRatio"
+  ],
+  "solution_principle": "Maintain a fixed ratio between the lengths of a pair of lines",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_eb3f7422",
+    "comp_4bf73e6f",
+    "comp_84888a06",
+    "comp_d03e942d",
+    "comp_f66842b1",
+    "comp_3f7eebed",
+    "comp_58d4c26f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "09fef083-0d7b-4e3d-a24c-928a19a71aed",
+    "category": "kangaroo2_goals-lin",
+    "inputs": {
+      "LineA": "Line",
+      "LineB": "Line",
+      "Ratio": "Number",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-lin|lengthratio"
+  }
+}

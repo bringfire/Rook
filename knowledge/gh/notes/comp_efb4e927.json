@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_efb4e927",
+  "note_type": "component",
+  "name": "Inverse Transform",
+  "brief": "Inverse Transform | Inputs: T → T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Inverse Transform. Inputs: T (Transform). Outputs: T (Transform).",
+  "keywords": [
+    "inverse transform",
+    "inverse",
+    "transform",
+    "transform_utilities"
+  ],
+  "category": "transform_utilities",
+  "tags": [
+    "transform_utilities"
+  ],
+  "trigger_intents": [
+    "inverse transform",
+    "inverse",
+    "transform"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Inverse Transform"
+  ],
+  "solution_principle": "Invert a transformation.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1d32f65a",
+    "comp_598dbb71",
+    "comp_75c18312",
+    "comp_15bf21c0",
+    "comp_7112fbb5"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "51f61166-7202-45aa-9126-3d83055b269e",
+    "category": "transform_utilities",
+    "inputs": {
+      "T": "Transform"
+    },
+    "outputs": {
+      "T": "Transform"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "915f8f93-f5d1-4a7b-aecb-c327bab88ffb"
+    ],
+    "usage_count": 0,
+    "stable_key": "transform|util|inverse transform"
+  }
+}

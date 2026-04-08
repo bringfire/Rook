@@ -1,0 +1,56 @@
+{
+  "note_id": "comp_c8870feb",
+  "note_type": "component",
+  "name": "G2",
+  "brief": "G2 | Inputs: Points, Strength → G2",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: G2. Inputs: Points (Point), Strength (Number). Outputs: G2 (Generic Data).",
+  "keywords": [
+    "g2",
+    "kangaroo2_goals-angle"
+  ],
+  "category": "kangaroo2_goals-angle",
+  "tags": [
+    "kangaroo2_goals-angle"
+  ],
+  "trigger_intents": [
+    "g2"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "G2"
+  ],
+  "solution_principle": "Maintain curvature continuity between 2 nurbs curves",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8abedb3c-ff82-46ea-8f77-fcb236b55d89",
+    "category": "kangaroo2_goals-angle",
+    "inputs": {
+      "Points": "Point",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "G2": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "51cbcf97-8cf9-4f52-9941-a9b484593db2"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-angle|g2"
+  }
+}

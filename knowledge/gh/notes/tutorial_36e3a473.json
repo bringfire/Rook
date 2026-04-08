@@ -1,0 +1,79 @@
+{
+  "note_id": "tutorial_36e3a473",
+  "note_type": "teaching",
+  "name": "Intermediate 4-12: List Operation Alternatives \u00e2\u20ac\u201d Five Colored Groups Comparing Methods",
+  "brief": "Five colored groups (purple, cyan, yellow, pink, tan) each showing a different list manipulation operation with panel outputs for comparison.",
+  "version": "1.0",
+  "created": "2026-02-23T04:21:58.773976Z",
+  "context": "Five distinctly colored groups showing different list operations side by side. Each group takes similar input data and applies a different list manipulation technique. Purple (top): basic list operation with panel output. Cyan: variation with additional list processing. Yellow: another list manipulation approach. Pink: list operation with different parameter. Tan/beige (bottom): final list operation variant. Each group shows input panels, the operation component, and output panels for comparison. Teaches the different list manipulation tools available and their distinct behaviors.",
+  "keywords": [
+    "list operations",
+    "list manipulation",
+    "comparison",
+    "data organization",
+    "list alternatives"
+  ],
+  "category": "Intermediate - Surface Creation and List Operations",
+  "tags": [
+    "intermediate",
+    "alternatives",
+    "list-operations",
+    "data-manipulation",
+    "comparison",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "list operations comparison",
+    "different list manipulations",
+    "grasshopper list tools",
+    "compare list operations",
+    "data organization methods",
+    "list manipulation alternatives"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Panel",
+    "List Item",
+    "Number Slider"
+  ],
+  "solution_principle": "Grasshopper provides multiple list manipulation operations, each with distinct behavior. Comparing their outputs side-by-side with panels reveals how each transforms data differently. Understanding these differences is essential for correctly organizing data in complex definitions.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_0e40ec54",
+    "tutorial_0e7af367",
+    "tutorial_a0c71175",
+    "tutorial_041c47d4",
+    "tutorial_0b9dde96",
+    "tutorial_dbee65d5",
+    "tutorial_d606409b",
+    "tutorial_81c4b339",
+    "tutorial_640c1c9e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:21:58.773976Z",
+  "citations": [],
+  "created_from": "intermediate_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Intermediate",
+    "image": "4-12.jpg",
+    "lesson_number": 4,
+    "step_number": 12,
+    "cluster_type": "alternatives",
+    "components_demonstrated": {
+      "Panel": 1,
+      "List Item": 1,
+      "Number Slider": 1
+    }
+  }
+}

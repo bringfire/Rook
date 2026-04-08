@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_b9817b61",
+  "note_type": "component",
+  "name": "Dot Product",
+  "brief": "Dot Product | Inputs: A, B, U → D",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Dot Product. Inputs: A (Vector), B (Vector), U (Boolean). Outputs: D (Number).",
+  "keywords": [
+    "dot product",
+    "dot",
+    "product",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "dot product",
+    "dot",
+    "product"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Dot Product"
+  ],
+  "solution_principle": "Compute vector dot product.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_53b0ce5c",
+    "comp_bc1f8336",
+    "comp_e6580ee9",
+    "comp_5557fa99",
+    "comp_77cfd279",
+    "comp_fcefbd42",
+    "comp_62548e45",
+    "comp_ca9d93b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "43b9ea8f-f772-40f2-9880-011a9c3cbbb0",
+    "category": "vector_ops",
+    "inputs": {
+      "A": "Vector",
+      "B": "Vector",
+      "U": "Boolean"
+    },
+    "outputs": {
+      "D": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2a5cfb31-028a-4b34-b4e1-9b20ae15312e"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|vector|dot product"
+  }
+}

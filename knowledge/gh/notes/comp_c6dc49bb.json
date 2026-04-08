@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_c6dc49bb",
+  "note_type": "component",
+  "name": "Region Slits",
+  "brief": "Region Slits | Inputs: R, W, G → R, T",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Region Slits. Inputs: R (Curve), W (Number), G (Number). Outputs: R (Surface), T (Integer).",
+  "keywords": [
+    "region slits",
+    "region",
+    "slits",
+    "intersection_shape"
+  ],
+  "category": "intersection_shape",
+  "tags": [
+    "intersection_shape"
+  ],
+  "trigger_intents": [
+    "region slits",
+    "region",
+    "slits"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Region Slits"
+  ],
+  "solution_principle": "Add slits to a collection of intersecting planar regions",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_85550cda",
+    "comp_0ce60bf8",
+    "comp_107c3cf2",
+    "comp_5f77f7fc",
+    "comp_dd2a0014"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0feeeaca-8f1f-4d7c-a24a-8e7dd68604a2",
+    "category": "intersection_shape",
+    "inputs": {
+      "R": "Curve",
+      "W": "Number",
+      "G": "Number"
+    },
+    "outputs": {
+      "R": "Surface",
+      "T": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "2d3b6ef3-5c26-4e2f-bcb3-8ffb9fb0f7c3"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|shape|region slits"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_dc5d5161",
+  "note_type": "component",
+  "name": "NoFoldThrough",
+  "brief": "NoFoldThrough | Inputs: FoldStart, FoldEnd, Tip1, Tip2 → H",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: NoFoldThrough. Inputs: FoldStart (Point), FoldEnd (Point), Tip1 (Point), Tip2 (Point), Strength (Number). Outputs: H (Generic Data).",
+  "keywords": [
+    "nofoldthrough",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "nofoldthrough",
+    "fold",
+    "through"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "NoFoldThrough"
+  ],
+  "solution_principle": "To stop the sides of a hinge passing through each other",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8f083dbb-357b-4172-80d0-b584b21b6d75",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "FoldStart": "Point",
+      "FoldEnd": "Point",
+      "Tip1": "Point",
+      "Tip2": "Point",
+      "Strength": "Number"
+    },
+    "outputs": {
+      "H": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9103348d-9ec2-4937-a04f-79c509f8093c"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|nofoldthrough"
+  }
+}

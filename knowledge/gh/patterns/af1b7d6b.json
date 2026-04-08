@@ -1,0 +1,744 @@
+{
+  "pattern_id": "af1b7d6b",
+  "name": "parametric_surface-creation_curve-division",
+  "version": "1.0",
+  "created": "2026-02-02T20:39:57.178546Z",
+  "solution": {
+    "brief": "Surface created from curves",
+    "principle": "\n\nRelated insight: Often incorporated into multi-component parametric recipes for complex surface generation workflows.",
+    "components_needed": [
+      "Circle",
+      "slider",
+      "slider",
+      "Curve",
+      "Length",
+      "Division",
+      "slider",
+      "Maximum",
+      "panel",
+      "Divide Curve",
+      "PerlinNoise",
+      "slider",
+      "Multiplication",
+      "slider",
+      "Remap Numbers",
+      "Bounds",
+      "Vector 2Pt",
+      "Area",
+      "Point",
+      "Amplitude",
+      "Move",
+      "Construct Domain",
+      "slider",
+      "Construct Domain",
+      "slider",
+      "Random",
+      "Area",
+      "Interpolate",
+      "Curve",
+      "List Item",
+      "Control Points",
+      "Fast Loop End",
+      "Fast Loop Start",
+      "List Length",
+      "Divide Curve",
+      "PolyLine",
+      "List Length",
+      "Consecutive Domains",
+      "Series",
+      "Sub List",
+      "Loft",
+      "List Item",
+      "Boundary Surfaces",
+      "Merge",
+      "List Length",
+      "Range",
+      "Gradient",
+      "Custom Preview",
+      "Mesh Brep",
+      "Settings (Quality)"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "loft curves",
+      "number sequence",
+      "range of values",
+      "surface from curves",
+      "smooth curve",
+      "curve through points"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "b7aff2fc"
+  ],
+  "tags": [
+    "parametric",
+    "surface-creation",
+    "curve-division",
+    "recipe"
+  ],
+  "evolution": {
+    "created_from": "batch_extraction",
+    "last_evolved": "2026-02-22T08:54:36.264032",
+    "evolved_by": [
+      "b7aff2fc"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-21T17:33:57.920247Z",
+        "trigger": "v2_migration",
+        "changes": "Upgraded from v1 wiring to v2 graph format. Components: 54 wires -> 50 components, 54 flows"
+      },
+      {
+        "date": "2026-02-22T08:54:36.264032",
+        "trigger": "New pattern: b7aff2fc",
+        "changes": "New pattern demonstrates curve division surface creation as part of comprehensive recipes"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.4333
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 0.02
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R25",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 10
+        }
+      ],
+      "panels": [
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Agate Section.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Component_Circle",
+          "nick": "Cir",
+          "name": "Circle",
+          "pos": [
+            282,
+            170
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            47,
+            181
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 10
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            176.6,
+            -25.4
+          ],
+          "min": 0,
+          "max": 100,
+          "value": 70
+        },
+        {
+          "id": "R4",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            537.6,
+            230.6
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Component_Length",
+          "nick": "Len",
+          "name": "Length",
+          "pos": [
+            625,
+            206
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Operator_Division",
+          "nick": "A/B",
+          "name": "Division",
+          "pos": [
+            718,
+            235
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            495.4,
+            264.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R8",
+          "type": "Operator_Maximum",
+          "nick": "Max",
+          "name": "Maximum",
+          "pos": [
+            824,
+            245
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            723,
+            268.5
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R10",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            925,
+            238
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "PlaceholderComponent",
+          "name": "PerlinNoise",
+          "pos": [
+            1178,
+            310
+          ]
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            853.7,
+            321.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.4333
+        },
+        {
+          "id": "R13",
+          "type": "Operator_Multiplication_OBSOLETE",
+          "nick": "A×B",
+          "name": "Multiplication",
+          "pos": [
+            1065,
+            321
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            907.6,
+            388.4
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.02
+        },
+        {
+          "id": "R15",
+          "type": "Component_RemapNumbers",
+          "nick": "ReMap",
+          "name": "Remap Numbers",
+          "pos": [
+            1402,
+            311
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_NumericBounds",
+          "nick": "Bnd",
+          "name": "Bounds",
+          "pos": [
+            1294,
+            326
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            1174,
+            192
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            359,
+            214
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Param_Point",
+          "nick": "Pt",
+          "name": "Point",
+          "pos": [
+            1038.1,
+            134
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_VectorAmplitude",
+          "nick": "Amp",
+          "name": "Amplitude",
+          "pos": [
+            1512,
+            286
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1630,
+            412
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1312,
+            481
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "slider",
+          "pos": [
+            929.2,
+            475
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R24",
+          "type": "Component_ConstructDomain",
+          "nick": "Dom",
+          "name": "Construct Domain",
+          "pos": [
+            1045,
+            637
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "slider",
+          "pos": [
+            803.2,
+            641.3
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 10
+        },
+        {
+          "id": "R26",
+          "type": "Component_Random",
+          "name": "Random",
+          "pos": [
+            1144,
+            674
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            1038,
+            704
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_InterpCurve",
+          "nick": "IntCrv",
+          "name": "Interpolate",
+          "pos": [
+            1790,
+            403
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2027.8,
+            136
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2090,
+            -65
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_ControlPoints",
+          "nick": "CP",
+          "name": "Control Points",
+          "pos": [
+            2184,
+            -71
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1868,
+            50
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            474,
+            50
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2269,
+            -38
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_DivideCurve",
+          "nick": "Divide",
+          "name": "Divide Curve",
+          "pos": [
+            2343,
+            53
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_Polyline",
+          "nick": "PLine",
+          "name": "PolyLine",
+          "pos": [
+            2446,
+            82
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            2564,
+            29
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Component_MakeConsecutiveDomains",
+          "nick": "Consec",
+          "name": "Consecutive Domains",
+          "pos": [
+            2760,
+            78
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            2664,
+            68
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "Component_SubList",
+          "nick": "SubSet",
+          "name": "Sub List",
+          "pos": [
+            2831,
+            156
+          ]
+        },
+        {
+          "id": "R41",
+          "type": "Component_LoftSurface",
+          "name": "Loft",
+          "pos": [
+            2938,
+            151
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            2851,
+            0
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "Component_BoundarySurfaces",
+          "nick": "Boundary",
+          "name": "Boundary Surfaces",
+          "pos": [
+            2943,
+            -6
+          ]
+        },
+        {
+          "id": "R44",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            3054,
+            91
+          ]
+        },
+        {
+          "id": "R45",
+          "type": "Component_ListLength",
+          "nick": "Lng",
+          "name": "List Length",
+          "pos": [
+            3145,
+            164
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            3266,
+            154
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            3357,
+            -34
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            3730,
+            108
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_MeshBRep",
+          "nick": "Mesh",
+          "name": "Mesh Brep",
+          "pos": [
+            3264,
+            215
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Component_MeshSettingsSmoothAndSlower",
+          "nick": "Smooth",
+          "name": "Settings (Quality)",
+          "pos": [
+            3095,
+            225
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R1.I1",
+        "R4.O0>R5.I0",
+        "R5.O0>R6.I0",
+        "R7.O0>R6.I1",
+        "R6.O0>R8.I0",
+        "R9.O0>R8.I1",
+        "R4.O0>R10.I0",
+        "R8.O0>R10.I1",
+        "R10.O0>R11.I0",
+        "R13.O0>R11.I1",
+        "R14.O0>R11.I2",
+        "R12.O0>R13.I1",
+        "R11.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R22.O0>R15.I2",
+        "R11.O0>R16.I0",
+        "R19.O0>R17.I0",
+        "R10.O0>R17.I1",
+        "R1.O0>R18.I0",
+        "R17.O0>R20.I0",
+        "R15.O0>R20.I1",
+        "R10.O0>R21.I0",
+        "R20.O0>R21.I1",
+        "R23.O0>R22.I0",
+        "R26.O0>R22.I1",
+        "R23.O0>R24.I0",
+        "R25.O0>R24.I1",
+        "R24.O0>R26.I0",
+        "R27.O0>R26.I2",
+        "R4.O0>R27.I0",
+        "R21.O0>R28.I0",
+        "R29.O0>R30.I0",
+        "R30.O0>R31.I0",
+        "R31.O0>R34.I0",
+        "R29.O0>R35.I0",
+        "R34.O0>R35.I1",
+        "R35.O0>R36.I0",
+        "R36.O0>R37.I0",
+        "R39.O0>R38.I0",
+        "R37.O0>R39.I2",
+        "R29.O0>R40.I0",
+        "R38.O0>R40.I1",
+        "R40.O0>R41.I0",
+        "R29.O0>R42.I0",
+        "R42.O0>R43.I0",
+        "R43.O0>R44.I0",
+        "R41.O0>R44.I1",
+        "R44.O0>R45.I0",
+        "R45.O0>R46.I1",
+        "R46.O0>R47.I2",
+        "R49.O0>R48.I0",
+        "R47.O0>R48.I1",
+        "R44.O0>R49.I0",
+        "R50.O0>R49.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

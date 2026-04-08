@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_f3f53a23",
+  "note_type": "component",
+  "name": "Mesh | Curve",
+  "brief": "Mesh | Curve | Inputs: M, C → X, F",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Mesh | Curve. Inputs: M (Mesh), C (Curve). Outputs: X (Point), F (Integer).",
+  "keywords": [
+    "mesh | curve",
+    "mesh",
+    "|",
+    "curve",
+    "intersection_physical"
+  ],
+  "category": "intersection_physical",
+  "tags": [
+    "intersection_physical"
+  ],
+  "trigger_intents": [
+    "mesh | curve",
+    "mesh",
+    "curve"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Mesh | Curve"
+  ],
+  "solution_principle": "Mesh Curve intersection",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_df6a8c9a",
+    "comp_4e3057cb",
+    "comp_1f874e01",
+    "comp_279c2a0b",
+    "comp_1e6eaedf",
+    "comp_1ed6f03d"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "19632848-4b95-4e5e-9e86-b79b47987a46",
+    "category": "intersection_physical",
+    "inputs": {
+      "M": "Mesh",
+      "C": "Curve"
+    },
+    "outputs": {
+      "X": "Point",
+      "F": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "21b6a605-9568-4bf8-acc1-631565d609d7"
+    ],
+    "usage_count": 0,
+    "stable_key": "intersect|physical|mesh | curve"
+  }
+}

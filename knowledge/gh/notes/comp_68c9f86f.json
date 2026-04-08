@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_68c9f86f",
+  "note_type": "component",
+  "name": "Write XML File",
+  "brief": "Write XML File | Inputs: Write, Path, DataSet → XML",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Write XML File. Inputs: Write (Boolean), Path (Text), DataSet (Generic Data). Outputs: XML (Generic Data).",
+  "keywords": [
+    "write xml file",
+    "write",
+    "xml",
+    "file",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "write xml file",
+    "write",
+    "file"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Write XML File"
+  ],
+  "solution_principle": "Create XML from a DataSet",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1db206a9",
+    "comp_779bd9b1",
+    "comp_8b146658",
+    "comp_d95ea85a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "537d4d9a-a8a8-4aa1-87fa-2aedbd07e6bd",
+    "category": "lunchbox_data",
+    "inputs": {
+      "Write": "Boolean",
+      "Path": "Text",
+      "DataSet": "Generic Data"
+    },
+    "outputs": {
+      "XML": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0c252dd0-e91e-4e99-9315-8f15edf068da"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|write xml file"
+  }
+}

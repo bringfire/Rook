@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_28367a97",
+  "note_type": "component",
+  "name": "Circle TanTan",
+  "brief": "Circle TanTan | Inputs: A, B, P → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Circle TanTan. Inputs: A (Curve), B (Curve), P (Point). Outputs: C (Circle).",
+  "keywords": [
+    "circle tantan",
+    "circle",
+    "tantan",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "circle tantan",
+    "circle",
+    "tan"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Circle TanTan"
+  ],
+  "solution_principle": "Create a circle tangent to two curves.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_0ae576e3",
+    "comp_3ffc4216",
+    "comp_4d211bcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "50b204ef-d3de-41bb-a006-02fba2d3f709",
+    "category": "curves",
+    "inputs": {
+      "A": "Curve",
+      "B": "Curve",
+      "P": "Point"
+    },
+    "outputs": {
+      "C": "Circle"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "28b1c4d4-ab1c-4309-accd-1b7a954ed948"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|circle tantan"
+  }
+}

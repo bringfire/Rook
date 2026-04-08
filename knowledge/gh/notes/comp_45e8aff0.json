@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_45e8aff0",
+  "note_type": "component",
+  "name": "Series Addition",
+  "brief": "Series Addition | Inputs: N, G, S → S, R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Series Addition. Inputs: N (Integer), G (Integer), S (Integer). Outputs: S (Integer), R (Integer).",
+  "keywords": [
+    "series addition",
+    "series",
+    "addition",
+    "math_operators"
+  ],
+  "category": "math_operators",
+  "tags": [
+    "math_operators"
+  ],
+  "trigger_intents": [
+    "series addition",
+    "series",
+    "addition"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Series Addition"
+  ],
+  "solution_principle": "Perform serial addition until a goal has been reached",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e1298bdb",
+    "comp_8c2fe922",
+    "comp_e3ac3325",
+    "comp_fd8a342f",
+    "comp_464d3c31"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "586706a8-109b-43ec-b581-743e920c951a",
+    "category": "math_operators",
+    "inputs": {
+      "N": "Integer",
+      "G": "Integer",
+      "S": "Integer"
+    },
+    "outputs": {
+      "S": "Integer",
+      "R": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "maths|operators|series addition"
+  }
+}

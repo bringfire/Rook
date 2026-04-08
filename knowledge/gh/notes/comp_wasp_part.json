@@ -1,0 +1,91 @@
+{
+  "note_id": "comp_wasp_part",
+  "note_type": "component",
+  "name": "Wasp_Basic Part",
+  "brief": "Wasp_Basic Part | Inputs: NAME, GEO, CONN, COLL, ATTR \u2192 PART",
+  "version": "1.0",
+  "created": "2026-03-19T13:30:00.000000Z",
+  "context": "Wasp plugin component: creates a WaspPart object \u00e2\u20ac\u201d the fundamental building block for discrete aggregation. Requires a unique name string, geometry, and connection objects.",
+  "keywords": [
+    "wasp",
+    "part",
+    "basic part",
+    "discrete",
+    "aggregation",
+    "building block",
+    "module"
+  ],
+  "category": "wasp",
+  "tags": [
+    "wasp",
+    "discrete-design",
+    "part-definition",
+    "foundation"
+  ],
+  "trigger_intents": [
+    "wasp part",
+    "basic part",
+    "create wasp part",
+    "discrete part",
+    "wasp module",
+    "wasp building block",
+    "define part"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Wasp_Basic Part"
+  ],
+  "solution_principle": "Create a WaspPart from a name string, geometry (Brep/Mesh), and WaspConnection objects. The NAME string is critical \u00e2\u20ac\u201d it must exactly match what Wasp_Rule references in P1/P2. The same Brep feeds both this component's GEO and ConnDir's GEO. COLL is optional collision geometry for overlap checking. ATTR carries additional data through aggregation.",
+  "anti_patterns": [
+    "Part name mismatch with Wasp_Rule P1/P2 silently breaks rule matching",
+    "Using different geometry for ConnDir.GEO and Part.GEO causes misaligned connections"
+  ],
+  "preconditions": [
+    "WaspConnection objects from Wasp_Connection From Direction",
+    "Part geometry (Brep or Mesh)",
+    "Unique name string for the part type"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_wasp_conndir",
+    "comp_wasp_rule",
+    "comp_wasp_stochastic"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "wasp_learning",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5f20ab1d-6741-4f4d-b4a7-edbfe4434c72",
+    "category": "wasp",
+    "inputs": {
+      "NAME": "Generic Data",
+      "GEO": "Generic Data",
+      "CONN": "Generic Data",
+      "COLL": "Generic Data",
+      "ATTR": "Generic Data"
+    },
+    "outputs": {
+      "PART": "Generic Data"
+    },
+    "typical_wiring": [
+      "Panel('HEXA') \u2192 NAME",
+      "Param_Brep \u2192 GEO",
+      "ConnDir.CONN \u2192 CONN",
+      "PART \u2192 Wasp_Stochastic Aggregation.PART"
+    ],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "wasp|2 | parts|wasp_basic part"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

@@ -1,0 +1,61 @@
+{
+  "note_id": "comp_b83b3d7e",
+  "note_type": "component",
+  "name": "Weave",
+  "brief": "Weave | Inputs: P, 0, 1 → W",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Weave. Inputs: P (Integer), 0 (Generic Data), 1 (Generic Data). Outputs: W (Generic Data).",
+  "keywords": [
+    "weave",
+    "list_operations"
+  ],
+  "category": "list_operations",
+  "tags": [
+    "list_operations"
+  ],
+  "trigger_intents": [
+    "weave"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weave"
+  ],
+  "solution_principle": "Weave a set of input data using a custom pattern.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_ddd0ddae",
+    "comp_c16fa4ee",
+    "comp_1991bf81",
+    "comp_535c0613",
+    "comp_b573a316"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "50faccbd-9c92-4175-a5fa-d65e36013db6",
+    "category": "list_operations",
+    "inputs": {
+      "P": "Integer",
+      "0": "Generic Data",
+      "1": "Generic Data"
+    },
+    "outputs": {
+      "W": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "sets|list|weave"
+  }
+}

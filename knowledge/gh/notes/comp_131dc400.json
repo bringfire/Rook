@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_131dc400",
+  "note_type": "component",
+  "name": "Line 2Plane",
+  "brief": "Line 2Plane | Inputs: L, A, B → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.460890Z",
+  "context": "Grasshopper component: Line 2Plane. Inputs: L (Line), A (Plane), B (Plane). Outputs: L (Line).",
+  "keywords": [
+    "line 2plane",
+    "line",
+    "2plane",
+    "curves"
+  ],
+  "category": "curves",
+  "tags": [
+    "curves"
+  ],
+  "trigger_intents": [
+    "line 2plane",
+    "line",
+    "plane"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Line 2Plane"
+  ],
+  "solution_principle": "Create a line between two planes.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_1bddbc3b",
+    "comp_919aeca8",
+    "comp_e452abc5",
+    "comp_3ffc4216",
+    "comp_4d211bcd"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "510c4a63-b9bf-42e7-9d07-9d71290264da",
+    "category": "curves",
+    "inputs": {
+      "L": "Line",
+      "A": "Plane",
+      "B": "Plane"
+    },
+    "outputs": {
+      "L": "Line"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|primitive|line 2plane"
+  }
+}

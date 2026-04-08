@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_ccfa6e09",
+  "note_type": "component",
+  "name": "Query Named Views",
+  "brief": "Query Named Views | Inputs: N → V",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Query Named Views. Inputs: N (Text Pattern). Outputs: V (Model Content).",
+  "keywords": [
+    "query named views",
+    "query",
+    "named",
+    "views",
+    "rhino_viewports"
+  ],
+  "category": "rhino_viewports",
+  "tags": [
+    "rhino_viewports"
+  ],
+  "trigger_intents": [
+    "query named views",
+    "query",
+    "named",
+    "views"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Query Named Views"
+  ],
+  "solution_principle": "Query a Rhino document for all available named views",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_f805e573",
+    "comp_49b94bb0",
+    "comp_8b416bb8",
+    "comp_3f462047",
+    "comp_3d741f10"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8159a06a-1e33-498e-8884-97d3f76d1d7c",
+    "category": "rhino_viewports",
+    "inputs": {
+      "N": "Text Pattern"
+    },
+    "outputs": {
+      "V": "Model Content"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "0fee6d09-eed8-4b01-ae29-de1806683baf"
+    ],
+    "usage_count": 0,
+    "stable_key": "rhino|viewports|query named views"
+  }
+}

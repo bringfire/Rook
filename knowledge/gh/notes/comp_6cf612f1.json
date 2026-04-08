@@ -1,0 +1,64 @@
+{
+  "note_id": "comp_6cf612f1",
+  "note_type": "component",
+  "name": "Move",
+  "brief": "Move | Inputs: G, T â†’ G, X",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Move. Inputs: G (Geometry), T (Vector). Outputs: G (Geometry), X (Transform).",
+  "keywords": [
+    "move",
+    "move"
+  ],
+  "category": "transforms",
+  "tags": [
+    "transformation",
+    "component",
+    "geometry-manipulation",
+    "basic-operation"
+  ],
+  "trigger_intents": [
+    "move"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Move"
+  ],
+  "solution_principle": "Translate (move) an object along a vector.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_68356bcb",
+    "teaching_567ea1e1",
+    "teaching_22255d24",
+    "comp_fcbdb34a",
+    "teaching_21c34834",
+    "teaching_220e8091"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+    "category": "transforms",
+    "inputs": {
+      "G": "Geometry",
+      "T": "Vector"
+    },
+    "outputs": {
+      "G": "Geometry",
+      "X": "Transform"
+    },
+    "typical_wiring": [],
+    "usage_count": 771,
+    "stable_key": "transform|euclidean|move"
+  }
+}

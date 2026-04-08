@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_0fd9ea65",
+  "note_type": "component",
+  "name": "Vector Display",
+  "brief": "Vector Display | Inputs: A, V \u2192 output",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.459897Z",
+  "context": "Grasshopper component: Vector Display. Inputs: A (Point), V (Vector).",
+  "keywords": [
+    "vector display",
+    "vector",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "vector display",
+    "vector",
+    "display"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector Display"
+  ],
+  "solution_principle": "Preview vectors in the viewport",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_d2c5115b",
+    "teaching_0f847371",
+    "teaching_21c34834",
+    "teaching_37677299",
+    "teaching_8f0b8816"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2a3f7078-2e25-4dd4-96f7-0efb491bd61c",
+    "category": "display",
+    "inputs": {
+      "A": "Point",
+      "V": "Vector"
+    },
+    "outputs": {},
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|vector|vector display",
+    "family": "display"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

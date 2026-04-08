@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_b8806e68",
+  "note_type": "component",
+  "name": "Barycentric",
+  "brief": "Barycentric | Inputs: A, B, C, U → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Barycentric. Inputs: A (Point), B (Point), C (Point), U (Number), V (Number), W (Number). Outputs: P (Point).",
+  "keywords": [
+    "barycentric",
+    "geometry_primitives"
+  ],
+  "category": "geometry_primitives",
+  "tags": [
+    "geometry_primitives"
+  ],
+  "trigger_intents": [
+    "barycentric"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Barycentric"
+  ],
+  "solution_principle": "Create a point from barycentric {u,v,w} coordinates",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_b14af4b6",
+    "comp_9b720f9d",
+    "comp_32345445",
+    "comp_b2f79a7d",
+    "comp_6d59d8a6"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9adffd61-f5d1-4e9e-9572-e8d9145730dc",
+    "category": "geometry_primitives",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "C": "Point",
+      "U": "Number",
+      "V": "Number",
+      "W": "Number"
+    },
+    "outputs": {
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "a435f5c8-28a2-43e8-a52a-0b6e73c2e300"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|point|barycentric"
+  }
+}

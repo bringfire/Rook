@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_b59df947",
+  "note_type": "component",
+  "name": "Length Domain",
+  "brief": "Length Domain | Inputs: C, D → L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Length Domain. Inputs: C (Curve), D (Domain). Outputs: L (Number).",
+  "keywords": [
+    "length domain",
+    "length",
+    "domain",
+    "curve_analysis"
+  ],
+  "category": "curve_analysis",
+  "tags": [
+    "curve_analysis"
+  ],
+  "trigger_intents": [
+    "length domain",
+    "length",
+    "domain"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Length Domain"
+  ],
+  "solution_principle": "Measure the length of a curve subdomain.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0d20e65c",
+    "comp_866778e2",
+    "comp_3ab80c58",
+    "comp_667ae0e9",
+    "comp_e6aa0ae1",
+    "comp_7340243b",
+    "comp_3579e6e9",
+    "comp_443199ee",
+    "comp_123bf176",
+    "comp_aaf059b3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "188edd02-14a9-4828-a521-34995b0d1e4a",
+    "category": "curve_analysis",
+    "inputs": {
+      "C": "Curve",
+      "D": "Domain"
+    },
+    "outputs": {
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "curve|analysis|length domain"
+  }
+}

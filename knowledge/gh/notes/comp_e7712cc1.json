@@ -1,0 +1,73 @@
+{
+  "note_id": "comp_e7712cc1",
+  "note_type": "component",
+  "name": "SubD from Mesh",
+  "brief": "SubD from Mesh | Inputs: M, Cr, Co, I → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: SubD from Mesh. Inputs: M (Mesh), Cr (Integer), Co (Integer), I (Boolean). Outputs: S (SubD).",
+  "keywords": [
+    "subd from mesh",
+    "subd",
+    "from",
+    "mesh",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd from mesh",
+    "sub",
+    "from",
+    "mesh"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD from Mesh"
+  ],
+  "solution_principle": "Create a SubD from a control mesh",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_0207e96f",
+    "comp_4c7b012f",
+    "comp_d1f4bc67",
+    "comp_a08bb022",
+    "comp_eae3ae94",
+    "comp_f0650611",
+    "comp_8d440de0"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "855a2c73-31c0-41d2-b061-57d54229d11b",
+    "category": "subd_ops",
+    "inputs": {
+      "M": "Mesh",
+      "Cr": "Integer",
+      "Co": "Integer",
+      "I": "Boolean"
+    },
+    "outputs": {
+      "S": "SubD"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "10487e4e-a405-48b5-b188-5a8a6328418b",
+      "264b4aa6-4915-4a67-86a7-22a5c4acf565"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd from mesh"
+  }
+}

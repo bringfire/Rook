@@ -1,0 +1,71 @@
+{
+  "pattern_id": "0ebdbc87",
+  "name": "wasp_07_teaching_2._LOAD_SAVED_AGGREG",
+  "version": "1.0",
+  "created": "2026-03-19T17:31:39.228957Z",
+  "solution": {
+    "brief": "2. LOAD SAVED AGGREGATION FROM FILE\r\nThe loaded aggregation can be used as starting point for a new aggregation.\r\nJust plug the PART_OUT output to the PREV input of an Aggregation component.\r\nIf Parts have been removed from the Aggregation, setting RENUM to True ensures\r\nthat the Part IDs remain sequential and consistent with what Wasp expects.",
+    "principle": "",
+    "components_needed": [
+      "Custom Preview",
+      "Button"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "file",
+      "from",
+      "used",
+      "starting",
+      "load",
+      "loaded",
+      "point",
+      "aggregation",
+      "saved"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

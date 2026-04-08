@@ -1,0 +1,70 @@
+{
+  "note_id": "comp_1d114717",
+  "note_type": "component",
+  "name": "Create DataSet",
+  "brief": "Create DataSet | Inputs: Name, Tables → DataSet",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Create DataSet. Inputs: Name (Text), Tables (Generic Data). Outputs: DataSet (Generic Data).",
+  "keywords": [
+    "create dataset",
+    "create",
+    "dataset",
+    "lunchbox_data"
+  ],
+  "category": "lunchbox_data",
+  "tags": [
+    "lunchbox_data"
+  ],
+  "trigger_intents": [
+    "create dataset",
+    "create",
+    "data",
+    "set"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Create DataSet"
+  ],
+  "solution_principle": "Create a DataSet",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_64802dfe",
+    "comp_3ff9d3b7",
+    "comp_1db206a9",
+    "comp_d95ea85a",
+    "comp_779bd9b1",
+    "comp_68c9f86f",
+    "comp_8b146658",
+    "comp_1a3cec73"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "35644787-bd9d-4440-b1d5-b8879699afcd",
+    "category": "lunchbox_data",
+    "inputs": {
+      "Name": "Text",
+      "Tables": "Generic Data"
+    },
+    "outputs": {
+      "DataSet": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "78ab7d1a-51c8-43a8-b17a-fe42d699f938"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|data|create dataset"
+  }
+}

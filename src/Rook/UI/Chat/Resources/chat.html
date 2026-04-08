@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rook Chat</title>
+    <link rel="stylesheet" href="chat.css">
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" id="hljs-theme">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="messages"></div>
+        <div id="typing-indicator" class="hidden">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+        </div>
+    </div>
+
+    <script>
+        // ═══ Theme detection ═══
+        function detectTheme() {
+            var isDark = !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.body.classList.toggle('light-theme', !isDark);
+            var hljsTheme = document.getElementById('hljs-theme');
+            if (hljsTheme) {
+                hljsTheme.href = isDark
+                    ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css'
+                    : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css';
+            }
+        }
+        detectTheme();
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', detectTheme);
+        }
+
+        // ═══ Marked.js config ═══
+        try {
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    highlight: function(code, lang) {
+                        if (typeof hljs !== 'undefined') {
+                            if (lang && hljs.getLanguage(lang)) {
+                                try { return hljs.highlight(code, { language: lang }).value; } catch (e) {}
+                            }
+                            return hljs.highlightAuto(code).value;
+                        }
+                        return code;
+                    },
+                    breaks: true,
+                    gfm: true
+                });
+            }
+        } catch (e) {}
+
+        // ═══ State ═══
+        var messagesContainer = document.getElementById('messages');
+        var typingIndicator = document.getElementById('typing-indicator');
+        var personaColor = '#3b82f6';
+        var personaColorRgb = '59, 130, 246';
+        var personaInitial = 'A';
+        var _conversationId = null;
+        var _serviceHost = '127.0.0.1';
+        var _servicePort = null;
+        var _toolCardCounter = 0;
+
+        // ═══ Persona ═══
+        function setPersona(color, initial) {
+            personaColor = color || '#3b82f6';
+            personaInitial = initial || 'A';
+            document.documentElement.style.setProperty('--persona-color', personaColor);
+            // Derive RGB from hex for rgba() usage
+            var r = parseInt(personaColor.slice(1,3), 16);
+            var g = parseInt(personaColor.slice(3,5), 16);
+            var b = parseInt(personaColor.slice(5,7), 16);
+            personaColorRgb = r + ', ' + g + ', ' + b;
+            document.documentElement.style.setProperty('--persona-color-rgb', personaColorRgb);
+            document.documentElement.style.setProperty('--persona-glow',
+                'rgba(' + personaColorRgb + ', 0.12)');
+            document.documentElement.style.setProperty('--persona-glow-strong',
+                'rgba(' + personaColorRgb + ', 0.25)');
+            // Also update user bubble to match persona
+            document.documentElement.style.setProperty('--bg-user',
+                'rgba(' + personaColorRgb + ', 0.15)');
+            document.documentElement.style.setProperty('--bg-user-border',
+                'rgba(' + personaColorRgb + ', 0.25)');
+        }
+
+        // ═══ Conversation context (for fetch bridge) ═══
+        function setConversation(convId, host, port) {
+            _conversationId = convId;
+            _serviceHost = host || '127.0.0.1';
+            _servicePort = port;
+        }
+
+        // ═══ Markdown rendering ═══
+        function renderMarkdown(text) {
+            if (typeof marked !== 'undefined') {
+                try { return marked.parse(text); } catch (e) {}
+            }
+            var escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            return escaped.replace(/\n/g, '<br>');
+        }
+
+        // ═══ Add message ═══
+        function addMessage(role, content, isStreaming) {
+            isStreaming = isStreaming || false;
+
+            // Mark any pending UI blocks as stale when user sends a message
+            // or a new agent turn begins
+            if (role === 'user') {
+                markPendingBlocksStale();
+            }
+
+            var messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + role + '-message';
+
+            if (role === 'assistant') {
+                messageDiv.innerHTML = renderMarkdown(content);
+                addCopyButtons(messageDiv);
+            } else if (role === 'agent') {
+                messageDiv.className = 'message assistant-message agent-message';
+                messageDiv.style.setProperty('--persona-color', personaColor);
+                var avatar = '<span class="agent-avatar" style="background-color:' + personaColor + '">' + personaInitial + '</span>';
+                var rendered = renderMarkdown(content);
+                messageDiv.innerHTML = avatar + '<span class="agent-content">' + rendered + '</span>';
+                addCopyButtons(messageDiv);
+            } else if (role === 'user') {
+                messageDiv.textContent = content;
+            } else if (role === 'tool') {
+                messageDiv.className = 'message tool-message';
+                messageDiv.innerHTML = '<div class="tool-header">Tool: ' + escapeHtml(content.name) + '</div><pre>' + escapeHtml(JSON.stringify(content.result, null, 2)) + '</pre>';
+            } else if (role === 'error') {
+                messageDiv.className = 'message error-message';
+                messageDiv.textContent = content;
+            } else if (role === 'system') {
+                messageDiv.className = 'message system-message';
+                messageDiv.textContent = content;
+            }
+
+            if (isStreaming) {
+                messageDiv.id = 'streaming-message';
+            }
+
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+            return messageDiv;
+        }
+
+        // ═══ Streaming ═══
+        function updateStreamingMessage(content) {
+            var messageDiv = document.getElementById('streaming-message');
+            if (!messageDiv) {
+                messageDiv = addMessage('assistant', content, true);
+            } else {
+                messageDiv.innerHTML = renderMarkdown(content);
+                addCopyButtons(messageDiv);
+            }
+            scrollToBottom();
+        }
+
+        function finalizeStreamingMessage() {
+            var messageDiv = document.getElementById('streaming-message');
+            if (messageDiv) {
+                messageDiv.removeAttribute('id');
+            }
+        }
+
+        // ═══ Copy buttons ═══
+        function addCopyButtons(container) {
+            var codeBlocks = container.querySelectorAll('pre code');
+            codeBlocks.forEach(function(block) {
+                var pre = block.parentElement;
+                if (!pre.querySelector('.copy-button')) {
+                    var button = document.createElement('button');
+                    button.className = 'copy-button';
+                    button.textContent = 'Copy';
+                    button.onclick = function() {
+                        navigator.clipboard.writeText(block.textContent);
+                        button.textContent = 'Copied!';
+                        setTimeout(function() { button.textContent = 'Copy'; }, 2000);
+                    };
+                    pre.style.position = 'relative';
+                    pre.appendChild(button);
+                }
+            });
+        }
+
+        // ═══ Typing indicator ═══
+        function showTypingIndicator(show) {
+            typingIndicator.classList.toggle('hidden', !show);
+            if (show) scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function clearMessages() {
+            messagesContainer.innerHTML = '';
+            _toolCardCounter = 0;
+        }
+
+        // ═══ Images ═══
+        function addImage(base64Data, altText) {
+            altText = altText || 'Viewport capture';
+            var messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant-message image-message';
+            var img = document.createElement('img');
+            img.src = 'data:image/png;base64,' + base64Data;
+            img.alt = altText;
+            img.className = 'chat-image';
+            img.onclick = function() {
+                var win = window.open();
+                win.document.write('<img src="' + img.src + '" style="max-width:100%">');
+            };
+            messageDiv.appendChild(img);
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // ═══ Theme ═══
+        function setTheme(isDark) {
+            document.body.classList.toggle('light-theme', !isDark);
+            var hljsTheme = document.getElementById('hljs-theme');
+            if (hljsTheme) {
+                hljsTheme.href = isDark
+                    ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css'
+                    : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css';
+            }
+        }
+
+
+        // ═══════════════════════════════════════════════════════════
+        // TOOL CARDS (Phase 2)
+        // ═══════════════════════════════════════════════════════════
+
+        function renderToolCard(toolName, params, toolCallId) {
+            // Finalize any in-progress streaming message first
+            finalizeStreamingMessage();
+            markPendingBlocksStale();
+
+            _toolCardCounter++;
+            var cardId = 'tool-card-' + _toolCardCounter;
+
+            var paramsText = '';
+            if (params && typeof params === 'object') {
+                var keys = Object.keys(params);
+                var parts = [];
+                for (var i = 0; i < Math.min(keys.length, 3); i++) {
+                    var val = params[keys[i]];
+                    if (typeof val === 'string' && val.length > 30) val = val.substring(0, 30) + '...';
+                    parts.push(keys[i] + ': ' + val);
+                }
+                paramsText = parts.join(', ');
+                if (keys.length > 3) paramsText += ' ...';
+            }
+
+            var card = document.createElement('div');
+            card.className = 'tool-card';
+            card.id = cardId;
+            card.setAttribute('data-state', 'executing');
+            card.setAttribute('data-tool', toolName);
+            if (toolCallId) card.setAttribute('data-tool-call-id', toolCallId);
+            card.innerHTML =
+                '<div class="tool-card-header">' +
+                    '<div class="tool-card-icon"><div class="tool-card-spinner"></div></div>' +
+                    '<span class="tool-card-name">' + escapeHtml(toolName) + '</span>' +
+                '</div>' +
+                (paramsText ? '<div class="tool-card-params">' + escapeHtml(paramsText) + '</div>' : '') +
+                '<div class="tool-card-result hidden"></div>';
+
+            messagesContainer.appendChild(card);
+            scrollToBottom();
+            return cardId;
+        }
+
+        function finalizeToolCard(toolCallId, verified, verificationNote, summary) {
+            // Match by unique tool_call_id for precise card targeting
+            var card = null;
+            if (toolCallId) {
+                card = messagesContainer.querySelector('.tool-card[data-tool-call-id="' + toolCallId + '"]');
+            }
+            // Fallback: last executing card (backward compatibility)
+            if (!card) {
+                var cards = messagesContainer.querySelectorAll('.tool-card[data-state="executing"]');
+                card = cards.length > 0 ? cards[cards.length - 1] : null;
+            }
+            if (!card) return;
+
+            var state, badgeClass, badgeIcon;
+            if (verified === true) {
+                state = 'done-verified';
+                badgeClass = 'verified';
+                badgeIcon = '\u2713';
+            } else if (verified === false) {
+                state = 'done-unverified';
+                badgeClass = 'unverified';
+                badgeIcon = '!';
+            } else {
+                // No verification info — treat as neutral done
+                state = 'done-verified';
+                badgeClass = 'verified';
+                badgeIcon = '\u2713';
+            }
+
+            card.setAttribute('data-state', state);
+
+            var resultDiv = card.querySelector('.tool-card-result');
+            if (resultDiv && summary) {
+                resultDiv.classList.remove('hidden');
+                resultDiv.innerHTML =
+                    '<div class="verification-badge ' + badgeClass + '">' + badgeIcon + '</div>' +
+                    '<span class="tool-card-summary">' + escapeHtml(summary) + '</span>';
+            }
+        }
+
+
+        // ═══════════════════════════════════════════════════════════
+        // UI BLOCKS (Phase 2)
+        // ═══════════════════════════════════════════════════════════
+
+        function renderUIBlock(blockId, blockType, blockConfig) {
+            // Finalize any in-progress streaming message first
+            finalizeStreamingMessage();
+            markPendingBlocksStale();
+
+            var block = document.createElement('div');
+            block.className = 'ui-block';
+            block.id = 'ui-block-' + blockId;
+            block.setAttribute('data-block-id', blockId);
+
+            var titleHtml = '';
+            if (blockConfig && blockConfig.title) {
+                titleHtml =
+                    '<div class="ui-block-title">' +
+                        '<div class="agent-avatar" style="background-color:' + personaColor + ';width:20px;height:20px;font-size:10px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:600;">' + personaInitial + '</div>' +
+                        '<span>' + escapeHtml(blockConfig.title) + '</span>' +
+                    '</div>';
+            }
+
+            var bodyHtml = '';
+            switch (blockType) {
+                case 'slider':
+                    bodyHtml = buildSliderBlock(blockId, blockConfig);
+                    break;
+                case 'buttons':
+                    bodyHtml = buildButtonBlock(blockId, blockConfig);
+                    break;
+                case 'text_input':
+                    bodyHtml = buildTextInputBlock(blockId, blockConfig);
+                    break;
+                case 'confirmation':
+                    bodyHtml = buildConfirmBlock(blockId, blockConfig);
+                    break;
+                case 'progress':
+                    bodyHtml = buildProgressBlock(blockId, blockConfig);
+                    break;
+                case 'composite':
+                    bodyHtml = buildCompositeBlock(blockId, blockConfig);
+                    break;
+                default:
+                    bodyHtml = '<div class="ui-block-body"><p>Unknown block type: ' + blockType + '</p></div>';
+            }
+
+            block.innerHTML = titleHtml + bodyHtml +
+                '<div class="ui-block-progress">' +
+                    '<div class="ui-progress-track ui-progress-indeterminate"><div class="ui-progress-fill"></div></div>' +
+                    '<div class="ui-progress-label"><span class="ui-progress-text">Processing...</span></div>' +
+                '</div>' +
+                '<div class="ui-block-result">' +
+                    '<div class="verification-badge verified">\u2713</div>' +
+                    '<span class="ui-block-result-text"></span>' +
+                '</div>';
+
+            messagesContainer.appendChild(block);
+            scrollToBottom();
+        }
+
+        function buildSliderBlock(blockId, config) {
+            var elements = config.elements || [config];
+            var html = '<div class="ui-block-body">';
+            for (var i = 0; i < elements.length; i++) {
+                var el = elements[i];
+                var sliderId = blockId + '-slider-' + i;
+                var sMin = sanitizeNumber(el.min, 0);
+                var sMax = sanitizeNumber(el.max, 100);
+                var sStep = sanitizeNumber(el.step, 1);
+                var sDefault = sanitizeNumber(el.default_value || el.min, 0);
+                var sUnit = escapeHtml(el.unit || '');
+                html += '<div>' +
+                    '<div class="ui-field-label">' + escapeHtml(el.label || '') + '</div>' +
+                    '<div class="ui-slider-row">' +
+                        '<input type="range" id="' + sliderId + '" ' +
+                            'min="' + sMin + '" ' +
+                            'max="' + sMax + '" ' +
+                            'value="' + sDefault + '" ' +
+                            'step="' + sStep + '" ' +
+                            'data-unit="' + sUnit + '" ' +
+                            'oninput="this.parentElement.querySelector(\'.ui-slider-value\').textContent = this.value + this.getAttribute(\'data-unit\')">' +
+                        '<span class="ui-slider-value">' + sDefault + sUnit + '</span>' +
+                    '</div>' +
+                '</div>';
+            }
+            html += '<div class="ui-button-row">' +
+                '<button class="ui-btn primary" onclick="handleBlockSubmit(\'' + blockId + '\', \'slider\')">Apply</button>' +
+                '<button class="ui-btn" onclick="handleBlockCancel(\'' + blockId + '\')">Cancel</button>' +
+            '</div></div>';
+            return html;
+        }
+
+        function buildButtonBlock(blockId, config) {
+            var options = config.options || [];
+            var html = '<div class="ui-block-body"><div class="ui-button-row">';
+            for (var i = 0; i < options.length; i++) {
+                var opt = options[i];
+                var cls = opt.primary ? ' primary' : (opt.danger ? ' danger' : '');
+                html += '<button class="ui-btn' + cls + '" onclick="handleBlockAction(\'' + blockId + '\', \'' + escapeHtml(opt.value || opt.label) + '\')">' +
+                    escapeHtml(opt.label) + '</button>';
+            }
+            html += '</div></div>';
+            return html;
+        }
+
+        function buildTextInputBlock(blockId, config) {
+            return '<div class="ui-block-body">' +
+                (config.label ? '<div class="ui-field-label">' + escapeHtml(config.label) + '</div>' : '') +
+                '<div class="ui-text-input-row">' +
+                    '<input type="text" class="ui-text-input" id="' + blockId + '-input" placeholder="' + escapeHtml(config.placeholder || '') + '">' +
+                    '<button class="ui-btn primary" onclick="handleBlockTextSubmit(\'' + blockId + '\')">' + escapeHtml(config.submit_label || 'Submit') + '</button>' +
+                '</div></div>';
+        }
+
+        function buildConfirmBlock(blockId, config) {
+            return '<div class="ui-block-body">' +
+                '<div class="ui-confirm-text">' + escapeHtml(config.message || '') + '</div>' +
+                '<div class="ui-button-row">' +
+                    '<button class="ui-btn danger" onclick="handleBlockAction(\'' + blockId + '\', \'confirm\')">' + escapeHtml(config.confirm_label || 'Confirm') + '</button>' +
+                    '<button class="ui-btn" onclick="handleBlockAction(\'' + blockId + '\', \'cancel\')">' + escapeHtml(config.cancel_label || 'Cancel') + '</button>' +
+                '</div></div>';
+        }
+
+        function buildProgressBlock(blockId, config) {
+            var pct = config.percent || 0;
+            return '<div class="ui-block-body">' +
+                '<div class="ui-progress-track"><div class="ui-progress-fill" style="width:' + pct + '%"></div></div>' +
+                '<div class="ui-progress-label">' +
+                    '<span class="ui-progress-text">' + escapeHtml(config.label || '') + '</span>' +
+                    '<span class="ui-progress-percent">' + pct + '%</span>' +
+                '</div></div>';
+        }
+
+        function buildCompositeBlock(blockId, config) {
+            // Composite: title + list of sub-elements
+            var elements = config.elements || [];
+            var html = '<div class="ui-block-body">';
+            for (var i = 0; i < elements.length; i++) {
+                var el = elements[i];
+                if (el.type === 'slider') {
+                    var cMin = sanitizeNumber(el.min, 0);
+                    var cMax = sanitizeNumber(el.max, 100);
+                    var cStep = sanitizeNumber(el.step, 1);
+                    var cDefault = sanitizeNumber(el.default_value || el.min, 0);
+                    var cUnit = escapeHtml(el.unit || '');
+                    html += '<div>' +
+                        '<div class="ui-field-label">' + escapeHtml(el.label || '') + '</div>' +
+                        '<div class="ui-slider-row">' +
+                            '<input type="range" id="' + blockId + '-el-' + i + '" ' +
+                                'min="' + cMin + '" max="' + cMax + '" ' +
+                                'value="' + cDefault + '" step="' + cStep + '" ' +
+                                'data-unit="' + cUnit + '" ' +
+                                'oninput="this.parentElement.querySelector(\'.ui-slider-value\').textContent = this.value + this.getAttribute(\'data-unit\')">' +
+                            '<span class="ui-slider-value">' + cDefault + cUnit + '</span>' +
+                        '</div></div>';
+                } else if (el.type === 'text_input') {
+                    html += '<div>' +
+                        (el.label ? '<div class="ui-field-label">' + escapeHtml(el.label) + '</div>' : '') +
+                        '<div class="ui-text-input-row">' +
+                            '<input type="text" class="ui-text-input" id="' + blockId + '-el-' + i + '" placeholder="' + escapeHtml(el.placeholder || '') + '">' +
+                        '</div></div>';
+                } else if (el.type === 'button_group') {
+                    var opts = el.options || [];
+                    html += '<div class="ui-button-row">';
+                    for (var j = 0; j < opts.length; j++) {
+                        var o = opts[j];
+                        html += '<button class="ui-btn' + (o.primary ? ' primary' : '') + '" onclick="handleBlockAction(\'' + blockId + '\', \'' + escapeHtml(o.value || o.label) + '\')">' + escapeHtml(o.label) + '</button>';
+                    }
+                    html += '</div>';
+                }
+            }
+            // Default submit row for composite
+            html += '<div class="ui-button-row">' +
+                '<button class="ui-btn primary" onclick="handleBlockSubmit(\'' + blockId + '\', \'composite\')">Apply</button>' +
+                '<button class="ui-btn" onclick="handleBlockCancel(\'' + blockId + '\')">Cancel</button>' +
+            '</div></div>';
+            return html;
+        }
+
+        function updateUIBlock(blockId, updates) {
+            var block = document.getElementById('ui-block-' + blockId);
+            if (!block) return;
+
+            if (updates.state === 'executing') {
+                block.classList.add('executing');
+            } else if (updates.state === 'done') {
+                block.classList.remove('executing');
+                block.classList.add('done');
+                var resultText = block.querySelector('.ui-block-result-text');
+                if (resultText && updates.result_text) {
+                    resultText.textContent = updates.result_text;
+                }
+            } else if (updates.state === 'stale') {
+                block.classList.add('ui-block--stale');
+            }
+
+            // Progress update
+            if (updates.percent !== undefined) {
+                var fill = block.querySelector('.ui-progress-fill');
+                if (fill) fill.style.width = updates.percent + '%';
+                var pctLabel = block.querySelector('.ui-progress-percent');
+                if (pctLabel) pctLabel.textContent = updates.percent + '%';
+            }
+
+            if (updates.label) {
+                var textLabel = block.querySelector('.ui-progress-text');
+                if (textLabel) textLabel.textContent = updates.label;
+            }
+        }
+
+
+        // ═══════════════════════════════════════════════════════════
+        // UI BLOCK INTERACTION → FETCH BRIDGE (Phase 5)
+        // ═══════════════════════════════════════════════════════════
+
+        function sendUIResponse(blockId, value) {
+            if (!_conversationId || !_servicePort) return;
+            try {
+                fetch('http://' + _serviceHost + ':' + _servicePort + '/agent/chat/ui-response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        conversation_id: _conversationId,
+                        block_id: blockId,
+                        value: value,
+                    }),
+                });
+            } catch (e) {
+                // Best-effort; don't break the UI
+            }
+        }
+
+        function handleBlockSubmit(blockId, blockType) {
+            var block = document.getElementById('ui-block-' + blockId);
+            if (!block) return;
+            var value = {};
+
+            if (blockType === 'slider' || blockType === 'composite') {
+                var sliders = block.querySelectorAll('input[type="range"]');
+                sliders.forEach(function(s) { value[s.id] = parseFloat(s.value); });
+                var inputs = block.querySelectorAll('.ui-text-input');
+                inputs.forEach(function(inp) { value[inp.id] = inp.value; });
+            }
+
+            sendUIResponse(blockId, value);
+            block.classList.add('executing');
+        }
+
+        function handleBlockAction(blockId, actionValue) {
+            sendUIResponse(blockId, actionValue);
+            var block = document.getElementById('ui-block-' + blockId);
+            if (block) block.classList.add('executing');
+        }
+
+        function handleBlockTextSubmit(blockId) {
+            var input = document.getElementById(blockId + '-input');
+            var value = input ? input.value : '';
+            sendUIResponse(blockId, value);
+            var block = document.getElementById('ui-block-' + blockId);
+            if (block) block.classList.add('executing');
+        }
+
+        function handleBlockCancel(blockId) {
+            sendUIResponse(blockId, { cancelled: true });
+            var block = document.getElementById('ui-block-' + blockId);
+            if (block) block.classList.add('ui-block--stale');
+        }
+
+
+        // ═══ Utility ═══
+        function escapeHtml(text) {
+            if (typeof text !== 'string') text = String(text);
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function sanitizeNumber(val, fallback) {
+            var n = parseFloat(val);
+            return isFinite(n) ? n : (fallback || 0);
+        }
+
+        function markPendingBlocksStale() {
+            var pending = messagesContainer.querySelectorAll('.ui-block:not(.done):not(.executing):not(.ui-block--stale)');
+            for (var i = 0; i < pending.length; i++) {
+                pending[i].classList.add('ui-block--stale');
+            }
+        }
+
+
+        // ═══ Public API ═══
+        window.chatAPI = {
+            // ── Existing (preserved) ──
+            addMessage: addMessage,
+            updateStreamingMessage: updateStreamingMessage,
+            finalizeStreamingMessage: finalizeStreamingMessage,
+            showTypingIndicator: showTypingIndicator,
+            clearMessages: clearMessages,
+            addImage: addImage,
+            setTheme: setTheme,
+            setPersona: setPersona,
+            scrollToBottom: scrollToBottom,
+            // ── New: Phase 1 ──
+            setConversation: setConversation,
+            // ── New: Phase 2 — Tool cards ──
+            renderToolCard: renderToolCard,
+            finalizeToolCard: finalizeToolCard,
+            // ── New: Phase 2 — UI blocks ──
+            renderUIBlock: renderUIBlock,
+            updateUIBlock: updateUIBlock,
+        };
+
+        // Signal readiness
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage({ type: 'ready' });
+        }
+    </script>
+</body>
+</html>

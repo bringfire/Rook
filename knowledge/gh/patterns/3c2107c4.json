@@ -1,0 +1,73 @@
+{
+  "pattern_id": "3c2107c4",
+  "name": "wasp_21_teaching_ADVANCED_PART",
+  "version": "1.0",
+  "created": "2026-03-19T18:17:00.599189Z",
+  "solution": {
+    "brief": "ADVANCED PART\r\nIn order to work with multi-channel field, each part need to be assigned\r\nto a specific field. To do this, it is necessary to use a AdvancedPart\r\ncomponent, which provides more inputs to specify Part parameters.\r\nThe FIELD input of the AdvancedPart component is set to the name\r\nof the desired field.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Brep",
+      "Point",
+      "Curve"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "with",
+      "each",
+      "work",
+      "multi-channel",
+      "field,",
+      "advanced",
+      "order",
+      "part",
+      "need"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "advanced"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

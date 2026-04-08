@@ -1,0 +1,68 @@
+{
+  "pattern_id": "0aa1bfe7",
+  "name": "teaching_5. Level 1 aggregation",
+  "version": "1.0",
+  "created": "2026-03-19T19:30:41.320124Z",
+  "solution": {
+    "brief": "5. Level 1 aggregation",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Rules Generator",
+      "NumberSlider",
+      "Button",
+      "Wasp_Get Parts Hierarchy",
+      "Wasp_Stochastic Aggregation",
+      "NumberSlider"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "level",
+      "aggregation"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "hierarchy"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

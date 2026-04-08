@@ -1,0 +1,71 @@
+{
+  "note_id": "comp_bc1f8336",
+  "note_type": "component",
+  "name": "Vector 2Pt",
+  "brief": "Vector 2Pt | Inputs: A, B, U → V, L",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Vector 2Pt. Inputs: A (Point), B (Point), U (Boolean). Outputs: V (Vector), L (Number).",
+  "keywords": [
+    "vector 2pt",
+    "vector",
+    "2pt",
+    "vector_ops"
+  ],
+  "category": "vector_ops",
+  "tags": [
+    "vector_ops"
+  ],
+  "trigger_intents": [
+    "vector 2pt",
+    "vector"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Vector 2Pt"
+  ],
+  "solution_principle": "Create a vector between two points.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e6580ee9",
+    "comp_77cfd279",
+    "comp_a5dcb66a",
+    "comp_e3269f6b",
+    "teaching_37677299",
+    "comp_53b0ce5c",
+    "comp_b9817b61",
+    "comp_5557fa99",
+    "comp_fcefbd42",
+    "comp_62548e45",
+    "comp_ca9d93b1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "934ede4a-924a-4973-bb05-0dc4b36fae75",
+    "category": "vector_ops",
+    "inputs": {
+      "A": "Point",
+      "B": "Point",
+      "U": "Boolean"
+    },
+    "outputs": {
+      "V": "Vector",
+      "L": "Number"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|vector|vector 2pt"
+  }
+}

@@ -1,0 +1,1991 @@
+{
+  "pattern_id": "c802b64e",
+  "name": "Unit-01-Class",
+  "version": "1.0",
+  "created": "2026-02-22T14:25:42.514432Z",
+  "solution": {
+    "brief": "Recipe from Unit-01-Class.gh (134 components)",
+    "principle": "\n\nRelated insight: Related insight: Unit-02-Class (467 components) demonstrates the scalability of the Unit-series workflows, with Unit-02-Class representing a 3.5x complexity increase over Unit-01-Class, establishing the Unit-series as capable of ultra-scale parametric implementations.\n\nRelated insight: Complete Unit-series progression: Unit-01-Class (134) → Unit-03-Class (317) → Unit-02-Class (467). Non-linear complexity ordering suggests specialized workflow optimization rather than sequential difficulty progression.\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-01-Class anchors the foundational tier, with a 3x complexity jump to the ultra-complex cluster.\n\nRelated insight: Complete Unit-series spectrum: Unit-01-Class (134) → Unit-03-Class (317) → Unit-06-Class (364) → Unit-04-Class (414) → Unit-05-Class (417) → Unit-02-Class (467). Unit-06-Class fills the gap between Unit-03-Class and the Unit-04/05-Class cluster, providing more granular complexity progression in the ultra-complex tier.",
+    "components_needed": [
+      "Scribble",
+      "Scribble",
+      "panel",
+      "panel",
+      "Point",
+      "Point",
+      "Scribble",
+      "Scribble",
+      "Point",
+      "Scribble",
+      "panel",
+      "Construct Point",
+      "Number Slider",
+      "Digit Scroller",
+      "panel",
+      "Control Knob",
+      "Construct Point",
+      "panel",
+      "panel",
+      "panel",
+      "Number Slider",
+      "panel",
+      "panel",
+      "Construct Point",
+      "Construct Point",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Number Slider",
+      "Line",
+      "Point",
+      "Point",
+      "panel",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "panel",
+      "Point",
+      "Boolean Toggle",
+      "panel",
+      "panel",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "Point",
+      "panel",
+      "Point",
+      "Point",
+      "Point",
+      "panel",
+      "panel",
+      "Vector 2Pt",
+      "Vector Display",
+      "panel",
+      "panel",
+      "Scribble",
+      "Line SDL",
+      "PolyLine",
+      "Circle",
+      "Polygon",
+      "Rectangle",
+      "Divide Curve",
+      "Interpolate",
+      "End Points",
+      "Point On Curve",
+      "Length",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Evaluate Curve",
+      "Sketch",
+      "Scribble",
+      "Curve",
+      "Number Slider",
+      "Rebuild Curve",
+      "panel",
+      "panel",
+      "Deconstruct Vector",
+      "Vector XYZ",
+      "Vector Display",
+      "Number Slider",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Rebuild Curve",
+      "panel",
+      "Evaluate Curve",
+      "End Points",
+      "Point",
+      "Point",
+      "Point",
+      "Extrude",
+      "Unit Z",
+      "Geometry",
+      "Curve",
+      "Data",
+      "Boolean Toggle",
+      "Sketch",
+      "Sketch",
+      "Sketch",
+      "Point",
+      "Point",
+      "Evaluate Curve",
+      "Number Slider",
+      "Construct Point",
+      "panel",
+      "Deconstruct Vector",
+      "Vector XYZ",
+      "Vector Display",
+      "panel",
+      "panel",
+      "Scribble",
+      "panel",
+      "Scribble",
+      "Multiplication",
+      "Length",
+      "panel"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "unit 01 class"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "a2a197b3",
+    "02f0af8b",
+    "fdbc67df",
+    "1f185299",
+    "8a71e405",
+    "b71e60f2",
+    "c02352fa",
+    "370b1d02"
+  ],
+  "tags": [
+    "mega-complex-tier",
+    "unit-01-class",
+    "parametric",
+    "unit-series",
+    "foundational-tier",
+    "curve-division",
+    "134-components",
+    "surface-creation",
+    "high-complexity",
+    "unit-series-complete",
+    "recipe",
+    "point-sequence",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": "2026-02-22T09:28:52.458647",
+    "evolved_by": [
+      "8a71e405",
+      "b71e60f2",
+      "c02352fa",
+      "370b1d02"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-02-22T09:26:49.855052",
+        "trigger": "New pattern: 8a71e405",
+        "changes": "Unit-01-Class is now part of a validated Unit-series progression and needs context about its relationship to the much larger Unit-02-Class"
+      },
+      {
+        "date": "2026-02-22T09:27:23.673498",
+        "trigger": "New pattern: b71e60f2",
+        "changes": "Unit-03-Class completes the Unit-series trilogy, revealing non-sequential complexity pattern"
+      },
+      {
+        "date": "2026-02-22T09:28:18.067327",
+        "trigger": "New pattern: c02352fa",
+        "changes": "Unit-05-Class completes the series picture, confirming Unit-01-Class as the foundational baseline"
+      },
+      {
+        "date": "2026-02-22T09:28:52.458647",
+        "trigger": "New pattern: 370b1d02",
+        "changes": "Unit-06-Class completes the Unit-series spectrum and provides better understanding of complexity progression"
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R13",
+          "nick": "Number Slider",
+          "min": -7,
+          "max": 15,
+          "value": 8.823
+        },
+        {
+          "id": "R21",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.651
+        },
+        {
+          "id": "R26",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R27",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 6
+        },
+        {
+          "id": "R28",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 6
+        },
+        {
+          "id": "R29",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R30",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R31",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 20,
+          "value": 19
+        },
+        {
+          "id": "R90",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.877
+        },
+        {
+          "id": "R97",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 50,
+          "value": 35
+        },
+        {
+          "id": "R121",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 600,
+          "value": 74.425
+        }
+      ],
+      "panels": [
+        {
+          "id": "R3",
+          "nick": "",
+          "content": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass"
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "content": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper component, it says:\r\n\"3 locally defined values...\r\nReferenced Point\r\nReferenced Point\r\nReferenced Point\""
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options."
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "content": "10"
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "content": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R19",
+          "nick": "",
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R20",
+          "nick": "",
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R23",
+          "nick": "",
+          "content": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line."
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "content": "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled"
+        },
+        {
+          "id": "R40",
+          "nick": "",
+          "content": "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\""
+        },
+        {
+          "id": "R43",
+          "nick": "",
+          "content": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error"
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "content": "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component is selected, all wires show in green-black gradient."
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "content": "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n- Name\r\n- Color\r\n- Other options\r\n\r\nSub-groups can be made within a bigger group\r\nTo change order, Edit > Arrange."
+        },
+        {
+          "id": "R58",
+          "nick": "",
+          "content": "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing parameters of the points that make the Line...\r\n\r\nThis is a very simplifed example of what Grasshopper can do..."
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "content": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously."
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R63",
+          "nick": "",
+          "content": "Making Lines, Polylines, Closed Polylines and Curves in Grasshopper can be done in many ways...\r\n\r\nAssignment 1:\r\n\r\n- Type \"Line\" anywhere inside the Grasshopper workspace\r\n- Choose \"Line SDL\"\r\n\r\n- Go to the \"Curve\" tab, then \"Primitive\" and choose:\r\n- \"Circle\"\r\n- \"Rectangle\"\r\n- \"Polygon\"\r\n\r\n- Go to the \"Curve\" tab, then \"Spline\" and choose:\r\n- \"Polyline\"\r\n- \"Interpolate\"\r\n\r\n- Hover the cursor over the INPUTS and try to make new geometries from these components\r\n\r\n- Type \"Divide\" anywhere inside the Grasshopper workspace\r\n- Choose \"Divide Curve\"\r\n- Try to divide the above made geometries with the \"Divide Curve\" component\r\n\r\n- Go to the \"Curve\" tab, then \"Analysis\" and choose:\r\n- \"End Points\"\r\n- \"Point On Curve\"\r\n- \"Length\"\r\nUse these components to analyze the previously made geometries"
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "content": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector."
+        },
+        {
+          "id": "R84",
+          "nick": "",
+          "content": "7- Curves have the following properties:\r\n\r\n- Control Points\r\n- Degree\r\n- Weight\r\n\r\n- Draw a Curve in Rhino and follow with options.\r\n\r\n- Type Weight and check out what it does.\r\n\r\n- Open the Point Edit sub-tab and check out the different options.\r\n\r\n- Try to Rebuild the drawn Curve in Rhino\r\n\r\n- Reference the drawn Curve inside Grasshopper and check out the following components:\r\n\r\n- \"Evaluate Curve\"\r\n- \"Rebuild Curve\""
+        },
+        {
+          "id": "R92",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R93",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R100",
+          "nick": "",
+          "content": "Quick Find Components in Toolbars:\r\n\r\nIf you want to find the location of a certain component in the toolbars, click\r\n\"ctrl+alt+click\"\r\non component while holding.\r\n\r\nTry this out with the \"Rebuild Curve\" component."
+        },
+        {
+          "id": "R103",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R123",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R127",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R128",
+          "nick": "",
+          "content": "Right-Click, select \"Find\", type the name of the component to find"
+        },
+        {
+          "id": "R130",
+          "nick": "",
+          "content": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse.mcneel.com/t/panel-font-size-issue/101554/3\r\n\r\nDownload:\r\nhttps://www.food4rhino.com/en/app/pancake#downloads_list"
+        },
+        {
+          "id": "R134",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "Unit-01-Class.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            36.6
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            36.9,
+            102.9
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "panel",
+          "pos": [
+            438.4,
+            25.6
+          ],
+          "content": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass"
+        },
+        {
+          "id": "R4",
+          "type": "panel",
+          "pos": [
+            761.9,
+            26
+          ],
+          "content": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper component, it says:\r\n\"3 locally defined values...\r\nReferenced Point\r\nReferenced Point\r\nReferenced Point\""
+        },
+        {
+          "id": "R5",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1043.8,
+            617.2
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            842.1,
+            616.9
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            771.8,
+            559.7
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            960.7,
+            559.3
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            617.2
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1152.2,
+            559.3
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            1449.4,
+            26
+          ],
+          "content": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options."
+        },
+        {
+          "id": "R12",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            2075,
+            674
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            1677.6,
+            615.7
+          ],
+          "min": -7,
+          "max": 15,
+          "value": 8.823
+        },
+        {
+          "id": "R14",
+          "type": "DigitScroller",
+          "name": "Digit Scroller",
+          "pos": [
+            1669.3,
+            663.9
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "panel",
+          "pos": [
+            1798.2,
+            703
+          ],
+          "content": "10"
+        },
+        {
+          "id": "R16",
+          "type": "DialKnob",
+          "name": "Control Knob",
+          "pos": [
+            1707.6,
+            793.5
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            2076,
+            880
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "panel",
+          "pos": [
+            2109.4,
+            26
+          ],
+          "content": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R19",
+          "type": "panel",
+          "pos": [
+            2374.8,
+            630.8
+          ],
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "pos": [
+            2374.8,
+            836.8
+          ],
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2109.3,
+            1058.1
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.651
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            2373.5,
+            1024.8
+          ],
+          "content": "3- Panel:\r\n\r\n- Used to UNDERSTAND what is happening\r\n- Most buttons in Grasshopper have OUTPUTS. Those outputs can be used to connect with other buttons.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving..."
+        },
+        {
+          "id": "R23",
+          "type": "panel",
+          "pos": [
+            2771.9,
+            26
+          ],
+          "content": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line."
+        },
+        {
+          "id": "R24",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            3055,
+            814
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            3053,
+            939
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2723.7,
+            774.9
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 0
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2721.8,
+            808.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 6
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2720.8,
+            846.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 6
+        },
+        {
+          "id": "R29",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2720.8,
+            897.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2721.8,
+            936.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 20
+        },
+        {
+          "id": "R31",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            2720.8,
+            963.8
+          ],
+          "min": 0,
+          "max": 20,
+          "value": 19
+        },
+        {
+          "id": "R32",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            3243,
+            877
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            887.9
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            939.2
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "panel",
+          "pos": [
+            761.8,
+            709
+          ],
+          "content": "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled"
+        },
+        {
+          "id": "R36",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.1,
+            732.9
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            835.7
+          ]
+        },
+        {
+          "id": "R38",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.1,
+            784.7
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            1066.2
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "panel",
+          "pos": [
+            761.8,
+            1023
+          ],
+          "content": "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\""
+        },
+        {
+          "id": "R41",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1245.7,
+            1112.2
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            990,
+            1320
+          ],
+          "value": false
+        },
+        {
+          "id": "R43",
+          "type": "panel",
+          "pos": [
+            761.8,
+            1224.5
+          ],
+          "content": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error"
+        },
+        {
+          "id": "R44",
+          "type": "panel",
+          "pos": [
+            1534.9,
+            949.1
+          ],
+          "content": "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component is selected, all wires show in green-black gradient."
+        },
+        {
+          "id": "R45",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1486.7,
+            1556.6
+          ]
+        },
+        {
+          "id": "R46",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1418.6,
+            1617.4
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1412.8,
+            1517.4
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1305.3,
+            1836.3
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1421.8,
+            1827.6
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1283.4,
+            1768.8
+          ]
+        },
+        {
+          "id": "R51",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1271.3,
+            2105.1
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1420.8,
+            2106.7
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1330.3,
+            2053
+          ]
+        },
+        {
+          "id": "R54",
+          "type": "panel",
+          "pos": [
+            761.8,
+            1492.8
+          ],
+          "content": "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n- Name\r\n- Color\r\n- Other options\r\n\r\nSub-groups can be made within a bigger group\r\nTo change order, Edit > Arrange."
+        },
+        {
+          "id": "R55",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1400.4,
+            2426.3
+          ]
+        },
+        {
+          "id": "R56",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1273.2,
+            2415
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            1368.8,
+            2372.3
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "panel",
+          "pos": [
+            2771.9,
+            1156.8
+          ],
+          "content": "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing parameters of the points that make the Line...\r\n\r\nThis is a very simplifed example of what Grasshopper can do..."
+        },
+        {
+          "id": "R59",
+          "type": "panel",
+          "pos": [
+            3534.9,
+            27
+          ],
+          "content": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously."
+        },
+        {
+          "id": "R60",
+          "type": "Component_Vector2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            3763,
+            901
+          ]
+        },
+        {
+          "id": "R61",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            3945,
+            806
+          ]
+        },
+        {
+          "id": "R62",
+          "type": "panel",
+          "pos": [
+            3997,
+            968.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R63",
+          "type": "panel",
+          "pos": [
+            5573.6,
+            1357.8
+          ],
+          "content": "Making Lines, Polylines, Closed Polylines and Curves in Grasshopper can be done in many ways...\r\n\r\nAssignment 1:\r\n\r\n- Type \"Line\" anywhere inside the Grasshopper workspace\r\n- Choose \"Line SDL\"\r\n\r\n- Go to the \"Curve\" tab, then \"Primitive\" and choose:\r\n- \"Circle\"\r\n- \"Rectangle\"\r\n- \"Polygon\"\r\n\r\n- Go to the \"Curve\" tab, then \"Spline\" and choose:\r\n- \"Polyline\"\r\n- \"Interpolate\"\r\n\r\n- Hover the cursor over the INPUTS and try to make new geometries from these components\r\n\r\n- Type \"Divide\" anywhere inside the Grasshopper workspace\r\n- Choose \"Divide Curve\"\r\n- Try to divide the above made geometries with the \"Divide Curve\" component\r\n\r\n- Go to the \"Curve\" tab, then \"Analysis\" and choose:\r\n- \"End Points\"\r\n- \"Point On Curve\"\r\n- \"Length\"\r\nUse these components to analyze the previously made geometries"
+        },
+        {
+          "id": "R64",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            5578.5,
+            1206.4
+          ]
+        },
+        {
+          "id": "R65",
+          "type": "Component_LineSDL",
+          "name": "Line SDL",
+          "pos": [
+            5810,
+            2076
+          ]
+        },
+        {
+          "id": "R66",
+          "type": "Component_Polyline",
+          "name": "PolyLine",
+          "pos": [
+            5806,
+            2493
+          ]
+        },
+        {
+          "id": "R67",
+          "type": "Component_Circle",
+          "name": "Circle",
+          "pos": [
+            5808,
+            2166
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "Component_Polygon",
+          "name": "Polygon",
+          "pos": [
+            5809,
+            2365
+          ]
+        },
+        {
+          "id": "R69",
+          "type": "Component_Rectangle",
+          "name": "Rectangle",
+          "pos": [
+            5808,
+            2262
+          ]
+        },
+        {
+          "id": "R70",
+          "type": "Component_DivideCurve",
+          "name": "Divide Curve",
+          "pos": [
+            6043,
+            2116
+          ]
+        },
+        {
+          "id": "R71",
+          "type": "Component_InterpCurve",
+          "name": "Interpolate",
+          "pos": [
+            5807,
+            2589
+          ]
+        },
+        {
+          "id": "R72",
+          "type": "Component_EndPoints",
+          "name": "End Points",
+          "pos": [
+            6043,
+            2243
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "Component_CurvePointAt",
+          "name": "Point On Curve",
+          "pos": [
+            5976.1,
+            2310.5
+          ]
+        },
+        {
+          "id": "R74",
+          "type": "Component_Length",
+          "name": "Length",
+          "pos": [
+            6036,
+            2395
+          ]
+        },
+        {
+          "id": "R75",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            763.5,
+            -37.9
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            1451,
+            -38.3
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2109.5,
+            -38
+          ]
+        },
+        {
+          "id": "R78",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            2774.3,
+            -37.2
+          ]
+        },
+        {
+          "id": "R79",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            3539,
+            -37.2
+          ]
+        },
+        {
+          "id": "R80",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            439.9,
+            -37.1
+          ]
+        },
+        {
+          "id": "R81",
+          "type": "panel",
+          "pos": [
+            4472.7,
+            26
+          ],
+          "content": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector."
+        },
+        {
+          "id": "R82",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            4476.6,
+            -37.2
+          ]
+        },
+        {
+          "id": "R83",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            37.8,
+            -37.8
+          ]
+        },
+        {
+          "id": "R84",
+          "type": "panel",
+          "pos": [
+            5572.3,
+            26
+          ],
+          "content": "7- Curves have the following properties:\r\n\r\n- Control Points\r\n- Degree\r\n- Weight\r\n\r\n- Draw a Curve in Rhino and follow with options.\r\n\r\n- Type Weight and check out what it does.\r\n\r\n- Open the Point Edit sub-tab and check out the different options.\r\n\r\n- Try to Rebuild the drawn Curve in Rhino\r\n\r\n- Reference the drawn Curve inside Grasshopper and check out the following components:\r\n\r\n- \"Evaluate Curve\"\r\n- \"Rebuild Curve\""
+        },
+        {
+          "id": "R85",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            5574.7,
+            -37.2
+          ]
+        },
+        {
+          "id": "R86",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            6034,
+            782
+          ]
+        },
+        {
+          "id": "R87",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            5943.6,
+            738.9
+          ]
+        },
+        {
+          "id": "R88",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            5932.8,
+            686.9
+          ]
+        },
+        {
+          "id": "R89",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            5476.2,
+            657.3
+          ]
+        },
+        {
+          "id": "R90",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            5492.7,
+            804.5
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.877
+        },
+        {
+          "id": "R91",
+          "type": "Component_RebuildCurve",
+          "name": "Rebuild Curve",
+          "pos": [
+            6034,
+            949
+          ]
+        },
+        {
+          "id": "R92",
+          "type": "panel",
+          "pos": [
+            3318.6,
+            939.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R93",
+          "type": "panel",
+          "pos": [
+            3133.4,
+            671.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R94",
+          "type": "Component_DeconstructVector",
+          "name": "Deconstruct Vector",
+          "pos": [
+            4452,
+            734
+          ]
+        },
+        {
+          "id": "R95",
+          "type": "Component_ConstructVector",
+          "name": "Vector XYZ",
+          "pos": [
+            4793,
+            713
+          ]
+        },
+        {
+          "id": "R96",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            5006,
+            638
+          ]
+        },
+        {
+          "id": "R97",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            5606,
+            964.1
+          ],
+          "min": 0,
+          "max": 50,
+          "value": 35
+        },
+        {
+          "id": "R98",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3996.8,
+            977.5
+          ]
+        },
+        {
+          "id": "R99",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            3335.7,
+            947.4
+          ]
+        },
+        {
+          "id": "R100",
+          "type": "panel",
+          "pos": [
+            6592.6,
+            26
+          ],
+          "content": "Quick Find Components in Toolbars:\r\n\r\nIf you want to find the location of a certain component in the toolbars, click\r\n\"ctrl+alt+click\"\r\non component while holding.\r\n\r\nTry this out with the \"Rebuild Curve\" component."
+        },
+        {
+          "id": "R101",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            6595,
+            -37.2
+          ]
+        },
+        {
+          "id": "R102",
+          "type": "Component_RebuildCurve",
+          "name": "Rebuild Curve",
+          "pos": [
+            6686,
+            721
+          ]
+        },
+        {
+          "id": "R103",
+          "type": "panel",
+          "pos": [
+            3984.5,
+            861.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R104",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            6307,
+            886
+          ]
+        },
+        {
+          "id": "R105",
+          "type": "Component_EndPoints",
+          "name": "End Points",
+          "pos": [
+            3392,
+            852
+          ]
+        },
+        {
+          "id": "R106",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            3505.5,
+            832.3
+          ]
+        },
+        {
+          "id": "R107",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            3503.8,
+            871.8
+          ]
+        },
+        {
+          "id": "R108",
+          "type": "Param_Point",
+          "name": "Point",
+          "pos": [
+            5619.5,
+            2497.5
+          ]
+        },
+        {
+          "id": "R109",
+          "type": "Component_Extrude",
+          "name": "Extrude",
+          "pos": [
+            6154,
+            2503
+          ]
+        },
+        {
+          "id": "R110",
+          "type": "Component_UnitVectorZ",
+          "name": "Unit Z",
+          "pos": [
+            5970,
+            2533
+          ]
+        },
+        {
+          "id": "R111",
+          "type": "Param_Geometry",
+          "name": "Geometry",
+          "pos": [
+            6022.8,
+            2629.7
+          ]
+        },
+        {
+          "id": "R112",
+          "type": "Param_Curve",
+          "name": "Curve",
+          "pos": [
+            6021.2,
+            2659.8
+          ]
+        },
+        {
+          "id": "R113",
+          "type": "Param_GenericObject",
+          "name": "Data",
+          "pos": [
+            6023.5,
+            2698.8
+          ]
+        },
+        {
+          "id": "R114",
+          "type": "toggle",
+          "nick": "Boolean Toggle",
+          "pos": [
+            5494,
+            2584
+          ],
+          "value": true
+        },
+        {
+          "id": "R115",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4589.2,
+            811
+          ]
+        },
+        {
+          "id": "R116",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4524.2,
+            817
+          ]
+        },
+        {
+          "id": "R117",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            4617.2,
+            982
+          ]
+        },
+        {
+          "id": "R118",
+          "type": "Param_Point",
+          "nick": "Point A",
+          "name": "Point",
+          "pos": [
+            3192.6,
+            1063.8
+          ]
+        },
+        {
+          "id": "R119",
+          "type": "Param_Point",
+          "nick": "Point B",
+          "name": "Point",
+          "pos": [
+            3192.6,
+            1108.6
+          ]
+        },
+        {
+          "id": "R120",
+          "type": "Component_EvaluateCurve",
+          "name": "Evaluate Curve",
+          "pos": [
+            5736,
+            683
+          ]
+        },
+        {
+          "id": "R121",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            5320,
+            698.8
+          ],
+          "min": 0,
+          "max": 600,
+          "value": 74.425
+        },
+        {
+          "id": "R122",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            3781,
+            722
+          ]
+        },
+        {
+          "id": "R123",
+          "type": "panel",
+          "pos": [
+            3465.8,
+            677.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R124",
+          "type": "Component_DeconstructVector",
+          "name": "Deconstruct Vector",
+          "pos": [
+            4452,
+            1315
+          ]
+        },
+        {
+          "id": "R125",
+          "type": "Component_ConstructVector",
+          "name": "Vector XYZ",
+          "pos": [
+            4793,
+            1294
+          ]
+        },
+        {
+          "id": "R126",
+          "type": "Component_VectorDisplay",
+          "name": "Vector Display",
+          "pos": [
+            5006,
+            1219
+          ]
+        },
+        {
+          "id": "R127",
+          "type": "panel",
+          "pos": [
+            4496.8,
+            1395.8
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R128",
+          "type": "panel",
+          "pos": [
+            7750,
+            22
+          ],
+          "content": "Right-Click, select \"Find\", type the name of the component to find"
+        },
+        {
+          "id": "R129",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            7748.6,
+            -45.9
+          ]
+        },
+        {
+          "id": "R130",
+          "type": "panel",
+          "pos": [
+            438.4,
+            590.1
+          ],
+          "content": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse.mcneel.com/t/panel-font-size-issue/101554/3\r\n\r\nDownload:\r\nhttps://www.food4rhino.com/en/app/pancake#downloads_list"
+        },
+        {
+          "id": "R131",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            439.9,
+            499.5
+          ]
+        },
+        {
+          "id": "R132",
+          "type": "Component_VariableMultiplication",
+          "name": "Multiplication",
+          "pos": [
+            4609,
+            1390
+          ]
+        },
+        {
+          "id": "R133",
+          "type": "Component_Length",
+          "name": "Length",
+          "pos": [
+            5722,
+            578
+          ]
+        },
+        {
+          "id": "R134",
+          "type": "panel",
+          "pos": [
+            5859.1,
+            552.1
+          ],
+          "content": "Double click to edit panel content…"
+        }
+      ],
+      "flows": [
+        "R13.O0>R12.I0",
+        "R14.O0>R12.I1",
+        "R15.O0>R12.I2",
+        "R16.O0>R17.I0",
+        "R14.O0>R17.I1",
+        "R15.O0>R17.I2",
+        "R12.O0>R19.I0",
+        "R17.O0>R20.I0",
+        "R21.O0>R22.I0",
+        "R26.O0>R24.I0",
+        "R27.O0>R24.I1",
+        "R28.O0>R24.I2",
+        "R29.O0>R25.I0",
+        "R30.O0>R25.I1",
+        "R31.O0>R25.I2",
+        "R24.O0>R32.I0",
+        "R25.O0>R32.I1",
+        "R24.O0>R60.I0",
+        "R25.O0>R60.I1",
+        "R122.O0>R61.I0",
+        "R60.O0>R61.I1",
+        "R60.O1>R62.I0",
+        "R108.O0>R66.I0",
+        "R108.O0>R71.I0",
+        "R114.O0>R71.I2",
+        "R89.O0>R86.I0",
+        "R90.O0>R86.I1",
+        "R89.O0>R91.I0",
+        "R97.O0>R91.I2",
+        "R32.O0>R92.I0",
+        "R24.O0>R93.I0",
+        "R60.O0>R94.I0",
+        "R94.O0>R95.I0",
+        "R94.O1>R95.I1",
+        "R122.O0>R96.I0",
+        "R95.O0>R96.I1",
+        "R60.O0>R103.I0",
+        "R91.O0>R104.I0",
+        "R90.O0>R104.I1",
+        "R32.O0>R105.I0",
+        "R66.O0>R109.I0",
+        "R110.O0>R109.I1",
+        "R89.O0>R120.I0",
+        "R121.O0>R120.I1",
+        "R106.O0>R123.I0",
+        "R60.O0>R124.I0",
+        "R124.O0>R125.I0",
+        "R124.O1>R125.I1",
+        "R132.O0>R125.I2",
+        "R122.O0>R126.I0",
+        "R125.O0>R126.I1",
+        "R124.O2>R132.I0",
+        "R127.O0>R132.I1",
+        "R89.O0>R133.I0",
+        "R133.O0>R134.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R3",
+          "text": "Interface:\r\n\r\n1- The Definition Window inside Rhino\r\n\r\n2- Opening Multiple Definitions and switching between them\r\n\r\n3- Top Menu\r\n\r\n4- Tabs\r\n\r\n5- Visibility Options Top Right\r\n\r\n6- Top Left Open, Save, Zoom Factor, Named views, Sketch\r\n\r\n7- Bottom Left recent commands\r\n\r\n8- Bottom Right Navigation Compass",
+          "pos": [
+            438.4,
+            25.6
+          ],
+          "nearby": [
+            "R80"
+          ]
+        },
+        {
+          "panel_id": "R4",
+          "text": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper component, it says:\r\n\"3 locally defined values...\r\nReferenced Point\r\nReferenced Point\r\nReferenced Point\"",
+          "pos": [
+            761.9,
+            26
+          ],
+          "nearby": [
+            "R75"
+          ]
+        },
+        {
+          "panel_id": "R11",
+          "text": "2- Constructing Points & Number Generators:\r\n\r\n- Type \"Construct a Point\".\r\n- Select the option \"Construct a Point\".\r\n- You see that the new component, called \"Construct Point\" is different from the previous \"Point\" component.\r\n- This new component \"Construct Point\" has 3 INPUTS X, Y & Z!\r\n- It is also white, which means that it is not empty! In other words, it includes information...\r\n- When there are components inside Grasshopper than need inputs, sometimes Grasshopper includes standard information inside of them.\r\n- Hover over the X & Y & Z and see what the preview shows...\r\nIn this case, the X & Y & Z have the \"0.0\" as standard assigned information.\r\n\r\n- Let us customize this new Point with new parameters!\r\n\r\n- The X & Y & Z need NUMBERS.\r\n\r\n- There are many ways in which we can make NUMBERS in Grasshopper:\r\n\r\n1- Number Slider:\r\nRight-click on the Number Slider and select \"Edit\" and go through the different options\r\nPay attention to the name of the Number Slider, it automatically changes according to the input it feeds.\r\n\r\n2- Digital Scroller:\r\nAlso gives a number, but it does not have the same options as the Number Slider.\r\n\r\n3- Panel:\r\nIf contains only a number, the Panel can be used as a Number generator!\r\n\r\n4- Control Knob:\r\nA rotational Number Generator with Options.",
+          "pos": [
+            1449.4,
+            26
+          ],
+          "nearby": [
+            "R76"
+          ]
+        },
+        {
+          "panel_id": "R18",
+          "text": "3- Panels:\r\n\r\n- Used to UNDERSTAND what is happening.\r\n- Most components in Grasshopper have OUTPUTS. Those outputs can be used to connect with other components.\r\nThe Panel can be used to READ & UNDERSTAND what the OUTPUTS are giving...",
+          "pos": [
+            2109.4,
+            26
+          ],
+          "nearby": [
+            "R77"
+          ]
+        },
+        {
+          "panel_id": "R23",
+          "text": "4- Lines:\r\n\r\n- A Line is a CONNECTION between TWO POINTS.\r\n- In Grasshopper, the ORDER of POINTS making a LINE is VERY IMPORTANT!\r\n- The ORDER of the POINTS defines the DIRECTION of LINE.\r\n- In Grasshopper, any LINE represents a VECTOR with the LINE's respective DIRECTION.\r\n\r\nCreating a new Line:\r\n- Type \"Line\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Line\" with description \"Create line between two points\".\r\n- Create a panel and connect it from the output of the Line.",
+          "pos": [
+            2771.9,
+            26
+          ],
+          "nearby": [
+            "R78"
+          ]
+        },
+        {
+          "panel_id": "R35",
+          "text": "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled",
+          "pos": [
+            761.8,
+            709
+          ],
+          "nearby": [
+            "R6",
+            "R7"
+          ]
+        },
+        {
+          "panel_id": "R40",
+          "text": "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\"",
+          "pos": [
+            761.8,
+            1023
+          ],
+          "nearby": [
+            "R42",
+            "R6",
+            "R7",
+            "R39",
+            "R34",
+            "R41",
+            "R5",
+            "R33"
+          ]
+        },
+        {
+          "panel_id": "R43",
+          "text": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+          "pos": [
+            761.8,
+            1224.5
+          ],
+          "nearby": [
+            "R42"
+          ]
+        },
+        {
+          "panel_id": "R44",
+          "text": "Wire Display:\r\n\r\nThe Wire Inputs Display of the point on the left have been changed in order to show how they look like when being:\r\n\r\n- X: Default\r\n- Y: Faint\r\n- Z: Hidden\r\n\r\nWhen the Point component is selected, all wires show in green-black gradient.",
+          "pos": [
+            1534.9,
+            949.1
+          ],
+          "nearby": [
+            "R16",
+            "R34",
+            "R33",
+            "R37",
+            "R39",
+            "R14",
+            "R41",
+            "R38"
+          ]
+        },
+        {
+          "panel_id": "R54",
+          "text": "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n- Name\r\n- Color\r\n- Other options\r\n\r\nSub-groups can be made within a bigger group\r\nTo change order, Edit > Arrange.",
+          "pos": [
+            761.8,
+            1492.8
+          ],
+          "nearby": [
+            "R42"
+          ]
+        },
+        {
+          "panel_id": "R58",
+          "text": "Parametric Line!\r\n\r\nTry to change the coordinates of the Points above (X,Y,Z)\r\nThe Line updates live as you change the points' coordinates!\r\n\r\nThis is a Parametric Line, governed by the changing parameters of the points that make the Line...\r\n\r\nThis is a very simplifed example of what Grasshopper can do...",
+          "pos": [
+            2771.9,
+            1156.8
+          ],
+          "nearby": [
+            "R31",
+            "R30",
+            "R29",
+            "R28",
+            "R27",
+            "R25",
+            "R26"
+          ]
+        },
+        {
+          "panel_id": "R59",
+          "text": "5- Vectors:\r\n\r\n- A VECTOR is a DIRECTION between two points, similar to a Line.\r\nBecause it is a DIRECTION, the ORDER in which the VECTOR is formed is very important.\r\n- A VECTOR is NOT A GEOMETRY, rather it is used to inform a certain transformation, like MOVE, ROTATE, SCALE, etc...\r\n\r\nCreating a new Vector:\r\n- Type \"Vector\" anywhere inside Grasshopper's workspace.\r\n- There are many options, choose \"Vector 2pt\".\r\n- Create a panel and connect it from the output of the Line.\r\n- Use the previous Points to make the vector.\r\n- Hover the cursor over the various INPUTS & OUTPUTS of the \"Vector 2pt\" and check out what they are.\r\n- Currently, you cannot see the vector because it is not a geometry. However, you can still visualize it by using the \"Vector Display\" component.\r\n- Sometimes, you don't need to fill all the INPUTS. It is enough that the main INPUTS that activate the component are used and the OUTPUT works.\r\nIn this example, we did not give any INPUT to the U of the \"Vector 2pt\".\r\n- Also, you don't always need to use all the OUTPUTS, only the ones needed for the Definition. In this case, we used only the V output to visualize the vector.\r\n\r\n- Use a Panel and check what the Length of the vector gives.\r\nIt is similar to the Line OUTPUT, but only a NUMBER and NOT A GEOMETRY as with the Line.\r\n\r\n- Now try to change the coordinates of the Points again, both the Line AND the Vector update simultaneously.",
+          "pos": [
+            3534.9,
+            27
+          ],
+          "nearby": [
+            "R79"
+          ]
+        },
+        {
+          "panel_id": "R63",
+          "text": "Making Lines, Polylines, Closed Polylines and Curves in Grasshopper can be done in many ways...\r\n\r\nAssignment 1:\r\n\r\n- Type \"Line\" anywhere inside the Grasshopper workspace\r\n- Choose \"Line SDL\"\r\n\r\n- Go to the \"Curve\" tab, then \"Primitive\" and choose:\r\n- \"Circle\"\r\n- \"Rectangle\"\r\n- \"Polygon\"\r\n\r\n- Go to the \"Curve\" tab, then \"Spline\" and choose:\r\n- \"Polyline\"\r\n- \"Interpolate\"\r\n\r\n- Hover the cursor over the INPUTS and try to make new geometries from these components\r\n\r\n- Type \"Divide\" anywhere inside the Grasshopper workspace\r\n- Choose \"Divide Curve\"\r\n- Try to divide the above made geometries with the \"Divide Curve\" component\r\n\r\n- Go to the \"Curve\" tab, then \"Analysis\" and choose:\r\n- \"End Points\"\r\n- \"Point On Curve\"\r\n- \"Length\"\r\nUse these components to analyze the previously made geometries",
+          "pos": [
+            5573.6,
+            1357.8
+          ],
+          "nearby": [
+            "R64"
+          ]
+        },
+        {
+          "panel_id": "R81",
+          "text": "6- Vector De/Construction:\r\n\r\n- A VECTOR can be \"deconstructed\" into its basic units, XYZ.\r\n- A VECTOR can also be constructed with XYZ INPUTS.\r\n\r\n- Deconstructing a Vector:\r\n- Type \"Deconstruct\" and choose \"Deconstruct Vector\".\r\n- Deconstruct the vector on the left.\r\n- Type \"Vector\" and choose \"Vector XYZ\".\r\n- Reconstruct the deconstructed vector, with the same XY as the previous vector, but without the Z.\r\n- Use the \"Vector Display\" to visualize the new vector.",
+          "pos": [
+            4472.7,
+            26
+          ],
+          "nearby": [
+            "R82"
+          ]
+        },
+        {
+          "panel_id": "R84",
+          "text": "7- Curves have the following properties:\r\n\r\n- Control Points\r\n- Degree\r\n- Weight\r\n\r\n- Draw a Curve in Rhino and follow with options.\r\n\r\n- Type Weight and check out what it does.\r\n\r\n- Open the Point Edit sub-tab and check out the different options.\r\n\r\n- Try to Rebuild the drawn Curve in Rhino\r\n\r\n- Reference the drawn Curve inside Grasshopper and check out the following components:\r\n\r\n- \"Evaluate Curve\"\r\n- \"Rebuild Curve\"",
+          "pos": [
+            5572.3,
+            26
+          ],
+          "nearby": [
+            "R85"
+          ]
+        },
+        {
+          "panel_id": "R100",
+          "text": "Quick Find Components in Toolbars:\r\n\r\nIf you want to find the location of a certain component in the toolbars, click\r\n\"ctrl+alt+click\"\r\non component while holding.\r\n\r\nTry this out with the \"Rebuild Curve\" component.",
+          "pos": [
+            6592.6,
+            26
+          ],
+          "nearby": [
+            "R101"
+          ]
+        },
+        {
+          "panel_id": "R128",
+          "text": "Right-Click, select \"Find\", type the name of the component to find",
+          "pos": [
+            7750,
+            22
+          ],
+          "nearby": [
+            "R129"
+          ]
+        },
+        {
+          "panel_id": "R130",
+          "text": "In case you find some fonts issues, where text fonts inside of panels is wrong, too large or too small, please make sure to download the \"Pancake\" plugin and reset all font sizes\r\n\r\nhttps://discourse.mcneel.com/t/panel-font-size-issue/101554/3\r\n\r\nDownload:\r\nhttps://www.food4rhino.com/en/app/pancake#downloads_list",
+          "pos": [
+            438.4,
+            590.1
+          ],
+          "nearby": [
+            "R131"
+          ]
+        }
+      ]
+    }
+  }
+}

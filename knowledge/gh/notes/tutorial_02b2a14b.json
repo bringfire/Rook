@@ -1,0 +1,93 @@
+{
+  "note_id": "tutorial_02b2a14b",
+  "note_type": "teaching",
+  "name": "Beginner 2-2: Tangent Vectors Along a Curve \u00e2\u20ac\u201d Range, Evaluate, Amplitude",
+  "brief": "Evaluate curve at multiple parameters (Range 0\u00e2\u20ac\u201c1) to get tangent vectors, scale with Amplitude, display with Vector Display",
+  "version": "1.0",
+  "created": "2026-02-23T04:07:16.951621Z",
+  "context": "Single definition with green/teal highlighted groups. Reparameterized Curve param with 3 Number Sliders. Panel '0 to 1' \u00e2\u2020\u2019 Range component (Domain, Steps=10) \u00e2\u2020\u2019 outputs 11 evenly spaced parameters (0, 0.1, 0.2...1.0). Range output \u00e2\u2020\u2019 Evaluate Curve Parameter input. Outputs: Points (tangent locations), Tangents (direction vectors). Panel shows tangent vectors as coordinates. Second Panel shows tangent Z-components are all 0 (planar curve). Tangent output \u00e2\u2020\u2019 Amplitude (Number Slider=7) \u00e2\u2020\u2019 Vector Display (Anchor=points, Vector=scaled tangents). Visualizes tangent direction and magnitude at each evaluation point along the curve.",
+  "keywords": [
+    "tangent vector",
+    "range",
+    "evaluate curve",
+    "amplitude",
+    "vector display",
+    "curve sampling",
+    "parameter space"
+  ],
+  "category": "Beginner - Curves Tangents and Data Trees",
+  "tags": [
+    "beginner",
+    "curve-evaluation",
+    "tangent",
+    "range",
+    "vector-display",
+    "sampling",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "tangent vectors along curve",
+    "sample curve at intervals",
+    "range component curve",
+    "evaluate curve tangent",
+    "display vectors along curve",
+    "curve frame vectors"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Curve",
+    "Number Slider",
+    "Panel",
+    "Range",
+    "Evaluate Curve",
+    "Amplitude",
+    "Vector Display"
+  ],
+  "solution_principle": "Range component generates evenly spaced values within a domain \u00e2\u20ac\u201d perfect for sampling along a reparameterized (0\u00e2\u20ac\u201c1) curve. Evaluate Curve returns both the Point at each parameter AND the Tangent vector (curve direction at that point). Amplitude scales vectors to a visible length for display. Vector Display shows vectors anchored at their curve points. This is the foundation for frame-based operations.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "recipe_287f9d46",
+    "recipe_8b918ca6",
+    "recipe_d4ff1297",
+    "recipe_fdbc67df",
+    "recipe_188588cb",
+    "tutorial_27f96eed",
+    "tutorial_6faa7cbb",
+    "tutorial_71512137",
+    "tutorial_7436a3fa",
+    "tutorial_88182103",
+    "tutorial_a0c71175",
+    "tutorial_c11f2ab4"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T04:07:16.951621Z",
+  "citations": [],
+  "created_from": "beginner_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Beginner",
+    "image": "2-2.jpg",
+    "lesson_number": 2,
+    "step_number": 2,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Curve": 1,
+      "Number Slider": 1,
+      "Panel": 1,
+      "Range": 1,
+      "Evaluate Curve": 1,
+      "Amplitude": 1,
+      "Vector Display": 1
+    }
+  }
+}

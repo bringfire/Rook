@@ -1,0 +1,76 @@
+{
+  "note_id": "comp_3756d5bc",
+  "note_type": "component",
+  "name": "Weaverbird's Vertices Component",
+  "brief": "Weaverbird's Vertices Component | Inputs: G, W → P",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564390Z",
+  "context": "Grasshopper component: Weaverbird's Vertices Component. Inputs: G (Geometry), W (Boolean). Outputs: P (Point).",
+  "keywords": [
+    "weaverbird's vertices component",
+    "weaverbird's",
+    "vertices",
+    "component",
+    "wb_extract"
+  ],
+  "category": "wb_extract",
+  "tags": [
+    "wb_extract"
+  ],
+  "trigger_intents": [
+    "weaverbird's vertices component",
+    "weaverbird's",
+    "vertices",
+    "component"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Weaverbird's Vertices Component"
+  ],
+  "solution_principle": "Returns the point representation of a mesh.\n\nProvided by Weaverbird 0.9.0.1.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_093bbf10",
+    "comp_249dabb0",
+    "comp_31d184dc",
+    "teaching_06550ff3",
+    "teaching_220e8091",
+    "comp_5706c591",
+    "comp_5d97934c",
+    "comp_5e66335b",
+    "comp_62987cca",
+    "comp_63fecbcb",
+    "comp_a8036aeb",
+    "comp_af5d4f93",
+    "comp_fd4acea1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "3e563215-b163-4843-4c37-e1512b636ecc",
+    "category": "wb_extract",
+    "inputs": {
+      "G": "Geometry",
+      "W": "Boolean"
+    },
+    "outputs": {
+      "P": "Point"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "919a9141-c43e-417c-3838-c1ad637291b9"
+    ],
+    "usage_count": 0,
+    "stable_key": "wb|extract|weaverbird's vertices component"
+  }
+}

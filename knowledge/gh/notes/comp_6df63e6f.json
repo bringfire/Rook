@@ -1,0 +1,60 @@
+{
+  "note_id": "comp_6df63e6f",
+  "note_type": "component",
+  "name": "Populate 3D",
+  "brief": "Populate 3D | Inputs: Region, Count, Seed, Points → Population",
+  "version": "1.0",
+  "created": "2026-03-19T18:02:50.813485Z",
+  "context": "Grasshopper component: Populate 3D. ",
+  "keywords": [
+    "populate 3d",
+    "primitives",
+    "populate"
+  ],
+  "category": "primitives",
+  "tags": [],
+  "trigger_intents": [
+    "populate 3d",
+    "populate",
+    "pop3d"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Populate 3D"
+  ],
+  "solution_principle": "Populate 3D | Inputs: Region, Count, Seed, Points → Population",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "exploration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "e202025b-dc8e-4c51-ae19-4415b172886f",
+    "category": "primitives",
+    "inputs": {
+      "Region": "Region",
+      "Count": "Count",
+      "Seed": "Seed",
+      "Points": "Points"
+    },
+    "outputs": {
+      "Population": "Population"
+    },
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "vector|grid|populate 3d"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

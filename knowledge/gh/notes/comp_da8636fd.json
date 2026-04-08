@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_da8636fd",
+  "note_type": "component",
+  "name": "3D Delaunay",
+  "brief": "3D Delaunay | Inputs: P → E, C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: 3D Delaunay. Inputs: P (Point). Outputs: E (Line), C (Integer).",
+  "keywords": [
+    "3d delaunay",
+    "3d",
+    "delaunay",
+    "mesh_triangulation"
+  ],
+  "category": "mesh_triangulation",
+  "tags": [
+    "mesh_triangulation"
+  ],
+  "trigger_intents": [
+    "3d delaunay",
+    "delaunay"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "3D Delaunay"
+  ],
+  "solution_principle": "Computes the 3D delaunay of a pointcloud based based on MIConvexHull by David Sehnal, Matthew Campbell",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_85c284b0",
+    "comp_5cae1f1d",
+    "comp_57e41d52",
+    "comp_eb2d7d4d",
+    "comp_a2966434"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "84d708eb-a8dc-4afd-94eb-ba953fddfd19",
+    "category": "mesh_triangulation",
+    "inputs": {
+      "P": "Point"
+    },
+    "outputs": {
+      "E": "Line",
+      "C": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1eb4f6ff-3547-4184-bead-1b01e7cfd668"
+    ],
+    "usage_count": 0,
+    "stable_key": "mesh|triangulation|3d delaunay"
+  }
+}

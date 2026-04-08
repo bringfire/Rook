@@ -1,0 +1,65 @@
+{
+  "note_id": "comp_e929f98f",
+  "note_type": "component",
+  "name": "Convex Edges",
+  "brief": "Convex Edges | Inputs: B → Cv, Cc, Mx",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Convex Edges. Inputs: B (Brep). Outputs: Cv (Integer), Cc (Integer), Mx (Integer).",
+  "keywords": [
+    "convex edges",
+    "convex",
+    "edges",
+    "surface_utilities"
+  ],
+  "category": "surface_utilities",
+  "tags": [
+    "surface_utilities"
+  ],
+  "trigger_intents": [
+    "convex edges",
+    "convex",
+    "edges"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Convex Edges"
+  ],
+  "solution_principle": "Select concave or convex brep edges.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_34d8f8d6",
+    "comp_254c74f6",
+    "comp_41d64cc8",
+    "comp_3b0a0e72",
+    "comp_46c625c1"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "8248da39-0729-4e04-8395-267b3259bc2f",
+    "category": "surface_utilities",
+    "inputs": {
+      "B": "Brep"
+    },
+    "outputs": {
+      "Cv": "Integer",
+      "Cc": "Integer",
+      "Mx": "Integer"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "surface|util|convex edges"
+  }
+}

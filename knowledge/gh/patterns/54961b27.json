@@ -1,0 +1,550 @@
+{
+  "pattern_id": "54961b27",
+  "name": "20-5",
+  "version": "1.0",
+  "created": "2026-02-22T14:11:12.385393Z",
+  "solution": {
+    "brief": "Recipe from FILES\\20\\20-5.gh (37 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "slider",
+      "slider",
+      "slider",
+      "Geometry",
+      "Brep Edges",
+      "Extend Curve",
+      "panel",
+      "Pipe",
+      "Custom Preview",
+      "panel",
+      "Custom Preview",
+      "panel",
+      "LB SunPath",
+      "LB Analysis Period",
+      "LB Import Location",
+      "File Path",
+      "Curve",
+      "Curve",
+      "Curve",
+      "Surface",
+      "Evaluate Curve",
+      "Curve Closest Point",
+      "Line",
+      "Evaluate Curve",
+      "Gene Pool",
+      "Gene Pool",
+      "Area",
+      "Project",
+      "Vector 2Pt",
+      "Move",
+      "Mesh Shadow",
+      "Region Intersection",
+      "Region Union",
+      "Area",
+      "Mass Addition",
+      "Galapagos"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "20 5"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "ab7fb612",
+    "ff06566a"
+  ],
+  "tags": [
+    "parametric",
+    "pipe-output",
+    "recipe",
+    "workflow"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R2",
+          "nick": "",
+          "min": 8,
+          "max": 17,
+          "value": 11
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 1,
+          "max": 31,
+          "value": 24
+        },
+        {
+          "id": "R4",
+          "nick": "",
+          "min": 1,
+          "max": 12,
+          "value": 2
+        }
+      ],
+      "panels": [
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "black"
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "content": "white"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/20/20-5.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            18,
+            -27
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "slider",
+          "pos": [
+            332.6,
+            607.3
+          ],
+          "min": 8,
+          "max": 17,
+          "value": 11
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            332,
+            584.6
+          ],
+          "min": 1,
+          "max": 31,
+          "value": 24
+        },
+        {
+          "id": "R4",
+          "type": "slider",
+          "pos": [
+            332.4,
+            558.1
+          ],
+          "min": 1,
+          "max": 12,
+          "value": 2
+        },
+        {
+          "id": "R5",
+          "type": "Param_Geometry",
+          "nick": "Geo",
+          "name": "Geometry",
+          "pos": [
+            105.8,
+            141.6
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Component_BRepEdges",
+          "nick": "Edges",
+          "name": "Brep Edges",
+          "pos": [
+            1928,
+            433
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_ExtendCurve",
+          "nick": "Ext",
+          "name": "Extend Curve",
+          "pos": [
+            2175,
+            463
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            2084.4,
+            469.9
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R9",
+          "type": "Component_PipeSurface_OBSOLETE",
+          "name": "Pipe",
+          "pos": [
+            2335,
+            486
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2577,
+            494
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            2478,
+            495.7
+          ],
+          "content": "black"
+        },
+        {
+          "id": "R12",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1975,
+            341
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "panel",
+          "pos": [
+            1856.6,
+            348.7
+          ],
+          "content": "white"
+        },
+        {
+          "id": "R14",
+          "type": "ZuiPythonComponent",
+          "nick": "Sunpath",
+          "name": "LB SunPath",
+          "pos": [
+            1001,
+            573
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "ZuiPythonComponent",
+          "nick": "AnalysisPeriod",
+          "name": "LB Analysis Period",
+          "pos": [
+            745,
+            595
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "ZuiPythonComponent",
+          "nick": "ImportLoc",
+          "name": "LB Import Location",
+          "pos": [
+            488,
+            471
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "Param_FilePath",
+          "nick": "Path",
+          "name": "File Path",
+          "pos": [
+            371.7,
+            473.4
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            979.7,
+            812.4
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            981,
+            785.1
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Param_Curve",
+          "nick": "Crv",
+          "name": "Curve",
+          "pos": [
+            2040.3,
+            745.8
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Param_Surface",
+          "nick": "Srf",
+          "name": "Surface",
+          "pos": [
+            1972.8,
+            745.9
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            1136,
+            800
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "Component_CurveClosestPoint",
+          "nick": "Crv CP",
+          "name": "Curve Closest Point",
+          "pos": [
+            1256,
+            804
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Line",
+          "nick": "Ln",
+          "name": "Line",
+          "pos": [
+            1360,
+            774
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_EvaluateCurve",
+          "nick": "Eval",
+          "name": "Evaluate Curve",
+          "pos": [
+            1571,
+            806
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            853.8,
+            912.9
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "GalapagosGeneListObject",
+          "nick": "Genes",
+          "name": "Gene Pool",
+          "pos": [
+            853.8,
+            1005.4
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            160,
+            298
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Project",
+          "name": "Project",
+          "pos": [
+            1539,
+            669
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "Component_Vector2Pt",
+          "nick": "Vec2Pt",
+          "name": "Vector 2Pt",
+          "pos": [
+            1665,
+            667
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_Move",
+          "name": "Move",
+          "pos": [
+            1806,
+            547
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_MeshShadow",
+          "nick": "MShadow",
+          "name": "Mesh Shadow",
+          "pos": [
+            2046,
+            643
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "Component_CurveBooleanIntersection",
+          "nick": "RInt",
+          "name": "Region Intersection",
+          "pos": [
+            2239,
+            720
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_CurveBooleanUnion",
+          "nick": "RUnion",
+          "name": "Region Union",
+          "pos": [
+            2381,
+            735
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            2507,
+            735
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "Component_MassAddition",
+          "nick": "MA",
+          "name": "Mass Addition",
+          "pos": [
+            2601,
+            681
+          ]
+        },
+        {
+          "id": "R37",
+          "type": "GalapagosObject",
+          "name": "Galapagos",
+          "pos": [
+            2714.7,
+            602.6
+          ]
+        }
+      ],
+      "flows": [
+        "R31.O0>R6.I0",
+        "R6.O1>R7.I0",
+        "R8.O0>R7.I2",
+        "R8.O0>R7.I3",
+        "R7.O0>R9.I0",
+        "R9.O0>R10.I0",
+        "R11.O0>R10.I1",
+        "R31.O0>R12.I0",
+        "R13.O0>R12.I1",
+        "R16.O0>R14.I1",
+        "R15.O1>R14.I2",
+        "R4.O0>R15.I0",
+        "R3.O0>R15.I1",
+        "R2.O0>R15.I2",
+        "R4.O0>R15.I3",
+        "R3.O0>R15.I4",
+        "R2.O0>R15.I5",
+        "R17.O0>R16.I0",
+        "R19.O0>R22.I0",
+        "R26.O0>R22.I1",
+        "R22.O0>R23.I0",
+        "R18.O0>R23.I1",
+        "R22.O0>R24.I0",
+        "R23.O0>R24.I1",
+        "R24.O0>R25.I0",
+        "R27.O0>R25.I1",
+        "R5.O0>R28.I0",
+        "R28.O1>R29.I0",
+        "R29.O0>R30.I0",
+        "R25.O0>R30.I1",
+        "R5.O0>R31.I0",
+        "R30.O0>R31.I1",
+        "R31.O0>R32.I0",
+        "R14.O1>R32.I1",
+        "R20.O0>R33.I0",
+        "R32.O0>R33.I1",
+        "R33.O0>R34.I0",
+        "R34.O0>R35.I0",
+        "R35.O0>R36.I0"
+      ],
+      "subgraphs": []
+    }
+  }
+}

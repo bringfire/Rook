@@ -1,0 +1,194 @@
+{
+  "note_id": "teaching_0a6208a3",
+  "note_type": "teaching",
+  "name": "U01 - Referencing Points",
+  "brief": "Teaching: Referencing Points",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.257258Z",
+  "context": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the compo",
+  "keywords": [
+    "referencing",
+    "points",
+    "point",
+    "booleantoggle",
+    "unit 01 class",
+    "group",
+    "subgroup"
+  ],
+  "category": "Unit 01",
+  "tags": [
+    "parametric-relationship",
+    "hands-on",
+    "group 3",
+    "annotated",
+    "group + subgroup",
+    "tutorial",
+    "beginner",
+    "foundational",
+    "prerequisite-for-lists",
+    "prerequisite-for-vectors",
+    "requires-panels",
+    "complements-point-construction",
+    "unit-01",
+    "geometry-fundamentals",
+    "group",
+    "point-referencing",
+    "prerequisite-for-lines",
+    "teaching",
+    "multi-group"
+  ],
+  "trigger_intents": [
+    "referencing points",
+    "how to use referencing points",
+    "how to use point",
+    "how to use booleantoggle",
+    "reference one rhino point:",
+    "empty point parameter",
+    "set one point",
+    "reference multiple rhino points"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Point",
+    "BooleanToggle"
+  ],
+  "solution_principle": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper compone\n\n[... see type_data.full_teaching_text for complete text]",
+  "anti_patterns": [],
+  "preconditions": [
+    "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled",
+    "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\"",
+    "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+    "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n"
+  ],
+  "postconditions": [],
+  "links": [
+    "comp_06731c52",
+    "teaching_06550ff3",
+    "teaching_c103fe78",
+    "teaching_e23cfc74",
+    "teaching_26b87a73",
+    "teaching_cf3f830b",
+    "teaching_0df0144b",
+    "teaching_7e5815f9",
+    "teaching_7f2bbf35"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.257258Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-01-Class",
+    "unit_number": 1,
+    "section_number": 1,
+    "section_index": 1,
+    "x_range": [
+      763.5,
+      1446.0
+    ],
+    "full_teaching_text": "1- Referencing Points:\r\n\r\n- Points belong to the Geometry Tab (Parameters Tab).\r\n- Right-click on the Point symbol or just type \"Point\" anywhere in the workspace.\r\n\r\n- Reference ONE Rhino point:\r\nCreate a new \"Point\" component.\r\nThe Grasshopper Point is colored orange, hover over it, you will read:\r\n- \"Contains a collection of three-dimentional points\": This is the description of the component. All components have a specfic description.\r\n- \"Empty Point Parameter\": This is the status of the component. Currently, it is empty. Let's reference a point from Rhino!\r\nMove to the Rhino workspace, create a new POINT, then select it inside Rhino, and move to the Grasshopper workspace, right-click on the POINT COMPONENT and select: \"Set One Point\".\r\nNow, the component is used (colored white instead of orange) and the Rhino Point is marked with an X.\r\n\r\nHover over the used component, the status of the component says:\r\n\"One locally defined value...\r\nReferenced Point\".\r\n\r\nClick on the Referenced Point, the X in Rhino becomes green, meaning that the Grasshopper component is activated. While not activated, the X in Rhino becomes red.\r\n\r\nTHIS METHOD OF USING COMPONENTS, HOVERING OVER THEM AND READING THEIR STATUS APPLIES TO ALL COMPONENTS IN GRASSHOPPER.\r\nALSO, THIS IS THE SAME WAY OTHER GEOMETRIES ARE REFENCED, SUCH AS LINES, CURVES, SURFACES, SOLIDS, MESHES...\r\n\r\n\r\n- Reference MULTIPLE Rhino points.\r\n\r\nApply the same procedure as above with many points.\r\n\r\nHover over the Grasshopper component, it says:\r\n\"3 locally defined values...\r\nReferenced Point\r\nReferenced Point\r\nReferenced Point\"",
+    "sub_annotations": [
+      {
+        "id": "C35",
+        "text": "Color Coding\r\n\r\n- Orange: Empty\r\n- Red: Error\r\n- White: Enabled and Showing\r\n- Grey with Black text: Enabled and No Preview\r\n- Faded Grey with Faded Text: Disabled",
+        "topic": "Color Coding",
+        "pos": [
+          761.8,
+          709
+        ]
+      },
+      {
+        "id": "C40",
+        "text": "Icon Style\r\n\r\nThe same component has two different display styles. This is a personal preference...\r\n\r\n- Text\r\n- Icon\r\n\r\n- Click on \"Display\" and select \"Draw Icons\"",
+        "topic": "Icon Style",
+        "pos": [
+          761.8,
+          1023
+        ]
+      },
+      {
+        "id": "C43",
+        "text": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+        "topic": "This Boolean toggle is just used for the purpose of showing how the Point looks like when having an error",
+        "pos": [
+          761.8,
+          1224.5
+        ]
+      },
+      {
+        "id": "C54",
+        "text": "Grouping:\r\n\r\nAny number of components can be grouped together.\r\n\r\nRight-click on the group to change its display:\r\nChoose from the various grouping schemes\r\n\r\nRight-click on the group to change its:\r\n- Name\r\n- Color\r\n- Other options\r\n\r\nSub-groups can be made within a bigger group\r\nTo change order, Edit > Arrange.",
+        "topic": "Grouping",
+        "pos": [
+          761.8,
+          1492.8
+        ]
+      }
+    ],
+    "working_component_ids": [
+      "C5",
+      "C6",
+      "C9",
+      "C33",
+      "C34",
+      "C36",
+      "C37",
+      "C38",
+      "C39",
+      "C41",
+      "C42",
+      "C46",
+      "C47",
+      "C48",
+      "C49",
+      "C50",
+      "C51",
+      "C52",
+      "C53",
+      "C55",
+      "C56",
+      "C57"
+    ],
+    "intra_section_flows": [],
+    "groups": [
+      {
+        "group_id": "G16",
+        "name": "Group",
+        "colour": "#00E5FA75"
+      },
+      {
+        "group_id": "G18",
+        "name": "Group 3",
+        "colour": "#825CF787"
+      },
+      {
+        "group_id": "G13",
+        "name": "Group + Subgroup",
+        "colour": "#2CD4517D"
+      },
+      {
+        "group_id": "G14",
+        "name": "",
+        "colour": "#2373CF96"
+      }
+    ],
+    "components_demonstrated": {
+      "Point": 21,
+      "BooleanToggle": 1
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 4,
+      "working_components": 22,
+      "sub_labels": 3,
+      "connected_panels": 0,
+      "flows": 0,
+      "groups": 4
+    }
+  }
+}

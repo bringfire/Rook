@@ -1,0 +1,1235 @@
+{
+  "pattern_id": "c76ac51b",
+  "name": "S07E01",
+  "version": "1.0",
+  "created": "2026-02-22T14:14:06.907480Z",
+  "solution": {
+    "brief": "Recipe from FILES\\7\\S07E01.gh (82 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "panel",
+      "panel",
+      "Addition",
+      "panel",
+      "Sketch",
+      "Sketch",
+      "panel",
+      "panel",
+      "Addition",
+      "panel",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "panel",
+      "Line",
+      "Point List",
+      "Point List",
+      "Number Slider",
+      "Scribble",
+      "Longest List",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "panel",
+      "panel",
+      "Line",
+      "Stack Data",
+      "panel",
+      "panel",
+      "panel",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "panel",
+      "panel",
+      "Line",
+      "Shortest List",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "Construct Point",
+      "Series",
+      "Number Slider",
+      "panel",
+      "panel",
+      "Line",
+      "Cross Reference",
+      "Cull Pattern",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Dispatch",
+      "panel",
+      "panel",
+      "panel",
+      "Sift Pattern",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Combine Data",
+      "panel",
+      "panel",
+      "Weave",
+      "Sift Pattern",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "panel",
+      "Combine Data"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "s07e01"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "beceed1a",
+    "2f310f59",
+    "ddfc5df6",
+    "a2a197b3",
+    "fdbc67df"
+  ],
+  "tags": [
+    "parametric",
+    "point-sequence",
+    "recipe",
+    "workflow",
+    "82-components"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R14",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R17",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R22",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 1,
+          "value": 0.42
+        },
+        {
+          "id": "R27",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R30",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R40",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R43",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R50",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R53",
+          "nick": "Number Slider",
+          "min": 0,
+          "max": 10,
+          "value": 8
+        }
+      ],
+      "panels": [
+        {
+          "id": "R2",
+          "nick": "",
+          "content": "2"
+        },
+        {
+          "id": "R3",
+          "nick": "",
+          "content": "10\r\n15\r\n20"
+        },
+        {
+          "id": "R5",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R8",
+          "nick": "",
+          "content": "2\r\n4"
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "content": "10\r\n15\r\n20\r\n25"
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R18",
+          "nick": "",
+          "content": "4"
+        },
+        {
+          "id": "R31",
+          "nick": "",
+          "content": "14"
+        },
+        {
+          "id": "R32",
+          "nick": "",
+          "content": "10"
+        },
+        {
+          "id": "R35",
+          "nick": "",
+          "content": "A\r\nB\r\nC\r\nD\r\nE"
+        },
+        {
+          "id": "R36",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R37",
+          "nick": "",
+          "content": "2\r\n3"
+        },
+        {
+          "id": "R44",
+          "nick": "",
+          "content": "24"
+        },
+        {
+          "id": "R45",
+          "nick": "",
+          "content": "20"
+        },
+        {
+          "id": "R54",
+          "nick": "",
+          "content": "34"
+        },
+        {
+          "id": "R55",
+          "nick": "",
+          "content": "30"
+        },
+        {
+          "id": "R59",
+          "nick": "",
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R60",
+          "nick": "",
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R61",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R62",
+          "nick": "",
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R64",
+          "nick": "",
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R65",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R66",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R68",
+          "nick": "",
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R69",
+          "nick": "",
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R70",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R71",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R73",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R74",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R77",
+          "nick": "",
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R78",
+          "nick": "",
+          "content": "0\r\n1\r\n2"
+        },
+        {
+          "id": "R79",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R80",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R81",
+          "nick": "",
+          "content": "Double click to edit panel content…"
+        }
+      ]
+    },
+    "output_type": "curve",
+    "source_definition": "FILES/7/S07E01.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            87,
+            20
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "panel",
+          "pos": [
+            45.1,
+            74.1
+          ],
+          "content": "2"
+        },
+        {
+          "id": "R3",
+          "type": "panel",
+          "pos": [
+            46.6,
+            161
+          ],
+          "content": "10\r\n15\r\n20"
+        },
+        {
+          "id": "R4",
+          "type": "Component_VariableAddition",
+          "name": "Addition",
+          "pos": [
+            193,
+            155
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "panel",
+          "pos": [
+            287.5,
+            103.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R6",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            52,
+            78
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Markup",
+          "name": "Sketch",
+          "pos": [
+            24,
+            101
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "panel",
+          "pos": [
+            51.4,
+            296.1
+          ],
+          "content": "2\r\n4"
+        },
+        {
+          "id": "R9",
+          "type": "panel",
+          "pos": [
+            52.8,
+            383
+          ],
+          "content": "10\r\n15\r\n20\r\n25"
+        },
+        {
+          "id": "R10",
+          "type": "Component_VariableAddition",
+          "name": "Addition",
+          "pos": [
+            199,
+            376
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "panel",
+          "pos": [
+            293.7,
+            325.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R12",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            597,
+            679
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            424,
+            683
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            127.2,
+            696.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R15",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            605,
+            816
+          ]
+        },
+        {
+          "id": "R16",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            427,
+            849
+          ]
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            130.9,
+            862.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R18",
+          "type": "panel",
+          "pos": [
+            446.9,
+            770.3
+          ],
+          "content": "4"
+        },
+        {
+          "id": "R19",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            782,
+            762
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            800,
+            621
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "Component_PointListDisplay",
+          "name": "Point List",
+          "pos": [
+            797,
+            897
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            420.5,
+            954.7
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 0.42
+        },
+        {
+          "id": "R23",
+          "type": "Scribble",
+          "name": "Scribble",
+          "pos": [
+            368.1,
+            557.8
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_MatchListLongest",
+          "name": "Longest List",
+          "pos": [
+            774,
+            1436
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            615,
+            1390
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            442,
+            1405
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            146,
+            1407.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R28",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            623,
+            1527
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            445,
+            1560
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            149.8,
+            1574.5
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R31",
+          "type": "panel",
+          "pos": [
+            465.7,
+            1481.9
+          ],
+          "content": "14"
+        },
+        {
+          "id": "R32",
+          "type": "panel",
+          "pos": [
+            454.7,
+            1327
+          ],
+          "content": "10"
+        },
+        {
+          "id": "R33",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            962,
+            1436
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_StackData",
+          "name": "Stack Data",
+          "pos": [
+            558,
+            1811
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "panel",
+          "pos": [
+            276.8,
+            1674.9
+          ],
+          "content": "A\r\nB\r\nC\r\nD\r\nE"
+        },
+        {
+          "id": "R36",
+          "type": "panel",
+          "pos": [
+            638.5,
+            1694.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R37",
+          "type": "panel",
+          "pos": [
+            276.5,
+            1807
+          ],
+          "content": "2\r\n3"
+        },
+        {
+          "id": "R38",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            580,
+            2119
+          ]
+        },
+        {
+          "id": "R39",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            407,
+            2134
+          ]
+        },
+        {
+          "id": "R40",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            112,
+            2137.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R41",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            588,
+            2256
+          ]
+        },
+        {
+          "id": "R42",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            410,
+            2289
+          ]
+        },
+        {
+          "id": "R43",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            115.7,
+            2303.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R44",
+          "type": "panel",
+          "pos": [
+            431.7,
+            2211.2
+          ],
+          "content": "24"
+        },
+        {
+          "id": "R45",
+          "type": "panel",
+          "pos": [
+            420.7,
+            2056.3
+          ],
+          "content": "20"
+        },
+        {
+          "id": "R46",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            927,
+            2165
+          ]
+        },
+        {
+          "id": "R47",
+          "type": "Component_MatchListShortest",
+          "name": "Shortest List",
+          "pos": [
+            740,
+            2165
+          ]
+        },
+        {
+          "id": "R48",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            609,
+            2551
+          ]
+        },
+        {
+          "id": "R49",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            436,
+            2566
+          ]
+        },
+        {
+          "id": "R50",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            141.9,
+            2570.1
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 4
+        },
+        {
+          "id": "R51",
+          "type": "Component_ConstructPoint",
+          "name": "Construct Point",
+          "pos": [
+            617,
+            2688
+          ]
+        },
+        {
+          "id": "R52",
+          "type": "Component_Series",
+          "name": "Series",
+          "pos": [
+            439,
+            2721
+          ]
+        },
+        {
+          "id": "R53",
+          "type": "slider",
+          "nick": "Number Slider",
+          "pos": [
+            145.6,
+            2736.7
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 8
+        },
+        {
+          "id": "R54",
+          "type": "panel",
+          "pos": [
+            461.6,
+            2644.2
+          ],
+          "content": "34"
+        },
+        {
+          "id": "R55",
+          "type": "panel",
+          "pos": [
+            450.6,
+            2489.3
+          ],
+          "content": "30"
+        },
+        {
+          "id": "R56",
+          "type": "Component_Line",
+          "name": "Line",
+          "pos": [
+            952,
+            2608
+          ]
+        },
+        {
+          "id": "R57",
+          "type": "Component_MatchListCrossReference",
+          "name": "Cross Reference",
+          "pos": [
+            784,
+            2608
+          ]
+        },
+        {
+          "id": "R58",
+          "type": "Component_CullPattern",
+          "name": "Cull Pattern",
+          "pos": [
+            391,
+            3080
+          ]
+        },
+        {
+          "id": "R59",
+          "type": "panel",
+          "pos": [
+            72,
+            2811.7
+          ],
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R60",
+          "type": "panel",
+          "pos": [
+            71.4,
+            3063.1
+          ],
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R61",
+          "type": "panel",
+          "pos": [
+            467.2,
+            2962.5
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R62",
+          "type": "panel",
+          "pos": [
+            72.6,
+            3218.9
+          ],
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R63",
+          "type": "Component_Dispatch",
+          "name": "Dispatch",
+          "pos": [
+            428,
+            3395
+          ]
+        },
+        {
+          "id": "R64",
+          "type": "panel",
+          "pos": [
+            72.6,
+            3470
+          ],
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R65",
+          "type": "panel",
+          "pos": [
+            687.1,
+            3145.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R66",
+          "type": "panel",
+          "pos": [
+            689.8,
+            3385.7
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R67",
+          "type": "Component_SiftPattern",
+          "name": "Sift Pattern",
+          "pos": [
+            412,
+            3755
+          ]
+        },
+        {
+          "id": "R68",
+          "type": "panel",
+          "pos": [
+            94.2,
+            3617.9
+          ],
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R69",
+          "type": "panel",
+          "pos": [
+            94.2,
+            3869.1
+          ],
+          "content": "0\r\n1"
+        },
+        {
+          "id": "R70",
+          "type": "panel",
+          "pos": [
+            569.1,
+            3658.8
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R71",
+          "type": "panel",
+          "pos": [
+            571.8,
+            3899.1
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R72",
+          "type": "Component_CombineNonNulls",
+          "name": "Combine Data",
+          "pos": [
+            840,
+            3773
+          ]
+        },
+        {
+          "id": "R73",
+          "type": "panel",
+          "pos": [
+            939.2,
+            3657.2
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R74",
+          "type": "panel",
+          "pos": [
+            1139.9,
+            3221.4
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R75",
+          "type": "Component_Weave",
+          "name": "Weave",
+          "pos": [
+            1022,
+            3359
+          ]
+        },
+        {
+          "id": "R76",
+          "type": "Component_SiftPattern",
+          "name": "Sift Pattern",
+          "pos": [
+            389,
+            4321
+          ]
+        },
+        {
+          "id": "R77",
+          "type": "panel",
+          "pos": [
+            71.8,
+            4184.4
+          ],
+          "content": "5\r\n10\r\n15\r\n20\r\n25\r\n30\r\n35\r\n40\r\n45\r\n50\r\n55\r\n60\r\n65\r\n70"
+        },
+        {
+          "id": "R78",
+          "type": "panel",
+          "pos": [
+            71.8,
+            4435.6
+          ],
+          "content": "0\r\n1\r\n2"
+        },
+        {
+          "id": "R79",
+          "type": "panel",
+          "pos": [
+            546.7,
+            4225.3
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R80",
+          "type": "panel",
+          "pos": [
+            549.4,
+            4465.6
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R81",
+          "type": "panel",
+          "pos": [
+            554.1,
+            4715.9
+          ],
+          "content": "Double click to edit panel content…"
+        },
+        {
+          "id": "R82",
+          "type": "Component_CombineNonNulls",
+          "name": "Combine Data",
+          "pos": [
+            909,
+            4348
+          ]
+        }
+      ],
+      "flows": [
+        "R2.O0>R4.I0",
+        "R3.O0>R4.I1",
+        "R4.O0>R5.I0",
+        "R8.O0>R10.I0",
+        "R9.O0>R10.I1",
+        "R10.O0>R11.I0",
+        "R13.O0>R12.I1",
+        "R14.O0>R13.I2",
+        "R18.O0>R15.I0",
+        "R16.O0>R15.I1",
+        "R17.O0>R16.I2",
+        "R12.O0>R19.I0",
+        "R15.O0>R19.I1",
+        "R12.O0>R20.I0",
+        "R22.O0>R20.I1",
+        "R15.O0>R21.I0",
+        "R22.O0>R21.I1",
+        "R25.O0>R24.I0",
+        "R28.O0>R24.I1",
+        "R32.O0>R25.I0",
+        "R26.O0>R25.I1",
+        "R27.O0>R26.I2",
+        "R31.O0>R28.I0",
+        "R29.O0>R28.I1",
+        "R30.O0>R29.I2",
+        "R24.O0>R33.I0",
+        "R24.O1>R33.I1",
+        "R35.O0>R34.I0",
+        "R37.O0>R34.I1",
+        "R34.O0>R36.I0",
+        "R45.O0>R38.I0",
+        "R39.O0>R38.I1",
+        "R40.O0>R39.I2",
+        "R44.O0>R41.I0",
+        "R42.O0>R41.I1",
+        "R43.O0>R42.I2",
+        "R47.O0>R46.I0",
+        "R47.O1>R46.I1",
+        "R38.O0>R47.I0",
+        "R41.O0>R47.I1",
+        "R55.O0>R48.I0",
+        "R49.O0>R48.I1",
+        "R50.O0>R49.I2",
+        "R54.O0>R51.I0",
+        "R52.O0>R51.I1",
+        "R53.O0>R52.I2",
+        "R57.O0>R56.I0",
+        "R57.O1>R56.I1",
+        "R48.O0>R57.I0",
+        "R51.O0>R57.I1",
+        "R59.O0>R58.I0",
+        "R60.O0>R58.I1",
+        "R58.O0>R61.I0",
+        "R62.O0>R63.I0",
+        "R64.O0>R63.I1",
+        "R63.O0>R65.I0",
+        "R63.O1>R66.I0",
+        "R68.O0>R67.I0",
+        "R69.O0>R67.I1",
+        "R67.O0>R70.I0",
+        "R67.O1>R71.I0",
+        "R70.O0>R72.I0",
+        "R71.O0>R72.I1",
+        "R72.O0>R73.I0",
+        "R75.O0>R74.I0",
+        "R64.O0>R75.I0",
+        "R66.O0>R75.I1",
+        "R65.O0>R75.I2",
+        "R77.O0>R76.I0",
+        "R78.O0>R76.I1",
+        "R76.O0>R79.I0",
+        "R76.O1>R80.I0",
+        "R76.O2>R81.I0",
+        "R79.O0>R82.I0",
+        "R80.O0>R82.I1",
+        "R81.O0>R82.I2"
+      ],
+      "subgraphs": []
+    }
+  }
+}

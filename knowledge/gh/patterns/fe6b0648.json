@@ -1,0 +1,829 @@
+{
+  "pattern_id": "fe6b0648",
+  "name": "wasp_basic_aggregation",
+  "version": "1.0",
+  "created": "2026-03-19T13:21:01.357497Z",
+  "solution": {
+    "brief": "Basic Wasp stochastic aggregation: define part geometry + connections, create directional rules, run stochastic aggregation, extract and visualize results. Foundation workflow for all Wasp discrete design.",
+    "principle": "\n\nRelated insight: Connections in Wasp are directional by design, so bidirectional connections must be defined as two separate rules (e.g., A→B and B→A). The canonical 4-step workflow is: (1) Build Part with geometry and connections, (2) Define directional rules, (3) Run Stochastic Aggregation, (4) Visualize using PartGeo + Custom Preview components.\n\nRelated insight: Each Wasp_Rule is a directed graph edge — the aggregation engine enforces exact source→target direction. Symmetry is never implicit; both A→B and B→A must be explicitly created as separate Wasp_Rule components.\n\nRelated insight: Wasp_Connection From Direction defines each connection as a plane: center point = origin, direction curve = X-axis. Connection IDs are assigned sequentially by input order and must align with what Wasp_Rule references. Changing input order silently reassigns IDs and breaks rules.\n\nRelated insight: Related insight: Step 1 of the canonical workflow (Build Part) uses Wasp_Basic Part, which takes geometry, WaspConnection objects, and a name string to produce a WaspPart object. The name string is the part-type identifier referenced in Wasp_Rule — it must exactly match what rules expect. This is a silent failure point: a mismatched name string causes rules to never fire without any error message.\n\nRelated insight: Related insight: Wasp_Rule uses 0-based connection indices. When defining bidirectional rules, the index pair is 'swapped' between the two rules (e.g., if rule 1 is Part_A[conn_0] → Part_B[conn_1], rule 2 is Part_B[conn_1] → Part_A[conn_0]). Both part names and connection indices must exactly match their source definitions; mismatches cause silent failures.\n\nRelated insight: Related insight: Wasp_Stochastic Aggregation is stateful and additive — it accumulates parts on top of its previous state. Increasing N grows the assembly incrementally from where it left off; it does not restart from scratch. RESET is the only input that clears the accumulated state and restarts the assembly. This is a common gotcha: unexpected growth behavior when re-running without RESET. Geometry from the assembly is not output directly — it must be retrieved separately using Wasp_Get Part Geometry (connected to PART_OUT), then visualized with Custom Preview.\n\nRelated insight: PartGeo detail: Wasp_Get Part Geometry applies each WaspPart's stored position/orientation transform to its base geometry, producing world-space geometry. Parts remain abstract WaspPart objects throughout aggregation; PartGeo is the required extraction step before any standard GH visualization or processing.\n\nRelated insight: Related insight: The canonical Wasp workflow has an implicit Step 0 prerequisite: open the paired .3dm file in Rhino before opening or solving the GH file. Wasp part geometry (Brep), connection center points (Points), and direction curves (Curves) are all referenced from this .3dm via GH parameter components — not created within GH. If the .3dm is not open, all referenced geometry will be missing and the entire workflow silently produces no output. This external-reference architecture keeps geometry editable in Rhino while aggregation logic lives in GH, but makes the .3dm a hard dependency.\n\nRelated insight: Related insight: The canonical Wasp 0.6 tutorial part is a hexagonal solid with 6 connection faces — one per hex face. This 6-connection example is pedagogically effective because it demonstrates both the sequential ID assignment (connections 0–5 map directly to face order) and the combinatorial nature of bidirectional rules. When adapting this tutorial to custom parts, the number of connections and their input order must be re-established from scratch.\n\nRelated insight: Related insight: The canonical single-part workflow scales to multi-part assemblies by defining each part type separately with its own Brep geometry and connection set. Text-based rule notation (encoding part names and connection indices as strings) becomes the practical approach for specifying the combinatorial rule space across two or more part types. Each part still follows the same Wasp_Basic Part + Wasp_Connection From Direction construction pattern, but the rule definition step expands to cover cross-part connection pairs.\n\nRelated insight: Related insight: The canonical Wasp_Connection From Direction approach (using explicit direction curves) is not the only connection-definition strategy. Mesh-based parts can derive connections directly from mesh vertices and edges — the mesh topology itself encodes connection geometry. This vertex/edge-derived approach (introduced in tutorial 03) is useful when part geometry is authored as mesh rather than Brep, and avoids the need to manually author direction curves per connection.\n\nRelated insight: Related insight: Wasp aggregation outputs can be post-processed with mesh subdivision for smooth visualization. Weaverbird's Catmull-Clark subdivision component is a compatible post-processing step — after extracting part geometry via Wasp_Get Part Geometry, the resulting mesh can be fed into Weaverbird subdivision to produce a smoothed version of the discrete assembly. This extends the canonical 4-step workflow with an optional visualization enhancement step and is demonstrated in tutorial 04.\n\nRelated insight: Related insight: WaspPart definitions support custom attributes as an additional input alongside geometry and connections. These attributes can carry per-part metadata (e.g., material, type, weight) through the aggregation. Tutorial 06 demonstrates this feature and also shows how aggregation results can be exported to disk via a file update component — extending the canonical 4-step workflow with a data persistence step beyond visualization.\n\nRelated insight: Related insight: The new wasp_01_basic_aggregation pattern confirms this as the canonical beginner entry point to Wasp. The 5-step workflow (geometry → connections → WaspPart → Rules → Stochastic Aggregation) codified here is the prerequisite for all subsequent Wasp tutorials. The 'beginner' classification reinforces that this pattern should be the first stop for anyone learning Wasp discrete assembly.\n\nRelated insight: Related insight: Tutorial 02 (wasp_02_rule_grammar) isolates and deepens the rule definition step: beyond bidirectional rule pairs, it teaches a rule grammar where multiple rules explicitly control which connection indices can mate and in which orientation. This extends the directionality insight already captured here — directionality is not just about symmetric pairs but about a full grammar of permitted connection matchings across the part vocabulary.\n\nRelated insight: Related insight: Tutorial 03 (wasp_03_graph_grammar) introduces graph grammar as a fundamentally different aggregation strategy from the stochastic approach codified here. While the canonical 5-step workflow (geometry → connections → WaspPart → Rules → Stochastic Aggregation) produces random growth guided by rules, graph grammar replaces the stochastic aggregation step with graph-structure-driven placement — the assembly follows a predefined connectivity graph, enabling deterministic, reproducible spatial structures. This represents a branching point in the Wasp learning path: stochastic vs. graph-grammar-driven aggregation.\n\nRelated insight: Related insight: Field-driven aggregation (wasp_04_field_driven) extends the stochastic workflow established here by introducing scalar fields — attractors or density gradients — that bias part placement and part-type selection during aggregation. Rather than uniform random growth, field values weight which parts are chosen and where they are placed, enabling directed spatial growth patterns. This is an advanced extension of the canonical 5-step workflow, adding a field-influence layer between rule definition and stochastic placement.\n\nRelated insight: Related insight: Tutorial 05 (wasp_05_collider) introduces collider and containment as an intermediate extension of the foundational stochastic aggregation workflow — Wasp collision detection against boundary BRep geometry constrains growth within a defined volume. This represents a key progression point in the Wasp learning path: after mastering unconstrained stochastic growth (tutorials 01–04), tutorial 05 adds spatial boundary enforcement, enabling assemblies that respect volumetric limits. The collider/containment system uses BRep geometry as the boundary definition and integrates directly with the standard aggregation workflow.\n\nRelated insight: Related insight: Tutorial 06 (wasp_06_multi_part) demonstrates the multi-part aggregation pattern where multiple distinct part types — each with their own Brep geometry, connection sets, and connection configurations — are defined and combined in a single aggregation. This is architecturally distinct from simply scaling the single-part workflow: each part type may have a different number of connections and different connection plane orientations, requiring careful management of per-part connection indices and cross-part rule definitions. The text-based rule notation becomes essential at this scale for specifying the combinatorial rule space across all part-type pairs.\n\nRelated insight: Related insight: Tutorial 07 (wasp_07) represents the advanced endpoint of the Wasp tutorial learning path introduced here, advancing beyond the intermediate multi-part and attribute/export features of tutorial 06 into more complex aggregation techniques. The canonical 5-step workflow established in this foundational pattern underpins all subsequent tutorials through tutorial 07.\n\nRelated insight: Related insight: Tutorial 10 (wasp_10) extends the Wasp tutorial learning path beyond tutorial 07 — the series continues through tutorials 08, 09, and 10, each introducing further aggregation techniques including graph-based assembly, multi-part connection configurations, and advanced modular assembly strategies. The canonical 5-step workflow established in this foundational pattern underpins all tutorials through tutorial 10, making this pattern the prerequisite for the entire series.\n\nRelated insight: Related insight: Tutorial 11 (wasp_11) extends the Wasp tutorial learning path beyond tutorial 10 — the series continues into tutorial 11, introducing further advanced aggregation techniques including multiple-part-types and advanced connection-configurations. The canonical 5-step workflow established in this foundational pattern underpins all tutorials through tutorial 11, making this pattern the prerequisite for the entire series.\n\nRelated insight: Related insight: Tutorial 12 (wasp_12) extends the Wasp tutorial learning path beyond tutorial 11 — the series continues into tutorial 12, introducing further advanced aggregation techniques as part of the RuleGenerator series. The canonical 5-step workflow established in this foundational pattern underpins all tutorials through tutorial 12, making this pattern the prerequisite for the entire series.\n\nRelated insight: Related insight: Tutorial 16 (wasp_16) extends the Wasp tutorial learning path beyond tutorial 12 — the series continues through tutorials 13, 14, 15, and 16, each introducing further advanced aggregation techniques. Tutorial 16 introduces isoline-based field techniques and 3d-populate strategies as advanced topics. The canonical 5-step workflow established in this foundational pattern underpins all tutorials through tutorial 16, making this pattern the prerequisite for the entire series.\n\nRelated insight: Related insight: Tutorial 18 (wasp_18) extends the Wasp tutorial learning path beyond tutorial 17 — the field-driven series continues into tutorial 18, further developing scalar-field-driven aggregation with biased-growth, isoline, and attribute-based parametric-growth techniques. The canonical 5-step workflow established in this foundational pattern underpins all tutorials through tutorial 18, making this pattern the prerequisite for the entire series.",
+    "components_needed": [
+      "Wasp_Connection From Direction",
+      "Wasp_Stochastic Aggregation",
+      "Wasp_Basic Part",
+      "Wasp_Get Part Geometry",
+      "Brep",
+      "Point",
+      "Point List",
+      "slider",
+      "Curve",
+      "PART_NAME",
+      "PARTS_NUM",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "slider",
+      "Merge",
+      "Swatch",
+      "PART_NAME",
+      "Sketch",
+      "panel",
+      "Scribble",
+      "Button",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Scribble",
+      "Wasp_Rule",
+      "Wasp_Rule",
+      "Wasp_Rule",
+      "Custom Preview",
+      "Button",
+      "Scribble",
+      "Wasp_Update File"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "set up a Wasp aggregation",
+      "create stochastic part assembly",
+      "generate discrete aggregation with Wasp",
+      "build modular assembly with random growth",
+      "wasp part aggregation with rules",
+      "stochastic architecture aggregation",
+      "basic wasp workflow",
+      "wasp getting started",
+      "discrete design with wasp"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "842e394c",
+    "ad19a9bc",
+    "e429efda",
+    "e1f1c3cf",
+    "c19bb3ff",
+    "d1f677ba",
+    "414ec8c8",
+    "03658e8c",
+    "5c0baa38",
+    "490bc17e",
+    "9baf36d3",
+    "4df26ba8",
+    "c37161b7",
+    "78a4da59",
+    "098491b7",
+    "e1ce3524",
+    "801f6d1e",
+    "2fe5805e",
+    "fba88cfa",
+    "16f4319f",
+    "72d65814",
+    "48a1b9fb",
+    "c5ac8ffa",
+    "c9f10925",
+    "7bb677d9",
+    "9d5169fc"
+  ],
+  "tags": [
+    "geometry-extraction",
+    "connection-mating",
+    "beginner",
+    "weaverbird",
+    "part-definition",
+    "file-update",
+    "catmull-clark",
+    "visualization",
+    "hexagonal",
+    "collision-detection",
+    "growth",
+    "attractor",
+    "mesh-geometry",
+    "wasppart",
+    "discrete-design",
+    "wasp-connection",
+    "generative",
+    "stochastic",
+    "two-parts",
+    "foundation",
+    "rhino-params",
+    "tutorial",
+    "growth-control",
+    "vertex-connections",
+    "field-driven",
+    "wasp",
+    "rule-grammar",
+    "part-based",
+    "boundary-constraint",
+    "intermediate",
+    "volume-containment",
+    "geometry-referencing",
+    "attributes",
+    "bidirectional",
+    "grasshopper",
+    "part-geometry",
+    "mesh-subdivision",
+    "brep-geometry",
+    "discrete-assembly",
+    "rule-generator",
+    "external-reference",
+    "connections",
+    "directionality",
+    "post-processing",
+    "containment",
+    "edge-connections",
+    "multiple-part-types",
+    "rules",
+    "custom-attributes",
+    "sequential-id",
+    "component-reference",
+    "graph-grammar",
+    "tutorial-0_01",
+    "file-io",
+    "text-rules",
+    "aggregation",
+    "workflow",
+    "scalar-field",
+    "export",
+    "isoline",
+    "plugin-workflow",
+    "deterministic",
+    "stateful",
+    "gotcha",
+    "0-based-index",
+    "multi-part",
+    "prerequisite",
+    "reset",
+    "multi-rule",
+    "collision",
+    "3dm-file",
+    "connection-configurations",
+    "3d-populate",
+    "direction-curves"
+  ],
+  "evolution": {
+    "created_from": "recipe_extraction",
+    "last_evolved": "2026-03-19T14:10:20.060861",
+    "evolved_by": [
+      "842e394c",
+      "ad19a9bc",
+      "e429efda",
+      "e1f1c3cf",
+      "c19bb3ff",
+      "d1f677ba",
+      "414ec8c8",
+      "03658e8c",
+      "5c0baa38",
+      "490bc17e",
+      "9baf36d3",
+      "4df26ba8",
+      "78a4da59",
+      "098491b7",
+      "e1ce3524",
+      "801f6d1e",
+      "2fe5805e",
+      "fba88cfa",
+      "16f4319f",
+      "72d65814",
+      "48a1b9fb",
+      "c5ac8ffa",
+      "c9f10925",
+      "7bb677d9",
+      "9d5169fc"
+    ],
+    "evolution_history": [
+      {
+        "date": "2026-03-19T09:22:07.131496",
+        "trigger": "New pattern: 842e394c",
+        "changes": "The new pattern explicitly documents the bidirectional rule requirement and the named 4-step structure, which clarifies a common gotcha and provides more actionable detail for the neighbor pattern."
+      },
+      {
+        "date": "2026-03-19T09:23:02.502026",
+        "trigger": "New pattern: ad19a9bc",
+        "changes": "Reinforces the directed graph edge framing from the new pattern and adds the gotcha/directionality tags for better classification and discoverability."
+      },
+      {
+        "date": "2026-03-19T09:24:12.899838",
+        "trigger": "New pattern: e429efda",
+        "changes": "The foundational tutorial workflow depends on correctly setting up connections before rules. The new pattern provides the specific component-level mechanics that explain how connection planes and IDs are established, filling a gap in the foundation workflow documentation."
+      },
+      {
+        "date": "2026-03-19T09:25:04.565044",
+        "trigger": "New pattern: e1f1c3cf",
+        "changes": "The tutorial workflow pattern should explicitly note the name-string-as-identifier gotcha introduced by the new pattern, as it is a common failure mode in the Build Part step that is easy to miss."
+      },
+      {
+        "date": "2026-03-19T09:26:10.285316",
+        "trigger": "New pattern: c19bb3ff",
+        "changes": "New Component I/O pattern introduces 'swapped-index' terminology and '0-based' index precision — useful additions to the canonical workflow context for avoiding silent failures."
+      },
+      {
+        "date": "2026-03-19T09:27:37.040660",
+        "trigger": "New pattern: d1f677ba",
+        "changes": "The new pattern reveals critical operational behavior of the aggregation component (stateful/additive nature, RESET mechanism, incremental N growth, PART_OUT/Wasp_Get Part Geometry pipeline) that the workflow pattern should document as these are common confusion points."
+      },
+      {
+        "date": "2026-03-19T09:28:32.406448",
+        "trigger": "New pattern: 414ec8c8",
+        "changes": "New pattern provides explicit mechanical detail about PartGeo's world-space transform operation; adding part-geometry and geometry-extraction tags improves retrieval when users search for visualization/extraction topics."
+      },
+      {
+        "date": "2026-03-19T09:30:00.685154",
+        "trigger": "New pattern: 03658e8c",
+        "changes": "The foundational workflow pattern describes the canonical 4-step process but omits the critical prerequisite of opening the paired .3dm file. The new pattern makes this explicit. Adding it here ensures users following the foundational workflow know to complete Step 0 before attempting Steps 1-4."
+      },
+      {
+        "date": "2026-03-19T11:47:48.725130",
+        "trigger": "New pattern: 5c0baa38",
+        "changes": "New pattern confirms the hexagonal 6-face geometry as the standard tutorial reference. Adding this detail helps learners map abstract workflow steps to a concrete shape and understand the scaling implications when moving to custom geometries."
+      },
+      {
+        "date": "2026-03-19T11:51:11.748525",
+        "trigger": "New pattern: 490bc17e",
+        "changes": "New pattern introduces multi-part, text-rule, and Brep-geometry aspects as a variation/extension of this workflow. These tags and context help classify and distinguish this pattern from the single-part hex tutorial."
+      },
+      {
+        "date": "2026-03-19T11:53:10.625086",
+        "trigger": "New pattern: 9baf36d3",
+        "changes": "The new pattern introduces a mesh-topology-based connection derivation approach that complements and extends the direction-curve connection method documented extensively in this pattern. Adding this expands the connection-definition knowledge and prevents users from assuming direction curves are the only path."
+      },
+      {
+        "date": "2026-03-19T11:57:41.663409",
+        "trigger": "New pattern: 4df26ba8",
+        "changes": "The new pattern introduces Weaverbird Catmull-Clark subdivision as a post-processing/visualization step for Wasp outputs. The comprehensive foundation pattern should document this as an optional workflow extension so users know mesh smoothing is available after aggregation."
+      },
+      {
+        "date": "2026-03-19T12:45:31.113429",
+        "trigger": "New pattern: 78a4da59",
+        "changes": "The canonical foundation pattern should document that WaspPart supports custom attributes and that file export is a valid workflow extension step."
+      },
+      {
+        "date": "2026-03-19T13:18:53.687033",
+        "trigger": "New pattern: 098491b7",
+        "changes": "fe6b0648 already has 'tutorial-0_01' and 'prerequisite' tags but was missing 'beginner'. The new pattern's explicit beginner classification confirms this pattern's role as the entry point. Adding the beginner tag and a brief reinforcing context note aligns the two closely related records."
+      },
+      {
+        "date": "2026-03-19T13:21:10.479334",
+        "trigger": "New pattern: e1ce3524",
+        "changes": "This comprehensive pattern already covers directionality and text-rules extensively; the new pattern adds the concept of rule grammar as a structured system of connection-mating constraints, which refines and extends the existing directionality insights."
+      },
+      {
+        "date": "2026-03-19T13:23:00.541672",
+        "trigger": "New pattern: 801f6d1e",
+        "changes": "As the foundational Wasp pattern, it should document the graph grammar as an important alternative aggregation paradigm that diverges from the stochastic approach at the aggregation step."
+      },
+      {
+        "date": "2026-03-19T13:24:58.946459",
+        "trigger": "New pattern: 2fe5805e",
+        "changes": "This comprehensive foundational pattern should document the field-driven extension as a key advanced progression from the canonical stochastic workflow."
+      },
+      {
+        "date": "2026-03-19T13:27:02.178875",
+        "trigger": "New pattern: fba88cfa",
+        "changes": "This comprehensive foundation pattern documents the full Wasp tutorial progression. Adding the collider/containment extension ensures the pattern captures this important intermediate capability in the learning path."
+      },
+      {
+        "date": "2026-03-19T13:28:51.162978",
+        "trigger": "New pattern: 16f4319f",
+        "changes": "The new pattern clarifies that tutorial 06's key architectural contribution is multi-part types with distinct connection configurations, not just attributes/export. The foundation pattern's existing context touched on this but did not capture the connection-configuration management challenge. Adding tags multiple-part-types and connection-configurations improves discoverability."
+      },
+      {
+        "date": "2026-03-19T13:31:39.204320",
+        "trigger": "New pattern: 72d65814",
+        "changes": "The foundational pattern tracks the full tutorial progression; adding a reference to tutorial 07 as the advanced endpoint completes the learning path documentation already present here."
+      },
+      {
+        "date": "2026-03-19T13:40:13.950814",
+        "trigger": "New pattern: 48a1b9fb",
+        "changes": "The foundational pattern's context stated tutorial 07 was the 'advanced endpoint' of the learning path. With wasp_10 now added, this is outdated and should reflect the series extends to at least tutorial 10."
+      },
+      {
+        "date": "2026-03-19T13:41:50.866723",
+        "trigger": "New pattern: c5ac8ffa",
+        "changes": "The foundational wasp_basic_aggregation pattern maintains a running map of the tutorial series. Its existing context documents the series up to tutorial 10; extending it to tutorial 11 keeps this map complete and accurate for learners navigating the full series."
+      },
+      {
+        "date": "2026-03-19T13:46:55.440846",
+        "trigger": "New pattern: c9f10925",
+        "changes": "The foundational pattern tracks the full tutorial series progression. Its context previously extended only to tutorial 11; wasp_12 extends the series and should be reflected here."
+      },
+      {
+        "date": "2026-03-19T14:02:49.999092",
+        "trigger": "New pattern: 7bb677d9",
+        "changes": "As the foundational pattern that tracks the full Wasp tutorial series scope, wasp_basic_aggregation needs to be updated to reflect that the series extends through tutorial 16, and to capture the new isoline and 3d-populate concepts introduced at this advanced stage."
+      },
+      {
+        "date": "2026-03-19T14:10:20.060861",
+        "trigger": "New pattern: 9d5169fc",
+        "changes": "wasp_basic_aggregation tracks the full series extent and previously noted the series through tutorial 16 (and implicitly 17 via wasp_17's addition). Now the series is confirmed through tutorial 18."
+      }
+    ]
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R8",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R11",
+          "nick": "PARTS_NUM",
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R12",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R13",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R14",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R17",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 1
+        }
+      ],
+      "panels": [
+        {
+          "id": "R10",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R20",
+          "nick": "PART_NAME",
+          "content": "HEXA"
+        },
+        {
+          "id": "R22",
+          "nick": "",
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "ZuiPythonComponent",
+          "nick": "ConnDir",
+          "name": "Wasp_Connection From Direction",
+          "pos": [
+            432,
+            367
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "ZuiPythonComponent",
+          "nick": "StochasticAggregation",
+          "name": "Wasp_Stochastic Aggregation",
+          "pos": [
+            1338,
+            416
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "ZuiPythonComponent",
+          "nick": "Part",
+          "name": "Wasp_Basic Part",
+          "pos": [
+            618,
+            326
+          ]
+        },
+        {
+          "id": "R4",
+          "type": "ZuiPythonComponent",
+          "nick": "PartGeo",
+          "name": "Wasp_Get Part Geometry",
+          "pos": [
+            1811,
+            287
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "Param_Brep",
+          "nick": "PART_GEOMETRY",
+          "name": "Brep",
+          "pos": [
+            245.2,
+            306.8
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "Param_Point",
+          "nick": "CONNECTIONS_CENTERS",
+          "name": "Point",
+          "pos": [
+            247.3,
+            377.3
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "Component_PointListDisplay",
+          "nick": "Points",
+          "name": "Point List",
+          "pos": [
+            532,
+            513
+          ]
+        },
+        {
+          "id": "R8",
+          "type": "slider",
+          "pos": [
+            331.8,
+            519.8
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R9",
+          "type": "Param_Curve",
+          "nick": "CONNECTIONS_X_AXIS",
+          "name": "Curve",
+          "pos": [
+            253.6,
+            439.3
+          ]
+        },
+        {
+          "id": "R10",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            397.7,
+            241
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "nick": "PARTS_NUM",
+          "pos": [
+            951,
+            357
+          ],
+          "min": 0,
+          "max": 1000,
+          "value": 100
+        },
+        {
+          "id": "R12",
+          "type": "slider",
+          "pos": [
+            252.8,
+            777.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R13",
+          "type": "slider",
+          "pos": [
+            255.6,
+            817.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R14",
+          "type": "slider",
+          "pos": [
+            256.8,
+            905.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 0
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            259.6,
+            945.4
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            254.8,
+            1036.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 2
+        },
+        {
+          "id": "R17",
+          "type": "slider",
+          "pos": [
+            257.6,
+            1076.2
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 1
+        },
+        {
+          "id": "R18",
+          "type": "Component_MergeVariable",
+          "name": "Merge",
+          "pos": [
+            605,
+            914
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "colour",
+          "nick": "Swatch",
+          "pos": [
+            1771.5,
+            338.5
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "panel",
+          "nick": "PART_NAME",
+          "pos": [
+            258.3,
+            727.1
+          ],
+          "content": "HEXA"
+        },
+        {
+          "id": "R21",
+          "type": "Markup",
+          "nick": "Sketch",
+          "pos": [
+            -15.6,
+            -195.1
+          ]
+        },
+        {
+          "id": "R22",
+          "type": "panel",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "content": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt"
+        },
+        {
+          "id": "R23",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            22.9,
+            30.7
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "ButtonObject",
+          "nick": "RESET",
+          "name": "Button",
+          "pos": [
+            1146,
+            495
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            29.7,
+            114.1
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            180.1,
+            579.2
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            866.7,
+            163.9
+          ]
+        },
+        {
+          "id": "R28",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            1641.9,
+            163.8
+          ]
+        },
+        {
+          "id": "R29",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            774
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            914
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "ZuiPythonComponent",
+          "nick": "Rule",
+          "name": "Wasp_Rule",
+          "pos": [
+            489,
+            1055
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1930,
+            297
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "ButtonObject",
+          "name": "Button",
+          "pos": [
+            -301,
+            165
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Scribble",
+          "nick": "Scribble",
+          "pos": [
+            -325.8,
+            97.6
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "ZuiPythonComponent",
+          "nick": "UpdateFile",
+          "name": "Wasp_Update File",
+          "pos": [
+            -85,
+            186
+          ]
+        }
+      ],
+      "flows": [
+        "R5.O0>R1.I0",
+        "R6.O0>R1.I1",
+        "R9.O0>R1.I2",
+        "R3.O0>R2.I0",
+        "R11.O0>R2.I2",
+        "R18.O0>R2.I3",
+        "R24.O0>R2.I9",
+        "R10.O0>R3.I0",
+        "R5.O0>R3.I1",
+        "R1.O0>R3.I2",
+        "R2.O1>R4.I0",
+        "R6.O0>R7.I0",
+        "R8.O0>R7.I1",
+        "R29.O0>R18.I0",
+        "R30.O0>R18.I1",
+        "R31.O0>R18.I2",
+        "R20.O0>R29.I0",
+        "R12.O0>R29.I1",
+        "R20.O0>R29.I2",
+        "R13.O0>R29.I3",
+        "R20.O0>R30.I0",
+        "R14.O0>R30.I1",
+        "R20.O0>R30.I2",
+        "R15.O0>R30.I3",
+        "R20.O0>R31.I0",
+        "R16.O0>R31.I1",
+        "R20.O0>R31.I2",
+        "R17.O0>R31.I3",
+        "R4.O0>R32.I0",
+        "R19.O0>R32.I1",
+        "R33.O0>R35.I0"
+      ],
+      "subgraphs": [],
+      "annotations": [
+        {
+          "panel_id": "R22",
+          "text": "# Wasp: Discrete Design with Grasshopper plug-in (GPL) initiated by Andrea Rossi\r\n\r\n\r\nThis file is part of Wasp.\r\n\r\nCopyright (c) 2021, Andrea Rossi <a.rossi.andrea@gmail.com>\r\n\r\nWasp is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.\r\n\r\nWasp is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. You should have received a copy of the GNU General Public License\r\n along with Wasp; If not, see <http://www.gnu.org/licenses/>.\r\n \r\nlicense GPL-3.0 <https://www.gnu.org/licenses/gpl.html>\r\n\r\nSignificant parts of Wasp have been developed by Andrea Rossi as part of research on digital materials and discrete design at DDU Digital Design Unit - Prof. Oliver Tessmann - Technische Universität Darmstadt",
+          "pos": [
+            208.7,
+            -277.3
+          ],
+          "nearby": [
+            "R21",
+            "R23",
+            "R25"
+          ]
+        }
+      ]
+    }
+  }
+}

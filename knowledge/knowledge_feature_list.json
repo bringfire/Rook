@@ -1,0 +1,398 @@
+{
+  "version": "0.1.0",
+  "description": "Feature tests for Rook GraphRAG Knowledge System",
+  "tests": [
+    {
+      "id": 1,
+      "category": "schema",
+      "priority": 1,
+      "description": "canonical.json validates against schema.json",
+      "test_steps": [
+        "Load knowledge/schema.json",
+        "Load knowledge/canonical.json",
+        "Validate canonical against schema",
+        "Expect: validation passes with no errors"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 2,
+      "category": "schema",
+      "priority": 1,
+      "description": "All node IDs follow type:name pattern",
+      "test_steps": [
+        "Load canonical.json",
+        "Check each node.id matches pattern ^(intent|action|pattern|antipattern|context):[a-z0-9_]+$",
+        "Expect: all nodes have valid IDs"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 3,
+      "category": "schema",
+      "priority": 1,
+      "description": "All links reference existing nodes",
+      "test_steps": [
+        "Load canonical.json",
+        "For each link, verify source and target exist in nodes",
+        "Expect: no orphan links"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 4,
+      "category": "graph",
+      "priority": 1,
+      "description": "Graph loads into NetworkX successfully",
+      "test_steps": [
+        "import networkx as nx",
+        "Load canonical.json",
+        "Call nx.node_link_graph(data)",
+        "Expect: returns DiGraph with correct node/edge count"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 5,
+      "category": "query",
+      "priority": 1,
+      "description": "Query for 'nested layer' returns rhino_layer_create action",
+      "test_steps": [
+        "Call knowledge_query with intent='create nested layer'",
+        "Expect: response includes action rhino_layer_create",
+        "Expect: response includes pattern with parent param"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 6,
+      "category": "query",
+      "priority": 1,
+      "description": "Query returns antipatterns for layer creation",
+      "test_steps": [
+        "Call knowledge_query with tool='rhino_layer_create'",
+        "Expect: response.avoid includes colons_in_name antipattern"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 7,
+      "category": "query",
+      "priority": 2,
+      "description": "Query response is under 500 tokens",
+      "test_steps": [
+        "Call knowledge_query with any valid intent",
+        "Serialize response to JSON",
+        "Count approximate tokens (chars/4)",
+        "Expect: < 500 tokens"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 8,
+      "category": "mcp",
+      "priority": 1,
+      "description": "knowledge_query tool registered in MCP server",
+      "test_steps": [
+        "Start MCP server",
+        "List available tools",
+        "Expect: knowledge_query in tool list"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 9,
+      "category": "mcp",
+      "priority": 1,
+      "description": "knowledge_record tool registered in MCP server",
+      "test_steps": [
+        "Start MCP server",
+        "List available tools",
+        "Expect: knowledge_record in tool list"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 10,
+      "category": "record",
+      "priority": 2,
+      "description": "Recording success creates/strengthens pattern",
+      "test_steps": [
+        "Call knowledge_record with successful outcome",
+        "Check local.json updated",
+        "Verify pattern node weight increased or created"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 11,
+      "category": "record",
+      "priority": 2,
+      "description": "Recording failure after correction creates antipattern",
+      "test_steps": [
+        "Call knowledge_record with correction_of field",
+        "Check local.json updated",
+        "Verify antipattern node created for failed approach"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 12,
+      "category": "merge",
+      "priority": 2,
+      "description": "Local knowledge merges with canonical",
+      "test_steps": [
+        "Create local.json with overlapping nodes",
+        "Query knowledge",
+        "Expect: local patterns take precedence"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 13,
+      "category": "integration",
+      "priority": 1,
+      "description": "MCP knowledge_query callable from Claude Code",
+      "test_steps": [
+        "In Claude Code session, call knowledge_query tool",
+        "Expect: structured response with patterns"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 14,
+      "category": "integration",
+      "priority": 2,
+      "description": "Knowledge query before rhino_layer_create shows parent pattern",
+      "test_steps": [
+        "Query knowledge for 'nested layer' before calling rhino_layer_create",
+        "Expect: response shows parent parameter usage",
+        "Expect: response warns against :: in name"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 15,
+      "category": "persistence",
+      "priority": 2,
+      "description": "Local knowledge persists across sessions",
+      "test_steps": [
+        "Record a new pattern via knowledge_record",
+        "Restart MCP server",
+        "Query for the recorded pattern",
+        "Expect: pattern still available"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 16,
+      "category": "similarity",
+      "priority": 3,
+      "description": "Semantic similarity matches synonyms",
+      "test_steps": [
+        "Query with 'sublayer' instead of 'nested layer'",
+        "Expect: still matches intent:create_nested_layer"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 17,
+      "category": "traversal",
+      "priority": 3,
+      "description": "Graph traversal finds related patterns",
+      "test_steps": [
+        "Starting from intent node, traverse solved_by edge",
+        "From action node, traverse requires edges",
+        "Collect all pattern nodes",
+        "Expect: returns correct pattern set"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 18,
+      "category": "error",
+      "priority": 2,
+      "description": "Query with unknown intent returns empty gracefully",
+      "test_steps": [
+        "Call knowledge_query with intent='unknown_operation_xyz'",
+        "Expect: empty patterns array, no error"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 19,
+      "category": "error",
+      "priority": 2,
+      "description": "Malformed record request returns error",
+      "test_steps": [
+        "Call knowledge_record with missing required fields",
+        "Expect: error response with field name"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 20,
+      "category": "weight",
+      "priority": 3,
+      "description": "Patterns sorted by weight in response",
+      "test_steps": [
+        "Add multiple patterns with different weights",
+        "Query knowledge",
+        "Expect: patterns returned in weight descending order"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    },
+    {
+      "id": 21,
+      "category": "mab",
+      "priority": 1,
+      "description": "MAB model created on first knowledge_record",
+      "test_steps": [
+        "Delete mab_model.pkl if exists",
+        "Call knowledge_record with outcome=success",
+        "Expect: mab_model.pkl created in knowledge/ directory",
+        "Expect: response includes mab_updated: true"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 22,
+      "category": "mab",
+      "priority": 2,
+      "description": "MAB weights increase on repeated success",
+      "test_steps": [
+        "Record same pattern as success multiple times",
+        "Query knowledge for that pattern",
+        "Expect: pattern weight higher than initial 0.5"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 23,
+      "category": "mab",
+      "priority": 2,
+      "description": "MAB weights decrease on failure",
+      "test_steps": [
+        "Record a pattern as success",
+        "Record same pattern as failure",
+        "Query knowledge",
+        "Expect: pattern weight lower than after success"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 24,
+      "category": "mab",
+      "priority": 1,
+      "description": "MAB model persists across MCP restarts",
+      "test_steps": [
+        "Record a pattern via knowledge_record",
+        "Restart MCP server",
+        "Query knowledge",
+        "Expect: MAB weights still applied (not reset to static)"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 25,
+      "category": "mab",
+      "priority": 2,
+      "description": "Graceful fallback when MABWiser not installed",
+      "test_steps": [
+        "Uninstall mabwiser from venv",
+        "Restart MCP server",
+        "Call knowledge_query",
+        "Expect: returns patterns with static weights (no crash)",
+        "Reinstall mabwiser"
+      ],
+      "passes": true,
+      "verification_type": "manual"
+    },
+    {
+      "id": 26,
+      "category": "bugfix",
+      "priority": 2,
+      "description": "No duplicate patterns in query response",
+      "test_steps": [
+        "Query with intent that matches multiple actions linking same pattern",
+        "Expect: each pattern appears only once in response"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 27,
+      "category": "bugfix",
+      "priority": 1,
+      "description": "Failure records create intent node and link",
+      "test_steps": [
+        "Record a failure with new intent",
+        "Check local.json for intent node",
+        "Expect: intent node created with solved_by link to action"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 28,
+      "category": "bugfix",
+      "priority": 2,
+      "description": "Failure records add antipattern to MAB",
+      "test_steps": [
+        "Record a failure",
+        "Expect: mab_updated: true",
+        "Expect: antipattern tracked in MAB model"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 29,
+      "category": "bugfix",
+      "priority": 2,
+      "description": "Tool name validation warns on missing rhino_ prefix",
+      "test_steps": [
+        "Record with tool='create' (missing prefix)",
+        "Expect: warning logged or tool normalized to rhino_create"
+      ],
+      "passes": true,
+      "verification_type": "curl"
+    },
+    {
+      "id": 30,
+      "category": "bugfix",
+      "priority": 3,
+      "description": "Hash IDs use sufficient length for collision resistance",
+      "test_steps": [
+        "Check hash length in generated IDs",
+        "Expect: at least 12 hex chars (48 bits)"
+      ],
+      "passes": true,
+      "verification_type": "build"
+    }
+  ]
+}

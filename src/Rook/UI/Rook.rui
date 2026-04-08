@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RhinoUI major_ver="3" minor_ver="0" guid="b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e" localize="False" default_language_id="1033" dpi_scale="100">
+  <extend_rhino_menus>
+    <menu guid="c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f">
+      <text>
+        <locale_1033>Extend Rhino Menus</locale_1033>
+      </text>
+    </menu>
+  </extend_rhino_menus>
+  <menus />
+  <tool_bar_groups>
+    <tool_bar_group guid="d3e4f5a6-b7c8-4d9e-0f1a-2b3c4d5e6f7a" dock_bar_guid32="00000000-0000-0000-0000-000000000000" dock_bar_guid64="e4f5a6b7-c8d9-4e0f-1a2b-3c4d5e6f7a8b" active_tool_bar_group="f5a6b7c8-d9e0-4f1a-2b3c-4d5e6f7a8b9c" single_file="False" hide_single_tab="False" point_floating="200,200">
+      <text>
+        <locale_1033>Rook</locale_1033>
+      </text>
+      <tool_bar_group_item guid="f5a6b7c8-d9e0-4f1a-2b3c-4d5e6f7a8b9c" major_version="1" minor_version="0">
+        <text>
+          <locale_1033>Rook</locale_1033>
+        </text>
+        <tool_bar_id>a6b7c8d9-e0f1-4a2b-3c4d-5e6f7a8b9c0d</tool_bar_id>
+      </tool_bar_group_item>
+      <dock_bar_info dock_bar="False" docking="True" horz="True" visible="True" floating="True" bar_id="59500" mru_width="400" point_pos="0,0" float_point="200,200" dock_location_u="0" dock_location="top" float_size="300,132" />
+    </tool_bar_group>
+  </tool_bar_groups>
+  <tool_bars>
+    <tool_bar guid="a6b7c8d9-e0f1-4a2b-3c4d-5e6f7a8b9c0d" bitmap_id="7f8a9b0c-1d2e-4f4a-5b6c-d7e8f9a0b1c2">
+      <text>
+        <locale_1033>Rook</locale_1033>
+      </text>
+      <tool_bar_item guid="b7c8d9e0-f1a2-4b3c-4d5e-6f7a8b9c0d1e">
+        <text>
+          <locale_1033>AI Gumball</locale_1033>
+        </text>
+        <left_macro_id>c8d9e0f1-a2b3-4c4d-5e6f-7a8b9c0d1e2f</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="c7d8e9f0-a1b2-4c3d-4e5f-6a7b8c9d0e1f">
+        <text>
+          <locale_1033>Bridge Panel</locale_1033>
+        </text>
+        <left_macro_id>d9e0f1a2-b3c4-4d5e-6f7a-8b9c0d1e2f3a</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="e7f8a9b0-c1d2-4e3f-4a5b-6c7d8e9f0a1b">
+        <text>
+          <locale_1033>Rook Chat</locale_1033>
+        </text>
+        <left_macro_id>f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="d7e8f9a0-b1c2-4d3e-4f5a-6b7c8d9e0f1a">
+        <text>
+          <locale_1033>Bridge Status</locale_1033>
+        </text>
+        <left_macro_id>e0f1a2b3-c4d5-4e6f-7a8b-9c0d1e2f3a4b</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="f7a8b9c0-d1e2-4f3a-4b5c-6d7e8f9a0b1c">
+        <text>
+          <locale_1033>Start Bridge</locale_1033>
+        </text>
+        <left_macro_id>a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c1d">
+        <text>
+          <locale_1033>Stop Bridge</locale_1033>
+        </text>
+        <left_macro_id>b3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="b8c9d0e1-f2a3-4b4c-5d6e-7f8a9b0c1d2e">
+        <text>
+          <locale_1033>UV Box Mapping</locale_1033>
+        </text>
+        <left_macro_id>c4d5e6f7-a8b9-4c0d-1e2f-3a4b5c6d7e8f</left_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+  </tool_bars>
+  <macros>
+    <macro_item guid="c8d9e0f1-a2b3-4c4d-5e6f-7a8b9c0d1e2f" bitmap_id="0d1e2f3a-4b5c-4d6e-7f8a-9b0c1d2e3f4a">
+      <text>
+        <locale_1033>AI Gumball</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Toggle AI Gumball mode</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Enable/disable AI Gumball mode. Captures every drag with full transform data.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>AI Gumball</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>AI Gumball</locale_1033>
+      </menu_text>
+      <script>! _AIGumball</script>
+    </macro_item>
+    <macro_item guid="d9e0f1a2-b3c4-4d5e-6f7a-8b9c0d1e2f3a" bitmap_id="2a3b4c5d-6e7f-4a9b-0c1d-e2f3a4b5c6d7">
+      <text>
+        <locale_1033>Show Rook Panel</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Show Rook control panel</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Opens the Rook panel showing server status and controls.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>Bridge Panel</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>Rook Panel</locale_1033>
+      </menu_text>
+      <script>! _ShowRookPanel</script>
+    </macro_item>
+    <macro_item guid="f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c" bitmap_id="4c5d6e7f-8a9b-4c1d-2e3f-a4b5c6d7e8f9">
+      <text>
+        <locale_1033>Show Rook Chat Panel</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Open Rook Chat panel</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Opens the interactive Rook Chat panel for AI-assisted modeling directly in Rhino.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>Rook Chat</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>Rook Chat Panel</locale_1033>
+      </menu_text>
+      <script>! _ShowRookChat</script>
+    </macro_item>
+    <macro_item guid="a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d" bitmap_id="5d6e7f8a-9b0c-4d2e-3f4a-b5c6d7e8f9a0">
+      <text>
+        <locale_1033>Start Rook</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Start the Rook HTTP server</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Starts the Rook HTTP server if it is not already running.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>Start</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>Start Rook</locale_1033>
+      </menu_text>
+      <script>! _StartRook</script>
+    </macro_item>
+    <macro_item guid="b3c4d5e6-f7a8-4b9c-0d1e-2f3a4b5c6d7e" bitmap_id="6e7f8a9b-0c1d-4e3f-4a5b-c6d7e8f9a0b1">
+      <text>
+        <locale_1033>Stop Rook</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Stop the Rook HTTP server</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Stops the Rook HTTP server.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>Stop</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>Stop Rook</locale_1033>
+      </menu_text>
+      <script>! _StopRook</script>
+    </macro_item>
+    <macro_item guid="c4d5e6f7-a8b9-4c0d-1e2f-3a4b5c6d7e8f" bitmap_id="7a8b9c0d-1e2f-4a3b-4c5d-6e7f8a9b0c1d">
+      <text>
+        <locale_1033>UV Box Mapping</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Apply oriented box UV mapping to selected objects</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033>Applies object-oriented box UV mapping. Analyzes geometry edges to auto-orient the mapping to the dominant direction. Scale defaults to 1 UV unit = 1 meter.</locale_1033>
+      </help_text>
+      <button_text>
+        <locale_1033>UV Map</locale_1033>
+      </button_text>
+      <menu_text>
+        <locale_1033>UV Box Mapping</locale_1033>
+      </menu_text>
+      <script>! _UVBoxMapping</script>
+    </macro_item>
+  </macros>
+  <bitmaps>
+    <small_bitmap item_width="16" item_height="16">
+      <bitmap_item guid="0d1e2f3a-4b5c-4d6e-7f8a-9b0c1d2e3f4a" index="0" />
+      <bitmap_item guid="2a3b4c5d-6e7f-4a9b-0c1d-e2f3a4b5c6d7" index="1" />
+      <bitmap_item guid="3b4c5d6e-7f8a-4b0c-1d2e-f3a4b5c6d7e8" index="2" />
+      <bitmap_item guid="4c5d6e7f-8a9b-4c1d-2e3f-a4b5c6d7e8f9" index="3" />
+      <bitmap_item guid="5d6e7f8a-9b0c-4d2e-3f4a-b5c6d7e8f9a0" index="4" />
+      <bitmap_item guid="6e7f8a9b-0c1d-4e3f-4a5b-c6d7e8f9a0b1" index="5" />
+      <bitmap_item guid="7f8a9b0c-1d2e-4f4a-5b6c-d7e8f9a0b1c2" index="6" />
+      <bitmap_item guid="7a8b9c0d-1e2f-4a3b-4c5d-6e7f8a9b0c1d" index="7" />
+      <bitmap>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</bitmap>
+    </small_bitmap>
+    <normal_bitmap item_width="24" item_height="24">
+      <bitmap_item guid="0d1e2f3a-4b5c-4d6e-7f8a-9b0c1d2e3f4a" index="0" />
+      <bitmap_item guid="2a3b4c5d-6e7f-4a9b-0c1d-e2f3a4b5c6d7" index="1" />
+      <bitmap_item guid="3b4c5d6e-7f8a-4b0c-1d2e-f3a4b5c6d7e8" index="2" />
+      <bitmap_item guid="4c5d6e7f-8a9b-4c1d-2e3f-a4b5c6d7e8f9" index="3" />
+      <bitmap_item guid="5d6e7f8a-9b0c-4d2e-3f4a-b5c6d7e8f9a0" index="4" />
+      <bitmap_item guid="6e7f8a9b-0c1d-4e3f-4a5b-c6d7e8f9a0b1" index="5" />
+      <bitmap_item guid="7f8a9b0c-1d2e-4f4a-5b6c-d7e8f9a0b1c2" index="6" />
+      <bitmap_item guid="7a8b9c0d-1e2f-4a3b-4c5d-6e7f8a9b0c1d" index="7" />
+      <bitmap>iVBORw0KGgoAAAANSUhEUgAAAMAAAAAYCAYAAACssfJFAAAEe0lEQVR4nO2bIXDbMBSGn3dFG83ACko64JKBkAVkdCMGHmhAyQIyUlqDlASULMClJQtISYELZuCBlfRu9e0yYjBSg5YUbHdbwMiwdkojV7ZlW7KVxEn83aWtVcmJnf+X9KRngIqKNUYRbaB3h8jut4XbrQJH3R9Ixnl6/Rdref8wTkdF2sAXun40agb3XWm4ue8d6zwKj+Cz6iyzIdShGro+v83+crD4fd+X856qWsgEW906uut7yrIIHjLIMgQt3Pc1J/dn+TjWIGqADR7hmwe7QXnr+yuwXl4Fx8bxeVB3mY0wTy6/2lBE/LVmDaDkJnAo4de3a4n1vNtxUJdnZHDth3vX1PXQcWZZM34+pgGIoGnhJ0HqECNUJpgdgfgBoMwmcKaCThM+gdQhRmCZAPfWnZu/KCpsUXbcDnXkTn4+KiJ+GlKfZ8pUUUz8BHyMy2FJxU9D6vNMmWSyIUP8BNyuGgnmI37M2B3DXd8rEhOcqGJ62/czZinawIefHxhzjQzwCFAkUJZiACzatB48Ov9PI2oCXTdHafVt22jEzpGjDc9Hc3TqEm1QNFtB6lCFZYISf1ET1Gt8nbU3ftCoVGjxp5kAz+Wj5C3zDXYMgPL2/glgpQUX0Tk68FiVBr3jetIJstocjRD0GkLf+ycAeAvyONf3YNc+Sy2L1dnTLTizWzznj/X+DPEXNYEskEDvr2we3s/DeREKeDPKCImrQEV6f4LeHeJRJVTm+7d39LF3MbkJiQbI22ZFQHXnNa/4y2ICrh6+LMSC4EVjWig+fpWbaO/PKovV4ej984g/MEHuq1kzchlg/ObhJVv8ehPMJTSBbIqIvzKBAPQUCN38+Tf5o8UU9hWQPuuEKo3XjcYQ4SlQEs4ImeoW6NvPYBubQB2h5qB/DAUxR2ZIB0bDKNXsYJVASfN/0SXRJGYdBCvPnz6ZmMD6kh4D0D1/tC5eBqXxmCFsHK2hGKaFXCx+2wXDaCl21irQCqN42kVoFJhufImMAvN2urJ56DJNICsGWGgQTFNjGEQGWPRgofvfFUVMUA1zyxoEV+KPmYC1+1uJXxLcIwCe/oguhUaXQKklTCHytFnTkaCU4q9LigHmYYAgDpCEwti8Elq/z2pDbYI5jhMKeDVNk66H2IbWr9/iKdKX33rKDEyQ92I9iTu8iXEAg6BeUoywiJ1gaaNANBcoT9pCzlSHWYNNQKG2Wi2uHd2ipJkgr/j3s3J7RHE6aq4RImoCVi7QLIJgVjboqfs5vJLDC1kBWqNEuF3fm2v2YigmmO4NlOpeawNfybPqQ0+TouLHD8Tgh1mum4NCnw23Jy+mAahEOGETrKP48VQIPyUm61FJEROUUfxFTEDqzysLNDUb1PbhVFcnJnhn++np0fS6/xqJPzIV8sGyLGue7423ZlrB1mS5cDqqariwA+742mxmPxFGmLf4Mcw3nI4E2ASEiRGSKInwWUEwaycYOTqis0FtOh0645ngyPy/gpPdxxe9xH8uQviExDdmmICm3W7zpThUVECJ+Q87fwpKA9bLYgAAAABJRU5ErkJggg==</bitmap>
+    </normal_bitmap>
+  </bitmaps>
+</RhinoUI>

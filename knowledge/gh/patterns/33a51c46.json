@@ -1,0 +1,575 @@
+{
+  "pattern_id": "33a51c46",
+  "name": "11-2",
+  "version": "1.0",
+  "created": "2026-02-22T13:54:37.880172Z",
+  "solution": {
+    "brief": "Recipe from FILES\\11\\11-2.gh (37 components)",
+    "principle": "",
+    "components_needed": [
+      "Bifocals",
+      "Mesh Box",
+      "slider",
+      "Weaverbird's Stellate/Cumulation",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "slider",
+      "Custom Preview",
+      "slider",
+      "Range",
+      "Graph Mapper",
+      "Remap+",
+      "slider",
+      "slider",
+      "List Item",
+      "Weaverbird's Stellate/Cumulation",
+      "Fast Loop Start",
+      "Fast Loop End",
+      "slider",
+      "Weaverbird's Catmull-Clark Subdivision",
+      "Custom Preview",
+      "Range",
+      "Graph Mapper",
+      "Remap+",
+      "slider",
+      "slider",
+      "List Item",
+      "Weaverbird's Mesh Pyramid",
+      "Area",
+      "Deconstruct Mesh",
+      "Gradient",
+      "Construct Mesh",
+      "Remap+",
+      "panel",
+      "Distance"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "11 2"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [
+    "188588cb",
+    "af1b7d6b",
+    "fdbc67df"
+  ],
+  "tags": [
+    "parametric",
+    "recipe",
+    "complex-workflow",
+    "surface-creation"
+  ],
+  "evolution": {
+    "created_from": "batch_extract",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "recipe",
+    "schema_version": "2.0",
+    "wiring": [],
+    "input_structure": {
+      "sliders": [
+        {
+          "id": "R3",
+          "nick": "",
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R7",
+          "nick": "",
+          "min": 0,
+          "max": 6,
+          "value": 5
+        },
+        {
+          "id": "R9",
+          "nick": "",
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R11",
+          "nick": "",
+          "min": -10,
+          "max": 10,
+          "value": 3.53
+        },
+        {
+          "id": "R15",
+          "nick": "",
+          "min": -4,
+          "max": 4,
+          "value": -4
+        },
+        {
+          "id": "R16",
+          "nick": "",
+          "min": -4,
+          "max": 4,
+          "value": 4
+        },
+        {
+          "id": "R21",
+          "nick": "",
+          "min": 0,
+          "max": 6,
+          "value": 5
+        },
+        {
+          "id": "R27",
+          "nick": "",
+          "min": -4,
+          "max": 4,
+          "value": -4
+        },
+        {
+          "id": "R28",
+          "nick": "",
+          "min": -4,
+          "max": 4,
+          "value": 4
+        }
+      ],
+      "panels": [
+        {
+          "id": "R36",
+          "nick": "",
+          "content": "3"
+        }
+      ]
+    },
+    "output_type": "display",
+    "source_definition": "FILES/11/11-2.gh",
+    "graph": {
+      "components": [
+        {
+          "id": "R1",
+          "type": "BifocalsComponent",
+          "name": "Bifocals",
+          "pos": [
+            45,
+            11
+          ]
+        },
+        {
+          "id": "R2",
+          "type": "Component_MeshBox",
+          "nick": "MBox",
+          "name": "Mesh Box",
+          "pos": [
+            303,
+            197
+          ]
+        },
+        {
+          "id": "R3",
+          "type": "slider",
+          "pos": [
+            68.4,
+            204.6
+          ],
+          "min": 0,
+          "max": 1,
+          "value": 1
+        },
+        {
+          "id": "R4",
+          "type": "StellateComponent",
+          "nick": "wbStellate",
+          "name": "Weaverbird's Stellate/Cumulation",
+          "pos": [
+            1074,
+            204
+          ]
+        },
+        {
+          "id": "R5",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            400,
+            130
+          ]
+        },
+        {
+          "id": "R6",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1247,
+            122
+          ]
+        },
+        {
+          "id": "R7",
+          "type": "slider",
+          "pos": [
+            163.7,
+            92.6
+          ],
+          "min": 0,
+          "max": 6,
+          "value": 5
+        },
+        {
+          "id": "R8",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            1431,
+            150
+          ]
+        },
+        {
+          "id": "R9",
+          "type": "slider",
+          "pos": [
+            1196.8,
+            199.9
+          ],
+          "min": 0,
+          "max": 10,
+          "value": 3
+        },
+        {
+          "id": "R10",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            1563,
+            142
+          ]
+        },
+        {
+          "id": "R11",
+          "type": "slider",
+          "pos": [
+            327.1,
+            245.7
+          ],
+          "min": -10,
+          "max": 10,
+          "value": 3.53
+        },
+        {
+          "id": "R12",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            387,
+            363
+          ]
+        },
+        {
+          "id": "R13",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            466.8,
+            287.2
+          ]
+        },
+        {
+          "id": "R14",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            770,
+            356
+          ]
+        },
+        {
+          "id": "R15",
+          "type": "slider",
+          "pos": [
+            538.2,
+            444.6
+          ],
+          "min": -4,
+          "max": 4,
+          "value": -4
+        },
+        {
+          "id": "R16",
+          "type": "slider",
+          "pos": [
+            534.2,
+            478.7
+          ],
+          "min": -4,
+          "max": 4,
+          "value": 4
+        },
+        {
+          "id": "R17",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            939,
+            316
+          ]
+        },
+        {
+          "id": "R18",
+          "type": "StellateComponent",
+          "nick": "wbStellate",
+          "name": "Weaverbird's Stellate/Cumulation",
+          "pos": [
+            1057,
+            710
+          ]
+        },
+        {
+          "id": "R19",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop Start",
+          "pos": [
+            366,
+            680
+          ]
+        },
+        {
+          "id": "R20",
+          "type": "PlaceholderComponent",
+          "name": "Fast Loop End",
+          "pos": [
+            1186,
+            683
+          ]
+        },
+        {
+          "id": "R21",
+          "type": "slider",
+          "pos": [
+            112.1,
+            664.6
+          ],
+          "min": 0,
+          "max": 6,
+          "value": 5
+        },
+        {
+          "id": "R22",
+          "type": "CatmullClarkComponent",
+          "nick": "wbCatmullClark",
+          "name": "Weaverbird's Catmull-Clark Subdivision",
+          "pos": [
+            2032,
+            678
+          ]
+        },
+        {
+          "id": "R23",
+          "type": "CustomPreviewComponent",
+          "nick": "Preview",
+          "name": "Custom Preview",
+          "pos": [
+            2130,
+            688
+          ]
+        },
+        {
+          "id": "R24",
+          "type": "Component_Range",
+          "name": "Range",
+          "pos": [
+            485,
+            751
+          ]
+        },
+        {
+          "id": "R25",
+          "type": "GraphMapper",
+          "nick": "Graph",
+          "name": "Graph Mapper",
+          "pos": [
+            577.3,
+            702
+          ]
+        },
+        {
+          "id": "R26",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            797,
+            771
+          ]
+        },
+        {
+          "id": "R27",
+          "type": "slider",
+          "pos": [
+            517.2,
+            811.7
+          ],
+          "min": -4,
+          "max": 4,
+          "value": -4
+        },
+        {
+          "id": "R28",
+          "type": "slider",
+          "pos": [
+            517.1,
+            841.8
+          ],
+          "min": -4,
+          "max": 4,
+          "value": 4
+        },
+        {
+          "id": "R29",
+          "type": "Component_ListItemVariable",
+          "nick": "Item",
+          "name": "List Item",
+          "pos": [
+            935,
+            745
+          ]
+        },
+        {
+          "id": "R30",
+          "type": "PyramidComponent",
+          "nick": "wbPyramid",
+          "name": "Weaverbird's Mesh Pyramid",
+          "pos": [
+            269,
+            786
+          ]
+        },
+        {
+          "id": "R31",
+          "type": "Component_AreaProperties_OBSOLETE",
+          "name": "Area",
+          "pos": [
+            654,
+            895
+          ]
+        },
+        {
+          "id": "R32",
+          "type": "Component_DeconstructMesh",
+          "nick": "DeMesh",
+          "name": "Deconstruct Mesh",
+          "pos": [
+            1292,
+            683
+          ]
+        },
+        {
+          "id": "R33",
+          "type": "GradientControl",
+          "name": "Gradient",
+          "pos": [
+            1606,
+            697
+          ]
+        },
+        {
+          "id": "R34",
+          "type": "Component_Mesh",
+          "nick": "ConMesh",
+          "name": "Construct Mesh",
+          "pos": [
+            1927,
+            658
+          ]
+        },
+        {
+          "id": "R35",
+          "type": "Cluster",
+          "name": "Remap+",
+          "pos": [
+            1519,
+            749
+          ]
+        },
+        {
+          "id": "R36",
+          "type": "panel",
+          "pos": [
+            1914.1,
+            715.6
+          ],
+          "content": "3"
+        },
+        {
+          "id": "R37",
+          "type": "Component_Distance",
+          "nick": "Dist",
+          "name": "Distance",
+          "pos": [
+            1420,
+            729
+          ]
+        }
+      ],
+      "flows": [
+        "R3.O0>R2.I1",
+        "R3.O0>R2.I2",
+        "R3.O0>R2.I3",
+        "R17.O0>R4.I1",
+        "R9.O0>R8.I1",
+        "R8.O0>R10.I0",
+        "R7.O0>R12.I1",
+        "R13.O0>R14.I0",
+        "R15.O0>R14.I1",
+        "R16.O0>R14.I2",
+        "R14.O0>R17.I0",
+        "R29.O0>R18.I1",
+        "R34.O0>R22.I0",
+        "R36.O0>R22.I1",
+        "R22.O0>R23.I0",
+        "R21.O0>R24.I1",
+        "R25.O0>R26.I0",
+        "R27.O0>R26.I1",
+        "R28.O0>R26.I2",
+        "R26.O0>R29.I0",
+        "R30.O0>R31.I0",
+        "R35.O0>R33.I2",
+        "R32.O0>R34.I0",
+        "R32.O1>R34.I1",
+        "R33.O0>R34.I2",
+        "R37.O0>R35.I0",
+        "R32.O0>R37.I0",
+        "R31.O1>R37.I1"
+      ],
+      "subgraphs": []
+    }
+  }
+}

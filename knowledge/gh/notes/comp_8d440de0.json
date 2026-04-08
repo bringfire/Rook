@@ -1,0 +1,69 @@
+{
+  "note_id": "comp_8d440de0",
+  "note_type": "component",
+  "name": "SubD Vertex Tags",
+  "brief": "SubD Vertex Tags | Inputs: S, T, V → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: SubD Vertex Tags. Inputs: S (SubD), T (Text), V (Integer). Outputs: S (SubD).",
+  "keywords": [
+    "subd vertex tags",
+    "subd",
+    "vertex",
+    "tags",
+    "subd_ops"
+  ],
+  "category": "subd_ops",
+  "tags": [
+    "subd_ops"
+  ],
+  "trigger_intents": [
+    "subd vertex tags",
+    "sub",
+    "vertex",
+    "tags"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "SubD Vertex Tags"
+  ],
+  "solution_principle": "Set the vertex tags of a SubD shape.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_4c7b012f",
+    "comp_0207e96f",
+    "comp_e7712cc1",
+    "comp_d1f4bc67",
+    "comp_a08bb022"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "954a8963-bb2c-4847-9012-69ff34acddd5",
+    "category": "subd_ops",
+    "inputs": {
+      "S": "SubD",
+      "T": "Text",
+      "V": "Integer"
+    },
+    "outputs": {
+      "S": "SubD"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "048b219e-284a-49f2-ae40-a60465b08447"
+    ],
+    "usage_count": 0,
+    "stable_key": "surface|subd|subd vertex tags"
+  }
+}

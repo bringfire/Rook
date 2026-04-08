@@ -1,0 +1,68 @@
+{
+  "note_id": "comp_282e24e4",
+  "note_type": "component",
+  "name": "Area",
+  "brief": "Area | Inputs: G â†’ A",
+  "version": "1.0",
+  "created": "2026-02-02T02:41:55.821782Z",
+  "context": "Grasshopper component: Area. Inputs: G (Geometry). Outputs: A (Number), C (Point).",
+  "keywords": [
+    "area",
+    "area"
+  ],
+  "category": "unknown",
+  "tags": [
+    "area-calculation",
+    "surface-analysis",
+    "measurement",
+    "gh-component",
+    "analysis-tool",
+    "surface-evaluation",
+    "geometric-analysis"
+  ],
+  "trigger_intents": [
+    "area"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Area"
+  ],
+  "solution_principle": "Solve area moments for breps, meshes and planar closed curves",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "teaching_97771130",
+    "teaching_3fd97f53",
+    "teaching_836d6f1c",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "migration",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "2e205f24-9279-47b2-b414-d06dcd0b21a7",
+    "category": "unknown",
+    "inputs": {
+      "G": "Geometry"
+    },
+    "outputs": {
+      "A": "Number",
+      "C": "Point"
+    },
+    "typical_wiring": [],
+    "usage_count": 174
+  },
+  "deprecated": true,
+  "deprecated_reason": "unknown",
+  "deprecated_by": "86b28a7e-94d9-4791-8306-e13e10d5f8d5",
+  "deprecated_replacement_name": "Area"
+}

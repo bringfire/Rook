@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_7c67292c",
+  "note_type": "component",
+  "name": "Grid Structure",
+  "brief": "Grid Structure | Inputs: Srf, U, V → Lines, Nodes",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Grid Structure. Inputs: Srf (Surface), U (Integer), V (Integer). Outputs: Lines (Generic Data), Nodes (Generic Data).",
+  "keywords": [
+    "grid structure",
+    "grid",
+    "structure",
+    "lunchbox_structure"
+  ],
+  "category": "lunchbox_structure",
+  "tags": [
+    "lunchbox_structure"
+  ],
+  "trigger_intents": [
+    "grid structure",
+    "grid",
+    "structure"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Grid Structure"
+  ],
+  "solution_principle": "Creates a simple grid structure on a surface.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_6ba8b0a6",
+    "teaching_97771130",
+    "teaching_220e8091",
+    "teaching_8f0b8816",
+    "teaching_a9721d5a",
+    "comp_8209536f"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "5eb96a5f-25c4-4e53-8d8f-d31479da272e",
+    "category": "lunchbox_structure",
+    "inputs": {
+      "Srf": "Surface",
+      "U": "Integer",
+      "V": "Integer"
+    },
+    "outputs": {
+      "Lines": "Generic Data",
+      "Nodes": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1a94ee6b-7fec-4484-bd54-1e8376770b9b",
+      "5b7d8c5f-6be2-478f-9602-91ef21f0ef07",
+      "19d2bedb-3306-4466-a0e1-7f8beb3c807b",
+      "370e8c20-a977-45d1-987d-d26c4a4df0ca"
+    ],
+    "usage_count": 0,
+    "stable_key": "lunchbox|structure|grid structure"
+  }
+}

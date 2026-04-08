@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_8f9a9360",
+  "note_type": "component",
+  "name": "Colour CMYK",
+  "brief": "Colour CMYK | Inputs: C, M, Y, K → C",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Colour CMYK. Inputs: C (Number), M (Number), Y (Number), K (Number). Outputs: C (Colour).",
+  "keywords": [
+    "colour cmyk",
+    "colour",
+    "cmyk",
+    "display"
+  ],
+  "category": "display",
+  "tags": [
+    "display"
+  ],
+  "trigger_intents": [
+    "colour cmyk",
+    "colour"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Colour CMYK"
+  ],
+  "solution_principle": "Create a colour from floating point {CMYK} channels.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_fba41916",
+    "comp_8fcd45e0",
+    "comp_eca58848",
+    "comp_07183b53",
+    "comp_02b42f44",
+    "comp_4155102a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "17af01a5-a846-4769-9478-de1df65a0afa",
+    "category": "display",
+    "inputs": {
+      "C": "Number",
+      "M": "Number",
+      "Y": "Number",
+      "K": "Number"
+    },
+    "outputs": {
+      "C": "Colour"
+    },
+    "typical_wiring": [],
+    "similar_to": [],
+    "usage_count": 0,
+    "stable_key": "display|colour|colour cmyk"
+  }
+}

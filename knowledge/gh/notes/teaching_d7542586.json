@@ -1,0 +1,199 @@
+{
+  "note_id": "teaching_d7542586",
+  "note_type": "teaching",
+  "name": "U06 - Graph Mapper: Maps a number of values using a function",
+  "brief": "Teaching: Graph Mapper: Maps a number of values using a function.",
+  "version": "1.0",
+  "created": "2026-02-22T20:05:24.260800Z",
+  "context": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and fe",
+  "keywords": [
+    "graph",
+    "mapper",
+    "maps",
+    "number",
+    "values",
+    "using",
+    "function",
+    "numberslider",
+    "construct domain",
+    "remap numbers",
+    "graph mapper",
+    "bounds",
+    "data",
+    "unit 06 class",
+    "original",
+    "remapped",
+    "according",
+    "domain",
+    "mapped",
+    "input",
+    "resultant"
+  ],
+  "category": "Unit 06",
+  "tags": [
+    "input values",
+    "domain-mismatch-warning",
+    "hands-on",
+    "teaching_d7542586's existing tags",
+    "0 to 1 domain",
+    "data-transformation",
+    "unit-06",
+    "intermediate-advanced",
+    "original domain",
+    "remapped values according to 0-1 domain",
+    "function-mapping",
+    "tutorial",
+    "value-remapping",
+    "multi-group",
+    "parameter-control",
+    "resultant values",
+    "teaching",
+    "original values",
+    "range-defaults"
+  ],
+  "trigger_intents": [
+    "graph mapper: maps a number of values using a function",
+    "how to use graph mapper: maps a number of values using a function",
+    "how to use construct domain",
+    "how to use remap numbers",
+    "how to use graph mapper",
+    "how to use bounds",
+    "how to use data",
+    "practical example:",
+    "use the previous graph mapper definition",
+    "construct a point",
+    "build a new circle",
+    "final touch: loft the circles together",
+    "preview mesh quality",
+    "high quality"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "NumberSlider",
+    "Construct Domain",
+    "Remap Numbers",
+    "Graph Mapper",
+    "Bounds",
+    "Data"
+  ],
+  "solution_principle": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and feed its Z with the deconstructed Point above Z value.\r\n- Feed these new Z values into the Plane INPUT of the Circle.\r\n- Feed the X OUTPUT of the Deconstructed Point into the Radius INPUT of the Circle.\r\n- Check the results in Perspective view in Rhino while selecting the Circle.\r\n- Final touch: Loft the circles together.\r\n\r\n- If you have a low quality preview of the loft, click on \"Preview Mesh Quality\" at the Top Right corner of your viewport and select \"High Quality\".\r\n\r\n- Change the type of the Graph Mapper and check out the results!",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_7418e715",
+    "comp_d50d21aa",
+    "teaching_64feecee",
+    "teaching_e26477b2",
+    "teaching_6712adae",
+    "teaching_e8ddc722",
+    "teaching_90de351e"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-22T20:05:24.260800Z",
+  "citations": [],
+  "created_from": "teaching_extract",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "unit_name": "Unit-06-Class",
+    "unit_number": 6,
+    "section_number": 5,
+    "section_index": 4,
+    "x_range": [
+      4643.9,
+      6717.1
+    ],
+    "full_teaching_text": "5- Graph Mapper: Maps a number of values using a function.\r\n\r\n- Practical Example:\r\n\r\n- Use the previous Graph Mapper definition.\r\n- Construct a Point.\r\n- Feed the same INPUT range of the Graph Mapper to the X INPUT of the Point.\r\n- Feed the OUTPUT of the Graph Mapper into the Z INPUT of the Point.\r\n- Check the results in Perspective view in Rhino while selecting the Constructed Point.\r\n- Deconstruct the Point to seperate the X,Y & Z values.\r\n- Build a new Circle.\r\n- Construct a new Point and feed its Z with the deconstructed Point above Z value.\r\n- Feed these new Z values into the Plane INPUT of the Circle.\r\n- Feed the X OUTPUT of the Deconstructed Point into the Radius INPUT of the Circle.\r\n- Check the results in Perspective view in Rhino while selecting the Circle.\r\n- Final touch: Loft the circles together.\r\n\r\n- If you have a low quality preview of the loft, click on \"Preview Mesh Quality\" at the Top Right corner of your viewport and select \"High Quality\".\r\n\r\n- Change the type of the Graph Mapper and check out the results!",
+    "sub_annotations": [],
+    "working_component_ids": [
+      "C149",
+      "C151",
+      "C152",
+      "C153",
+      "C229",
+      "C230",
+      "C233",
+      "C237",
+      "C248",
+      "C292",
+      "C293"
+    ],
+    "intra_section_flows": [
+      "C153.O0>C151.I0",
+      "C152.O0>C151.I1",
+      "C230.O0>C229.I0",
+      "C248.O0>C229.I1",
+      "C237.O0>C229.I2",
+      "C292.O0>C232.I0",
+      "C292.O0>C233.I0",
+      "C237.O0>C233.I1",
+      "C248.O0>C233.I2",
+      "C233.O0>C235.I0",
+      "C293.O0>C236.I0",
+      "C292.O0>C237.I0",
+      "C230.O0>C240.I0",
+      "C237.O0>C242.I0",
+      "C252.O0>C248.I0",
+      "C255.O0>C248.I1"
+    ],
+    "groups": [
+      {
+        "group_id": "G13",
+        "name": "Original Values",
+        "colour": "#00E5FF80"
+      },
+      {
+        "group_id": "G12",
+        "name": "Remapped values according to 0-1 Domain",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G11",
+        "name": "Mapped values according to Original Domain",
+        "colour": "#00E5FF80"
+      },
+      {
+        "group_id": "G14",
+        "name": "Original Domain",
+        "colour": "#00E5FF80"
+      },
+      {
+        "group_id": "G23",
+        "name": "0 to 1 Domain",
+        "colour": "#FF00005F"
+      },
+      {
+        "group_id": "G5",
+        "name": "INPUT VALUES",
+        "colour": "#FF0000"
+      },
+      {
+        "group_id": "G4",
+        "name": "RESULTANT VALUES",
+        "colour": "#FF0000"
+      }
+    ],
+    "components_demonstrated": {
+      "NumberSlider": 3,
+      "Construct Domain": 2,
+      "Remap Numbers": 2,
+      "Graph Mapper": 1,
+      "Bounds": 1,
+      "Data": 2
+    },
+    "stats": {
+      "teaching_panels": 1,
+      "sub_annotations": 0,
+      "working_components": 11,
+      "sub_labels": 0,
+      "connected_panels": 7,
+      "flows": 16,
+      "groups": 7
+    }
+  }
+}

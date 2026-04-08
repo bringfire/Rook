@@ -1,0 +1,72 @@
+{
+  "note_id": "comp_01d408b6",
+  "note_type": "component",
+  "name": "Plane Origin",
+  "brief": "Plane Origin | Inputs: B, O \u2192 Pl",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.461891Z",
+  "context": "Grasshopper component: Plane Origin. Inputs: B (Plane), O (Point). Outputs: Pl (Plane).",
+  "keywords": [
+    "plane origin",
+    "plane",
+    "origin",
+    "plane_ops"
+  ],
+  "category": "plane_ops",
+  "tags": [
+    "plane_ops"
+  ],
+  "trigger_intents": [
+    "plane origin",
+    "plane",
+    "origin"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Plane Origin"
+  ],
+  "solution_principle": "Change the origin point of a plane",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_9af43547",
+    "comp_bb9f771e",
+    "comp_03456a60",
+    "comp_afa54f3c",
+    "comp_1fa599d3"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "75eec078-a905-47a1-b0d2-0934182b1e3d",
+    "category": "plane_ops",
+    "inputs": {
+      "B": "Plane",
+      "O": "Point"
+    },
+    "outputs": {
+      "Pl": "Plane"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "3a0c7bda-3d22-4588-8bab-03f57a52a6ea",
+      "9ce34996-d8c6-40d3-b442-1a7c8c093614"
+    ],
+    "usage_count": 0,
+    "stable_key": "vector|plane|plane origin",
+    "family": "plane_ops"
+  },
+  "deprecated": false,
+  "deprecated_reason": null,
+  "deprecated_by": null,
+  "deprecated_replacement_name": null
+}

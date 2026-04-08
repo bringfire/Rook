@@ -1,0 +1,73 @@
+{
+  "pattern_id": "76283c37",
+  "name": "wasp_03_graph_grammar_teaching_1._Build_Part",
+  "version": "1.0",
+  "created": "2026-03-19T17:23:00.567008Z",
+  "solution": {
+    "brief": "1. Build Part\r\nParts are the building blocks of Wasp.\r\nThe most basic way of initializing a part is to define t he geometry (as brep or mesh),\r\nand the connection faces (center and orientation - with a line). Parts must be named\r\nto be identifyed in the aggregation rules.",
+    "principle": "",
+    "components_needed": [
+      "Wasp_Update File",
+      "Brep"
+    ]
+  },
+  "triggers": {
+    "intents": [
+      "initializing",
+      "build",
+      "basic",
+      "parts",
+      "most",
+      "building",
+      "blocks",
+      "wasp.",
+      "part"
+    ],
+    "symptoms": []
+  },
+  "scope": {
+    "global": true,
+    "project_types": [],
+    "workflow_types": []
+  },
+  "anti_patterns": [],
+  "constraints": {
+    "preconditions": [],
+    "postconditions": []
+  },
+  "verification": {
+    "test": "",
+    "expected": ""
+  },
+  "citations": [],
+  "confidence": {
+    "times_used": 0,
+    "times_succeeded": 0,
+    "last_used": null,
+    "last_verified": null
+  },
+  "links": [],
+  "tags": [
+    "teaching",
+    "scribble",
+    "wasp",
+    "discrete-design",
+    "graph-grammar",
+    "deterministic",
+    "intermediate"
+  ],
+  "evolution": {
+    "created_from": "canvas_learner_annotation",
+    "last_evolved": null,
+    "evolved_by": [],
+    "evolution_history": []
+  },
+  "recipe": {
+    "pattern_type": "struggle",
+    "schema_version": "1.0",
+    "wiring": [],
+    "input_structure": {},
+    "output_type": "",
+    "source_definition": ""
+  }
+}

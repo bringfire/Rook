@@ -1,0 +1,56 @@
+{
+  "note_id": "comp_87d86890",
+  "note_type": "component",
+  "name": "Wind",
+  "brief": "Wind | Inputs: M, W → W",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.564902Z",
+  "context": "Grasshopper component: Wind. Inputs: M (Mesh), W (Vector). Outputs: W (Generic Data).",
+  "keywords": [
+    "wind",
+    "kangaroo2_goals-mesh"
+  ],
+  "category": "kangaroo2_goals-mesh",
+  "tags": [
+    "kangaroo2_goals-mesh"
+  ],
+  "trigger_intents": [
+    "wind"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Wind"
+  ],
+  "solution_principle": "Wind",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "928b2951-2a01-4b6b-8ccb-6fbeb3e490ad",
+    "category": "kangaroo2_goals-mesh",
+    "inputs": {
+      "M": "Mesh",
+      "W": "Vector"
+    },
+    "outputs": {
+      "W": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "9103348d-9ec2-4937-a04f-79c509f8093c"
+    ],
+    "usage_count": 0,
+    "stable_key": "kangaroo2|goals-mesh|wind"
+  }
+}

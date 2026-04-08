@@ -1,0 +1,87 @@
+{
+  "note_id": "tutorial_eb209d80",
+  "note_type": "teaching",
+  "name": "Expert 7-10: Construct Mesh from Vertices and Faces \u00e2\u20ac\u201d Manual Mesh Definition with Colours",
+  "brief": "Manually constructs a mesh from point vertices and face index definitions (triangles and quads), with per-vertex colours and Unify Mesh.",
+  "version": "1.0",
+  "created": "2026-02-23T05:01:41.584937Z",
+  "context": "A Panel with value 1.5 feeds into Point List (Size input). The Point parameter provides vertex positions. A Panel displays face definitions: 'T{3;2;6}', 'Q{6;2;1;0}', 'T{0;7;1}' \u00e2\u20ac\u201d T for triangles, Q for quads with vertex indices. These feed Construct Mesh (Vertices, Faces, Colours inputs). Multiple Colour Swatch components (red, green, cyan, pink, etc.) feed into Merge (D1 through D8), whose Result connects to Colours. Output Panel shows 'Mesh (V:8 F:5)'. The mesh passes through Unify Mesh, outputting Count=3 confirming unified normals.",
+  "keywords": [
+    "construct mesh",
+    "mesh faces",
+    "mesh vertices",
+    "triangle",
+    "quad",
+    "vertex colour",
+    "unify mesh",
+    "mesh topology",
+    "face index"
+  ],
+  "category": "Expert - Advanced Mesh and Voronoi",
+  "tags": [
+    "expert",
+    "mesh",
+    "construct-mesh",
+    "vertex-colour",
+    "mesh-topology",
+    "tutorial",
+    "visual-course",
+    "beginner-to-advanced"
+  ],
+  "trigger_intents": [
+    "how to manually construct a mesh in Grasshopper",
+    "define mesh faces with triangle and quad indices",
+    "construct mesh from vertices and face definitions",
+    "apply per-vertex colours to a mesh",
+    "unify mesh normals in Grasshopper",
+    "mesh topology T and Q face notation"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Panel",
+    "Point List",
+    "Point",
+    "Construct Mesh",
+    "Colour Swatch",
+    "Merge",
+    "Unify Mesh"
+  ],
+  "solution_principle": "Meshes are defined by vertex positions and face index lists. T{} defines triangles (3 indices) and Q{} defines quads (4 indices). Per-vertex colours are applied via the Colours input. Unify Mesh ensures consistent normal directions across all faces.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "tutorial_30fefedd",
+    "tutorial_7845ddec",
+    "tutorial_16f9142f",
+    "tutorial_2d1ce64c",
+    "tutorial_36a54841"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": "2026-02-23T05:01:41.584937Z",
+  "citations": [],
+  "created_from": "expert_tutorial_visual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "course": "BeginnerToAdvanced",
+    "level": "Expert",
+    "image": "7-10.jpg",
+    "lesson_number": 7,
+    "step_number": 10,
+    "cluster_type": "single",
+    "components_demonstrated": {
+      "Panel": 1,
+      "Point List": 1,
+      "Point": 1,
+      "Construct Mesh": 1,
+      "Colour Swatch": 1,
+      "Merge": 1,
+      "Unify Mesh": 1
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "note_id": "comp_d92445a4",
+  "note_type": "component",
+  "name": "Merge Multiple",
+  "brief": "Merge Multiple | Inputs: 0, 1 → S",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.458898Z",
+  "context": "Grasshopper component: Merge Multiple. Inputs: 0 (Generic Data), 1 (Generic Data). Outputs: S (Generic Data).",
+  "keywords": [
+    "merge multiple",
+    "merge",
+    "multiple",
+    "tree_operations"
+  ],
+  "category": "tree_operations",
+  "tags": [
+    "tree_operations"
+  ],
+  "trigger_intents": [
+    "merge multiple",
+    "merge",
+    "multiple"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Merge Multiple"
+  ],
+  "solution_principle": "Merge multiple input streams into one",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_930cd728",
+    "comp_0337df47",
+    "comp_5f78a545",
+    "comp_e163e947",
+    "comp_9390569c"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "0b6c5dac-6c93-4158-b8d1-ca3187d45f25",
+    "category": "tree_operations",
+    "inputs": {
+      "0": "Generic Data",
+      "1": "Generic Data"
+    },
+    "outputs": {
+      "S": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "c9785b8e-2f30-4f90-8ee3-cca710f82402"
+    ],
+    "usage_count": 0,
+    "stable_key": "sets|tree|merge multiple"
+  }
+}

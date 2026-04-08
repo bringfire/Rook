@@ -1,0 +1,63 @@
+{
+  "note_id": "comp_1866ccd7",
+  "note_type": "component",
+  "name": "Expression",
+  "brief": "Expression | Inputs: x, y → R",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.456851Z",
+  "context": "Grasshopper component: Expression. Inputs: x (Expression Variant), y (Expression Variant). Outputs: R (Generic Data).",
+  "keywords": [
+    "expression",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting"
+  ],
+  "trigger_intents": [
+    "expression"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Expression"
+  ],
+  "solution_principle": "Evaluate an expression",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_49e4b5da",
+    "comp_3c3e5309",
+    "comp_0cfc313f",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_314da057"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "9df5e896-552d-4c8c-b9ca-4fc147ffa022",
+    "category": "scripting",
+    "inputs": {
+      "x": "Expression Variant",
+      "y": "Expression Variant"
+    },
+    "outputs": {
+      "R": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "cc2b626f-6eff-4d08-9829-2877560693f4"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|script|expression"
+  }
+}

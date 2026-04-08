@@ -1,0 +1,2445 @@
+{
+  "summary": {
+    "definitions_parsed": 122,
+    "unique_components": 326,
+    "total_component_instances": 21424,
+    "wiring_patterns": 176,
+    "sources": [
+      "GrasshopperHowtos (122 defs)",
+      "generative-design (310 defs)"
+    ],
+    "total_definitions": 432,
+    "wiring_sources": [
+      "GrasshopperHowtos (.ghx)",
+      "generative-design (.gh binary)"
+    ]
+  },
+  "top_components": [
+    {
+      "guid": "57da07bd-ecab-415d-9d86-af36d7073abc",
+      "name": "Number Slider",
+      "count": 4746,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "name": "Panel",
+      "count": 2049,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "fbac3e32-f100-4292-8692-77240a42fd1a",
+      "name": "Point",
+      "count": 875,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "3e8ca6be-fda8-4aaf-b5c0-3c54c8bb7312",
+      "name": "Number",
+      "count": 849,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "e9eb1dcf-92f6-4d4d-84ae-96222d60f56b",
+      "name": "Move",
+      "count": 771,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "537b0419-bbc2-4ff4-bf08-afe526367b2c",
+      "name": "Custom Preview",
+      "count": 729,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "9c53bac0-ba66-40bd-8154-ce9829b9db1a",
+      "name": "Colour Swatch",
+      "count": 702,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "d5967b9f-e8ee-436b-a8ad-29fdcecf32d5",
+      "name": "Curve",
+      "count": 595,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "9103c240-a6a9-4223-9b42-dbd19bf38e2b",
+      "name": "Unit Z",
+      "count": 532,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "3cadddef-1e2b-4c09-9390-0e8f78f7609f",
+      "name": "Merge",
+      "count": 392,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "9445ca40-cc73-4861-a455-146308676855",
+      "name": "Range",
+      "count": 356,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "2fcc2743-8339-4cdf-a046-a1f17439191d",
+      "name": "Remap Numbers",
+      "count": 347,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "1817fd29-20ae-4503-b542-f0fb651e67d7",
+      "name": "List Length",
+      "count": 297,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "f44b92b0-3b5b-493a-86f4-fd7408c3daf3",
+      "name": "Bounds",
+      "count": 281,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "4d2a06bd-4b0f-4c65-9ee0-4220e4c01703",
+      "name": "Scale",
+      "count": 279,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "3581f42a-9592-4549-bd6b-1c0fc39d067b",
+      "name": "Construct Point",
+      "count": 270,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "a3371040-e552-4bc8-b0ff-10a840258e88",
+      "name": "Negative",
+      "count": 247,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "59daf374-bc21-4a5e-8282-5504fb7ae9ae",
+      "name": "List Item",
+      "count": 244,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "e64c5fb1-845c-4ab1-8911-5f338516ba67",
+      "name": "Series",
+      "count": 217,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "962034e9-cc27-4394-afc4-5c16e3447cf9",
+      "name": "Extrude",
+      "count": 210,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "b7798b74-037e-4f0c-8ac7-dc1043d093e0",
+      "name": "Rotate",
+      "count": 205,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "d51e9b65-aa4e-4fd6-976c-cef35d421d05",
+      "name": "Boundary Surfaces",
+      "count": 201,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "6da9f120-3ad0-4b6e-9fe0-f8cde3a649b7",
+      "name": "Gradient",
+      "count": 200,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "d1a28e95-cf96-4936-bf34-8bf142d731bf",
+      "name": "Construct Domain",
+      "count": 193,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "9c85271f-89fa-4e9f-9f4a-d75802120ccc",
+      "name": "Division",
+      "count": 187,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "87e1d9ef-088b-4d30-9dda-8a7448a17329",
+      "name": "Graft Tree",
+      "count": 183,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "d8332545-21b2-4716-96e3-8559a9876e17",
+      "name": "Dispatch",
+      "count": 180,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "0d2ccfb3-9d41-4759-9452-da6a522c3eaa",
+      "name": "Pi",
+      "count": 179,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "2e205f24-9279-47b2-b414-d06dcd0b21a7",
+      "name": "Area",
+      "count": 174,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "d3d195ea-2d59-4ffa-90b1-8b7ff3369f69",
+      "name": "Unit Y",
+      "count": 172,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "a7a41d0a-2188-4f7a-82cc-1a2c4e4ec850",
+      "name": "Loft",
+      "count": 163,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "b8963bb1-aa57-476e-a20e-ed6cf635a49c",
+      "name": "Multiplication",
+      "count": 139,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "a0d62394-a118-422d-abb3-6af115c75b25",
+      "name": "Addition",
+      "count": 137,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "f80cfe18-9510-4b89-8301-8e58faf423bb",
+      "name": "Flatten Tree",
+      "count": 125,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "79f9fbb3-8f1d-4d9a-88a9-f7961b1012cd",
+      "name": "Unit X",
+      "count": 117,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "4c4e56eb-2f04-43f9-95a3-cc46a14f495a",
+      "name": "Line",
+      "count": 115,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "11bbd48b-bb0a-4f1b-8167-fa297590390d",
+      "name": "End Points",
+      "count": 114,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "9abae6b7-fa1d-448c-9209-4a8155345841",
+      "name": "Deconstruct",
+      "count": 103,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "2162e72e-72fc-4bf8-9459-d4d82fa8aa14",
+      "name": "Divide Curve",
+      "count": 100,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "71b5b089-500a-4ea6-81c5-2f960441a0e8",
+      "name": "PolyLine",
+      "count": 91,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "874eebe7-835b-4f4f-9811-97e031c41597",
+      "name": "Group",
+      "count": 89,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "afb96615-c59a-45c9-9cac-e27acb1c7ca0",
+      "name": "Explode",
+      "count": 85,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "6ec39468-dae7-4ffa-a766-f2ab22a2c62e",
+      "name": "Amplitude",
+      "count": 78,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "2d61f4e0-47c5-41d6-a41d-6afa96ee63af",
+      "name": "Shift Paths",
+      "count": 77,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "0bb3d234-9097-45db-9998-621639c87d3b",
+      "name": "Bounding Box",
+      "count": 74,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "a45f59c8-11c1-4ea7-9e10-847061b80d75",
+      "name": "Ungroup",
+      "count": 71,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "8073a420-6bec-49e3-9b18-367f6fd76ac3",
+      "name": "Join Curves",
+      "count": 70,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "a4cd2751-414d-42ec-8916-476ebf62d7fe",
+      "name": "Radians",
+      "count": 62,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "4c619bc9-39fd-4717-82a6-1e07ea237bbe",
+      "name": "Line SDL",
+      "count": 62,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    },
+    {
+      "guid": "6b021f56-b194-4210-b9a1-6cef3b7d0848",
+      "name": "Evaluate Length",
+      "count": 57,
+      "sources": [
+        "GrasshopperHowtos",
+        "generative-design"
+      ]
+    }
+  ],
+  "common_wiring": [
+    {
+      "source": "Colour Swatch",
+      "target": "Custom Preview",
+      "param": "Material",
+      "count": 502
+    },
+    {
+      "source": "Number Slider",
+      "target": "Unit Z",
+      "param": "Factor",
+      "count": 221
+    },
+    {
+      "source": "Bounds",
+      "target": "Remap Numbers",
+      "param": "Source",
+      "count": 137
+    },
+    {
+      "source": "Number Slider",
+      "target": "Pi",
+      "param": "Factor",
+      "count": 132
+    },
+    {
+      "source": "Number Slider",
+      "target": "Range",
+      "param": "Steps",
+      "count": 125
+    },
+    {
+      "source": "Number Slider",
+      "target": "Series",
+      "param": "Count",
+      "count": 120
+    },
+    {
+      "source": "Number Slider",
+      "target": "Construct Domain",
+      "param": "Domain end",
+      "count": 118
+    },
+    {
+      "source": "Number Slider",
+      "target": "Negative",
+      "param": "Value",
+      "count": 118
+    },
+    {
+      "source": "Number Slider",
+      "target": "Construct Domain",
+      "param": "Domain start",
+      "count": 114
+    },
+    {
+      "source": "Number Slider",
+      "target": "Series",
+      "param": "Step",
+      "count": 114
+    },
+    {
+      "source": "Unit Z",
+      "target": "Move",
+      "param": "Motion",
+      "count": 83
+    },
+    {
+      "source": "Construct Domain",
+      "target": "Remap Numbers",
+      "param": "Target",
+      "count": 77
+    },
+    {
+      "source": "Panel",
+      "target": "Remap Numbers",
+      "param": "Target",
+      "count": 75
+    },
+    {
+      "source": "Number Slider",
+      "target": "Scale",
+      "param": "Factor",
+      "count": 73
+    },
+    {
+      "source": "Panel",
+      "target": "Division",
+      "param": "B",
+      "count": 70
+    },
+    {
+      "source": "Panel",
+      "target": "Range",
+      "param": "Steps",
+      "count": 69
+    },
+    {
+      "source": "Colour Swatch",
+      "target": "Custom Preview",
+      "param": "Shader",
+      "count": 62
+    },
+    {
+      "source": "Panel",
+      "target": "Rotate",
+      "param": "Angle",
+      "count": 58
+    },
+    {
+      "source": "Number Slider",
+      "target": "Multiplication",
+      "param": "B",
+      "count": 56
+    },
+    {
+      "source": "Number Slider",
+      "target": "Divide Curve",
+      "param": "Count",
+      "count": 56
+    },
+    {
+      "source": "Curve",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 50
+    },
+    {
+      "source": "Unit Z",
+      "target": "Extrude",
+      "param": "Direction",
+      "count": 47
+    },
+    {
+      "source": "Number Slider",
+      "target": "Division",
+      "param": "B",
+      "count": 47
+    },
+    {
+      "source": "Unit X",
+      "target": "Move",
+      "param": "Motion",
+      "count": 42
+    },
+    {
+      "source": "Amplitude",
+      "target": "Move",
+      "param": "Motion",
+      "count": 41
+    },
+    {
+      "source": "List Length",
+      "target": "Series",
+      "param": "Count",
+      "count": 40
+    },
+    {
+      "source": "Point",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 40
+    },
+    {
+      "source": "Remap Numbers",
+      "target": "Gradient",
+      "param": "Parameter",
+      "count": 39
+    },
+    {
+      "source": "Number",
+      "target": "Remap Numbers",
+      "param": "Value",
+      "count": 39
+    },
+    {
+      "source": "Graph Mapper",
+      "target": "Remap Numbers",
+      "param": "Value",
+      "count": 38
+    },
+    {
+      "source": "Panel",
+      "target": "Evaluate Length",
+      "param": "Length",
+      "count": 38
+    },
+    {
+      "source": "Number Slider",
+      "target": "Line SDL",
+      "param": "Length",
+      "count": 38
+    },
+    {
+      "source": "Panel",
+      "target": "Range",
+      "param": "Domain",
+      "count": 38
+    },
+    {
+      "source": "Number Slider",
+      "target": "Division",
+      "param": "A",
+      "count": 38
+    },
+    {
+      "source": "Number Slider",
+      "target": "Series",
+      "param": "Start",
+      "count": 38
+    },
+    {
+      "source": "Gradient",
+      "target": "Custom Preview",
+      "param": "Shader",
+      "count": 37
+    },
+    {
+      "source": "Number",
+      "target": "Bounds",
+      "param": "Numbers",
+      "count": 37
+    },
+    {
+      "source": "Number Slider",
+      "target": "Remap Numbers",
+      "param": "Target",
+      "count": 34
+    },
+    {
+      "source": "Curve",
+      "target": "Scale",
+      "param": "Geometry",
+      "count": 34
+    },
+    {
+      "source": "Number Slider",
+      "target": "Multiplication",
+      "param": "A",
+      "count": 33
+    },
+    {
+      "source": "Panel",
+      "target": "Multiplication",
+      "param": "B",
+      "count": 33
+    },
+    {
+      "source": "Point",
+      "target": "List Length",
+      "param": "List",
+      "count": 32
+    },
+    {
+      "source": "Number Slider",
+      "target": "Range",
+      "param": "Domain",
+      "count": 29
+    },
+    {
+      "source": "Boundary Surfaces",
+      "target": "Extrude",
+      "param": "Base",
+      "count": 28
+    },
+    {
+      "source": "Deconstruct",
+      "target": "Remap Numbers",
+      "param": "Value",
+      "count": 27
+    },
+    {
+      "source": "Unit Y",
+      "target": "Move",
+      "param": "Motion",
+      "count": 27
+    },
+    {
+      "source": "Panel",
+      "target": "Pi",
+      "param": "Factor",
+      "count": 27
+    },
+    {
+      "source": "Radians",
+      "target": "Rotate",
+      "param": "Angle",
+      "count": 26
+    },
+    {
+      "source": "Number Slider",
+      "target": "Random",
+      "param": "Seed",
+      "count": 25
+    },
+    {
+      "source": "Unit Z",
+      "target": "Rotate",
+      "param": "Axis",
+      "count": 25
+    },
+    {
+      "source": "List Length",
+      "target": "Range",
+      "param": "Steps",
+      "count": 25
+    },
+    {
+      "source": "Deconstruct",
+      "target": "Bounds",
+      "param": "Numbers",
+      "count": 25
+    },
+    {
+      "source": "Panel",
+      "target": "Scale",
+      "param": "Factor",
+      "count": 25
+    },
+    {
+      "source": "Bounding Box",
+      "target": "Area",
+      "param": "Geometry",
+      "count": 24
+    },
+    {
+      "source": "List Length",
+      "target": "Random",
+      "param": "Number",
+      "count": 24
+    },
+    {
+      "source": "Construct Point",
+      "target": "Line SDL",
+      "param": "Start",
+      "count": 24
+    },
+    {
+      "source": "Point",
+      "target": "Scale",
+      "param": "Center",
+      "count": 24
+    },
+    {
+      "source": "Number Slider",
+      "target": "Rectangle",
+      "param": "Y Size",
+      "count": 23
+    },
+    {
+      "source": "Area",
+      "target": "Scale",
+      "param": "Center",
+      "count": 23
+    },
+    {
+      "source": "Divide Curve",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 23
+    },
+    {
+      "source": "Multiplication",
+      "target": "Series",
+      "param": "Step",
+      "count": 23
+    },
+    {
+      "source": "Number Slider",
+      "target": "Rectangle",
+      "param": "X Size",
+      "count": 22
+    },
+    {
+      "source": "Range",
+      "target": "Gradient",
+      "param": "Parameter",
+      "count": 21
+    },
+    {
+      "source": "Pi",
+      "target": "Range",
+      "param": "Domain",
+      "count": 21
+    },
+    {
+      "source": "Number Slider",
+      "target": "Circle",
+      "param": "Radius",
+      "count": 20
+    },
+    {
+      "source": "Number Slider",
+      "target": "Weaverbird's Catmull-Clark Subdivision",
+      "param": "Level",
+      "count": 20
+    },
+    {
+      "source": "Number Slider",
+      "target": "Radians",
+      "param": "Degrees",
+      "count": 20
+    },
+    {
+      "source": "Construct Domain",
+      "target": "Random",
+      "param": "Range",
+      "count": 20
+    },
+    {
+      "source": "Number Slider",
+      "target": "Amplitude",
+      "param": "Amplitude",
+      "count": 20
+    },
+    {
+      "source": "Number Slider",
+      "target": "Unit X",
+      "param": "Factor",
+      "count": 20
+    },
+    {
+      "source": "Number Slider",
+      "target": "Unit Y",
+      "param": "Factor",
+      "count": 20
+    },
+    {
+      "source": "Area",
+      "target": "Scale NU",
+      "param": "Plane",
+      "count": 19
+    },
+    {
+      "source": "Area",
+      "target": "Deconstruct",
+      "param": "Point",
+      "count": 19
+    },
+    {
+      "source": "Remap Numbers",
+      "target": "Unit Z",
+      "param": "Factor",
+      "count": 19
+    },
+    {
+      "source": "Negative",
+      "target": "Construct Domain",
+      "param": "Domain start",
+      "count": 19
+    },
+    {
+      "source": "End Points",
+      "target": "Line",
+      "param": "Start Point",
+      "count": 19
+    },
+    {
+      "source": "Number",
+      "target": "Multiplication",
+      "param": "A",
+      "count": 19
+    },
+    {
+      "source": "Number",
+      "target": "Gradient",
+      "param": "Parameter",
+      "count": 19
+    },
+    {
+      "source": "Number Slider",
+      "target": "Divide Surface",
+      "param": "U Count",
+      "count": 18
+    },
+    {
+      "source": "Number Slider",
+      "target": "Divide Surface",
+      "param": "V Count",
+      "count": 18
+    },
+    {
+      "source": "Rotate",
+      "target": "Amplitude",
+      "param": "Vector",
+      "count": 18
+    },
+    {
+      "source": "Panel",
+      "target": "Unit Z",
+      "param": "Factor",
+      "count": 18
+    },
+    {
+      "source": "Number Slider",
+      "target": "Populate 2D",
+      "param": "Count",
+      "count": 17
+    },
+    {
+      "source": "Number Slider",
+      "target": "Populate Geometry",
+      "param": "Count",
+      "count": 17
+    },
+    {
+      "source": "Move",
+      "target": "Interpolate",
+      "param": "Vertices",
+      "count": 17
+    },
+    {
+      "source": "Move",
+      "target": "Graft Tree",
+      "param": "Tree",
+      "count": 17
+    },
+    {
+      "source": "Negative",
+      "target": "Move",
+      "param": "Motion",
+      "count": 17
+    },
+    {
+      "source": "Graph Mapper",
+      "target": "Bounds",
+      "param": "Numbers",
+      "count": 17
+    },
+    {
+      "source": "Panel",
+      "target": "Modulus",
+      "param": "B",
+      "count": 17
+    },
+    {
+      "source": "Explode",
+      "target": "Evaluate Length",
+      "param": "Curve",
+      "count": 17
+    },
+    {
+      "source": "Number Slider",
+      "target": "Construct Point",
+      "param": "Y coordinate",
+      "count": 17
+    },
+    {
+      "source": "Curve",
+      "target": "Boundary Surfaces",
+      "param": "Edges",
+      "count": 17
+    },
+    {
+      "source": "Group",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 16
+    },
+    {
+      "source": "Series",
+      "target": "Unit X",
+      "param": "Factor",
+      "count": 16
+    },
+    {
+      "source": "Move",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 16
+    },
+    {
+      "source": "End Points",
+      "target": "Line",
+      "param": "End Point",
+      "count": 16
+    },
+    {
+      "source": "Number Slider",
+      "target": "Construct Point",
+      "param": "X coordinate",
+      "count": 16
+    },
+    {
+      "source": "Number Slider",
+      "target": "Subtraction",
+      "param": "A",
+      "count": 15
+    },
+    {
+      "source": "Number Slider",
+      "target": "Sphere",
+      "param": "Radius",
+      "count": 15
+    },
+    {
+      "source": "Number Slider",
+      "target": "Random",
+      "param": "Number",
+      "count": 15
+    },
+    {
+      "source": "Number Slider",
+      "target": "Subtraction",
+      "param": "B",
+      "count": 15
+    },
+    {
+      "source": "Series",
+      "target": "Unit Y",
+      "param": "Factor",
+      "count": 15
+    },
+    {
+      "source": "Extrude",
+      "target": "Custom Preview",
+      "param": "Geometry",
+      "count": 15
+    },
+    {
+      "source": "Surface",
+      "target": "Evaluate Surface",
+      "param": "Surface",
+      "count": 15
+    },
+    {
+      "source": "MD Slider",
+      "target": "Evaluate Surface",
+      "param": "Point",
+      "count": 15
+    },
+    {
+      "source": "Distance",
+      "target": "Remap Numbers",
+      "param": "Value",
+      "count": 15
+    },
+    {
+      "source": "Box Corners",
+      "target": "Distance",
+      "param": "Point A",
+      "count": 15
+    },
+    {
+      "source": "Box Corners",
+      "target": "Distance",
+      "param": "Point B",
+      "count": 15
+    },
+    {
+      "source": "Bounding Box",
+      "target": "Deconstruct Brep",
+      "param": "Brep",
+      "count": 14
+    },
+    {
+      "source": "Move",
+      "target": "Nurbs Curve",
+      "param": "Vertices",
+      "count": 14
+    },
+    {
+      "source": "Unit Z",
+      "target": "Line SDL",
+      "param": "Direction",
+      "count": 14
+    },
+    {
+      "source": "Extrude",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 14
+    },
+    {
+      "source": "Distance",
+      "target": "Bounds",
+      "param": "Numbers",
+      "count": 14
+    },
+    {
+      "source": "Gradient",
+      "target": "Mesh Colours",
+      "param": "Colours",
+      "count": 14
+    },
+    {
+      "source": "Panel",
+      "target": "Negative",
+      "param": "Value",
+      "count": 14
+    },
+    {
+      "source": "Surface Closest Point",
+      "target": "Evaluate Surface",
+      "param": "Point",
+      "count": 14
+    },
+    {
+      "source": "Number Slider",
+      "target": "Polygon",
+      "param": "Radius",
+      "count": 13
+    },
+    {
+      "source": "Number Slider",
+      "target": "Pipe",
+      "param": "Radius",
+      "count": 13
+    },
+    {
+      "source": "Sine",
+      "target": "Remap Numbers",
+      "param": "Value",
+      "count": 13
+    },
+    {
+      "source": "Move",
+      "target": "Ungroup",
+      "param": "Group",
+      "count": 13
+    },
+    {
+      "source": "Move",
+      "target": "Flatten Tree",
+      "param": "Tree",
+      "count": 13
+    },
+    {
+      "source": "Curve",
+      "target": "List Length",
+      "param": "List",
+      "count": 13
+    },
+    {
+      "source": "Point",
+      "target": "Rotate",
+      "param": "Plane",
+      "count": 13
+    },
+    {
+      "source": "Number Slider",
+      "target": "Construct Point",
+      "param": "Z coordinate",
+      "count": 12
+    },
+    {
+      "source": "Panel",
+      "target": "Line SDL",
+      "param": "Start",
+      "count": 11
+    },
+    {
+      "source": "Point",
+      "target": "Deconstruct",
+      "param": "Point",
+      "count": 11
+    },
+    {
+      "source": "Number Slider",
+      "target": "Rotate",
+      "param": "Angle",
+      "count": 11
+    },
+    {
+      "source": "Point",
+      "target": "Line",
+      "param": "Start Point",
+      "count": 10
+    },
+    {
+      "source": "Point",
+      "target": "PolyLine",
+      "param": "Vertices",
+      "count": 10
+    },
+    {
+      "source": "Number",
+      "target": "Scale",
+      "param": "Factor",
+      "count": 10
+    },
+    {
+      "source": "Number",
+      "target": "Range",
+      "param": "Steps",
+      "count": 9
+    },
+    {
+      "source": "Point",
+      "target": "Line",
+      "param": "End Point",
+      "count": 9
+    },
+    {
+      "source": "Number",
+      "target": "Series",
+      "param": "Count",
+      "count": 8
+    },
+    {
+      "source": "Curve",
+      "target": "Area",
+      "param": "Geometry",
+      "count": 8
+    },
+    {
+      "source": "Number",
+      "target": "Construct Point",
+      "param": "Z coordinate",
+      "count": 8
+    },
+    {
+      "source": "Panel",
+      "target": "Line",
+      "param": "Start Point",
+      "count": 7
+    },
+    {
+      "source": "Number",
+      "target": "Negative",
+      "param": "Value",
+      "count": 7
+    },
+    {
+      "source": "Number",
+      "target": "Unit Z",
+      "param": "Factor",
+      "count": 7
+    },
+    {
+      "source": "Number",
+      "target": "Construct Point",
+      "param": "X coordinate",
+      "count": 7
+    },
+    {
+      "source": "Number",
+      "target": "Construct Point",
+      "param": "Y coordinate",
+      "count": 7
+    },
+    {
+      "source": "Panel",
+      "target": "Series",
+      "param": "Start",
+      "count": 6
+    },
+    {
+      "source": "Number",
+      "target": "Division",
+      "param": "A",
+      "count": 6
+    },
+    {
+      "source": "Curve",
+      "target": "Bounding Box",
+      "param": "Content",
+      "count": 6
+    },
+    {
+      "source": "Panel",
+      "target": "Line",
+      "param": "End Point",
+      "count": 5
+    },
+    {
+      "source": "Point",
+      "target": "Dispatch",
+      "param": "List",
+      "count": 5
+    },
+    {
+      "source": "Panel",
+      "target": "Series",
+      "param": "Step",
+      "count": 5
+    },
+    {
+      "source": "Panel",
+      "target": "Move",
+      "param": "Geometry",
+      "count": 4
+    },
+    {
+      "source": "Curve",
+      "target": "Dispatch",
+      "param": "List",
+      "count": 4
+    },
+    {
+      "source": "Point",
+      "target": "Move",
+      "param": "Motion",
+      "count": 4
+    },
+    {
+      "source": "Panel",
+      "target": "Move",
+      "param": "Motion",
+      "count": 4
+    },
+    {
+      "source": "Curve",
+      "target": "Loft",
+      "param": "Curves",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "Division",
+      "param": "A",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "PolyLine",
+      "param": "Closed",
+      "count": 3
+    },
+    {
+      "source": "Curve",
+      "target": "Custom Preview",
+      "param": "Geometry",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "Unit X",
+      "param": "Factor",
+      "count": 3
+    },
+    {
+      "source": "Curve",
+      "target": "End Points",
+      "param": "Curve",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "Dispatch",
+      "param": "Dispatch pattern",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "Construct Domain",
+      "param": "Domain start",
+      "count": 3
+    },
+    {
+      "source": "Panel",
+      "target": "Construct Domain",
+      "param": "Domain end",
+      "count": 3
+    },
+    {
+      "source": "Number Slider",
+      "target": "Gradient",
+      "param": "Lower limit",
+      "count": 2
+    },
+    {
+      "source": "Curve",
+      "target": "Extrude",
+      "param": "Base",
+      "count": 2
+    },
+    {
+      "source": "Number",
+      "target": "Unit Y",
+      "param": "Factor",
+      "count": 2
+    },
+    {
+      "source": "Curve",
+      "target": "Join Curves",
+      "param": "Curves",
+      "count": 2
+    },
+    {
+      "source": "Number",
+      "target": "Gradient",
+      "param": "Lower limit",
+      "count": 2
+    },
+    {
+      "source": "Panel",
+      "target": "Construct Point",
+      "param": "X coordinate",
+      "count": 2
+    },
+    {
+      "source": "Panel",
+      "target": "Construct Point",
+      "param": "Y coordinate",
+      "count": 2
+    },
+    {
+      "source": "Panel",
+      "target": "Construct Point",
+      "param": "Z coordinate",
+      "count": 2
+    },
+    {
+      "source": "Curve",
+      "target": "Explode",
+      "param": "Curve",
+      "count": 2
+    },
+    {
+      "source": "Curve",
+      "target": "Rotate",
+      "param": "Geometry",
+      "count": 2
+    },
+    {
+      "source": "Point",
+      "target": "Rotate",
+      "param": "Geometry",
+      "count": 2
+    },
+    {
+      "source": "Point",
+      "target": "Scale",
+      "param": "Geometry",
+      "count": 1
+    },
+    {
+      "source": "Panel",
+      "target": "Line SDL",
+      "param": "Direction",
+      "count": 1
+    },
+    {
+      "source": "Panel",
+      "target": "Divide Curve",
+      "param": "Count",
+      "count": 1
+    },
+    {
+      "source": "Number Slider",
+      "target": "Gradient",
+      "param": "Upper limit",
+      "count": 1
+    },
+    {
+      "source": "Number",
+      "target": "Remap Numbers",
+      "param": "Target",
+      "count": 1
+    },
+    {
+      "source": "Number",
+      "target": "Series",
+      "param": "Step",
+      "count": 1
+    }
+  ],
+  "slider_configurations": {
+    "Rectangular.Size X": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 670.0,
+      "typical_value": 539.352
+    },
+    "Rectangular.Size Y": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 670.0,
+      "typical_value": 218.66666666666666
+    },
+    "Series.Step": {
+      "count": 20,
+      "typical_min": 0.0,
+      "typical_max": 57.7125,
+      "typical_value": 33.1165
+    },
+    "Series.Count": {
+      "count": 36,
+      "typical_min": 0.0,
+      "typical_max": 64.44444444444444,
+      "typical_value": 28.61111111111111
+    },
+    "Construct Domain.Domain end": {
+      "count": 87,
+      "typical_min": -2.3448275862068964,
+      "typical_max": 212.2390804597701,
+      "typical_value": 104.48048275862068
+    },
+    "Construct Domain.Domain start": {
+      "count": 88,
+      "typical_min": -0.055681818181818186,
+      "typical_max": 86.4659090909091,
+      "typical_value": 35.742124999999994
+    },
+    "Hexagonal.Extent X": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 43.5,
+      "typical_value": 11.833333333333334
+    },
+    "Negative.Value": {
+      "count": 44,
+      "typical_min": 0.0,
+      "typical_max": 313.6272727272727,
+      "typical_value": 245.56318181818185
+    },
+    "Range.Domain": {
+      "count": 11,
+      "typical_min": 0.009090909090909092,
+      "typical_max": 204.1818181818182,
+      "typical_value": 56.352
+    },
+    "Line SDL.Length": {
+      "count": 23,
+      "typical_min": 0.0,
+      "typical_max": 681.7391304347826,
+      "typical_value": 630.591304347826
+    },
+    "Modulus.A": {
+      "count": 8,
+      "typical_min": 0.0,
+      "typical_max": 93.75,
+      "typical_value": 64.625
+    },
+    "Evaluate Length.Length": {
+      "count": 8,
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.46375
+    },
+    "Random.Range": {
+      "count": 7,
+      "typical_min": 0.0,
+      "typical_max": 30031.428571428572,
+      "typical_value": 20359.714285714286
+    },
+    "Random.Seed": {
+      "count": 20,
+      "typical_min": 0.0,
+      "typical_max": 1180.0,
+      "typical_value": 345.65
+    },
+    "Divide Curve.Count": {
+      "count": 28,
+      "typical_min": 0.0,
+      "typical_max": 107.14285714285714,
+      "typical_value": 44.25
+    },
+    "Plane Surface.X Size": {
+      "count": 9,
+      "typical_min": 0.0,
+      "typical_max": 11190.0,
+      "typical_value": 5634.444444444444
+    },
+    "Divide Surface.U Count": {
+      "count": 18,
+      "typical_min": 0.0,
+      "typical_max": 142.22222222222223,
+      "typical_value": 74.05555555555556
+    },
+    "Polygon.Radius": {
+      "count": 13,
+      "typical_min": 0.0,
+      "typical_max": 210.76923076923077,
+      "typical_value": 132.6153846153846
+    },
+    "Shift List.Shift": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.0
+    },
+    "Pi.Factor": {
+      "count": 16,
+      "typical_min": 0.0,
+      "typical_max": 8.625,
+      "typical_value": 4.161875
+    },
+    "Circle.Radius": {
+      "count": 19,
+      "typical_min": 0.0,
+      "typical_max": 127.94736842105263,
+      "typical_value": 74.39105263157894
+    },
+    "Remap Numbers.Target": {
+      "count": 25,
+      "typical_min": 0.0,
+      "typical_max": 134.24,
+      "typical_value": 51.8504
+    },
+    "Sphere.Radius": {
+      "count": 14,
+      "typical_min": 0.0,
+      "typical_max": 151.42857142857142,
+      "typical_value": 90.92857142857143
+    },
+    "Unit Z.Factor": {
+      "count": 53,
+      "typical_min": 0.0,
+      "typical_max": 818.6981132075472,
+      "typical_value": 272.98867924528304
+    },
+    "Length(Line).Strength": {
+      "count": 4,
+      "typical_min": 0.0025,
+      "typical_max": 275.5,
+      "typical_value": 252.7525
+    },
+    "Smooth Mesh.Iterations": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.3333333333333335
+    },
+    "Scale NU.Scale Z": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 7.333333333333333,
+      "typical_value": 1.6733333333333331
+    },
+    "Scale.Factor": {
+      "count": 29,
+      "typical_min": 0.0,
+      "typical_max": 3.5172413793103448,
+      "typical_value": 1.2304827586206897
+    },
+    "Equality.Second Number": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.0
+    },
+    "standalone": {
+      "count": 75,
+      "typical_min": -0.0013333333333333335,
+      "typical_max": 156.40666666666667,
+      "typical_value": 82.98931999999999
+    },
+    "Random.Number": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 262.0,
+      "typical_value": 77.6
+    },
+    "Smaller Than.Second Number": {
+      "count": 7,
+      "typical_min": 0.0,
+      "typical_max": 14.575857142857144,
+      "typical_value": 10.877285714285716
+    },
+    "tsPipe.DefaultRadius": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 7.666666666666667,
+      "typical_value": 2.1666666666666665
+    },
+    "tsPipe.CurveSegments": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 3.3333333333333335
+    },
+    "Weaverbird's Catmull-Clark Subdivision.Level": {
+      "count": 17,
+      "typical_min": 0.0,
+      "typical_max": 9.058823529411764,
+      "typical_value": 2.411764705882353
+    },
+    "Rectangle.X Size": {
+      "count": 20,
+      "typical_min": 0.0,
+      "typical_max": 750.5,
+      "typical_value": 235.5
+    },
+    "Populate 2D.Count": {
+      "count": 17,
+      "typical_min": 0.0,
+      "typical_max": 872.9411764705883,
+      "typical_value": 706.5294117647059
+    },
+    "Populate 2D.Seed": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 1000.0,
+      "typical_value": 271.25
+    },
+    "Rebuild Curve.Degree": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.8
+    },
+    "Range.Steps": {
+      "count": 35,
+      "typical_min": 0.0,
+      "typical_max": 57.142857142857146,
+      "typical_value": 29.6
+    },
+    "Pipe.Radius": {
+      "count": 12,
+      "typical_min": 0.0,
+      "typical_max": 25.333333333333332,
+      "typical_value": 10.134666666666666
+    },
+    "Scale NU.Scale X": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 2.75,
+      "typical_value": 0.8833333333333333
+    },
+    "MeshMachine.Iterations": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 4.2
+    },
+    "MeshMachine.Length": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 5.75,
+      "typical_value": 3.8075
+    },
+    "Extend Curve.Start": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 66.66666666666667
+    },
+    "Larger Than.Second Number": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 500.005,
+      "typical_value": 250.005
+    },
+    "Hexagonal.Extent Y": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 76.66666666666667,
+      "typical_value": 15.0
+    },
+    "Hexagonal.Size": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 23.5,
+      "typical_value": 22.05
+    },
+    "Minimum.B": {
+      "count": 11,
+      "typical_min": 0.0,
+      "typical_max": 9237.545454545454,
+      "typical_value": 1915.7336363636364
+    },
+    "Divide Surface.V Count": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 60.0,
+      "typical_value": 17.666666666666668
+    },
+    "Colour HSL.Saturation": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.835
+    },
+    "Square.Extent X": {
+      "count": 7,
+      "typical_min": 0.0,
+      "typical_max": 40.57142857142857,
+      "typical_value": 24.428571428571427
+    },
+    "Amplitude.Amplitude": {
+      "count": 15,
+      "typical_min": -0.06666666666666667,
+      "typical_max": 72.73333333333333,
+      "typical_value": 33.14612666666667
+    },
+    "Polygon.Segments": {
+      "count": 6,
+      "typical_min": 0.5,
+      "typical_max": 9.333333333333334,
+      "typical_value": 4.0
+    },
+    "Multiplication.B": {
+      "count": 45,
+      "typical_min": -0.06666666666666667,
+      "typical_max": 49.43555555555555,
+      "typical_value": 16.43434
+    },
+    "Split List.Index": {
+      "count": 8,
+      "typical_min": 0.0,
+      "typical_max": 33.875,
+      "typical_value": 8.875
+    },
+    "Unit X.Factor": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 1870.0,
+      "typical_value": 447.1666666666667
+    },
+    "Division.B": {
+      "count": 20,
+      "typical_min": 0.0505,
+      "typical_max": 70.55,
+      "typical_value": 8.772
+    },
+    "OnCurve.Strength": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 50.5
+    },
+    "Offset.Distance": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 52.75,
+      "typical_value": 9.5875
+    },
+    "Settings (Custom).Min Edge": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 12.0,
+      "typical_value": 7.1579999999999995
+    },
+    "Radians.Degrees": {
+      "count": 20,
+      "typical_min": -6.75,
+      "typical_max": 86.25,
+      "typical_value": 32.9576
+    },
+    "Subtraction.B": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 33.6835,
+      "typical_value": 10.101833333333333
+    },
+    "Square.Size": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 10.25,
+      "typical_value": 10.25
+    },
+    "PerlinNoise.Scale": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 0.82,
+      "typical_value": 0.280532
+    },
+    "Populate Geometry.Count": {
+      "count": 16,
+      "typical_min": 0.0,
+      "typical_max": 721.25,
+      "typical_value": 340.25
+    },
+    "Rectangle.Y Size": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 375.0,
+      "typical_value": 171.0
+    },
+    "Center Box.X": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 80.0,
+      "typical_value": 77.5
+    },
+    "Populate 3D.Count": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 55.0,
+      "typical_value": 8.0
+    },
+    "Multiplication.A": {
+      "count": 7,
+      "typical_min": 0.0,
+      "typical_max": 8.714285714285714,
+      "typical_value": 4.585714285714286
+    },
+    "Rebuild Curve.Count": {
+      "count": 6,
+      "typical_min": 0.0,
+      "typical_max": 85.0,
+      "typical_value": 61.333333333333336
+    },
+    "Arc.Radius": {
+      "count": 7,
+      "typical_min": 0.0,
+      "typical_max": 215.71428571428572,
+      "typical_value": 109.28571428571429
+    },
+    "Vector XYZ.X component": {
+      "count": 8,
+      "typical_min": -0.25,
+      "typical_max": 25.75,
+      "typical_value": 7.53625
+    },
+    "Vector XYZ.Y component": {
+      "count": 4,
+      "typical_min": -0.5,
+      "typical_max": 1.0,
+      "typical_value": 0.365
+    },
+    "Weaverbird's Picture Frame.Distance": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 46.666666666666664,
+      "typical_value": 18.906666666666666
+    },
+    "Division.A": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 683.3333333333334,
+      "typical_value": 240.29999999999998
+    },
+    "Mesh Sphere.U Count": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 55.0,
+      "typical_value": 30.0
+    },
+    "PerlinNoise.Time": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.5
+    },
+    "Sequence.Frames": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 5.666666666666667
+    },
+    "Series.Start": {
+      "count": 6,
+      "typical_min": 0.03333333333333333,
+      "typical_max": 176.66666666666666,
+      "typical_value": 122.60666666666667
+    },
+    "Subtraction.A": {
+      "count": 5,
+      "typical_min": 0.0,
+      "typical_max": 820.0,
+      "typical_value": 680.0
+    },
+    "Weaverbird's Mesh Thicken.Distance": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 7.666666666666667,
+      "typical_value": 4.666666666666667
+    },
+    "Scale NU.Scale Y": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 4.0,
+      "typical_value": 0.85
+    },
+    "Unit Y.Factor": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 257.5,
+      "typical_value": 80.5
+    },
+    "Populate Geometry.Seed": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 550.0,
+      "typical_value": 230.0
+    },
+    "Vector XYZ.Z component": {
+      "count": 4,
+      "typical_min": -0.5,
+      "typical_max": 1.0,
+      "typical_value": 0.16
+    },
+    "Fillet.Radius": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 327.5,
+      "typical_value": 71.75
+    },
+    "Contour.Distance": {
+      "count": 4,
+      "typical_min": 0.0,
+      "typical_max": 177.5,
+      "typical_value": 133.0
+    },
+    "Sub List.Domain": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 16.666666666666668,
+      "typical_value": 7.666666666666667
+    },
+    "Partition List.Size": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 2.3333333333333335
+    },
+    "Blur Mesh.Iterations": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 10.0,
+      "typical_value": 4.5
+    },
+    "Maximum.B": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 5.5,
+      "typical_value": 0.5
+    },
+    "Mesh Plane.Width count": {
+      "count": 3,
+      "typical_min": 0.0,
+      "typical_max": 133.33333333333334,
+      "typical_value": 70.0
+    },
+    "Remap TSet.Target": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 1.0,
+      "typical_value": 0.89
+    },
+    "Text Tag 3D.Size": {
+      "count": 2,
+      "typical_min": 0.0,
+      "typical_max": 100.0,
+      "typical_value": 83.0
+    }
+  },
+  "recipes": [
+    {
+      "name": "Voxel Bunny",
+      "components": [
+        "Number Slider",
+        "Number",
+        "Custom Preview"
+      ],
+      "component_count": 3
+    },
+    {
+      "name": "Porous Fruit",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Construct Mesh"
+      ],
+      "component_count": 6
+    },
+    {
+      "name": "Particle Vortex",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Circle",
+        "Number Slider",
+        "Timer",
+        "Number Slider",
+        "Panel",
+        "Custom Preview"
+      ],
+      "component_count": 10
+    },
+    {
+      "name": "Fractal Crystal",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Panel",
+        "MD Slider",
+        "Number Slider",
+        "Number Slider",
+        "Integer",
+        "Panel",
+        "Custom Preview"
+      ],
+      "component_count": 10
+    },
+    {
+      "name": "Recursive Stair",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Python Script",
+        "List Length",
+        "Range",
+        "Gradient",
+        "Custom Preview",
+        "Panel"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Texture Displacement",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Settings (Custom)",
+        "Number Slider",
+        "Image Sampler",
+        "Image Sampler",
+        "Image Sampler",
+        "Image Sampler",
+        "Number Slider",
+        "Remap Numbers",
+        "Weaverbird's Catmull-Clark Subdivision"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Trigometry Pipe",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Series",
+        "Series",
+        "Series",
+        "Panel",
+        "Radians",
+        "Number Slider",
+        "Custom Preview"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Reaction Diffusion",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number",
+        "Number",
+        "Number Slider",
+        "Number Slider",
+        "Smaller Than",
+        "Number Slider",
+        "Number Slider",
+        "Construct Mesh"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Needle Ball",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Button",
+        "Distance",
+        "Bounds",
+        "Remap Numbers",
+        "Gradient",
+        "Mesh Colours"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Agate Section",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Settings (Quality)",
+        "Gradient",
+        "Custom Preview"
+      ],
+      "component_count": 11
+    },
+    {
+      "name": "Lowpoly Attractor",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "MD Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Construct Domain",
+        "Construct Domain",
+        "Colour Swatch",
+        "Custom Preview"
+      ],
+      "component_count": 12
+    },
+    {
+      "name": "Orange Peel",
+      "components": [
+        "Panel",
+        "Number Slider",
+        "Graph Mapper",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Number Slider",
+        "Colour Swatch",
+        "Custom Preview"
+      ],
+      "component_count": 12
+    },
+    {
+      "name": "Triangle Holes",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "MD Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Unit Z",
+        "Range",
+        "Negative",
+        "Panel",
+        "Range",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Oil Pond",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Construct Domain",
+        "Param Viewer",
+        "MD Slider",
+        "Boundary Surfaces",
+        "Larger Than",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Whipped Wire",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Unit Z",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Pi",
+        "Number Slider",
+        "Series",
+        "Gradient",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Ribbon Loop",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Addition",
+        "Number Slider",
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Multiplication",
+        "Pi",
+        "Cull Index",
+        "Number Slider",
+        "Number Slider",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Simple Tent-fixed",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "MD Slider",
+        "Panel",
+        "Gene Pool",
+        "Number Slider",
+        "Unit Z",
+        "Number Slider",
+        "Button",
+        "Colour Swatch",
+        "Custom Preview",
+        "Colour Swatch",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Simple Tent",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "MD Slider",
+        "Panel",
+        "Gene Pool",
+        "Number Slider",
+        "Unit Z",
+        "Number Slider",
+        "Button",
+        "Colour Swatch",
+        "Custom Preview",
+        "Colour Swatch",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Circle Ring",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Panel",
+        "Series",
+        "Vector XYZ",
+        "Number Slider",
+        "Number Slider",
+        "Number",
+        "Series",
+        "Vector XYZ",
+        "Gradient",
+        "Remap Numbers",
+        "Custom Preview"
+      ],
+      "component_count": 13
+    },
+    {
+      "name": "Hexagonal Mari",
+      "components": [
+        "Number Slider",
+        "Number Slider",
+        "Weaverbird's Split Triangles Subdivision",
+        "Panel",
+        "Panel",
+        "Construct Point",
+        "Division",
+        "Number Slider",
+        "Range",
+        "Number Slider",
+        "Path Mapper",
+        "Pi",
+        "Remap Numbers",
+        "Custom Preview"
+      ],
+      "component_count": 14
+    }
+  ]
+}

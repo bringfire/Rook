@@ -1,0 +1,67 @@
+{
+  "note_id": "comp_37b6066a",
+  "note_type": "component",
+  "name": "Dash Pattern",
+  "brief": "Dash Pattern | Inputs: C, Pt → D, G",
+  "version": "1.0",
+  "created": "2026-02-23T00:43:37.462898Z",
+  "context": "Grasshopper component: Dash Pattern. Inputs: C (Curve), Pt (Number). Outputs: D (Curve), G (Curve).",
+  "keywords": [
+    "dash pattern",
+    "dash",
+    "pattern",
+    "curve_division"
+  ],
+  "category": "curve_division",
+  "tags": [
+    "curve_division"
+  ],
+  "trigger_intents": [
+    "dash pattern",
+    "dash",
+    "pattern"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "Dash Pattern"
+  ],
+  "solution_principle": "Convert a curve to a dash pattern.",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_e75be450",
+    "comp_2c4dae60",
+    "comp_ac081276",
+    "comp_c2c88f4e",
+    "comp_2de0f8a7"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "expansion",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "95866bbe-648e-4e2b-a97c-7d04679e94e0",
+    "category": "curve_division",
+    "inputs": {
+      "C": "Curve",
+      "Pt": "Number"
+    },
+    "outputs": {
+      "D": "Curve",
+      "G": "Curve"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "1e531c08-9c80-46d6-8850-1b50d1dae69f"
+    ],
+    "usage_count": 0,
+    "stable_key": "curve|division|dash pattern"
+  }
+}
