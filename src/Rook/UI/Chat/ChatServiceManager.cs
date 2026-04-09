@@ -417,10 +417,19 @@ namespace Rook.UI.Chat
                     var json = File.ReadAllText(manifestPath);
                     var manifest = JsonSerializer.Deserialize<ChatServiceManifest>(json, JsonOptions);
                     if (manifest != null)
-                        return manifest;
+                    {
+                        if (IsManifestCurrent(manifest, out var staleReason))
+                        {
+                            return manifest;
+                        }
+
+                        RhinoApp.WriteLine(
+                            "Rook: cached chat service manifest is stale "
+                            + $"({staleReason}). Regenerating.");
+                    }
                 }
 
-                // Manifest missing — try to auto-generate from .mcp.json
+                // Manifest missing or stale — try to auto-generate from .mcp.json
                 var generated = TryAutoGenerateManifest(manifestPath);
                 if (generated != null)
                 {
@@ -542,11 +551,23 @@ namespace Rook.UI.Chat
                 if (string.IsNullOrEmpty(workingDirectory) || !Directory.Exists(workingDirectory))
                 {
                     var packageDir = ProbePipInstalledRook(pythonPath);
-                    if (packageDir != null)
+                    if (!string.IsNullOrEmpty(packageDir))
                     {
-                        // rook is importable via site-packages — use a temp working dir
-                        // and no explicit PYTHONPATH entries
-                        workingDirectory = Path.GetTempPath();
+                        var editableProjectRoot = FindEditableProjectRoot(packageDir);
+                        if (!string.IsNullOrEmpty(editableProjectRoot))
+                        {
+                            workingDirectory = editableProjectRoot;
+                            AddSrcPathEntry(pythonPathEntries, workingDirectory);
+                            RhinoApp.WriteLine(
+                                $"Rook: detected editable install at {editableProjectRoot}, "
+                                + "using as chat service working directory.");
+                        }
+                        else
+                        {
+                            // rook is importable via site-packages — use a temp
+                            // working dir and no explicit PYTHONPATH entries.
+                            workingDirectory = Path.GetTempPath();
+                        }
                     }
                     else
                     {
@@ -558,9 +579,7 @@ namespace Rook.UI.Chat
                 }
                 else
                 {
-                    var srcDir = Path.Combine(workingDirectory, "src");
-                    if (Directory.Exists(srcDir))
-                        pythonPathEntries.Add(srcDir);
+                    AddSrcPathEntry(pythonPathEntries, workingDirectory);
                 }
 
                 var manifest = new ChatServiceManifest
@@ -604,6 +623,115 @@ namespace Rook.UI.Chat
             {
                 RhinoApp.WriteLine($"Rook: auto-generate manifest failed: {ex.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Returns true when the cached manifest still matches the current runtime
+        /// contract. This is stricter than "paths exist": it also detects the
+        /// upgrade case where an older build wrote %TEMP% as the working directory
+        /// even though rook is currently importable from an editable checkout.
+        /// </summary>
+        private static bool IsManifestCurrent(ChatServiceManifest manifest, out string reason)
+        {
+            if (!File.Exists(manifest.PythonPath))
+            {
+                reason = $"python path missing: '{manifest.PythonPath}'";
+                return false;
+            }
+
+            if (!Directory.Exists(manifest.WorkingDirectory))
+            {
+                reason = $"working directory missing: '{manifest.WorkingDirectory}'";
+                return false;
+            }
+
+            if (Directory.Exists(Path.Combine(manifest.WorkingDirectory, "src")))
+            {
+                reason = "";
+                return true;
+            }
+
+            var packageDir = ProbePipInstalledRook(manifest.PythonPath);
+            if (string.IsNullOrEmpty(packageDir))
+            {
+                reason = "";
+                return true;
+            }
+
+            var editableProjectRoot = FindEditableProjectRoot(packageDir);
+            if (string.IsNullOrEmpty(editableProjectRoot))
+            {
+                reason = "";
+                return true;
+            }
+
+            if (PathsEqual(manifest.WorkingDirectory, editableProjectRoot))
+            {
+                reason = "";
+                return true;
+            }
+
+            reason =
+                $"working directory '{manifest.WorkingDirectory}' does not match detected editable install root '{editableProjectRoot}'";
+            return false;
+        }
+
+        /// <summary>
+        /// Adds the standard "src" path entry when a working directory follows the
+        /// expected Python project layout.
+        /// </summary>
+        private static void AddSrcPathEntry(List<string> pythonPathEntries, string workingDirectory)
+        {
+            var srcDir = Path.Combine(workingDirectory, "src");
+            if (Directory.Exists(srcDir)
+                && !pythonPathEntries.Contains(srcDir, StringComparer.OrdinalIgnoreCase))
+            {
+                pythonPathEntries.Add(srcDir);
+            }
+        }
+
+        /// <summary>
+        /// Walks upward from an imported rook package directory looking for the
+        /// editable Python project root. We identify it by the presence of both
+        /// pyproject.toml and src/rook at the same ancestor.
+        /// </summary>
+        private static string? FindEditableProjectRoot(string packageDir)
+        {
+            try
+            {
+                var dir = new DirectoryInfo(packageDir.Trim());
+                for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
+                {
+                    if (File.Exists(Path.Combine(dir.FullName, "pyproject.toml"))
+                        && Directory.Exists(Path.Combine(dir.FullName, "src", "rook")))
+                    {
+                        return dir.FullName;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through to null. The caller will treat this as a
+                // non-editable install and use the existing fallback.
+            }
+
+            return null;
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            try
+            {
+                var normalizedLeft = Path.GetFullPath(left.Trim())
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var normalizedRight = Path.GetFullPath(right.Trim())
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
             }
         }
 
