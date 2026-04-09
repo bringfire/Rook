@@ -20,4 +20,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Also copy debug symbols so stack traces resolve to source.
+REM Non-fatal: the .rhp copy already succeeded — symbol drift is cosmetic.
+set SRC_PDB=%~dp0..\src\RookNative\bin\%CONFIG%\x64\RookNative.pdb
+set DST_PDB=%APPDATA%\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.pdb
+if exist "%SRC_PDB%" copy /Y "%SRC_PDB%" "%DST_PDB%" >nul
+
 echo Deploy succeeded.
