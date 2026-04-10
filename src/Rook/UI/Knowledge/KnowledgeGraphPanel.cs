@@ -27,12 +27,10 @@ namespace Rook.UI.Knowledge
             _documentSerialNumber = documentSerialNumber;
             _surface = new KnowledgeGraphSurface();
 
-            var content = _surface.CreateWebContent();
-
-            Content = new TableLayout
-            {
-                Rows = { new TableRow(content) { ScaleHeight = true } }
-            };
+            // Use the WebView directly as panel content.  Wrapping in
+            // TableLayout caused the WebView to lose its content on
+            // Rhino panel redraw (when clicking outside the panel).
+            Content = _surface.CreateWebContent();
         }
 
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
