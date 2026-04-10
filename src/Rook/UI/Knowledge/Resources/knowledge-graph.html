@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Graph</title>
+    <link rel="stylesheet" href="knowledge-graph.css">
+    <script src="vendor/cytoscape.min.js"></script>
+    <script src="vendor/layout-base.js"></script>
+    <script src="vendor/cose-base.js"></script>
+    <script src="vendor/cytoscape-fcose.js"></script>
+</head>
+<body>
+    <div id="toolbar">
+        <input type="text" id="search" placeholder="Search notes..." />
+        <select id="type-filter">
+            <option value="">All types</option>
+            <option value="component">component</option>
+            <option value="recipe">recipe</option>
+            <option value="struggle">struggle</option>
+            <option value="teaching">teaching</option>
+        </select>
+        <select id="category-filter">
+            <option value="">All categories</option>
+        </select>
+        <button id="btn-fit" title="Fit graph to view">Fit</button>
+        <button id="btn-reset" title="Reset filters">Reset</button>
+    </div>
+
+    <div id="main">
+        <div id="graph-container">
+            <div id="loading">Loading knowledge graph...</div>
+        </div>
+        <div id="sidebar" class="hidden">
+            <div id="sidebar-header">
+                <span id="sidebar-title"></span>
+                <button id="sidebar-close" title="Close">&times;</button>
+            </div>
+            <div id="sidebar-content"></div>
+        </div>
+    </div>
+
+    <div id="status-bar">
+        <span id="status-text">Connecting...</span>
+        <span id="status-counts"></span>
+    </div>
+
+    <script src="knowledge-graph.js"></script>
+</body>
+</html>

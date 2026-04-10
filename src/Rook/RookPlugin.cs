@@ -84,6 +84,12 @@ namespace Rook
                 System.Drawing.SystemIcons.Information,
                 PanelType.PerDoc);
 
+            // Register the Knowledge Graph panel (WebUI module)
+            var kgPanelType = typeof(UI.Knowledge.KnowledgeGraphPanel);
+            Panels.RegisterPanel(this, kgPanelType, "Knowledge Graph",
+                System.Drawing.SystemIcons.Information,
+                PanelType.PerDoc);
+
             BeginStartupRetries();
             RhinoApp.InvokeOnUiThread(new Action(TryInitializeRuntime));
 
