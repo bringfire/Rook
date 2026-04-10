@@ -5,15 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rook Chat</title>
     <link rel="stylesheet" href="chat.css">
-    <!-- Typography -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <!-- Marked.js for Markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- Highlight.js for syntax highlighting -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" id="hljs-theme">
-    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <!-- Vendored libraries (no remote fetches) -->
+    <script src="vendor/marked.min.js"></script>
+    <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme">
+    <script src="vendor/highlight.min.js"></script>
 </head>
 <body>
     <div id="chat-container">
@@ -33,8 +28,8 @@
             var hljsTheme = document.getElementById('hljs-theme');
             if (hljsTheme) {
                 hljsTheme.href = isDark
-                    ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css'
-                    : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css';
+                    ? 'vendor/github-dark.min.css'
+                    : 'vendor/github.min.css';
             }
         }
         detectTheme();
@@ -233,8 +228,8 @@
             var hljsTheme = document.getElementById('hljs-theme');
             if (hljsTheme) {
                 hljsTheme.href = isDark
-                    ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css'
-                    : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css';
+                    ? 'vendor/github-dark.min.css'
+                    : 'vendor/github.min.css';
             }
         }
 
@@ -543,9 +538,13 @@
         function sendUIResponse(blockId, value) {
             if (!_conversationId || !_servicePort) return;
             try {
+                var headers = { 'Content-Type': 'application/json' };
+                if (window.__rookSessionNonce) {
+                    headers['X-Rook-Session'] = window.__rookSessionNonce;
+                }
                 fetch('http://' + _serviceHost + ':' + _servicePort + '/agent/chat/ui-response', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify({
                         conversation_id: _conversationId,
                         block_id: blockId,

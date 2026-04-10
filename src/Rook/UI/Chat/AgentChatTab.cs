@@ -81,6 +81,11 @@ namespace Rook.UI.Chat
                     return;
                 }
 
+                // Attach session nonce so all HTTP calls include X-Rook-Session.
+                var nonce = ChatServiceManager.Instance.SessionNonce;
+                if (!string.IsNullOrEmpty(nonce))
+                    _client.SetSessionNonce(nonce);
+
                 if (!health.LlmConfigured)
                 {
                     SetStatus("Chat service unavailable", Colors.Red);

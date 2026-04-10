@@ -21,10 +21,18 @@ namespace Rook.Commands
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
             var panelId = RookChatPanel.PanelId;
-            var documentPanels = Panels.GetPanels(panelId, doc);
-            var hasDocumentPanel = documentPanels != null && documentPanels.Length > 0;
 
-            if (hasDocumentPanel)
+            // Check visibility, not instance existence.  Rhino keeps panel
+            // instances alive after close, so GetPanels returns non-empty
+            // even when the panel is hidden.
+            var openPanels = Panels.GetOpenPanelIds();
+            var isVisible = false;
+            foreach (var id in openPanels)
+            {
+                if (id == panelId) { isVisible = true; break; }
+            }
+
+            if (isVisible)
             {
                 Panels.ClosePanel(panelId, doc);
                 RhinoApp.WriteLine($"Rook Chat panel closed for document {doc.RuntimeSerialNumber}.");

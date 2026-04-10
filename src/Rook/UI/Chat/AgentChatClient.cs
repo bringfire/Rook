@@ -85,10 +85,23 @@ namespace Rook.UI.Chat
             PropertyNameCaseInsensitive = true
         };
 
+        private const string SessionHeaderName = "X-Rook-Session";
+
         public AgentChatClient()
         {
             _client = new HttpClient();
             _client.Timeout = TimeSpan.FromMinutes(5); // Long timeout for streaming
+        }
+
+        /// <summary>
+        /// Attach the session nonce so all subsequent requests include it.
+        /// Called once the chat service is started and the nonce is available.
+        /// </summary>
+        public void SetSessionNonce(string nonce)
+        {
+            _client.DefaultRequestHeaders.Remove(SessionHeaderName);
+            if (!string.IsNullOrEmpty(nonce))
+                _client.DefaultRequestHeaders.Add(SessionHeaderName, nonce);
         }
 
         private async Task<Uri> GetBaseUriAsync(bool startIfNeeded, CancellationToken ct = default)
