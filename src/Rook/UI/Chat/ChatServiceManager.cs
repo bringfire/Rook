@@ -161,6 +161,15 @@ namespace Rook.UI.Chat
         private CancellationTokenSource? _logTailerCts;
 
         private const string ExpectedOwner = "rhino-panel";
+        private const string NonceEnvVar = "ROOK_SESSION_NONCE";
+
+        /// <summary>
+        /// Per-chat-server-lifetime bearer token. Generated when the C# host
+        /// starts the Python chat service; passed via environment variable.
+        /// Required as <c>X-Rook-Session</c> header on all chat-server routes.
+        /// Not persisted in discovery files.
+        /// </summary>
+        public string? SessionNonce { get; private set; }
 
         private static int CurrentRhinoProcessId => Process.GetCurrentProcess().Id;
 
@@ -183,7 +192,19 @@ namespace Rook.UI.Chat
                 var existing = await GetHealthInternalAsync(startIfNeeded: false, ct: ct);
                 if (existing.ServiceAvailable)
                 {
-                    return existing;
+                    if (!string.IsNullOrEmpty(SessionNonce))
+                    {
+                        // Session nonce is still valid — reuse the running service.
+                        return existing;
+                    }
+
+                    // Service is running but we lost the nonce (companion reload,
+                    // panel recreation, etc.).  The Python process still enforces
+                    // the old nonce, so every non-health request would 403.  Stop
+                    // it and let the normal start path generate a fresh nonce.
+                    RhinoApp.WriteLine("Rook: restarting chat service — session nonce lost after companion reload");
+                    StopOwnedProcess();
+                    StopDiscoveredOwnedService();
                 }
 
                 var manifest = LoadManifest();
@@ -957,11 +978,18 @@ namespace Rook.UI.Chat
             // (we tail a log file instead) and no ProcessStartInfo.Environment
             // (we set env vars temporarily in the parent process).
 
+            // Generate a fresh session nonce for this chat-server lifetime.
+            var nonceBytes = new byte[32];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                rng.GetBytes(nonceBytes);
+            SessionNonce = Convert.ToBase64String(nonceBytes);
+
             // Collect environment overrides.
             var envOverrides = new Dictionary<string, string>
             {
                 ["PYTHONHOME"] = "",
                 ["ROOK_CHAT_SERVICE_OWNER"] = manifest.Owner,
+                [NonceEnvVar] = SessionNonce,
             };
             var pythonPathEntries = manifest.PythonPathEntries
                 .Where(path => !string.IsNullOrWhiteSpace(path))

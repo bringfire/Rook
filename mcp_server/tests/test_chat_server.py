@@ -121,8 +121,8 @@ class TestChatServer(AioHTTPTestCase):
         result = await resp.json()
         assert result["accepted"] is True
 
-        # Verify CORS header is present
-        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+        # Verify CORS header uses virtual host origin (not wildcard)
+        assert resp.headers.get("Access-Control-Allow-Origin") == "https://app.rook.invalid"
 
     async def test_ui_response_missing_fields(self):
         """POST /agent/chat/ui-response rejects missing conversation_id or block_id."""
@@ -150,12 +150,13 @@ class TestChatServer(AioHTTPTestCase):
         )
         assert resp.status == 404
 
-    async def test_ui_response_cors_preflight(self):
-        """OPTIONS /agent/chat/ui-response returns CORS headers."""
-        resp = await self.client.options("/agent/chat/ui-response")
-        assert resp.status == 204
-        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
-        assert "POST" in resp.headers.get("Access-Control-Allow-Methods", "")
+    async def test_cors_preflight_any_route(self):
+        """OPTIONS on any route returns CORS headers via middleware."""
+        for path in ["/agent/chat/ui-response", "/agent/chat/start", "/agent/chat/health"]:
+            resp = await self.client.options(path)
+            assert resp.status == 204, f"OPTIONS {path} returned {resp.status}"
+            assert resp.headers.get("Access-Control-Allow-Origin") == "https://app.rook.invalid"
+            assert "POST" in resp.headers.get("Access-Control-Allow-Methods", "")
 
     async def test_message_runs_turn_with_scoped_rhino_context(self):
         captured: list[dict[str, int | None]] = []
@@ -198,6 +199,91 @@ class TestChatServer(AioHTTPTestCase):
         conv = self.store.get(conv_id)
         assert conv is not None
         assert conv.document_serial_number == 91
+
+
+class TestChatServerWithNonce(AioHTTPTestCase):
+    """Tests with session nonce enforcement enabled."""
+
+    async def get_application(self):
+        self.store = ConversationStore()
+        self.builder = PromptBuilder()
+        self.runner = ChatRunner()
+        self.nonce = "test-nonce-abc123"
+        return create_chat_app(
+            store=self.store,
+            builder=self.builder,
+            runner=self.runner,
+            session_nonce=self.nonce,
+        )
+
+    async def test_request_without_nonce_is_rejected(self):
+        """Non-health routes reject requests without valid session nonce."""
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+        )
+        assert resp.status == 403
+        data = await resp.json()
+        assert "session" in data["error"].lower()
+
+    async def test_request_with_wrong_nonce_is_rejected(self):
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+            headers={"X-Rook-Session": "wrong-nonce"},
+        )
+        assert resp.status == 403
+
+    async def test_request_with_correct_nonce_succeeds(self):
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+            headers={"X-Rook-Session": self.nonce},
+        )
+        assert resp.status == 200
+        data = await resp.json()
+        assert "conversation_id" in data
+
+    async def test_health_exempt_from_nonce(self):
+        """Health endpoint works without nonce for startup polling."""
+        with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={
+            "rhino": {"connected": True},
+        })):
+            resp = await self.client.get("/agent/chat/health")
+            assert resp.status == 200
+
+    async def test_wrong_origin_rejected(self):
+        """Requests from unexpected browser origins are rejected."""
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+            headers={
+                "X-Rook-Session": self.nonce,
+                "Origin": "https://evil.example.com",
+            },
+        )
+        assert resp.status == 403
+
+    async def test_correct_origin_accepted(self):
+        """Requests from the trusted virtual host origin are accepted."""
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+            headers={
+                "X-Rook-Session": self.nonce,
+                "Origin": "https://app.rook.invalid",
+            },
+        )
+        assert resp.status == 200
+
+    async def test_no_origin_header_accepted(self):
+        """Non-browser callers (no Origin header) pass if nonce is valid."""
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker"},
+            headers={"X-Rook-Session": self.nonce},
+        )
+        assert resp.status == 200
 
 
 def test_write_discovery_file_uses_atomic_replace(monkeypatch, tmp_path):

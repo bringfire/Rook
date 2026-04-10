@@ -5,6 +5,9 @@ using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
+#if NET7_0_OR_GREATER
+using Microsoft.Web.WebView2.Core;
+#endif
 
 namespace Rook.UI.Chat
 {
@@ -154,6 +157,13 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
+        /// The virtual host origin used for all chat WebUI surfaces.
+        /// RFC 6761 reserves .invalid — it will never resolve externally.
+        /// </summary>
+        internal const string VirtualHostName = "app.rook.invalid";
+        internal static readonly string VirtualHostOrigin = $"https://{VirtualHostName}";
+
+        /// <summary>
         /// Create the chat container (WebView with TextArea fallback).
         /// </summary>
         private Control CreateChatContainer()
@@ -163,7 +173,19 @@ namespace Rook.UI.Chat
                 _webView = new WebView();
                 _webView.DocumentLoaded += OnDocumentLoaded;
 
-                var html = GetChatHtml();
+#if NET7_0_OR_GREATER
+                if (TrySetupVirtualHost())
+                {
+                    // Virtual host model — navigation happens in the
+                    // CoreWebView2InitializationCompleted handler.
+                    return _webView;
+                }
+#endif
+                // Fallback: self-contained minimal HTML when virtual host is
+                // unavailable (net48, missing WebView2).  The full chat.html
+                // references relative vendor/ paths that can't resolve under
+                // LoadHtml, so use the minimal version which is self-contained.
+                var html = GetMinimalChatHtml();
                 _webView.LoadHtml(html);
 
                 return _webView;
@@ -174,6 +196,193 @@ namespace Rook.UI.Chat
                 return CreateFallbackChat();
             }
         }
+
+#if NET7_0_OR_GREATER
+        /// <summary>
+        /// Set up WebView2 virtual host mapping so HTML/JS/CSS load from
+        /// <c>https://app.rook.invalid/</c> backed by extracted embedded
+        /// resources. Returns false if WebView2 native control is unavailable.
+        /// </summary>
+        private bool TrySetupVirtualHost()
+        {
+            try
+            {
+                // Access the native WPF WebView2 control through Eto's abstraction
+                var nativeControl = _webView?.ControlObject;
+                if (nativeControl == null)
+                    return false;
+
+                // The native control should be Microsoft.Web.WebView2.Wpf.WebView2.
+                // Use reflection to access CoreWebView2InitializationCompleted and
+                // avoid a hard type dependency on the WPF assembly (Rhino might
+                // update the handler in future versions).
+                var coreWv2Property = nativeControl.GetType().GetProperty("CoreWebView2");
+                if (coreWv2Property == null)
+                    return false;
+
+                // CoreWebView2 may already be initialized (unlikely at construction
+                // time) or we need to wait for the initialization event.
+                var coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
+                if (coreWv2 != null)
+                {
+                    ConfigureVirtualHost(coreWv2);
+                    return true;
+                }
+
+                // Subscribe to initialization completed event
+                var initEvent = nativeControl.GetType().GetEvent("CoreWebView2InitializationCompleted");
+                if (initEvent == null)
+                    return false;
+
+                // Use a typed delegate that matches the event signature
+                EventHandler<CoreWebView2InitializationCompletedEventArgs> handler = null!;
+                handler = (sender, args) =>
+                {
+                    initEvent.RemoveEventHandler(nativeControl, handler);
+                    if (args.IsSuccess)
+                    {
+                        coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
+                        if (coreWv2 != null)
+                            ConfigureVirtualHost(coreWv2);
+                    }
+                    else
+                    {
+                        RhinoApp.WriteLine($"Rook: WebView2 init failed, falling back to minimal HTML");
+                        FallbackToMinimalHtml();
+                    }
+                };
+                initEvent.AddEventHandler(nativeControl, handler);
+
+                // Trigger initialization if not already started
+                var ensureMethod = nativeControl.GetType().GetMethod("EnsureCoreWebView2Async",
+                    new[] { typeof(CoreWebView2Environment) });
+                ensureMethod?.Invoke(nativeControl, new object?[] { null });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"Rook: virtual host setup failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Configure virtual host via WebResourceRequested (serves embedded
+        /// resources in-memory — no temp files on disk) and navigate.
+        /// Called once CoreWebView2 is initialized.
+        /// </summary>
+        private async void ConfigureVirtualHost(CoreWebView2 coreWebView2)
+        {
+            try
+            {
+                // Intercept all requests to the virtual host and serve from
+                // embedded resources.  No temp folder = no local tampering.
+                coreWebView2.AddWebResourceRequestedFilter(
+                    $"{VirtualHostOrigin}/*",
+                    CoreWebView2WebResourceContext.All);
+                coreWebView2.WebResourceRequested += OnWebResourceRequested;
+
+                // Inject session nonce BEFORE navigation.  Awaiting ensures
+                // the script is registered before the first page load.
+                var nonce = ChatServiceManager.Instance.SessionNonce;
+                if (!string.IsNullOrEmpty(nonce))
+                {
+                    var escapedNonce = EscapeForJavaScript(nonce);
+                    await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                        $"window.__rookSessionNonce = '{escapedNonce}';");
+                }
+
+                coreWebView2.Navigate($"{VirtualHostOrigin}/chat.html");
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"Rook: virtual host navigation failed: {ex.Message}");
+                FallbackToMinimalHtml();
+            }
+        }
+
+        /// <summary>
+        /// Serve embedded resources for <c>https://app.rook.invalid/*</c>
+        /// requests.  Maps URL paths to assembly resource names.
+        /// </summary>
+        private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            var uri = new Uri(e.Request.Uri);
+            if (!uri.Host.Equals(VirtualHostName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Convert URL path to embedded resource name:
+            //   /chat.html          → Rook.UI.Chat.Resources.chat.html
+            //   /vendor/marked.min.js → Rook.UI.Chat.Resources.vendor.marked.min.js
+            var path = uri.AbsolutePath.TrimStart('/').Replace('/', '.');
+            var resourceName = $"Rook.UI.Chat.Resources.{path}";
+
+            var assembly = Assembly.GetExecutingAssembly();
+            var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream == null)
+            {
+                // 404 for unknown resources
+                return;
+            }
+
+            var headers = GetResponseHeaders(uri.AbsolutePath);
+            var coreWv2 = sender as CoreWebView2;
+            if (coreWv2 != null)
+            {
+                e.Response = coreWv2.Environment.CreateWebResourceResponse(
+                    stream, 200, "OK", headers);
+            }
+        }
+
+        // Content-Security-Policy for HTML resources served from the virtual host.
+        // - script-src 'self' 'unsafe-inline': chat.html has a large inline <script>
+        //   block; extracting it to chat.js would allow removing 'unsafe-inline'.
+        // - connect-src: the critical directive — restricts fetch() targets to the
+        //   virtual host and the localhost chat server.
+        // - img-src: data: is needed for base64-encoded viewport captures.
+        private const string ContentSecurityPolicy =
+            "default-src 'none'; " +
+            "script-src 'self' 'unsafe-inline'; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            $"connect-src https://{VirtualHostName} http://127.0.0.1:*; " +
+            "img-src 'self' data:; " +
+            "font-src 'self'";
+
+        private static string GetResponseHeaders(string path)
+        {
+            var contentType = GuessContentType(path);
+            if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"Content-Type: {contentType}\r\n" +
+                       $"Content-Security-Policy: {ContentSecurityPolicy}";
+            }
+            return $"Content-Type: {contentType}";
+        }
+
+        private static string GuessContentType(string path)
+        {
+            if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) return "text/html; charset=utf-8";
+            if (path.EndsWith(".css", StringComparison.OrdinalIgnoreCase)) return "text/css; charset=utf-8";
+            if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)) return "application/javascript; charset=utf-8";
+            if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return "application/json; charset=utf-8";
+            if (path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase)) return "font/woff2";
+            return "application/octet-stream";
+        }
+
+        /// <summary>
+        /// Fall back to the self-contained minimal HTML (no vendor dependencies).
+        /// Used when virtual host setup fails or WebView2 init fails.
+        /// </summary>
+        private void FallbackToMinimalHtml()
+        {
+            Application.Instance.Invoke(() =>
+            {
+                var html = GetMinimalChatHtml();
+                _webView?.LoadHtml(html);
+            });
+        }
+#endif
 
         /// <summary>
         /// Create a fallback text-based chat display.

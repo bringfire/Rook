@@ -25,6 +25,12 @@ DISCOVERY_FOLDER = Path(tempfile.gettempdir()) / "rook"
 DISCOVERY_FILE_PREFIX = "chat-service-"
 SERVICE_VERSION = "1.0.0"
 
+# Virtual host origin for WebView2 surfaces.  .invalid is reserved by
+# RFC 6761 and will never resolve externally.
+ALLOWED_ORIGIN = "https://app.rook.invalid"
+SESSION_HEADER = "X-Rook-Session"
+NONCE_ENV_VAR = "ROOK_SESSION_NONCE"
+
 # Typed app keys (avoids aiohttp NotAppKeyWarning)
 _STORE_KEY: web.AppKey[ConversationStore] = web.AppKey("_store", ConversationStore)
 _BUILDER_KEY: web.AppKey[PromptBuilder] = web.AppKey("_builder", PromptBuilder)
@@ -33,6 +39,7 @@ _PORT_STATE_KEY: web.AppKey[dict[str, int]] = web.AppKey("_port_state", dict)
 _INCLUDE_GH_HEALTH_KEY: web.AppKey[bool] = web.AppKey("_include_gh_health", bool)
 _OWNER_KEY: web.AppKey[str] = web.AppKey("_owner", str)
 _RHINO_PROCESS_ID_KEY: web.AppKey[int] = web.AppKey("_rhino_process_id", int)
+_SESSION_NONCE_KEY: web.AppKey[str] = web.AppKey("_session_nonce", str)
 
 # Module-level singletons (initialized on first request or at startup)
 _store: Optional[ConversationStore] = None
@@ -59,6 +66,63 @@ def _get_runner() -> ChatRunner:
     if _runner is None:
         _runner = ChatRunner()
     return _runner
+
+
+# --- CORS + Session Auth Middleware ---
+
+_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": f"Content-Type, {SESSION_HEADER}",
+}
+
+
+@web.middleware
+async def cors_and_session_middleware(request: web.Request, handler):
+    """Enforce origin allowlist and session nonce on all routes.
+
+    The WebView2 chat surface loads from https://app.rook.invalid (a virtual
+    host backed by embedded resources).  CORS is hygiene — it constrains
+    browser behavior.  The session nonce (X-Rook-Session) is the real gate
+    — it proves the caller was initialized by the C# host.
+
+    Health endpoint is exempt from nonce checks to allow the C# host to
+    poll during startup before the nonce is configured in the WebView.
+    """
+    # Handle CORS preflight for all routes
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_CORS_HEADERS)
+
+    # Reject browser requests from unexpected origins.  Non-browser callers
+    # (C# HttpClient, agents) don't send Origin, so absence is allowed —
+    # the nonce gate covers those callers.
+    origin = request.headers.get("Origin")
+    if origin is not None and origin != ALLOWED_ORIGIN:
+        return web.json_response(
+            {"error": f"Origin '{origin}' not allowed"},
+            status=403,
+            headers=_CORS_HEADERS,
+        )
+
+    # Check session nonce (skip for health — needed during startup polling)
+    expected_nonce = request.app.get(_SESSION_NONCE_KEY, "")
+    if expected_nonce and not request.path.endswith("/health"):
+        provided = request.headers.get(SESSION_HEADER, "")
+        if provided != expected_nonce:
+            return web.json_response(
+                {"error": "Missing or invalid session token"},
+                status=403,
+                headers=_CORS_HEADERS,
+            )
+
+    # Call the actual handler
+    response = await handler(request)
+
+    # Add CORS headers to all responses
+    for key, value in _CORS_HEADERS.items():
+        response.headers[key] = value
+
+    return response
 
 
 # --- Handlers ---
@@ -222,26 +286,15 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
 async def handle_ui_response(request: web.Request) -> web.Response:
     """POST /agent/chat/ui-response — receive structured input from a UI block.
 
-    Called directly from the WebView via fetch(). Eto's WebView2 on Windows
-    loads HTML from a local resource, so the origin is null/file://. The CORS
-    headers below allow this cross-origin request to localhost.
+    Called from the WebView via fetch().  The WebView loads from
+    https://app.rook.invalid (virtual host backed by embedded resources).
+    CORS and session nonce are enforced by cors_and_session_middleware.
 
     NOTE: This endpoint only appends the UI response to the conversation history.
     It does NOT trigger a new LLM turn automatically — the agent sees the response
     on the next user-initiated /message call. Auto-triggering is a known future
     enhancement (requires the WebView to initiate a streaming response).
     """
-    # Handle CORS preflight
-    if request.method == "OPTIONS":
-        return web.Response(
-            status=204,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type",
-            },
-        )
-
     try:
         body = await request.json()
     except json.JSONDecodeError:
@@ -269,9 +322,7 @@ async def handle_ui_response(request: web.Request) -> web.Response:
         }),
     })
 
-    resp = web.json_response({"accepted": True})
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
+    return web.json_response({"accepted": True})
 
 
 async def handle_stop(request: web.Request) -> web.Response:
@@ -301,13 +352,20 @@ def create_chat_app(
     include_gh_health: bool = False,
     owner: str = "external",
     rhino_process_id: int = 0,
+    session_nonce: Optional[str] = None,
 ) -> web.Application:
     """Create the aiohttp application for the chat server.
 
     Optional dependency injection for testing — pass store/builder/runner
     to avoid module-level singletons that persist across tests.
+
+    ``session_nonce`` is the per-lifetime bearer token generated by the C#
+    host.  When set, every route (except /health) requires it as the
+    ``X-Rook-Session`` header.  Read from the ``ROOK_SESSION_NONCE`` env
+    var by default if not passed explicitly.
     """
-    app = web.Application()
+    nonce = session_nonce or os.environ.get(NONCE_ENV_VAR, "")
+    app = web.Application(middlewares=[cors_and_session_middleware])
 
     # Store injected dependencies on app dict so handlers can find them
     if store is not None:
@@ -320,6 +378,8 @@ def create_chat_app(
     app[_INCLUDE_GH_HEALTH_KEY] = include_gh_health
     app[_OWNER_KEY] = owner
     app[_RHINO_PROCESS_ID_KEY] = rhino_process_id
+    if nonce:
+        app[_SESSION_NONCE_KEY] = nonce
 
     app.router.add_get("/agent/chat/health", handle_health)
     app.router.add_get("/agent/chat/personas", handle_personas)
@@ -327,7 +387,6 @@ def create_chat_app(
     app.router.add_post("/agent/chat/message", handle_message)
     app.router.add_post("/agent/chat/stop", handle_stop)
     app.router.add_post("/agent/chat/ui-response", handle_ui_response)
-    app.router.add_route("OPTIONS", "/agent/chat/ui-response", handle_ui_response)
     return app
 
 

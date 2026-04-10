@@ -80,6 +80,9 @@ namespace Rook.UI.Chat
                 var health = await client.GetHealthAsync(startIfNeeded: true);
                 if (health.ServiceAvailable)
                 {
+                    var nonce = ChatServiceManager.Instance.SessionNonce;
+                    if (!string.IsNullOrEmpty(nonce))
+                        client.SetSessionNonce(nonce);
                     var personas = await client.GetPersonasAsync();
                     foreach (var p in personas)
                     {
