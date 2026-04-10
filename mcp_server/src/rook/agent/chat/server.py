@@ -104,9 +104,10 @@ async def cors_and_session_middleware(request: web.Request, handler):
             headers=_CORS_HEADERS,
         )
 
-    # Check session nonce (skip for health — needed during startup polling)
+    # Check session nonce (skip for health — needed during startup polling).
+    # Exact path match prevents accidental exemption of future /*/health routes.
     expected_nonce = request.app.get(_SESSION_NONCE_KEY, "")
-    if expected_nonce and not request.path.endswith("/health"):
+    if expected_nonce and request.path != "/agent/chat/health":
         provided = request.headers.get(SESSION_HEADER, "")
         if provided != expected_nonce:
             return web.json_response(
@@ -342,6 +343,39 @@ async def handle_stop(request: web.Request) -> web.Response:
     return web.json_response({"error": "Conversation not found"}, status=404)
 
 
+# --- Knowledge Graph Handlers ---
+
+_knowledge_store = None
+
+
+def _get_knowledge_store():
+    """Lazy-load the UnifiedStore for knowledge graph routes."""
+    global _knowledge_store
+    if _knowledge_store is None:
+        from ...learning.unified_store import UnifiedStore
+        _knowledge_store = UnifiedStore()
+    return _knowledge_store
+
+
+async def handle_knowledge_graph(request: web.Request) -> web.Response:
+    """GET /knowledge/graph — full graph payload for Cytoscape."""
+    from .knowledge_graph_export import build_knowledge_graph_payload
+    store = _get_knowledge_store()
+    payload = build_knowledge_graph_payload(store)
+    return web.json_response(payload)
+
+
+async def handle_knowledge_note(request: web.Request) -> web.Response:
+    """GET /knowledge/note/{note_id} — single note detail."""
+    from .knowledge_graph_export import build_note_detail_payload
+    note_id = request.match_info["note_id"]
+    store = _get_knowledge_store()
+    payload = build_note_detail_payload(store, note_id)
+    if payload is None:
+        return web.json_response({"error": "Note not found"}, status=404)
+    return web.json_response(payload)
+
+
 # --- App Factory ---
 
 def create_chat_app(
@@ -387,6 +421,10 @@ def create_chat_app(
     app.router.add_post("/agent/chat/message", handle_message)
     app.router.add_post("/agent/chat/stop", handle_stop)
     app.router.add_post("/agent/chat/ui-response", handle_ui_response)
+
+    # Knowledge graph routes (WebUI module, same nonce/CORS middleware)
+    app.router.add_get("/knowledge/graph", handle_knowledge_graph)
+    app.router.add_get("/knowledge/note/{note_id}", handle_knowledge_note)
     return app
 
 

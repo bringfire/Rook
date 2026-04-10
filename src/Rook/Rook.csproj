@@ -29,9 +29,10 @@
     <PackageReference Include="System.Net.Http" Version="4.3.4" Condition="'$(TargetFramework)' == 'net48'" />
   </ItemGroup>
 
-  <!-- Embedded resources for chat panel UI -->
+  <!-- Embedded resources for WebUI surfaces -->
   <ItemGroup>
     <EmbeddedResource Include="UI\Chat\Resources\**\*" />
+    <EmbeddedResource Include="UI\Knowledge\Resources\**\*" />
   </ItemGroup>
 
   <!-- RUI toolbar file - copied to output for programmatic loading -->

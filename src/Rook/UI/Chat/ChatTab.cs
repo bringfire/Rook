@@ -1,13 +1,9 @@
 using System;
-using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
-#if NET7_0_OR_GREATER
-using Microsoft.Web.WebView2.Core;
-#endif
+using Rook.UI.Web;
 
 namespace Rook.UI.Chat
 {
@@ -15,27 +11,29 @@ namespace Rook.UI.Chat
     /// Abstract base class for tabbed chat panels. Provides WebView-based rich text
     /// rendering, input area, Send/Stop/Clear buttons, status label, and streaming
     /// support. Subclasses implement message sending and stop logic.
+    ///
+    /// Uses <see cref="RookWebSurface"/> for the hardened WebView host (virtual host,
+    /// CSP, nonce injection, in-memory resource serving).
     /// </summary>
     public abstract class ChatTab : Panel
     {
-        // ─── WebView ──────────────────────────────────────────────────────
-        private WebView? _webView;
-        private bool _webViewReady;
+        // ─── Web surface (substrate) ──────────────────────────────────
+        private readonly ChatWebSurface _webSurface;
 
-        // ─── Eto controls ─────────────────────────────────────────────────
+        // ─── Eto controls ─────────────────────────────────────────────
         private TextArea _inputArea = null!;
         private Button _sendButton = null!;
         private Button _clearButton = null!;
         private Button _stopButton = null!;
         private Label _statusLabel = null!;
 
-        // ─── Fallback chat (when WebView is unavailable) ──────────────────
+        // ─── Fallback chat (when WebView is unavailable) ──────────────
         private TextArea? _fallbackChat;
 
-        // ─── State ────────────────────────────────────────────────────────
+        // ─── State ────────────────────────────────────────────────────
         private bool _isProcessing;
 
-        // ─── Public properties ────────────────────────────────────────────
+        // ─── Public properties ────────────────────────────────────────
 
         /// <summary>
         /// Display name shown on the tab header.
@@ -47,7 +45,7 @@ namespace Rook.UI.Chat
         /// </summary>
         public Color TabColor { get; }
 
-        // ─── Abstract / virtual hooks ─────────────────────────────────────
+        // ─── Abstract / virtual hooks ─────────────────────────────────
 
         /// <summary>
         /// Called when the user clicks Send (or presses Enter). Subclasses
@@ -78,7 +76,7 @@ namespace Rook.UI.Chat
         {
         }
 
-        // ─── Constructor ──────────────────────────────────────────────────
+        // ─── Constructor ──────────────────────────────────────────────
 
         /// <summary>
         /// Create a new ChatTab.
@@ -89,16 +87,14 @@ namespace Rook.UI.Chat
         {
             TabLabel = tabLabel;
             TabColor = tabColor;
+            _webSurface = new ChatWebSurface(this);
             InitializeComponents();
             LayoutControls();
             AttachEvents();
         }
 
-        // ─── UI initialisation (extracted from RookChatPanel) ─────────────
+        // ─── UI initialisation ───────────────────────────────────────
 
-        /// <summary>
-        /// Create the status label, input area, and control buttons.
-        /// </summary>
         private void InitializeComponents()
         {
             _statusLabel = new Label
@@ -118,12 +114,15 @@ namespace Rook.UI.Chat
             _clearButton = new Button { Text = "Clear", Width = 70 };
         }
 
-        /// <summary>
-        /// Arrange controls using TableLayout.
-        /// </summary>
         private void LayoutControls()
         {
-            var chatContainer = CreateChatContainer();
+            // Get the WebView (or fallback) from the substrate
+            var chatContainer = _webSurface.CreateWebContent();
+
+            // If CreateWebContent returned a TextArea fallback, capture it
+            // so AddMessageToChat can append text in degraded mode.
+            if (chatContainer is TextArea fallback)
+                _fallbackChat = fallback;
 
             var layout = new TableLayout
             {
@@ -131,20 +130,16 @@ namespace Rook.UI.Chat
                 Spacing = new Size(5, 5),
                 Rows =
                 {
-                    // Chat display area (WebView or fallback)
                     new TableRow(chatContainer) { ScaleHeight = true },
 
-                    // Status bar
                     new TableRow(new TableLayout
                     {
                         Spacing = new Size(5, 0),
                         Rows = { new TableRow(_statusLabel, null) }
                     }),
 
-                    // Input area
                     new TableRow(_inputArea),
 
-                    // Button row (no Settings button -- that stays in the panel)
                     new TableRow(new TableLayout
                     {
                         Spacing = new Size(5, 0),
@@ -156,308 +151,210 @@ namespace Rook.UI.Chat
             Content = layout;
         }
 
-        /// <summary>
-        /// The virtual host origin used for all chat WebUI surfaces.
-        /// RFC 6761 reserves .invalid — it will never resolve externally.
-        /// </summary>
-        internal const string VirtualHostName = "app.rook.invalid";
-        internal static readonly string VirtualHostOrigin = $"https://{VirtualHostName}";
+        // ─── JavaScript helpers ──────────────────────────────────────
 
         /// <summary>
-        /// Create the chat container (WebView with TextArea fallback).
+        /// Execute JavaScript in the WebView on the UI thread.
         /// </summary>
-        private Control CreateChatContainer()
+        protected void ExecuteScript(string script)
         {
-            try
-            {
-                _webView = new WebView();
-                _webView.DocumentLoaded += OnDocumentLoaded;
-
-#if NET7_0_OR_GREATER
-                if (TrySetupVirtualHost())
-                {
-                    // Virtual host model — navigation happens in the
-                    // CoreWebView2InitializationCompleted handler.
-                    return _webView;
-                }
-#endif
-                // Fallback: self-contained minimal HTML when virtual host is
-                // unavailable (net48, missing WebView2).  The full chat.html
-                // references relative vendor/ paths that can't resolve under
-                // LoadHtml, so use the minimal version which is self-contained.
-                var html = GetMinimalChatHtml();
-                _webView.LoadHtml(html);
-
-                return _webView;
-            }
-            catch (Exception ex)
-            {
-                RhinoApp.WriteLine($"WebView creation failed: {ex.Message}");
-                return CreateFallbackChat();
-            }
+            _webSurface.ExecuteScript(script);
         }
 
-#if NET7_0_OR_GREATER
         /// <summary>
-        /// Set up WebView2 virtual host mapping so HTML/JS/CSS load from
-        /// <c>https://app.rook.invalid/</c> backed by extracted embedded
-        /// resources. Returns false if WebView2 native control is unavailable.
+        /// Escape a string for safe embedding in a JavaScript string literal.
         /// </summary>
-        private bool TrySetupVirtualHost()
+        protected static string EscapeForJavaScript(string input)
         {
-            try
+            return RookWebSurface.EscapeForJavaScript(input);
+        }
+
+        // ─── Chat display methods ────────────────────────────────────
+
+        /// <summary>
+        /// Add a message bubble to the chat display.
+        /// </summary>
+        protected void AddMessageToChat(string role, string content)
+        {
+            if (_webSurface.IsWebViewReady)
             {
-                // Access the native WPF WebView2 control through Eto's abstraction
-                var nativeControl = _webView?.ControlObject;
-                if (nativeControl == null)
-                    return false;
-
-                // The native control should be Microsoft.Web.WebView2.Wpf.WebView2.
-                // Use reflection to access CoreWebView2InitializationCompleted and
-                // avoid a hard type dependency on the WPF assembly (Rhino might
-                // update the handler in future versions).
-                var coreWv2Property = nativeControl.GetType().GetProperty("CoreWebView2");
-                if (coreWv2Property == null)
-                    return false;
-
-                // CoreWebView2 may already be initialized (unlikely at construction
-                // time) or we need to wait for the initialization event.
-                var coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
-                if (coreWv2 != null)
-                {
-                    ConfigureVirtualHost(coreWv2);
-                    return true;
-                }
-
-                // Subscribe to initialization completed event
-                var initEvent = nativeControl.GetType().GetEvent("CoreWebView2InitializationCompleted");
-                if (initEvent == null)
-                    return false;
-
-                // Use a typed delegate that matches the event signature
-                EventHandler<CoreWebView2InitializationCompletedEventArgs> handler = null!;
-                handler = (sender, args) =>
-                {
-                    initEvent.RemoveEventHandler(nativeControl, handler);
-                    if (args.IsSuccess)
-                    {
-                        coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
-                        if (coreWv2 != null)
-                            ConfigureVirtualHost(coreWv2);
-                    }
-                    else
-                    {
-                        RhinoApp.WriteLine($"Rook: WebView2 init failed, falling back to minimal HTML");
-                        FallbackToMinimalHtml();
-                    }
-                };
-                initEvent.AddEventHandler(nativeControl, handler);
-
-                // Trigger initialization if not already started
-                var ensureMethod = nativeControl.GetType().GetMethod("EnsureCoreWebView2Async",
-                    new[] { typeof(CoreWebView2Environment) });
-                ensureMethod?.Invoke(nativeControl, new object?[] { null });
-
-                return true;
+                var escapedContent = EscapeForJavaScript(content);
+                ExecuteScript($"window.chatAPI.addMessage('{role}', '{escapedContent}')");
             }
-            catch (Exception ex)
+            else if (_fallbackChat != null)
             {
-                RhinoApp.WriteLine($"Rook: virtual host setup failed: {ex.Message}");
-                return false;
+                var prefix = role == "user" ? "You: " : role == "assistant" ? "Rook: " : $"[{role}]: ";
+                _fallbackChat.Append($"{prefix}{content}\n\n");
             }
         }
 
         /// <summary>
-        /// Configure virtual host via WebResourceRequested (serves embedded
-        /// resources in-memory — no temp files on disk) and navigate.
-        /// Called once CoreWebView2 is initialized.
+        /// Update (or create) the currently-streaming assistant message.
         /// </summary>
-        private async void ConfigureVirtualHost(CoreWebView2 coreWebView2)
+        protected void UpdateStreamingChat(string content)
         {
-            try
+            if (_webSurface.IsWebViewReady)
             {
-                // Intercept all requests to the virtual host and serve from
-                // embedded resources.  No temp folder = no local tampering.
-                coreWebView2.AddWebResourceRequestedFilter(
-                    $"{VirtualHostOrigin}/*",
-                    CoreWebView2WebResourceContext.All);
-                coreWebView2.WebResourceRequested += OnWebResourceRequested;
-
-                // Inject session nonce BEFORE navigation.  Awaiting ensures
-                // the script is registered before the first page load.
-                var nonce = ChatServiceManager.Instance.SessionNonce;
-                if (!string.IsNullOrEmpty(nonce))
-                {
-                    var escapedNonce = EscapeForJavaScript(nonce);
-                    await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                        $"window.__rookSessionNonce = '{escapedNonce}';");
-                }
-
-                coreWebView2.Navigate($"{VirtualHostOrigin}/chat.html");
-            }
-            catch (Exception ex)
-            {
-                RhinoApp.WriteLine($"Rook: virtual host navigation failed: {ex.Message}");
-                FallbackToMinimalHtml();
+                var escapedContent = EscapeForJavaScript(content);
+                ExecuteScript($"window.chatAPI.updateStreamingMessage('{escapedContent}')");
             }
         }
 
         /// <summary>
-        /// Serve embedded resources for <c>https://app.rook.invalid/*</c>
-        /// requests.  Maps URL paths to assembly resource names.
+        /// Show or hide the typing indicator dots.
         /// </summary>
-        private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+        protected void ShowTypingIndicator(bool show)
         {
-            var uri = new Uri(e.Request.Uri);
-            if (!uri.Host.Equals(VirtualHostName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            // Convert URL path to embedded resource name:
-            //   /chat.html          → Rook.UI.Chat.Resources.chat.html
-            //   /vendor/marked.min.js → Rook.UI.Chat.Resources.vendor.marked.min.js
-            var path = uri.AbsolutePath.TrimStart('/').Replace('/', '.');
-            var resourceName = $"Rook.UI.Chat.Resources.{path}";
-
-            var assembly = Assembly.GetExecutingAssembly();
-            var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream == null)
+            if (_webSurface.IsWebViewReady)
             {
-                // 404 for unknown resources
-                return;
+                ExecuteScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})");
             }
-
-            var headers = GetResponseHeaders(uri.AbsolutePath);
-            var coreWv2 = sender as CoreWebView2;
-            if (coreWv2 != null)
-            {
-                e.Response = coreWv2.Environment.CreateWebResourceResponse(
-                    stream, 200, "OK", headers);
-            }
-        }
-
-        // Content-Security-Policy for HTML resources served from the virtual host.
-        // - script-src 'self' 'unsafe-inline': chat.html has a large inline <script>
-        //   block; extracting it to chat.js would allow removing 'unsafe-inline'.
-        // - connect-src: the critical directive — restricts fetch() targets to the
-        //   virtual host and the localhost chat server.
-        // - img-src: data: is needed for base64-encoded viewport captures.
-        private const string ContentSecurityPolicy =
-            "default-src 'none'; " +
-            "script-src 'self' 'unsafe-inline'; " +
-            "style-src 'self' 'unsafe-inline'; " +
-            $"connect-src https://{VirtualHostName} http://127.0.0.1:*; " +
-            "img-src 'self' data:; " +
-            "font-src 'self'";
-
-        private static string GetResponseHeaders(string path)
-        {
-            var contentType = GuessContentType(path);
-            if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
-            {
-                return $"Content-Type: {contentType}\r\n" +
-                       $"Content-Security-Policy: {ContentSecurityPolicy}";
-            }
-            return $"Content-Type: {contentType}";
-        }
-
-        private static string GuessContentType(string path)
-        {
-            if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) return "text/html; charset=utf-8";
-            if (path.EndsWith(".css", StringComparison.OrdinalIgnoreCase)) return "text/css; charset=utf-8";
-            if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)) return "application/javascript; charset=utf-8";
-            if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return "application/json; charset=utf-8";
-            if (path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase)) return "font/woff2";
-            return "application/octet-stream";
         }
 
         /// <summary>
-        /// Fall back to the self-contained minimal HTML (no vendor dependencies).
-        /// Used when virtual host setup fails or WebView2 init fails.
+        /// End the current streaming message.
         /// </summary>
-        private void FallbackToMinimalHtml()
+        protected void FinalizeStreaming()
+        {
+            if (_webSurface.IsWebViewReady)
+            {
+                ExecuteScript("window.chatAPI.finalizeStreamingMessage()");
+            }
+        }
+
+        /// <summary>
+        /// Add a base64-encoded image to the chat display.
+        /// </summary>
+        protected void AddImageToChat(string base64Data)
+        {
+            if (_webSurface.IsWebViewReady)
+            {
+                ExecuteScript($"window.chatAPI.addImage('{base64Data}')");
+            }
+        }
+
+        // ─── Status helpers ──────────────────────────────────────────
+
+        protected void SetStatus(string text, Color color)
         {
             Application.Instance.Invoke(() =>
             {
-                var html = GetMinimalChatHtml();
-                _webView?.LoadHtml(html);
+                _statusLabel.Text = text;
+                _statusLabel.TextColor = color;
             });
         }
-#endif
 
-        /// <summary>
-        /// Create a fallback text-based chat display.
-        /// </summary>
-        private Control CreateFallbackChat()
+        protected void SetProcessing(bool processing)
         {
-            _fallbackChat = new TextArea
+            _isProcessing = processing;
+            Application.Instance.Invoke(() =>
             {
-                ReadOnly = true,
-                Wrap = true,
-                Font = new Font("Consolas", 10)
+                UpdateUIState();
+            });
+        }
+
+        // ─── Event wiring ────────────────────────────────────────────
+
+        private void AttachEvents()
+        {
+            _sendButton.Click += OnSendClicked;
+            _stopButton.Click += OnStopClicked;
+            _clearButton.Click += OnClearClicked;
+
+            _inputArea.KeyDown += (s, e) =>
+            {
+                if (e.Key == Keys.Enter && !e.Modifiers.HasFlag(Keys.Shift))
+                {
+                    e.Handled = true;
+                    OnSendClicked(s, e);
+                }
             };
-            return _fallbackChat;
         }
 
-        /// <summary>
-        /// Called when the WebView finishes loading the HTML document.
-        /// </summary>
-        private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e)
-        {
-            _webViewReady = true;
-            Application.Instance.Invoke(() =>
-            {
-                _statusLabel.Text = "Ready";
-                _statusLabel.TextColor = Colors.Green;
-            });
-        }
+        // ─── Button handlers ─────────────────────────────────────────
 
-        // ─── Chat HTML ───────────────────────────────────────────────────
-
-        /// <summary>
-        /// Load the chat HTML from embedded resources, inlining the CSS.
-        /// Falls back to <see cref="GetMinimalChatHtml"/> on failure.
-        /// </summary>
-        private string GetChatHtml()
+        private async void OnSendClicked(object? sender, EventArgs e)
         {
+            var message = _inputArea.Text?.Trim();
+            if (string.IsNullOrEmpty(message) || _isProcessing)
+                return;
+
+            _isProcessing = true;
+            UpdateUIState();
+
+            _inputArea.Text = "";
+
+            AddMessageToChat("user", message);
+            ShowTypingIndicator(true);
+
+            SetStatus("Sending...", Colors.Blue);
+
             try
             {
-                var assembly = Assembly.GetExecutingAssembly();
-                var htmlResourceName = "Rook.UI.Chat.Resources.chat.html";
-                var cssResourceName = "Rook.UI.Chat.Resources.chat.css";
-
-                using var htmlStream = assembly.GetManifestResourceStream(htmlResourceName);
-                if (htmlStream != null)
-                {
-                    using var reader = new StreamReader(htmlStream);
-                    var html = reader.ReadToEnd();
-
-                    // Inline the CSS
-                    using var cssStream = assembly.GetManifestResourceStream(cssResourceName);
-                    if (cssStream != null)
-                    {
-                        using var cssReader = new StreamReader(cssStream);
-                        var css = cssReader.ReadToEnd();
-                        html = html.Replace("<link rel=\"stylesheet\" href=\"chat.css\">",
-                            $"<style>{css}</style>");
-                    }
-
-                    return html;
-                }
+                await OnSendMessage(message);
             }
             catch (Exception ex)
             {
-                RhinoApp.WriteLine($"Failed to load chat resources: {ex.Message}");
+                Application.Instance.Invoke(() =>
+                {
+                    ShowTypingIndicator(false);
+                    AddMessageToChat("error", ex.Message);
+                    _isProcessing = false;
+                    UpdateUIState();
+                    SetStatus("Error", Colors.Red);
+                });
             }
-
-            return GetMinimalChatHtml();
         }
 
-        /// <summary>
-        /// Minimal self-contained HTML used when embedded resources are unavailable.
-        /// </summary>
-        private string GetMinimalChatHtml()
+        private void OnStopClicked(object? sender, EventArgs e)
         {
-            return @"<!DOCTYPE html>
+            OnStopRequested();
+            ShowTypingIndicator(false);
+            FinalizeStreaming();
+            _isProcessing = false;
+            UpdateUIState();
+            SetStatus("Stopped", Colors.Orange);
+        }
+
+        private void OnClearClicked(object? sender, EventArgs e)
+        {
+            if (_webSurface.IsWebViewReady)
+            {
+                ExecuteScript("window.chatAPI.clearMessages()");
+            }
+            else if (_fallbackChat != null)
+            {
+                _fallbackChat.Text = "";
+            }
+
+            OnClearRequested();
+
+            SetStatus("Chat cleared", Colors.Gray);
+        }
+
+        private void UpdateUIState()
+        {
+            _sendButton.Enabled = !_isProcessing;
+            _stopButton.Enabled = _isProcessing;
+            _inputArea.Enabled = !_isProcessing;
+        }
+
+        // ─── Chat-specific Web Surface ───────────────────────────────
+
+        /// <summary>
+        /// Chat-specific implementation of <see cref="RookWebSurface"/>.
+        /// Declares the chat resource root, entry page, and fallback HTML.
+        /// </summary>
+        private class ChatWebSurface : RookWebSurface
+        {
+            private readonly ChatTab _owner;
+
+            public ChatWebSurface(ChatTab owner) => _owner = owner;
+
+            protected override string ResourceRoot => "Rook.UI.Chat.Resources";
+            protected override string EntryPage => "chat.html";
+
+            protected override string MinimalFallbackHtml => @"<!DOCTYPE html>
 <html>
 <head>
     <meta charset='UTF-8'>
@@ -632,249 +529,14 @@ namespace Rook.UI.Chat
     </script>
 </body>
 </html>";
-        }
 
-        // ─── JavaScript helpers ──────────────────────────────────────────
-
-        /// <summary>
-        /// Execute JavaScript in the WebView on the UI thread.
-        /// </summary>
-        protected void ExecuteScript(string script)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                try
-                {
-                    Application.Instance.Invoke(() =>
-                    {
-                        _webView.ExecuteScript(script);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    RhinoApp.WriteLine($"Script error: {ex.Message}");
-                }
-            }
-        }
-
-        /// <summary>
-        /// Escape a string so it can be safely embedded in a JavaScript string literal.
-        /// </summary>
-        protected static string EscapeForJavaScript(string input)
-        {
-            if (string.IsNullOrEmpty(input)) return "";
-            return input
-                .Replace("\\", "\\\\")
-                .Replace("'", "\\'")
-                .Replace("\"", "\\\"")
-                .Replace("\n", "\\n")
-                .Replace("\r", "\\r")
-                .Replace("\t", "\\t");
-        }
-
-        // ─── Chat display methods (protected so subclasses can call) ─────
-
-        /// <summary>
-        /// Add a message bubble to the chat display.
-        /// </summary>
-        /// <param name="role">
-        /// One of "user", "assistant", "error", "system".
-        /// </param>
-        /// <param name="content">Message text.</param>
-        protected void AddMessageToChat(string role, string content)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                var escapedContent = EscapeForJavaScript(content);
-                ExecuteScript($"window.chatAPI.addMessage('{role}', '{escapedContent}')");
-            }
-            else if (_fallbackChat != null)
-            {
-                var prefix = role == "user" ? "You: " : role == "assistant" ? "Rook: " : $"[{role}]: ";
-                _fallbackChat.Append($"{prefix}{content}\n\n");
-            }
-        }
-
-        /// <summary>
-        /// Update (or create) the currently-streaming assistant message.
-        /// </summary>
-        protected void UpdateStreamingChat(string content)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                var escapedContent = EscapeForJavaScript(content);
-                ExecuteScript($"window.chatAPI.updateStreamingMessage('{escapedContent}')");
-            }
-        }
-
-        /// <summary>
-        /// Show or hide the typing indicator dots.
-        /// </summary>
-        protected void ShowTypingIndicator(bool show)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                ExecuteScript($"window.chatAPI.showTypingIndicator({(show ? "true" : "false")})");
-            }
-        }
-
-        /// <summary>
-        /// End the current streaming message so the next call to
-        /// <see cref="UpdateStreamingChat"/> starts a new bubble.
-        /// </summary>
-        protected void FinalizeStreaming()
-        {
-            if (_webView != null && _webViewReady)
-            {
-                ExecuteScript("window.chatAPI.finalizeStreamingMessage()");
-            }
-        }
-
-        /// <summary>
-        /// Add a base64-encoded image to the chat display.
-        /// </summary>
-        protected void AddImageToChat(string base64Data)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                ExecuteScript($"window.chatAPI.addImage('{base64Data}')");
-            }
-        }
-
-        // ─── Status helpers (for subclasses) ─────────────────────────────
-
-        /// <summary>
-        /// Update the status bar text and color.
-        /// </summary>
-        protected void SetStatus(string text, Color color)
-        {
-            Application.Instance.Invoke(() =>
-            {
-                _statusLabel.Text = text;
-                _statusLabel.TextColor = color;
-            });
-        }
-
-        /// <summary>
-        /// Set the processing state and update button / input enabled states.
-        /// </summary>
-        protected void SetProcessing(bool processing)
-        {
-            _isProcessing = processing;
-            Application.Instance.Invoke(() =>
-            {
-                UpdateUIState();
-            });
-        }
-
-        // ─── Event wiring ────────────────────────────────────────────────
-
-        /// <summary>
-        /// Wire up button clicks and keyboard shortcuts.
-        /// </summary>
-        private void AttachEvents()
-        {
-            _sendButton.Click += OnSendClicked;
-            _stopButton.Click += OnStopClicked;
-            _clearButton.Click += OnClearClicked;
-
-            // Enter sends, Shift+Enter inserts newline
-            _inputArea.KeyDown += (s, e) =>
-            {
-                if (e.Key == Keys.Enter && !e.Modifiers.HasFlag(Keys.Shift))
-                {
-                    e.Handled = true;
-                    OnSendClicked(s, e);
-                }
-            };
-        }
-
-        // ─── Button handlers ─────────────────────────────────────────────
-
-        /// <summary>
-        /// Send button click (or Enter key) handler. Validates input, updates
-        /// the UI, then delegates to <see cref="OnSendMessage"/>.
-        /// </summary>
-        private async void OnSendClicked(object? sender, EventArgs e)
-        {
-            var message = _inputArea.Text?.Trim();
-            if (string.IsNullOrEmpty(message) || _isProcessing)
-                return;
-
-            _isProcessing = true;
-            UpdateUIState();
-
-            // Clear input
-            _inputArea.Text = "";
-
-            // Show user message and typing indicator
-            AddMessageToChat("user", message);
-            ShowTypingIndicator(true);
-
-            SetStatus("Sending...", Colors.Blue);
-
-            try
-            {
-                await OnSendMessage(message);
-            }
-            catch (Exception ex)
+            protected override void OnWebViewReady()
             {
                 Application.Instance.Invoke(() =>
                 {
-                    ShowTypingIndicator(false);
-                    AddMessageToChat("error", ex.Message);
-                    _isProcessing = false;
-                    UpdateUIState();
-                    SetStatus("Error", Colors.Red);
+                    _owner.SetStatus("Ready", Colors.Green);
                 });
             }
-        }
-
-        /// <summary>
-        /// Stop button click handler. Resets streaming state and delegates
-        /// to <see cref="OnStopRequested"/>.
-        /// </summary>
-        private void OnStopClicked(object? sender, EventArgs e)
-        {
-            OnStopRequested();
-            ShowTypingIndicator(false);
-            FinalizeStreaming();
-            _isProcessing = false;
-            UpdateUIState();
-            SetStatus("Stopped", Colors.Orange);
-        }
-
-        /// <summary>
-        /// Clear button click handler. Resets the WebView / fallback chat
-        /// and calls <see cref="OnClearRequested"/> for subclass cleanup.
-        /// </summary>
-        private void OnClearClicked(object? sender, EventArgs e)
-        {
-            if (_webView != null && _webViewReady)
-            {
-                ExecuteScript("window.chatAPI.clearMessages()");
-            }
-            else if (_fallbackChat != null)
-            {
-                _fallbackChat.Text = "";
-            }
-
-            OnClearRequested();
-
-            SetStatus("Chat cleared", Colors.Gray);
-        }
-
-        // ─── Internal UI state ───────────────────────────────────────────
-
-        /// <summary>
-        /// Toggle Send / Stop / Input enabled states based on
-        /// <see cref="_isProcessing"/>.
-        /// </summary>
-        private void UpdateUIState()
-        {
-            _sendButton.Enabled = !_isProcessing;
-            _stopButton.Enabled = _isProcessing;
-            _inputArea.Enabled = !_isProcessing;
         }
     }
 }

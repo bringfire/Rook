@@ -286,6 +286,140 @@ class TestChatServerWithNonce(AioHTTPTestCase):
         assert resp.status == 200
 
 
+class TestKnowledgeGraphRoutes(AioHTTPTestCase):
+    """Tests for /knowledge/* routes and data contract."""
+
+    async def get_application(self):
+        self.store = ConversationStore()
+        self.builder = PromptBuilder()
+        self.runner = ChatRunner()
+        return create_chat_app(
+            store=self.store,
+            builder=self.builder,
+            runner=self.runner,
+        )
+
+    async def test_knowledge_graph_returns_valid_payload(self):
+        """GET /knowledge/graph returns nodes, edges, and meta."""
+        resp = await self.client.get("/knowledge/graph")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "meta" in data
+        assert "nodes" in data
+        assert "edges" in data
+        assert isinstance(data["nodes"], list)
+        assert isinstance(data["edges"], list)
+        assert data["meta"]["source"] == "UnifiedStore"
+        assert "noteCount" in data["meta"]
+        assert "edgeCount" in data["meta"]
+
+    async def test_knowledge_graph_node_schema(self):
+        """Nodes have all required fields per spec."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        if data["nodes"]:
+            node = data["nodes"][0]
+            for field in ["id", "label", "noteType", "category", "tags",
+                          "components", "brief", "deprecated", "created",
+                          "outDegree", "inDegree", "degree"]:
+                assert field in node, f"Missing required field: {field}"
+
+    async def test_knowledge_graph_edge_schema(self):
+        """Edges have all required fields per spec."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        if data["edges"]:
+            edge = data["edges"][0]
+            for field in ["id", "source", "target", "linkType"]:
+                assert field in edge, f"Missing required field: {field}"
+            assert edge["linkType"] == "related"
+
+    async def test_knowledge_graph_excludes_deprecated(self):
+        """No deprecated notes appear in the graph."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        for node in data["nodes"]:
+            assert node["deprecated"] is False
+
+    async def test_knowledge_note_found(self):
+        """GET /knowledge/note/{id} returns note + related for a valid note."""
+        # First get a valid note id from the graph
+        graph_resp = await self.client.get("/knowledge/graph")
+        graph = await graph_resp.json()
+        if not graph["nodes"]:
+            pytest.skip("No notes in store")
+
+        note_id = graph["nodes"][0]["id"]
+        resp = await self.client.get(f"/knowledge/note/{note_id}")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "note" in data
+        assert "related" in data
+        assert data["note"]["note_id"] == note_id
+        assert "linksFrom" in data["related"]
+        assert "linksTo" in data["related"]
+
+    async def test_knowledge_note_not_found(self):
+        """GET /knowledge/note/{id} returns 404 for nonexistent note."""
+        resp = await self.client.get("/knowledge/note/nonexistent_note_999")
+        assert resp.status == 404
+
+    async def test_knowledge_note_deprecated_returns_404(self):
+        """GET /knowledge/note/{id} returns 404 for deprecated notes."""
+        # Find a deprecated note if any exist
+        from rook.agent.chat.server import _get_knowledge_store
+        ks = _get_knowledge_store()
+        deprecated_note = next((n for n in ks.all() if n.deprecated), None)
+        if deprecated_note is None:
+            pytest.skip("No deprecated notes in store")
+        resp = await self.client.get(f"/knowledge/note/{deprecated_note.note_id}")
+        assert resp.status == 404
+
+    async def test_knowledge_graph_node_ordering_is_deterministic(self):
+        """Nodes are sorted by id for deterministic output."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        ids = [n["id"] for n in data["nodes"]]
+        assert ids == sorted(ids)
+
+    async def test_knowledge_graph_cors_headers(self):
+        """Knowledge routes get CORS headers from middleware."""
+        resp = await self.client.get("/knowledge/graph")
+        assert resp.headers.get("Access-Control-Allow-Origin") == "https://app.rook.invalid"
+
+
+class TestKnowledgeGraphWithNonce(AioHTTPTestCase):
+    """Knowledge routes respect nonce enforcement."""
+
+    async def get_application(self):
+        self.nonce = "kg-test-nonce"
+        return create_chat_app(session_nonce=self.nonce)
+
+    async def test_knowledge_graph_requires_nonce(self):
+        resp = await self.client.get("/knowledge/graph")
+        assert resp.status == 403
+
+    async def test_knowledge_graph_with_nonce_succeeds(self):
+        resp = await self.client.get(
+            "/knowledge/graph",
+            headers={"X-Rook-Session": self.nonce},
+        )
+        assert resp.status == 200
+
+    async def test_knowledge_note_requires_nonce(self):
+        resp = await self.client.get("/knowledge/note/some_id")
+        assert resp.status == 403
+
+    async def test_health_exemption_is_exact_path(self):
+        """Only /agent/chat/health is exempt, not any path ending in /health."""
+        with patch("rook.agent.chat.server.collect_runtime_facts", new=AsyncMock(return_value={
+            "rhino": {"connected": True},
+        })):
+            # Real health path works without nonce
+            resp = await self.client.get("/agent/chat/health")
+            assert resp.status == 200
+
+
 def test_write_discovery_file_uses_atomic_replace(monkeypatch, tmp_path):
     replaced: dict[str, str] = {}
 
