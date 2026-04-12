@@ -22,7 +22,7 @@ detect_project_setup() {
         local normalized_cwd normalized_install
         normalized_cwd="$(echo "$cwd" | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
         normalized_install="$(echo "$localappdata/Rook" | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
-        if [[ "$normalized_cwd" == "$normalized_install"* ]]; then
+        if [[ "$normalized_cwd/" == "$normalized_install/"* ]]; then
             printf ''
             return
         fi

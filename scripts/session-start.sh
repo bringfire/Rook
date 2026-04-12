@@ -22,8 +22,9 @@ escape_for_json() {
 project_hint=""
 if [ -f "$SCRIPT_DIR/project-detect.sh" ]; then
     # shellcheck source=project-detect.sh
-    source "$SCRIPT_DIR/project-detect.sh"
-    project_hint="$(detect_project_setup)"
+    if source "$SCRIPT_DIR/project-detect.sh" 2>/dev/null; then
+        project_hint="$(detect_project_setup 2>/dev/null)" || true
+    fi
 fi
 
 # --- Skill cascade context ---
