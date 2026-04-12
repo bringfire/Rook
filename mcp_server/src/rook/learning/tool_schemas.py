@@ -264,20 +264,26 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     # =========================================================================
     "rhino_layer_create": ToolSchema(
         name="rhino_layer_create",
-        description="Create a new layer with a single-segment name and optional parent layer",
+        description="Create a new layer with optional properties",
         params=[
             ParamSchema("name", "string", "Layer name. Must be a single segment; do not include '::'", required=True),
             ParamSchema("color", "array", "Layer color as [r, g, b]"),
+            ParamSchema("plotColor", "array", "Print color as [r, g, b]"),
+            ParamSchema("plotWeight", "number", "Print width in mm (0 = default)"),
             ParamSchema("parent", "string", "Existing parent layer name or full path"),
             ParamSchema("visible", "boolean", "Layer visibility", default=True),
             ParamSchema("locked", "boolean", "Layer locked state", default=False),
+            ParamSchema("linetype", "string", "Linetype name"),
+            ParamSchema("linetypeIndex", "integer", "Linetype table index (-1 = default/Continuous)"),
+            ParamSchema("material", "string", "Render material name"),
+            ParamSchema("materialIndex", "integer", "Material table index (-1 = no material)"),
         ],
     ),
     "rhino_layer_create_batch": ToolSchema(
         name="rhino_layer_create_batch",
-        description="Create multiple layers atomically using explicit key/parentKey relationships",
+        description="Create multiple layers in one call using explicit key/parentKey relationships. All layers are created under a single undo record (Ctrl+Z reverts all).",
         params=[
-            ParamSchema("layers", "array", "Layer specs [{key, name, parentKey?, color?, visible?, locked?}]", required=True, items_type="object"),
+            ParamSchema("layers", "array", "Layer specs [{key, name, parentKey?, color?, plotColor?, plotWeight?, linetype?, linetypeIndex?, material?, materialIndex?, visible?, locked?}]", required=True, items_type="object"),
             ParamSchema("rootParent", "string", "Optional existing parent layer name or full path for top-level batch items"),
         ],
     ),
@@ -309,6 +315,45 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
         description="Set the current layer",
         params=[
             ParamSchema("name", "string", "Layer name", required=True),
+        ],
+    ),
+    "rhino_layer_set_properties": ToolSchema(
+        name="rhino_layer_set_properties",
+        description="Set any combination of layer properties in a single call",
+        params=[
+            ParamSchema("name", "string", "Target layer name or full path", required=True),
+            ParamSchema("set", "object", "Properties to modify: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked", required=True),
+        ],
+    ),
+    "rhino_layer_rename": ToolSchema(
+        name="rhino_layer_rename",
+        description="Rename a layer. All objects remain on the layer.",
+        params=[
+            ParamSchema("name", "string", "Current layer name or full path", required=True),
+            ParamSchema("newName", "string", "New single-segment name", required=True),
+        ],
+    ),
+    "rhino_layer_move_objects": ToolSchema(
+        name="rhino_layer_move_objects",
+        description="Move all objects from source layer to target layer",
+        params=[
+            ParamSchema("source", "string", "Source layer name or full path", required=True),
+            ParamSchema("target", "string", "Target layer name or full path", required=True),
+        ],
+    ),
+    "rhino_layer_merge": ToolSchema(
+        name="rhino_layer_merge",
+        description="Move all objects from source to target, then delete source layer",
+        params=[
+            ParamSchema("source", "string", "Source layer to merge away", required=True),
+            ParamSchema("target", "string", "Target layer to receive objects", required=True),
+        ],
+    ),
+    "rhino_layer_dependencies": ToolSchema(
+        name="rhino_layer_dependencies",
+        description="Analyze what holds a layer alive: objects, block refs, child layers, canDelete flag",
+        params=[
+            ParamSchema("name", "string", "Layer name or full path to analyze", required=True),
         ],
     ),
 

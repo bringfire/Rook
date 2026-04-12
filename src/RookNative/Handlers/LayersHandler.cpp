@@ -82,8 +82,38 @@ void HandleLayers(const httplib::Request& req, httplib::Response& res)
                            static_cast<int>(c.Green()),
                            static_cast<int>(c.Blue()) };
 
+            ON_Color pc = layer.PlotColor();
+            snap.plotColor = { static_cast<int>(pc.Red()),
+                               static_cast<int>(pc.Green()),
+                               static_cast<int>(pc.Blue()) };
+
+            snap.plotWeight = layer.PlotWeight();
+
+            // Linetype: resolve index to name
+            snap.linetypeIndex = layer.LinetypeIndex();
+            if (snap.linetypeIndex >= 0 &&
+                snap.linetypeIndex < pDoc->m_linetype_table.LinetypeCount())
+            {
+                const ON_Linetype& lt = pDoc->m_linetype_table[snap.linetypeIndex];
+                snap.linetypeName = WideToUtf8(lt.Name());
+            }
+            else
+            {
+                snap.linetypeName = "Continuous";
+            }
+
+            // Render material: resolve index to name
+            snap.materialIndex = layer.RenderMaterialIndex();
+            if (snap.materialIndex >= 0 &&
+                snap.materialIndex < pDoc->m_material_table.MaterialCount())
+            {
+                const CRhinoMaterial& mat = pDoc->m_material_table[snap.materialIndex];
+                snap.materialName = WideToUtf8(mat.Name());
+            }
+
             snap.visible = layer.IsVisible();
             snap.locked = layer.IsLocked();
+            // Note: IsExpanded is UI state not exposed in the C++ SDK
 
             ON_UUID parentId = layer.ParentLayerId();
             if (ON_UuidIsNil(parentId))

@@ -262,8 +262,17 @@ nlohmann::json SerializeLayer(const LayerSnapshot& layer)
     j["name"] = layer.name;
     j["fullPath"] = layer.fullPath;
     j["color"] = SerializeColor(layer.color);
+    j["plotColor"] = SerializeColor(layer.plotColor);
+    j["plotWeight"] = layer.plotWeight;
+    j["linetype"] = layer.linetypeName;
+    j["linetypeIndex"] = layer.linetypeIndex;
+    j["material"] = layer.materialName.empty()
+        ? nlohmann::json(nullptr)
+        : nlohmann::json(layer.materialName);
+    j["materialIndex"] = layer.materialIndex;
     j["visible"] = layer.visible;
     j["locked"] = layer.locked;
+    j["expanded"] = layer.expanded;
     j["parentId"] = layer.parentId.empty()
         ? nlohmann::json(nullptr)
         : nlohmann::json(layer.parentId);

@@ -1339,37 +1339,49 @@ Examples:
         # Layer management
         Tool(
             name="rhino_layer_create",
-            description="Create a new layer.",
+            description="Create a new layer with optional properties.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Layer name. Must be a single segment; do not include '::'"},
-                    "color": {"description": "Layer color as [r, g, b] array"},
+                    "color": {"type": "array", "items": {"type": "integer"}, "description": "Layer color as [r, g, b]"},
+                    "plotColor": {"type": "array", "items": {"type": "integer"}, "description": "Print color as [r, g, b]"},
+                    "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
                     "parent": {"type": "string", "description": "Existing parent layer name or full path"},
                     "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
-                    "locked": {"type": "boolean", "description": "Layer locked state (default false)"}
+                    "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
+                    "linetype": {"type": "string", "description": "Linetype name (e.g. 'Continuous', 'Dashed')"},
+                    "linetypeIndex": {"type": "integer", "description": "Linetype table index (-1 = default/Continuous)"},
+                    "material": {"type": "string", "description": "Render material name"},
+                    "materialIndex": {"type": "integer", "description": "Material table index (-1 = no material)"}
                 },
                 "required": ["name"]
             }
         ),
         Tool(
             name="rhino_layer_create_batch",
-            description="Create multiple layers atomically from explicit key/parentKey relationships.",
+            description="Create multiple layers in one call from explicit key/parentKey relationships. All layers are created under a single undo record (Ctrl+Z reverts all). Validates all names and keys before creating.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "layers": {
                         "type": "array",
-                        "description": "Layer specs to create. Each item must include {key, name} and may include {parentKey, color, visible, locked}.",
+                        "description": "Layer specs to create. Each item must include {key, name} and may include {parentKey, color, plotColor, plotWeight, linetype, material, visible, locked}.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "key": {"type": "string", "description": "Unique local key for this batch item"},
                                 "name": {"type": "string", "description": "Single-segment layer name for this node"},
                                 "parentKey": {"type": "string", "description": "Optional local key of this item's parent within the same batch"},
-                                "color": {"description": "Layer color as [r, g, b] array"},
+                                "color": {"type": "array", "items": {"type": "integer"}, "description": "Layer color as [r, g, b]"},
+                                "plotColor": {"type": "array", "items": {"type": "integer"}, "description": "Print color as [r, g, b]"},
+                                "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
                                 "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
-                                "locked": {"type": "boolean", "description": "Layer locked state (default false)"}
+                                "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
+                                "linetype": {"type": "string", "description": "Linetype name"},
+                                "linetypeIndex": {"type": "integer", "description": "Linetype table index (-1 = default)"},
+                                "material": {"type": "string", "description": "Render material name"},
+                                "materialIndex": {"type": "integer", "description": "Material table index (-1 = none)"}
                             },
                             "required": ["key", "name"]
                         }
@@ -1421,6 +1433,81 @@ Examples:
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Layer name to set as current"}
+                },
+                "required": ["name"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_set_properties",
+            description="""Set any combination of layer properties in a single call. The 'set' object can include any subset of: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked. Only provided fields are modified.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Target layer (name or full path)"},
+                    "set": {
+                        "type": "object",
+                        "description": "Properties to modify. All fields optional.",
+                        "properties": {
+                            "rename": {"type": "string", "description": "New name for the layer"},
+                            "parent": {"type": ["string", "null"], "description": "New parent layer path, or null to make top-level"},
+                            "color": {"type": "array", "items": {"type": "integer"}, "description": "[r, g, b] display color"},
+                            "plotColor": {"type": "array", "items": {"type": "integer"}, "description": "[r, g, b] print color"},
+                            "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
+                            "linetype": {"type": "string", "description": "Linetype name (e.g. 'Continuous', 'Dashed')"},
+                            "linetypeIndex": {"type": "integer", "description": "Linetype table index"},
+                            "material": {"type": "string", "description": "Render material name"},
+                            "materialIndex": {"type": "integer", "description": "Material table index"},
+                            "visible": {"type": "boolean", "description": "Visibility state"},
+                            "locked": {"type": "boolean", "description": "Lock state"}
+                        }
+                    }
+                },
+                "required": ["name", "set"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_rename",
+            description="Rename a layer. All objects remain on the layer.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Current layer name or full path"},
+                    "newName": {"type": "string", "description": "New name (single segment, no :: separators)"}
+                },
+                "required": ["name", "newName"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_move_objects",
+            description="Move all objects from one layer to another. Source layer is not deleted.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source layer name or full path"},
+                    "target": {"type": "string", "description": "Target layer name or full path"}
+                },
+                "required": ["source", "target"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_merge",
+            description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source layer to merge away"},
+                    "target": {"type": "string", "description": "Target layer to receive objects"}
+                },
+                "required": ["source", "target"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_dependencies",
+            description="Analyze what holds a layer alive: direct objects, block definition references, child layers, and whether it is the current layer. Returns canDelete indicating if the layer can be safely deleted.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Layer name or full path to analyze"}
                 },
                 "required": ["name"]
             }
@@ -8380,6 +8467,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_layer_current":
             result = await call_rhino("/layers/current", "POST", arguments)
+
+        case "rhino_layer_set_properties":
+            result = await call_rhino("/layers/properties", "POST", arguments)
+
+        case "rhino_layer_rename":
+            result = await call_rhino("/layers/rename", "POST", arguments)
+
+        case "rhino_layer_move_objects":
+            result = await call_rhino("/layers/move-objects", "POST", arguments)
+
+        case "rhino_layer_merge":
+            result = await call_rhino("/layers/merge", "POST", arguments)
+
+        case "rhino_layer_dependencies":
+            result = await call_rhino("/layers/dependencies", "GET", arguments)
 
         # Advanced selection
         case "rhino_select_by_type":

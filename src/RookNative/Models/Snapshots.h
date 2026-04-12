@@ -198,6 +198,15 @@ struct LayerSnapshot {
     bool locked = false;
     std::string parentId;      // Empty → serialized as null
     int objectCount = 0;
+
+    // Extended properties (Phase 2)
+    ColorSnapshot plotColor;
+    double plotWeight = 0.0;       // mm, 0 = default
+    int linetypeIndex = -1;        // -1 = Continuous (default)
+    std::string linetypeName;      // Resolved name
+    int materialIndex = -1;        // -1 = no material
+    std::string materialName;      // Resolved name
+    bool expanded = true;          // UI tree state
 };
 
 // --- Document metadata (for GET /document) ---

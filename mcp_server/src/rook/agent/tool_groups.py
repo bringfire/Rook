@@ -166,10 +166,13 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     "layers": [
         "rhino_layers", "rhino_layer_create", "rhino_layer_create_batch", "rhino_layer_delete",
         "rhino_layer_current", "rhino_layer_visibility", "rhino_layer_lock",
+        "rhino_layer_set_properties", "rhino_layer_rename",
+        "rhino_layer_move_objects", "rhino_layer_merge", "rhino_layer_dependencies",
     ],
-    # Read-only subset: excludes create, delete, set-current (all modify state)
+    # Read-only subset: excludes create, delete, set-current, rename, merge, move (all modify state)
     "layers_readonly": [
         "rhino_layers", "rhino_layer_visibility", "rhino_layer_lock",
+        "rhino_layer_dependencies",
     ],
 
     # --- Rhino Viewport & Document ---

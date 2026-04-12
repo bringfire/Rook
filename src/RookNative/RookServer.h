@@ -129,6 +129,11 @@ private:
     void HandleLayerVisibility(const httplib::Request& req, httplib::Response& res);
     void HandleLayerLock(const httplib::Request& req, httplib::Response& res);
     void HandleLayerCurrent(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerRename(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerMerge(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerDependencies(const httplib::Request& req, httplib::Response& res);
     void HandleGetSelection(const httplib::Request& req, httplib::Response& res);
     void HandleSelect(const httplib::Request& req, httplib::Response& res);
     void HandleViewport(const httplib::Request& req, httplib::Response& res);
