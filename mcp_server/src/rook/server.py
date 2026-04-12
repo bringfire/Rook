@@ -1351,14 +1351,16 @@ Examples:
                     "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
                     "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
                     "linetype": {"type": "string", "description": "Linetype name (e.g. 'Continuous', 'Dashed')"},
-                    "material": {"type": "string", "description": "Render material name"}
+                    "linetypeIndex": {"type": "integer", "description": "Linetype table index (-1 = default/Continuous)"},
+                    "material": {"type": "string", "description": "Render material name"},
+                    "materialIndex": {"type": "integer", "description": "Material table index (-1 = no material)"}
                 },
                 "required": ["name"]
             }
         ),
         Tool(
             name="rhino_layer_create_batch",
-            description="Create multiple layers atomically from explicit key/parentKey relationships.",
+            description="Create multiple layers in one call from explicit key/parentKey relationships. All layers are created under a single undo record (Ctrl+Z reverts all). Validates all names and keys before creating.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1377,7 +1379,9 @@ Examples:
                                 "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
                                 "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
                                 "linetype": {"type": "string", "description": "Linetype name"},
-                                "material": {"type": "string", "description": "Render material name"}
+                                "linetypeIndex": {"type": "integer", "description": "Linetype table index (-1 = default)"},
+                                "material": {"type": "string", "description": "Render material name"},
+                                "materialIndex": {"type": "integer", "description": "Material table index (-1 = none)"}
                             },
                             "required": ["key", "name"]
                         }

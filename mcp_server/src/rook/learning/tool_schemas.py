@@ -274,14 +274,16 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             ParamSchema("visible", "boolean", "Layer visibility", default=True),
             ParamSchema("locked", "boolean", "Layer locked state", default=False),
             ParamSchema("linetype", "string", "Linetype name"),
+            ParamSchema("linetypeIndex", "integer", "Linetype table index (-1 = default/Continuous)"),
             ParamSchema("material", "string", "Render material name"),
+            ParamSchema("materialIndex", "integer", "Material table index (-1 = no material)"),
         ],
     ),
     "rhino_layer_create_batch": ToolSchema(
         name="rhino_layer_create_batch",
-        description="Create multiple layers atomically using explicit key/parentKey relationships",
+        description="Create multiple layers in one call using explicit key/parentKey relationships. All layers are created under a single undo record (Ctrl+Z reverts all).",
         params=[
-            ParamSchema("layers", "array", "Layer specs [{key, name, parentKey?, color?, plotColor?, plotWeight?, linetype?, material?, visible?, locked?}]", required=True, items_type="object"),
+            ParamSchema("layers", "array", "Layer specs [{key, name, parentKey?, color?, plotColor?, plotWeight?, linetype?, linetypeIndex?, material?, materialIndex?, visible?, locked?}]", required=True, items_type="object"),
             ParamSchema("rootParent", "string", "Optional existing parent layer name or full path for top-level batch items"),
         ],
     ),

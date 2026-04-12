@@ -93,6 +93,8 @@ void ApplyLayerProperties(ON_Layer& layer, const nlohmann::json& spec, CRhinoDoc
     else if (spec.contains("linetypeIndex"))
     {
         int ltIdx = spec["linetypeIndex"].get<int>();
+        if (ltIdx < -1)
+            throw std::invalid_argument("linetypeIndex must be -1 (default) or a valid index");
         if (ltIdx >= 0 && ltIdx >= pDoc->m_linetype_table.LinetypeCount())
             throw std::invalid_argument("linetypeIndex out of range");
         layer.SetLinetypeIndex(ltIdx);
@@ -109,6 +111,8 @@ void ApplyLayerProperties(ON_Layer& layer, const nlohmann::json& spec, CRhinoDoc
     else if (spec.contains("materialIndex"))
     {
         int matIdx = spec["materialIndex"].get<int>();
+        if (matIdx < -1)
+            throw std::invalid_argument("materialIndex must be -1 (no material) or a valid index");
         if (matIdx >= 0)
         {
             if (matIdx >= pDoc->m_material_table.MaterialCount())
