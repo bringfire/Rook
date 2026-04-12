@@ -16,6 +16,8 @@
     var sidebarTitle = document.getElementById('sidebar-title');
     var sidebarContent = document.getElementById('sidebar-content');
     var sidebarClose = document.getElementById('sidebar-close');
+    var tooltipEl = document.getElementById('tooltip');
+    var btnSimilar = document.getElementById('btn-similar');
 
     // ─── State ────────────────────────────────────────────────────
     var cy = null;
@@ -23,6 +25,8 @@
     var selectedNodeId = null;
     var focusedNodeId = null;
     var sidebarFetchId = 0;  // guards against stale sidebar renders
+    var similarEdgesData = [];  // stored separately, not in cytoscape
+    var similarVisible = false;
 
     // ─── Node colors by type ──────────────────────────────────────
     var TYPE_COLORS = {
@@ -44,6 +48,53 @@
     function escapeHtml(text) {
         if (typeof text !== 'string') text = String(text);
         return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ─── Tooltip ──────────────────────────────────────────────────
+    function truncateBrief(text, maxLen) {
+        if (!text || text.length <= maxLen) return text || '';
+        var truncated = text.substring(0, maxLen);
+        var lastSpace = truncated.lastIndexOf(' ');
+        if (lastSpace > maxLen * 0.6) truncated = truncated.substring(0, lastSpace);
+        return truncated + '...';
+    }
+
+    function showTooltip(node, clientX, clientY) {
+        // Suppress when sidebar is open, unless in neighborhood focus mode
+        // (user is exploring the neighborhood, not just inspecting one node)
+        if (selectedNodeId && !focusedNodeId) return;
+        // Don't show tooltip for dimmed/hidden nodes
+        if (node.hasClass('dimmed') || node.hasClass('category-dimmed')) return;
+        var d = node.data();
+        tooltipEl.innerHTML =
+            '<div class="tooltip-header">' +
+                '<span class="tooltip-name">' + escapeHtml(d.label) + '</span>' +
+                '<span class="tooltip-type ' + escapeHtml(d.noteType) + '">' + escapeHtml(d.noteType) + '</span>' +
+            '</div>' +
+            '<div class="tooltip-meta">' + escapeHtml(d.category) + '  &middot;  ' +
+                d.inDegree + ' in / ' + d.outDegree + ' out</div>' +
+            (d.brief ? '<div class="tooltip-brief">' + escapeHtml(truncateBrief(d.brief, 80)) + '</div>' : '');
+        tooltipEl.classList.remove('hidden');
+        positionTooltip(clientX, clientY);
+    }
+
+    function positionTooltip(cx, cy_) {
+        var x = cx + 14;
+        var y = cy_ + 14;
+        var w = tooltipEl.offsetWidth;
+        var h = tooltipEl.offsetHeight;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        if (x + w > vw - 8) x = cx - w - 14;
+        if (y + h > vh - 8) y = cy_ - h - 14;
+        x = Math.max(8, Math.min(x, vw - w - 8));
+        y = Math.max(8, Math.min(y, vh - h - 8));
+        tooltipEl.style.left = x + 'px';
+        tooltipEl.style.top = y + 'px';
+    }
+
+    function hideTooltip() {
+        tooltipEl.classList.add('hidden');
     }
 
     function buildFetchHeaders() {
@@ -128,8 +179,7 @@
                 graphData = data;
                 populateCategoryFilter(data.nodes);
                 renderGraph(data);
-                setStatus('Ready');
-                setCounts(data.meta.noteCount, data.meta.edgeCount);
+                updateStatusBar();
                 if (loadingEl) loadingEl.style.display = 'none';
             })
             .catch(function (err) {
@@ -186,10 +236,14 @@
                 data: {
                     id: e.id,
                     source: e.source,
-                    target: e.target
+                    target: e.target,
+                    linkType: e.linkType || 'related'
                 }
             });
         }
+
+        // Store similar edges for lazy toggle (not in cytoscape yet)
+        similarEdgesData = data.similarEdges || [];
 
         cy = cytoscape({
             container: graphContainer,
@@ -231,6 +285,25 @@
                     style: { 'border-width': 2, 'border-color': '#fff', 'opacity': 1 }
                 },
                 {
+                    selector: 'node.category-spotlight',
+                    style: {
+                        'border-width': 3,
+                        'border-color': function (ele) { return TYPE_COLORS[ele.data('noteType')] || '#fff'; },
+                        'border-opacity': 0.9,
+                        'opacity': 1,
+                        'font-size': '11px',
+                        'font-weight': 'bold',
+                        'color': '#fff'
+                    }
+                },
+                {
+                    selector: 'node.category-dimmed',
+                    style: {
+                        'opacity': 0.1,
+                        'label': ''
+                    }
+                },
+                {
                     selector: 'edge',
                     style: {
                         'width': 1,
@@ -249,6 +322,17 @@
                 {
                     selector: 'edge.highlighted',
                     style: { 'line-color': '#888', 'target-arrow-color': '#888', 'opacity': 0.8, 'width': 1.5 }
+                },
+                {
+                    selector: 'edge[linkType = "similar"]',
+                    style: {
+                        'line-style': 'dashed',
+                        'line-color': '#a78bfa',
+                        'target-arrow-shape': 'none',
+                        'width': 0.8,
+                        'opacity': 0.4,
+                        'events': 'no'
+                    }
                 }
             ],
             layout: {
@@ -266,16 +350,33 @@
         });
 
         cy.on('tap', 'node', function (evt) {
+            hideTooltip();
             selectNode(evt.target.id());
         });
 
         cy.on('tap', function (evt) {
             if (evt.target === cy) clearSelection();
         });
+
+        // Tooltip events — simple show/move/hide, no state tracking
+        cy.on('mouseover', 'node', function (evt) {
+            showTooltip(evt.target, evt.originalEvent.clientX, evt.originalEvent.clientY);
+        });
+
+        cy.on('mousemove', 'node', function (evt) {
+            if (!tooltipEl.classList.contains('hidden')) {
+                positionTooltip(evt.originalEvent.clientX, evt.originalEvent.clientY);
+            }
+        });
+
+        cy.on('mouseout', 'node', function () {
+            hideTooltip();
+        });
     }
 
     // ─── Node selection + sidebar ─────────────────────────────────
     function selectNode(nodeId) {
+        hideTooltip();
         selectedNodeId = nodeId;
         cy.nodes().unselect();
         cy.getElementById(nodeId).select();
@@ -283,6 +384,7 @@
     }
 
     function clearSelection() {
+        hideTooltip();
         selectedNodeId = null;
         if (cy) cy.nodes().unselect();
         sidebar.classList.add('hidden');
@@ -416,6 +518,8 @@
     // Single pass that ANDs all active constraints: search, type
     // filter, category filter, and neighborhood focus.  No control
     // overrides another.
+    var ALL_VIS_CLASSES = 'dimmed highlighted category-spotlight category-dimmed';
+
     function recomputeVisibility() {
         if (!cy) return;
 
@@ -424,9 +528,17 @@
         var catVal = categoryFilter.value;
         var hasConstraint = searchQuery || typeVal || catVal || focusedNodeId;
 
+        // Category spotlight activates when category filter is set AND
+        // neighborhood focus is NOT active.  Neighborhood focus is a
+        // different mode that overrides the spotlight treatment.
+        var useCategorySpotlight = !!catVal && !focusedNodeId;
+
         if (!hasConstraint) {
-            cy.nodes().removeClass('dimmed highlighted');
-            cy.edges().removeClass('dimmed highlighted');
+            cy.batch(function () {
+                cy.nodes().removeClass(ALL_VIS_CLASSES);
+                cy.edges().removeClass('dimmed highlighted');
+            });
+            updateStatusBar();
             return;
         }
 
@@ -436,71 +548,158 @@
             var focusNode = cy.getElementById(focusedNodeId);
             if (focusNode.length > 0) {
                 neighborhoodSet = new Set();
-                focusNode.closedNeighborhood().nodes().forEach(function (n) {
+                neighborhoodSet.add(focusNode.id());
+                // Use structural edges only (not similar) for neighborhood
+                focusNode.connectedEdges('[linkType = "related"]').connectedNodes().forEach(function (n) {
                     neighborhoodSet.add(n.id());
                 });
             }
         }
 
-        cy.nodes().forEach(function (node) {
-            var d = node.data();
-            var visible = true;
+        var visibleCount = 0;
 
-            // Type filter
-            if (typeVal && d.noteType !== typeVal) visible = false;
+        // Wrap all class changes in cy.batch() to prevent synthetic
+        // mouseout events during filter recompute.  Cytoscape defers
+        // event emission until the batch completes.
+        cy.batch(function () {
+            cy.nodes().forEach(function (node) {
+                var d = node.data();
+                var visible = true;
 
-            // Category filter
-            if (visible && catVal && d.category !== catVal) visible = false;
+                // Type filter
+                if (typeVal && d.noteType !== typeVal) visible = false;
 
-            // Search filter
-            if (visible && searchQuery) {
-                var match = false;
-                if (d.id.toLowerCase().indexOf(searchQuery) !== -1) match = true;
-                else if (d.label.toLowerCase().indexOf(searchQuery) !== -1) match = true;
-                else if (d.category && d.category.toLowerCase().indexOf(searchQuery) !== -1) match = true;
-                else if (d.tags) {
-                    for (var i = 0; i < d.tags.length; i++) {
-                        if (d.tags[i].toLowerCase().indexOf(searchQuery) !== -1) { match = true; break; }
+                // Category filter
+                if (visible && catVal && d.category !== catVal) visible = false;
+
+                // Search filter
+                if (visible && searchQuery) {
+                    var match = false;
+                    if (d.id.toLowerCase().indexOf(searchQuery) !== -1) match = true;
+                    else if (d.label.toLowerCase().indexOf(searchQuery) !== -1) match = true;
+                    else if (d.category && d.category.toLowerCase().indexOf(searchQuery) !== -1) match = true;
+                    else if (d.tags) {
+                        for (var i = 0; i < d.tags.length; i++) {
+                            if (d.tags[i].toLowerCase().indexOf(searchQuery) !== -1) { match = true; break; }
+                        }
+                    }
+                    if (!match && d.components) {
+                        for (var j = 0; j < d.components.length; j++) {
+                            if (d.components[j].toLowerCase().indexOf(searchQuery) !== -1) { match = true; break; }
+                        }
+                    }
+                    if (!match) visible = false;
+                }
+
+                // Neighborhood filter
+                if (visible && neighborhoodSet && !neighborhoodSet.has(d.id)) visible = false;
+
+                // Apply classes
+                node.removeClass(ALL_VIS_CLASSES);
+                if (visible) {
+                    visibleCount++;
+                    if (useCategorySpotlight) {
+                        node.addClass('category-spotlight');
+                    } else {
+                        node.addClass('highlighted');
+                    }
+                } else {
+                    if (useCategorySpotlight) {
+                        node.addClass('category-dimmed');
+                    } else {
+                        node.addClass('dimmed');
                     }
                 }
-                if (!match && d.components) {
-                    for (var j = 0; j < d.components.length; j++) {
-                        if (d.components[j].toLowerCase().indexOf(searchQuery) !== -1) { match = true; break; }
-                    }
+            });
+
+            cy.edges().forEach(function (edge) {
+                if (edge.source().hasClass('dimmed') || edge.source().hasClass('category-dimmed') ||
+                    edge.target().hasClass('dimmed') || edge.target().hasClass('category-dimmed')) {
+                    edge.addClass('dimmed').removeClass('highlighted');
+                } else {
+                    edge.removeClass('dimmed').addClass('highlighted');
                 }
-                if (!match) visible = false;
-            }
-
-            // Neighborhood filter
-            if (visible && neighborhoodSet && !neighborhoodSet.has(d.id)) visible = false;
-
-            if (visible) {
-                node.removeClass('dimmed').addClass('highlighted');
-            } else {
-                node.addClass('dimmed').removeClass('highlighted');
-            }
-        });
-
-        cy.edges().forEach(function (edge) {
-            if (edge.source().hasClass('dimmed') || edge.target().hasClass('dimmed')) {
-                edge.addClass('dimmed').removeClass('highlighted');
-            } else {
-                edge.removeClass('dimmed').addClass('highlighted');
-            }
+            });
         });
 
         // Auto-fit to visible nodes when neighborhood is active
         if (focusedNodeId) {
-            var visible = cy.nodes().not('.dimmed');
-            if (visible.length > 0) {
-                cy.animate({ fit: { eles: visible, padding: 40 }, duration: 400 });
+            var visibleNodes = cy.nodes().not('.dimmed').not('.category-dimmed');
+            if (visibleNodes.length > 0) {
+                cy.animate({ fit: { eles: visibleNodes, padding: 40 }, duration: 400 });
             }
         }
+
+        updateStatusBar(visibleCount);
+    }
+
+    // ─── Unified status bar ──────────────────────────────────────
+    function updateStatusBar(visibleCount) {
+        if (!graphData) return;
+
+        // Right side: counts
+        var counts = graphData.meta.noteCount + ' nodes, ' + graphData.meta.edgeCount + ' edges';
+        if (similarVisible && graphData.meta.similarEdgeCount) {
+            counts += ' + ' + graphData.meta.similarEdgeCount + ' similar';
+        }
+        if (statusCounts) statusCounts.textContent = counts;
+
+        // Left side: contextual status.
+        // Priority: neighborhood > category > search > default.
+        // Neighborhood is most specific (user double-clicked a node).
+        var catVal = categoryFilter.value;
+        var searchQuery = searchInput.value;
+        var text = 'Ready';
+
+        if (focusedNodeId) {
+            var focusNode = cy ? cy.getElementById(focusedNodeId) : null;
+            var label = focusNode && focusNode.length > 0 ? focusNode.data('label') : focusedNodeId;
+            text = "Neighborhood of '" + label + "'";
+            if (visibleCount !== undefined) text += ' (' + visibleCount + ' nodes)';
+        } else if (catVal && visibleCount !== undefined) {
+            text = 'Showing ' + visibleCount + " nodes in '" + catVal + "'";
+        } else if (searchQuery && visibleCount !== undefined) {
+            text = visibleCount + ' matches';
+        }
+
+        if (statusText) statusText.textContent = text;
     }
 
     // ─── Focus neighborhood ───────────────────────────────────────
     function focusNeighborhood(nodeId) {
         focusedNodeId = nodeId;
+        recomputeVisibility();
+    }
+
+    // ─── Similar edge toggle ─────────────────────────────────────
+    function toggleSimilarEdges() {
+        if (!cy) return;
+        similarVisible = !similarVisible;
+
+        cy.batch(function () {
+            if (similarVisible) {
+                // Add similar edges to cytoscape
+                var edgesToAdd = [];
+                for (var i = 0; i < similarEdgesData.length; i++) {
+                    var e = similarEdgesData[i];
+                    edgesToAdd.push({
+                        group: 'edges',
+                        data: {
+                            id: e.id,
+                            source: e.source,
+                            target: e.target,
+                            linkType: 'similar'
+                        }
+                    });
+                }
+                cy.add(edgesToAdd);
+            } else {
+                // Remove similar edges from cytoscape
+                cy.edges('[linkType = "similar"]').remove();
+            }
+        });
+
+        btnSimilar.classList.toggle('active', similarVisible);
         recomputeVisibility();
     }
 
@@ -511,7 +710,22 @@
         typeFilter.value = '';
         categoryFilter.value = '';
         focusedNodeId = null;
-        recomputeVisibility();
+        // Clear selection state so tooltips aren't permanently suppressed
+        selectedNodeId = null;
+        cy.nodes().unselect();
+        sidebar.classList.add('hidden');
+        hideTooltip();
+        // Remove similar edges if active
+        if (similarVisible) {
+            similarVisible = false;
+            btnSimilar.classList.remove('active');
+        }
+        cy.batch(function () {
+            cy.edges('[linkType = "similar"]').remove();
+            cy.nodes().removeClass(ALL_VIS_CLASSES);
+            cy.edges().removeClass('dimmed highlighted');
+        });
+        updateStatusBar();
         cy.fit(undefined, 40);
     }
 
@@ -522,6 +736,8 @@
 
     typeFilter.addEventListener('change', recomputeVisibility);
     categoryFilter.addEventListener('change', recomputeVisibility);
+
+    btnSimilar.addEventListener('click', toggleSimilarEdges);
 
     btnFit.addEventListener('click', function () {
         if (cy) cy.fit(undefined, 40);

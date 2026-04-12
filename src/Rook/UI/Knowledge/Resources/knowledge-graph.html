@@ -12,20 +12,27 @@
 </head>
 <body>
     <div id="toolbar">
-        <input type="text" id="search" placeholder="Search notes..." />
-        <select id="type-filter">
-            <option value="">All types</option>
-            <option value="component">component</option>
-            <option value="recipe">recipe</option>
-            <option value="struggle">struggle</option>
-            <option value="teaching">teaching</option>
-        </select>
-        <select id="category-filter">
-            <option value="">All categories</option>
-        </select>
-        <button id="btn-fit" title="Fit graph to view">Fit</button>
-        <button id="btn-reset" title="Reset filters">Reset</button>
+        <div class="toolbar-filters">
+            <input type="text" id="search" placeholder="Search notes..." />
+            <select id="type-filter">
+                <option value="">All types</option>
+                <option value="component">component</option>
+                <option value="recipe">recipe</option>
+                <option value="struggle">struggle</option>
+                <option value="teaching">teaching</option>
+            </select>
+            <select id="category-filter">
+                <option value="">All categories</option>
+            </select>
+        </div>
+        <div class="toolbar-actions">
+            <button id="btn-similar" title="Toggle similar_to edges">Similar</button>
+            <button id="btn-fit" title="Fit graph to view">Fit</button>
+            <button id="btn-reset" title="Reset filters">Reset</button>
+        </div>
     </div>
+
+    <div id="tooltip" class="hidden"></div>
 
     <div id="main">
         <div id="graph-container">

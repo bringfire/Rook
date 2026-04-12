@@ -31,11 +31,27 @@ html, body {
 /* ── Toolbar ── */
 #toolbar {
     display: flex;
-    gap: 6px;
     padding: 6px 8px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     align-items: center;
+    justify-content: space-between;
+}
+
+.toolbar-filters {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1;
+}
+
+.toolbar-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: 12px;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
 }
 
 #toolbar input,
@@ -67,6 +83,13 @@ html, body {
     padding: 4px 10px;
     font-size: 12px;
     cursor: pointer;
+    white-space: nowrap;
+}
+
+#toolbar button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
 }
 
 #toolbar button:hover {
@@ -198,6 +221,68 @@ html, body {
 
 #sidebar-content .link-item:hover {
     text-decoration: underline;
+}
+
+/* ── Tooltip ── */
+#tooltip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 100;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    max-width: 280px;
+    font-size: 12px;
+    line-height: 1.4;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+#tooltip.hidden {
+    display: none;
+}
+
+#tooltip .tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+#tooltip .tooltip-name {
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+}
+
+#tooltip .tooltip-type {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+#tooltip .tooltip-type.component { background: var(--color-component); }
+#tooltip .tooltip-type.recipe { background: var(--color-recipe); }
+#tooltip .tooltip-type.struggle { background: var(--color-struggle); }
+#tooltip .tooltip-type.teaching { background: var(--color-teaching); }
+
+#tooltip .tooltip-meta {
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-bottom: 3px;
+}
+
+#tooltip .tooltip-brief {
+    color: var(--text-primary);
+    font-size: 11px;
+    opacity: 0.85;
 }
 
 /* ── Status bar ── */
