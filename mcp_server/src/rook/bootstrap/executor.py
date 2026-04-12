@@ -7,6 +7,7 @@ Can use either direct HTTP calls or the MCP protocol.
 
 import json
 import logging
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Any, Callable
@@ -183,11 +184,11 @@ class HttpExecutor:
 
         try:
             if method == "GET":
-                # Add query params for GET
+                # Add query params for GET (URL-encoded for safe layer paths)
                 if body:
-                    query = "&".join(f"{k}={v}" for k, v in body.items() if v is not None)
-                    if query:
-                        url = f"{url}?{query}"
+                    params = {k: str(v) for k, v in body.items() if v is not None}
+                    if params:
+                        url = f"{url}?{urllib.parse.urlencode(params)}"
                 req = urllib.request.Request(url)
             else:
                 # POST/DELETE/PUT with JSON body

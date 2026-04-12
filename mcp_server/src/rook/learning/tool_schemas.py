@@ -320,7 +320,7 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
         description="Set any combination of layer properties in a single call",
         params=[
             ParamSchema("name", "string", "Target layer name or full path", required=True),
-            ParamSchema("set", "object", "Properties to modify: rename, parent, color, plotColor, plotWeight, linetype, material, visible, locked", required=True),
+            ParamSchema("set", "object", "Properties to modify: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked", required=True),
         ],
     ),
     "rhino_layer_rename": ToolSchema(
