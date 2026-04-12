@@ -46,6 +46,7 @@ TOOL_CATEGORIES = {
     "rhino_layer_dependencies": "layer",
 
     # Material audit/purge
+    "rhino_materials": "material",
     "rhino_material_purge": "material",
 
     # Linetype category

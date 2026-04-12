@@ -118,6 +118,7 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_layer_merge": "Move objects from source to target layer, then delete source",
     "rhino_layer_dependencies": "Analyze what holds a layer alive (objects, block refs, children, canDelete)",
     # Material / linetype audit
+    "rhino_materials": "List all materials with usage reporting (objects, layers, blocks, canPurge)",
     "rhino_material_purge": "Purge unused materials with structured blocker reporting",
     "rhino_linetypes": "List all linetypes with usage reporting (objects, layers, blocks, canPurge)",
     "rhino_linetype_purge": "Purge unused linetypes with structured blocker reporting",

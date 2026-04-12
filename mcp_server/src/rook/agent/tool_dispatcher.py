@@ -138,6 +138,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_layer_dependencies":   ("/layers/dependencies", "GET"),
 
     # --- Materials / Linetypes ---
+    "rhino_materials":            ("/materials", "GET"),
     "rhino_material_purge":       ("/materials/purge", "POST"),
     "rhino_linetypes":            ("/linetypes", "GET"),
     "rhino_linetype_purge":       ("/linetypes/purge", "POST"),

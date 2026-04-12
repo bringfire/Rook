@@ -203,22 +203,39 @@ void HandlePurgeLinetypes(const httplib::Request& req, httplib::Response& res)
             if (total == 0)
             {
                 toPurge.push_back(i);
-                purged.push_back(ltName);
             }
             else
             {
                 nlohmann::json skip;
                 skip["name"] = ltName;
-                skip["reason"] = "In use (" + std::to_string(total) + " references)";
+                nlohmann::json reasons = nlohmann::json::array();
+                if (objIt != objectsPerLinetype.end() && objIt->second > 0)
+                    reasons.push_back(std::to_string(objIt->second) + " object(s)");
+                if (layIt != layersPerLinetype.end() && layIt->second > 0)
+                    reasons.push_back(std::to_string(layIt->second) + " layer(s)");
+                if (blkIt != blockObjsPerLinetype.end() && blkIt->second > 0)
+                    reasons.push_back(std::to_string(blkIt->second) + " block definition object(s)");
+                skip["reasons"] = std::move(reasons);
                 skipped.push_back(std::move(skip));
             }
         }
 
-        // Delete in reverse index order
+        // Delete in reverse index order; only report as purged after success
         for (int j = static_cast<int>(toPurge.size()) - 1; j >= 0; --j)
         {
+            std::string name = WideToUtf8(pDoc->m_linetype_table[toPurge[j]].Name());
             if (pDoc->m_linetype_table.DeleteLinetype(toPurge[j], true))
+            {
+                purged.push_back(name);
                 ++purgedCount;
+            }
+            else
+            {
+                nlohmann::json skip;
+                skip["name"] = name;
+                skip["reasons"] = nlohmann::json::array({"Delete failed"});
+                skipped.push_back(std::move(skip));
+            }
         }
 
         WriteResult wr;

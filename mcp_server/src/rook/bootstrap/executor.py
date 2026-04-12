@@ -134,6 +134,7 @@ class HttpExecutor:
             "rhino_layer_dependencies": ("GET", "/layers/dependencies", params),
 
             # Material / linetype / block audit
+            "rhino_materials": ("GET", "/materials", params),
             "rhino_material_purge": ("POST", "/materials/purge", params),
             "rhino_linetypes": ("GET", "/linetypes", params),
             "rhino_linetype_purge": ("POST", "/linetypes/purge", params),

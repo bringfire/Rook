@@ -461,7 +461,6 @@ void HandlePurgeMaterials(const httplib::Request& req, httplib::Response& res)
             if (total == 0)
             {
                 toPurge.push_back(i);
-                purged.push_back(matName);
             }
             else
             {
@@ -479,11 +478,22 @@ void HandlePurgeMaterials(const httplib::Request& req, httplib::Response& res)
             }
         }
 
-        // Delete in reverse index order
+        // Delete in reverse index order; only report as purged after success
         for (int j = static_cast<int>(toPurge.size()) - 1; j >= 0; --j)
         {
+            std::string name = WideToUtf8(pDoc->m_material_table[toPurge[j]].Name());
             if (pDoc->m_material_table.DeleteMaterial(toPurge[j]))
+            {
+                purged.push_back(name);
                 ++purgedCount;
+            }
+            else
+            {
+                nlohmann::json skip;
+                skip["name"] = name;
+                skip["reasons"] = nlohmann::json::array({"Delete failed"});
+                skipped.push_back(std::move(skip));
+            }
         }
 
         WriteResult wr;

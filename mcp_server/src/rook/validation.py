@@ -117,7 +117,7 @@ TOOLS_BY_CATEGORY = {
     "viewport": ["rhino_viewport"],
     "measure": ["rhino_measure_distance", "rhino_measure_area", "rhino_measure_volume",
                 "rhino_measure_length", "rhino_measure_bbox", "rhino_measure_centroid"],
-    "material": ["rhino_material_ops", "rhino_material_purge"],
+    "material": ["rhino_material_ops", "rhino_materials", "rhino_material_purge"],
     "linetype": ["rhino_linetypes", "rhino_linetype_purge"],
     "select": ["rhino_select", "rhino_selection", "rhino_select_by_type",
                "rhino_select_by_name", "rhino_select_all", "rhino_select_none"],

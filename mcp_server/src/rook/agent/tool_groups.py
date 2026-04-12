@@ -198,7 +198,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- Materials & UV Mapping ---
     "materials": [
-        "rhino_material_ops", "rhino_material_purge",
+        "rhino_material_ops", "rhino_materials", "rhino_material_purge",
         "rhino_apply_uv_box_mapping", "rhino_apply_uv_planar_mapping",
         "rhino_apply_uv_cylinder_mapping", "rhino_apply_uv_sphere_mapping",
     ],

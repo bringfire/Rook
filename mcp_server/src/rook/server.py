@@ -2607,6 +2607,15 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_materials",
+            description="List all materials in the document with usage reporting: objectCount, layerCount, blockDefinitionObjectCount, canPurge flag per material.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
             name="rhino_material_purge",
             description="Purge unused materials from the document. Returns purged names, skipped names with reasons (which objects/layers/block definitions reference them).",
             inputSchema={
@@ -8905,17 +8914,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             else:
                 result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: list, create, delete, assign"}
 
+        case "rhino_materials":
+            result = await call_rhino("/materials", "GET", arguments if arguments else {})
+
         case "rhino_material_purge":
-            result = await call_rhino("/materials/purge", "POST", {})
+            result = await call_rhino("/materials/purge", "POST", arguments if arguments else {})
 
         case "rhino_linetypes":
-            result = await call_rhino("/linetypes", "GET", {})
+            result = await call_rhino("/linetypes", "GET", arguments if arguments else {})
 
         case "rhino_linetype_purge":
-            result = await call_rhino("/linetypes/purge", "POST", {})
+            result = await call_rhino("/linetypes/purge", "POST", arguments if arguments else {})
 
         case "rhino_block_layer_census":
-            result = await call_rhino("/block/layer-census", "GET", {})
+            result = await call_rhino("/block/layer-census", "GET", arguments if arguments else {})
 
         # ========================================
         # Phase A: Core Operations (14 handlers)

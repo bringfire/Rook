@@ -360,6 +360,11 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     # =========================================================================
     # Material / Linetype Audit
     # =========================================================================
+    "rhino_materials": ToolSchema(
+        name="rhino_materials",
+        description="List all materials with usage reporting (objectCount, layerCount, blockDefinitionObjectCount, canPurge)",
+        params=[],
+    ),
     "rhino_material_purge": ToolSchema(
         name="rhino_material_purge",
         description="Purge unused materials. Returns purged names and skipped names with reasons.",
