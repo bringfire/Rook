@@ -37,8 +37,12 @@ project, and generates a tailored CLAUDE.md with project-specific context.
    - `$LOCALAPPDATA/Rook/CLAUDE.md` (Windows default install path)
    - `$HOME/.local/share/rook/CLAUDE.md` (future Linux/macOS path)
 
-   If not found, fall back to the embedded reference below (Step 3 has the
-   canonical content). Warn the user that the install CLAUDE.md was not found.
+   If not found, fetch the canonical version from GitHub:
+   `https://raw.githubusercontent.com/bringfire/Rook/main/installer/CLAUDE.md`
+   If that also fails, generate a minimal Rook reference section from the
+   tool names and patterns you know (rhino_execute_intent, gh_execute_intent,
+   knowledge_query, the Critical Rules). Warn the user that the install
+   CLAUDE.md was not found and the reference may be incomplete.
 
 3. **Scan the project directory.** Use `Glob` to detect:
    - `.3dm` files → Rhino models present
@@ -160,8 +164,13 @@ operation.
 
 ---
 
-[INSERT FULL INSTALLER CLAUDE.MD CONTENT HERE]
-[Read from install path, or use the canonical content from the Rook install]
+[Read the full installer CLAUDE.md from the install path found in Step 0
+and insert its contents here verbatim, starting from "## Start Here".
+If fetched from GitHub instead, use that content. If neither source was
+available, generate a minimal reference covering: Start Here (rhino_ping),
+Primary Tools (rhino_execute_intent, gh_execute_intent), Knowledge Store
+(knowledge_query depths), and Critical Rules (never say "I can't", use
+MCP tools not HTTP, no keyboard automation, prefer typed routes).]
 ```
 
 **If the user had an existing CLAUDE.md without Rook context:**
@@ -193,9 +202,11 @@ Rook section starting from `## Project Context`.
 - **User wants to update an existing Rook CLAUDE.md:** Re-run the interview,
   regenerate the project-specific sections, preserve the Rook reference.
   Don't duplicate the Rook section.
-- **No Rook install found:** Generate the CLAUDE.md using the full Rook
-  reference content embedded below. Warn: "Rook install directory not found.
-  Using built-in reference — run the installer for the full experience."
+- **No Rook install found:** Fetch the canonical CLAUDE.md from GitHub
+  (`https://raw.githubusercontent.com/bringfire/Rook/main/installer/CLAUDE.md`).
+  If that also fails, generate a minimal Rook reference from the tool names
+  and rules you know. Warn: "Rook install directory not found — reference
+  section may be incomplete. Run the installer for the full experience."
 - **User is in the Rook install directory:** Warn that this is the install
   folder, not a project folder. Suggest they `cd` to their project first.
 

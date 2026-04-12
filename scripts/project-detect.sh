@@ -7,21 +7,30 @@ detect_project_setup() {
     local claude_md="CLAUDE.md"
     local suggestion=""
 
-    # Skip if we're inside the Rook install directory itself
-    if [ -f "mcp_server/src/rook/server.py" ] || [ -f "src/RookNative/RookServer.cpp" ]; then
-        printf ''
-        return
+    # --- Skip: Rook source repo (walk up to git root) ---
+    local git_root
+    if git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+        if [ -f "$git_root/mcp_server/src/rook/server.py" ] || \
+           [ -f "$git_root/src/RookNative/RookServer.cpp" ]; then
+            printf ''
+            return
+        fi
     fi
 
-    # Skip if we're inside %LOCALAPPDATA%/Rook (the runtime root)
-    local cwd
-    cwd="$(pwd)"
+    # --- Skip: %LOCALAPPDATA%/Rook (the runtime/install root) ---
+    # Use cygpath for consistent POSIX paths in Git Bash on Windows.
+    # On non-Windows (no cygpath), fall back to tr-based normalization.
+    local normalized_cwd normalized_install
     local localappdata="${LOCALAPPDATA:-}"
+
     if [ -n "$localappdata" ]; then
-        # Normalize to forward slashes for comparison
-        local normalized_cwd normalized_install
-        normalized_cwd="$(echo "$cwd" | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
-        normalized_install="$(echo "$localappdata/Rook" | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
+        if command -v cygpath >/dev/null 2>&1; then
+            normalized_cwd="$(cygpath -u "$(pwd)" | tr '[:upper:]' '[:lower:]')"
+            normalized_install="$(cygpath -u "$localappdata/Rook" | tr '[:upper:]' '[:lower:]')"
+        else
+            normalized_cwd="$(pwd | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
+            normalized_install="$(echo "$localappdata/Rook" | tr '\\' '/' | tr '[:upper:]' '[:lower:]')"
+        fi
         if [[ "$normalized_cwd/" == "$normalized_install/"* ]]; then
             printf ''
             return
