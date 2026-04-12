@@ -358,6 +358,30 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     ),
 
     # =========================================================================
+    # Material / Linetype Audit
+    # =========================================================================
+    "rhino_material_purge": ToolSchema(
+        name="rhino_material_purge",
+        description="Purge unused materials. Returns purged names and skipped names with reasons.",
+        params=[],
+    ),
+    "rhino_linetypes": ToolSchema(
+        name="rhino_linetypes",
+        description="List all linetypes with usage reporting (objectCount, layerCount, blockDefinitionObjectCount, canPurge)",
+        params=[],
+    ),
+    "rhino_linetype_purge": ToolSchema(
+        name="rhino_linetype_purge",
+        description="Purge unused linetypes. Returns purged names and skipped names with reasons.",
+        params=[],
+    ),
+    "rhino_block_layer_census": ToolSchema(
+        name="rhino_block_layer_census",
+        description="Report which layers each block definition's geometry lives on with per-layer object counts",
+        params=[],
+    ),
+
+    # =========================================================================
     # Measurement
     # =========================================================================
     "rhino_measure_distance": ToolSchema(

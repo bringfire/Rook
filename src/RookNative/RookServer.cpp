@@ -17,6 +17,7 @@
 #include "Handlers/GroupsHandler.h"
 #include "Handlers/DocumentOpsHandler.h"
 #include "Handlers/MaterialsHandler.h"
+#include "Handlers/LinetypesHandler.h"
 #include "Handlers/ImportExportHandler.h"
 #include "Handlers/BooleanHandler.h"
 #include "Handlers/FilletChamferHandler.h"
@@ -831,6 +832,17 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/materials/assign", [this](const httplib::Request& req, httplib::Response& res) {
         HandleAssignMaterial(req, res);
     });
+    m_server->Post("/materials/purge", [this](const httplib::Request& req, httplib::Response& res) {
+        HandlePurgeMaterials(req, res);
+    });
+
+    // Linetypes
+    m_server->Get("/linetypes", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleGetLinetypes(req, res);
+    });
+    m_server->Post("/linetypes/purge", [this](const httplib::Request& req, httplib::Response& res) {
+        HandlePurgeLinetypes(req, res);
+    });
 
     // Phase 4C: Import/Export
     m_server->Post("/import", [this](const httplib::Request& req, httplib::Response& res) {
@@ -1180,6 +1192,9 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/block/merge", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockMerge(req, res);
+    });
+    m_server->Get("/block/layer-census", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleBlockLayerCensus(req, res);
     });
 
     // Phase 4F: Texture Mapping
@@ -1903,6 +1918,21 @@ void CRookServer::HandleAssignMaterial(const httplib::Request& req, httplib::Res
     Rook::Handlers::HandleAssignMaterial(req, res);
 }
 
+void CRookServer::HandlePurgeMaterials(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandlePurgeMaterials(req, res);
+}
+
+void CRookServer::HandleGetLinetypes(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleGetLinetypes(req, res);
+}
+
+void CRookServer::HandlePurgeLinetypes(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandlePurgeLinetypes(req, res);
+}
+
 void CRookServer::HandleImport(const httplib::Request& req, httplib::Response& res)
 {
     Rook::McpRequestGuard guard;  // C10: Tag commands as MCP source
@@ -2368,6 +2398,11 @@ void CRookServer::HandleBlockCompare(const httplib::Request& req, httplib::Respo
 void CRookServer::HandleBlockMerge(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleBlockMerge(req, res);
+}
+
+void CRookServer::HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleBlockLayerCensus(req, res);
 }
 
 // --- Phase 4F: Texture Mapping delegates ---

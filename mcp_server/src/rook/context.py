@@ -45,6 +45,16 @@ TOOL_CATEGORIES = {
     "rhino_layer_merge": "layer",
     "rhino_layer_dependencies": "layer",
 
+    # Material audit/purge
+    "rhino_material_purge": "material",
+
+    # Linetype category
+    "rhino_linetypes": "linetype",
+    "rhino_linetype_purge": "linetype",
+
+    # Block analysis
+    "rhino_block_layer_census": "block",
+
     # Boolean category - boolean operations
     "rhino_boolean": "boolean",
 

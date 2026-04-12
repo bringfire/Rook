@@ -2606,6 +2606,42 @@ Examples:
                 "required": ["action"]
             }
         ),
+        Tool(
+            name="rhino_material_purge",
+            description="Purge unused materials from the document. Returns purged names, skipped names with reasons (which objects/layers/block definitions reference them).",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="rhino_linetypes",
+            description="List all linetypes in the document with usage reporting: objectCount, layerCount, blockDefinitionObjectCount, canPurge flag.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="rhino_linetype_purge",
+            description="Purge unused linetypes from the document. Returns purged names, skipped names with reasons.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="rhino_block_layer_census",
+            description="Report which layers each block definition's geometry lives on. For every non-empty block: name, objectCount, instanceCount, and per-layer breakdown with counts. Essential for understanding block-layer relationships before cleanup.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
         # ========================================
         # Phase A: Core Operations (14 tools)
         # ========================================
@@ -8868,6 +8904,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     result = await call_rhino("/materials/assign", "POST", payload)
             else:
                 result = {"success": False, "data": f"Invalid action '{action}'. Valid actions: list, create, delete, assign"}
+
+        case "rhino_material_purge":
+            result = await call_rhino("/materials/purge", "POST", {})
+
+        case "rhino_linetypes":
+            result = await call_rhino("/linetypes", "GET", {})
+
+        case "rhino_linetype_purge":
+            result = await call_rhino("/linetypes/purge", "POST", {})
+
+        case "rhino_block_layer_census":
+            result = await call_rhino("/block/layer-census", "GET", {})
 
         # ========================================
         # Phase A: Core Operations (14 handlers)

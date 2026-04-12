@@ -162,6 +162,9 @@ private:
     void HandleCreateMaterial(const httplib::Request& req, httplib::Response& res);
     void HandleDeleteMaterial(const httplib::Request& req, httplib::Response& res);
     void HandleAssignMaterial(const httplib::Request& req, httplib::Response& res);
+    void HandlePurgeMaterials(const httplib::Request& req, httplib::Response& res);
+    void HandleGetLinetypes(const httplib::Request& req, httplib::Response& res);
+    void HandlePurgeLinetypes(const httplib::Request& req, httplib::Response& res);
     void HandleImport(const httplib::Request& req, httplib::Response& res);
     void HandleExport(const httplib::Request& req, httplib::Response& res);
     void HandleBoolean(const httplib::Request& req, httplib::Response& res);
@@ -267,6 +270,7 @@ private:
     void HandleBlockNested(const httplib::Request& req, httplib::Response& res);
     void HandleBlockCompare(const httplib::Request& req, httplib::Response& res);
     void HandleBlockMerge(const httplib::Request& req, httplib::Response& res);
+    void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res);
 
     // Route handlers — Phase 4F: Texture Mapping (delegate to Rook::Handlers::*)
     void HandleUvBox(const httplib::Request& req, httplib::Response& res);

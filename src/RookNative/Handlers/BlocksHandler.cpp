@@ -4525,5 +4525,88 @@ void HandleBlockCompare(const httplib::Request& req, httplib::Response& res)
     catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
 }
 
+// ─── GET /block/layer-census — Layer usage across all block definitions ──
+
+void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn]() -> nlohmann::json
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
+        nlohmann::json blocks = nlohmann::json::array();
+
+        for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
+        {
+            const CRhinoInstanceDefinition* idef = idefTable[d];
+            if (!idef || idef->IsDeleted()) continue;
+
+            ON_SimpleArray<const CRhinoObject*> objArray;
+            idef->GetObjects(objArray);
+
+            if (objArray.Count() == 0) continue;
+
+            // Count objects per layer within this block
+            std::map<int, int> layerCounts;
+            for (int j = 0; j < objArray.Count(); ++j)
+            {
+                if (!objArray[j]) continue;
+                layerCounts[objArray[j]->Attributes().m_layer_index]++;
+            }
+
+            // Resolve layer indices to full paths
+            nlohmann::json layerUsage = nlohmann::json::array();
+            for (const auto& [layerIdx, count] : layerCounts)
+            {
+                nlohmann::json entry;
+                if (layerIdx >= 0 && layerIdx < pDoc->m_layer_table.LayerCount())
+                {
+                    ON_wString fullPath;
+                    pDoc->m_layer_table.GetLayerPathName(layerIdx, fullPath);
+                    entry["layer"] = WideToUtf8(fullPath);
+                    entry["layerIndex"] = layerIdx;
+                }
+                else
+                {
+                    entry["layer"] = "(invalid index " + std::to_string(layerIdx) + ")";
+                    entry["layerIndex"] = layerIdx;
+                }
+                entry["objectCount"] = count;
+                layerUsage.push_back(std::move(entry));
+            }
+
+            // Get instance count
+            ON_SimpleArray<const CRhinoInstanceObject*> refs;
+            idef->GetReferences(refs);
+
+            nlohmann::json block;
+            block["name"] = WideToUtf8(idef->Name());
+            block["objectCount"] = objArray.Count();
+            block["instanceCount"] = refs.Count();
+            block["layerCount"] = static_cast<int>(layerCounts.size());
+            block["layers"] = std::move(layerUsage);
+            blocks.push_back(std::move(block));
+        }
+
+        nlohmann::json result;
+        result["blockCount"] = static_cast<int>(blocks.size());
+        result["blocks"] = std::move(blocks);
+        return result;
+    });
+
+    try
+    {
+        auto result = future.get();
+        CRookServer::SendSuccess(res, result);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
 } // namespace Handlers
 } // namespace Rook

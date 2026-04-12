@@ -81,5 +81,8 @@ void HandleBlockNested(const httplib::Request& req, httplib::Response& res);
 void HandleBlockCompare(const httplib::Request& req, httplib::Response& res);
 void HandleBlockMerge(const httplib::Request& req, httplib::Response& res);
 
+// Analysis
+void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

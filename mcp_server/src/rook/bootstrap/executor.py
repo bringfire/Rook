@@ -133,6 +133,12 @@ class HttpExecutor:
             "rhino_layer_merge": ("POST", "/layers/merge", params),
             "rhino_layer_dependencies": ("GET", "/layers/dependencies", params),
 
+            # Material / linetype / block audit
+            "rhino_material_purge": ("POST", "/materials/purge", params),
+            "rhino_linetypes": ("GET", "/linetypes", params),
+            "rhino_linetype_purge": ("POST", "/linetypes/purge", params),
+            "rhino_block_layer_census": ("GET", "/block/layer-census", params),
+
             # Selection tools (POST)
             # Selection tools - all use POST /select with different body params
             "rhino_select": ("POST", "/select", params),
