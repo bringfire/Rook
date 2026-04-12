@@ -126,6 +126,11 @@ class HttpExecutor:
             "rhino_layer_visibility": ("POST", "/layers/visibility", params),
             "rhino_layer_lock": ("POST", "/layers/lock", params),
             "rhino_layer_current": ("POST", "/layers/current", params),
+            "rhino_layer_set_properties": ("POST", "/layers/properties", params),
+            "rhino_layer_rename": ("POST", "/layers/rename", params),
+            "rhino_layer_move_objects": ("POST", "/layers/move-objects", params),
+            "rhino_layer_merge": ("POST", "/layers/merge", params),
+            "rhino_layer_dependencies": ("GET", "/layers/dependencies", params),
 
             # Selection tools (POST)
             # Selection tools - all use POST /select with different body params

@@ -911,7 +911,6 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
             throw std::invalid_argument("Source and target are the same layer");
 
         int moved = 0;
-        int failed = 0;
         CRhinoObjectIterator it(*pDoc,
             CRhinoObjectIterator::normal_or_locked_objects,
             CRhinoObjectIterator::active_objects);
@@ -922,10 +921,13 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
             {
                 CRhinoObjectAttributes attrs = obj->Attributes();
                 attrs.m_layer_index = tgtRef.index;
-                if (pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
-                    ++moved;
-                else
-                    ++failed;
+                if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                    throw std::runtime_error(
+                        "Failed to move object '" + UuidToString(obj->Attributes().m_uuid) +
+                        "' from '" + source + "' to '" + target +
+                        "' (" + std::to_string(moved) + " moved before failure). "
+                        "Use Ctrl+Z to undo partial changes.");
+                ++moved;
             }
         }
 
@@ -936,7 +938,6 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
         wr.data["source"] = source;
         wr.data["target"] = target;
         wr.data["objectsMoved"] = moved;
-        wr.data["objectsFailed"] = failed;
         return wr;
     });
 
@@ -1025,9 +1026,11 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
             }
         }
 
-        // Move all objects (preflight passed — delete will succeed)
+        // Move all objects (preflight passed — delete will succeed).
+        // Fail fast on first error to minimize partial state. The entire
+        // operation is wrapped in UndoScope so Ctrl+Z reverts all changes
+        // made before the throw.
         int moved = 0;
-        int failed = 0;
         {
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::normal_or_locked_objects,
@@ -1039,17 +1042,16 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
                 {
                     CRhinoObjectAttributes attrs = obj->Attributes();
                     attrs.m_layer_index = tgtRef.index;
-                    if (pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
-                        ++moved;
-                    else
-                        ++failed;
+                    if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                        throw std::runtime_error(
+                            "Failed to move object '" + UuidToString(obj->Attributes().m_uuid) +
+                            "' from '" + source + "' to '" + target +
+                            "' (" + std::to_string(moved) + " moved before failure). "
+                            "Use Ctrl+Z to undo partial changes.");
+                    ++moved;
                 }
             }
         }
-
-        if (failed > 0)
-            throw std::runtime_error("Failed to move " + std::to_string(failed) +
-                " object(s) from '" + source + "' to '" + target + "'");
 
         // Delete the now-empty source layer
         if (!pDoc->m_layer_table.DeleteLayer(srcRef.index, true))
