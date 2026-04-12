@@ -41,6 +41,21 @@ namespace Handlers {
 
 namespace {
 
+// Find a non-deleted material by name (matches pattern used in MaterialsHandler/BlocksHandler).
+int FindMaterialIndexSafe(CRhinoDoc* pDoc, const std::string& name)
+{
+    ON_wString wName = Utf8ToWide(name);
+    int count = pDoc->m_material_table.MaterialCount();
+    for (int i = 0; i < count; ++i)
+    {
+        const CRhinoMaterial& mat = pDoc->m_material_table[i];
+        if (mat.IsDeleted()) continue;
+        if (mat.Name().CompareNoCase(wName) == 0)
+            return i;
+    }
+    return -1;
+}
+
 // Apply optional layer properties from a JSON object to an ON_Layer.
 // Used by create, batch create, and set_properties handlers.
 void ApplyLayerProperties(ON_Layer& layer, const nlohmann::json& spec, CRhinoDoc* pDoc)
@@ -86,7 +101,7 @@ void ApplyLayerProperties(ON_Layer& layer, const nlohmann::json& spec, CRhinoDoc
     if (spec.contains("material"))
     {
         const std::string matName = spec["material"].get<std::string>();
-        int matIdx = pDoc->m_material_table.FindMaterial(Utf8ToWide(matName));
+        int matIdx = FindMaterialIndexSafe(pDoc, matName);
         if (matIdx < 0)
             throw std::invalid_argument("Material '" + matName + "' not found");
         layer.SetRenderMaterialIndex(matIdx);
@@ -94,8 +109,13 @@ void ApplyLayerProperties(ON_Layer& layer, const nlohmann::json& spec, CRhinoDoc
     else if (spec.contains("materialIndex"))
     {
         int matIdx = spec["materialIndex"].get<int>();
-        if (matIdx >= 0 && matIdx >= pDoc->m_material_table.MaterialCount())
-            throw std::invalid_argument("materialIndex out of range");
+        if (matIdx >= 0)
+        {
+            if (matIdx >= pDoc->m_material_table.MaterialCount())
+                throw std::invalid_argument("materialIndex out of range");
+            if (pDoc->m_material_table[matIdx].IsDeleted())
+                throw std::invalid_argument("materialIndex " + std::to_string(matIdx) + " references a deleted material");
+        }
         layer.SetRenderMaterialIndex(matIdx);
     }
 }
@@ -604,7 +624,8 @@ void HandleLayerVisibility(const httplib::Request& req, httplib::Response& res)
         // C++ SDK layer modification: copy → modify → ModifyLayer
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
         layerCopy.SetVisible(visible);
-        pDoc->m_layer_table.ModifyLayer(layerCopy, idx);
+        if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
+            throw std::runtime_error("Failed to modify visibility for layer '" + name + "'");
 
         pDoc->Redraw();
 
@@ -660,7 +681,8 @@ void HandleLayerLock(const httplib::Request& req, httplib::Response& res)
 
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
         layerCopy.SetLocked(locked);
-        pDoc->m_layer_table.ModifyLayer(layerCopy, idx);
+        if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
+            throw std::runtime_error("Failed to modify lock state for layer '" + name + "'");
 
         pDoc->Redraw();
 
@@ -761,12 +783,51 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
         const int idx = layerRef.index;
 
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
+        const ON_UUID layerId = layerCopy.Id();
 
         // Rename (special — not in ApplyLayerProperties since it's name, not a display property)
         if (props.contains("rename"))
         {
             std::string newName = props["rename"].get<std::string>();
             ValidateNewLayerName(newName);
+
+            // Check for duplicate sibling: compute target full path and verify it doesn't exist
+            ON_UUID parentId = layerCopy.ParentLayerId();
+            // If reparent is also happening, use the new parent for collision check
+            if (props.contains("parent") && !props["parent"].is_null())
+            {
+                const ResolvedLayerRef newParentRef = ResolveLayerRef(pDoc, props["parent"].get<std::string>(), "parent");
+                parentId = pDoc->m_layer_table[newParentRef.index].Id();
+            }
+            else if (props.contains("parent") && props["parent"].is_null())
+            {
+                parentId = ON_nil_uuid;
+            }
+
+            std::string parentPath;
+            if (!ON_UuidIsNil(parentId))
+            {
+                // Find parent index to get its full path
+                for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+                {
+                    if (!pDoc->m_layer_table[i].IsDeleted() &&
+                        ON_UuidCompare(pDoc->m_layer_table[i].Id(), parentId) == 0)
+                    {
+                        ON_wString pp;
+                        pDoc->m_layer_table.GetLayerPathName(i, pp);
+                        parentPath = WideToUtf8(pp);
+                        break;
+                    }
+                }
+            }
+            const std::string targetFullPath = JoinLayerPath(parentPath, newName);
+            if (LayerExistsByFullPath(pDoc, targetFullPath))
+            {
+                // Allow if it's the same layer (no-op rename to same name)
+                if (targetFullPath != layerRef.fullPath)
+                    throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
+            }
+
             layerCopy.SetName(Utf8ToWide(newName));
         }
 
@@ -781,7 +842,37 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
             {
                 std::string parentName = props["parent"].get<std::string>();
                 const ResolvedLayerRef parentRef = ResolveLayerRef(pDoc, parentName, "parent");
-                layerCopy.SetParentLayerId(pDoc->m_layer_table[parentRef.index].Id());
+                ON_UUID newParentId = pDoc->m_layer_table[parentRef.index].Id();
+
+                // Cycle detection: walk up from proposed parent to root,
+                // verify the target layer is not an ancestor
+                if (ON_UuidCompare(newParentId, layerId) == 0)
+                    throw std::invalid_argument("Cannot reparent layer under itself");
+
+                ON_UUID walkId = newParentId;
+                while (!ON_UuidIsNil(walkId))
+                {
+                    // Find the layer with this ID
+                    bool found = false;
+                    for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+                    {
+                        const CRhinoLayer& walkLayer = pDoc->m_layer_table[i];
+                        if (walkLayer.IsDeleted()) continue;
+                        if (ON_UuidCompare(walkLayer.Id(), walkId) == 0)
+                        {
+                            walkId = walkLayer.ParentLayerId();
+                            if (ON_UuidCompare(walkId, layerId) == 0)
+                                throw std::invalid_argument(
+                                    "Cannot reparent: '" + parentName +
+                                    "' is a descendant of '" + name + "' (would create a cycle)");
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) break;
+                }
+
+                layerCopy.SetParentLayerId(newParentId);
             }
         }
 
@@ -851,6 +942,28 @@ void HandleLayerRename(const httplib::Request& req, httplib::Response& res)
 
         const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
         const int idx = layerRef.index;
+        const CRhinoLayer& layer = pDoc->m_layer_table[idx];
+
+        // Check for duplicate sibling
+        std::string parentPath;
+        ON_UUID parentId = layer.ParentLayerId();
+        if (!ON_UuidIsNil(parentId))
+        {
+            for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+            {
+                if (!pDoc->m_layer_table[i].IsDeleted() &&
+                    ON_UuidCompare(pDoc->m_layer_table[i].Id(), parentId) == 0)
+                {
+                    ON_wString pp;
+                    pDoc->m_layer_table.GetLayerPathName(i, pp);
+                    parentPath = WideToUtf8(pp);
+                    break;
+                }
+            }
+        }
+        const std::string targetFullPath = JoinLayerPath(parentPath, newName);
+        if (LayerExistsByFullPath(pDoc, targetFullPath) && targetFullPath != layerRef.fullPath)
+            throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
 
         ON_Layer layerCopy = pDoc->m_layer_table[idx];
         layerCopy.SetName(Utf8ToWide(newName));
