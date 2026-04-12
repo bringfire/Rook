@@ -708,6 +708,21 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/layers/current", [this](const httplib::Request& req, httplib::Response& res) {
         HandleLayerCurrent(req, res);
     });
+    m_server->Post("/layers/properties", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerSetProperties(req, res);
+    });
+    m_server->Post("/layers/rename", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerRename(req, res);
+    });
+    m_server->Post("/layers/move-objects", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerMoveObjects(req, res);
+    });
+    m_server->Post("/layers/merge", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerMerge(req, res);
+    });
+    m_server->Get("/layers/dependencies", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerDependencies(req, res);
+    });
 
     // Phase 4B: Selection
     m_server->Get("/selection", [this](const httplib::Request& req, httplib::Response& res) {
@@ -1725,6 +1740,31 @@ void CRookServer::HandleLayerLock(const httplib::Request& req, httplib::Response
 void CRookServer::HandleLayerCurrent(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleLayerCurrent(req, res);
+}
+
+void CRookServer::HandleLayerSetProperties(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerSetProperties(req, res);
+}
+
+void CRookServer::HandleLayerRename(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerRename(req, res);
+}
+
+void CRookServer::HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerMoveObjects(req, res);
+}
+
+void CRookServer::HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerMerge(req, res);
+}
+
+void CRookServer::HandleLayerDependencies(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerDependencies(req, res);
 }
 
 void CRookServer::HandleGetSelection(const httplib::Request& req, httplib::Response& res)

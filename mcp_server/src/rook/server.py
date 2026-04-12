@@ -1425,6 +1425,82 @@ Examples:
                 "required": ["name"]
             }
         ),
+        Tool(
+            name="rhino_layer_set_properties",
+            description="""Set any combination of layer properties in a single call. The 'set' object can include any subset of: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked, expanded. Only provided fields are modified.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Target layer (name or full path)"},
+                    "set": {
+                        "type": "object",
+                        "description": "Properties to modify. All fields optional.",
+                        "properties": {
+                            "rename": {"type": "string", "description": "New name for the layer"},
+                            "parent": {"type": ["string", "null"], "description": "New parent layer path, or null to make top-level"},
+                            "color": {"type": "array", "items": {"type": "integer"}, "description": "[r, g, b] display color"},
+                            "plotColor": {"type": "array", "items": {"type": "integer"}, "description": "[r, g, b] print color"},
+                            "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
+                            "linetype": {"type": "string", "description": "Linetype name (e.g. 'Continuous', 'Dashed')"},
+                            "linetypeIndex": {"type": "integer", "description": "Linetype table index"},
+                            "material": {"type": "string", "description": "Render material name"},
+                            "materialIndex": {"type": "integer", "description": "Material table index"},
+                            "visible": {"type": "boolean", "description": "Visibility state"},
+                            "locked": {"type": "boolean", "description": "Lock state"},
+                            "expanded": {"type": "boolean", "description": "UI tree expansion state"}
+                        }
+                    }
+                },
+                "required": ["name", "set"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_rename",
+            description="Rename a layer. All objects remain on the layer.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Current layer name or full path"},
+                    "newName": {"type": "string", "description": "New name (single segment, no :: separators)"}
+                },
+                "required": ["name", "newName"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_move_objects",
+            description="Move all objects from one layer to another. Source layer is not deleted.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source layer name or full path"},
+                    "target": {"type": "string", "description": "Target layer name or full path"}
+                },
+                "required": ["source", "target"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_merge",
+            description="Move all objects from source to target layer, then delete the source layer. Source must have no child layers and must not be the current layer.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source layer to merge away"},
+                    "target": {"type": "string", "description": "Target layer to receive objects"}
+                },
+                "required": ["source", "target"]
+            }
+        ),
+        Tool(
+            name="rhino_layer_dependencies",
+            description="Analyze what holds a layer alive: direct objects, block definition references, child layers, and whether it is the current layer. Returns canDelete indicating if the layer can be safely deleted.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Layer name or full path to analyze"}
+                },
+                "required": ["name"]
+            }
+        ),
         # Advanced selection
         Tool(
             name="rhino_select_by_type",
@@ -8380,6 +8456,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_layer_current":
             result = await call_rhino("/layers/current", "POST", arguments)
+
+        case "rhino_layer_set_properties":
+            result = await call_rhino("/layers/properties", "POST", arguments)
+
+        case "rhino_layer_rename":
+            result = await call_rhino("/layers/rename", "POST", arguments)
+
+        case "rhino_layer_move_objects":
+            result = await call_rhino("/layers/move-objects", "POST", arguments)
+
+        case "rhino_layer_merge":
+            result = await call_rhino("/layers/merge", "POST", arguments)
+
+        case "rhino_layer_dependencies":
+            name = arguments.get("name", "")
+            result = await call_rhino(f"/layers/dependencies?name={name}", "GET", {})
 
         # Advanced selection
         case "rhino_select_by_type":
