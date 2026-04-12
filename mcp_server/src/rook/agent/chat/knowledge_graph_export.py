@@ -86,9 +86,44 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
 
         nodes.append(node)
 
+    # Build similar_to edges (component-only, GUID-based, undirected, deduped).
+    # similar_to stores component GUIDs, not note IDs — resolve via map.
+    guid_to_note_id: dict[str, str] = {}
+    for note in active:
+        if note.note_type == "component":
+            guid = (note.type_data or {}).get("guid")
+            if guid:
+                guid_to_note_id[guid] = note.note_id
+
+    similar_edges = []
+    similar_pair_set: set[tuple[str, str]] = set()
+
+    for note in active:
+        if note.note_type != "component":
+            continue
+        similar_guids = (note.type_data or {}).get("similar_to", [])
+        if not similar_guids:
+            continue
+        for target_guid in similar_guids:
+            target_id = guid_to_note_id.get(target_guid)
+            if target_id is None or target_id == note.note_id:
+                continue
+            # Deduplicate: sort pair alphabetically for undirected edge
+            pair = tuple(sorted((note.note_id, target_id)))
+            if pair in similar_pair_set:
+                continue
+            similar_pair_set.add(pair)
+            similar_edges.append({
+                "id": f"similar:{pair[0]}|{pair[1]}",
+                "source": pair[0],
+                "target": pair[1],
+                "linkType": "similar",
+            })
+
     # Sort for deterministic output (spec requirement).
     nodes.sort(key=lambda n: n["id"])
     edges.sort(key=lambda e: (e["source"], e["target"]))
+    similar_edges.sort(key=lambda e: (e["source"], e["target"]))
 
     return {
         "meta": {
@@ -98,9 +133,11 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
             "edgeCount": len(edges),
             "excludedDeprecatedCount": deprecated_count,
             "excludedDanglingEdgeCount": dangling_count,
+            "similarEdgeCount": len(similar_edges),
         },
         "nodes": nodes,
         "edges": edges,
+        "similarEdges": similar_edges,
     }
 
 

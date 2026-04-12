@@ -382,6 +382,40 @@ class TestKnowledgeGraphRoutes(AioHTTPTestCase):
         ids = [n["id"] for n in data["nodes"]]
         assert ids == sorted(ids)
 
+    async def test_knowledge_graph_similar_edges_present(self):
+        """Graph payload includes similarEdges array."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        assert "similarEdges" in data
+        assert isinstance(data["similarEdges"], list)
+
+    async def test_knowledge_graph_similar_edge_count_in_meta(self):
+        """meta.similarEdgeCount matches actual similarEdges length."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        assert "similarEdgeCount" in data["meta"]
+        assert data["meta"]["similarEdgeCount"] == len(data["similarEdges"])
+
+    async def test_knowledge_graph_similar_edges_deduped(self):
+        """No duplicate similar edge pairs."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        pairs = set()
+        for e in data["similarEdges"]:
+            pair = tuple(sorted((e["source"], e["target"])))
+            assert pair not in pairs, f"Duplicate similar edge: {pair}"
+            pairs.add(pair)
+
+    async def test_knowledge_graph_similar_edges_schema(self):
+        """Similar edges have required fields and correct linkType."""
+        resp = await self.client.get("/knowledge/graph")
+        data = await resp.json()
+        if data["similarEdges"]:
+            edge = data["similarEdges"][0]
+            assert edge["linkType"] == "similar"
+            for field in ["id", "source", "target", "linkType"]:
+                assert field in edge
+
     async def test_knowledge_graph_cors_headers(self):
         """Knowledge routes get CORS headers from middleware."""
         resp = await self.client.get("/knowledge/graph")
