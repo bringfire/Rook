@@ -911,6 +911,7 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
             throw std::invalid_argument("Source and target are the same layer");
 
         int moved = 0;
+        int failed = 0;
         CRhinoObjectIterator it(*pDoc,
             CRhinoObjectIterator::normal_or_locked_objects,
             CRhinoObjectIterator::active_objects);
@@ -921,8 +922,10 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
             {
                 CRhinoObjectAttributes attrs = obj->Attributes();
                 attrs.m_layer_index = tgtRef.index;
-                pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs);
-                ++moved;
+                if (pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                    ++moved;
+                else
+                    ++failed;
             }
         }
 
@@ -933,6 +936,7 @@ void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res)
         wr.data["source"] = source;
         wr.data["target"] = target;
         wr.data["objectsMoved"] = moved;
+        wr.data["objectsFailed"] = failed;
         return wr;
     });
 
@@ -986,7 +990,7 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
         if (pDoc->m_layer_table.CurrentLayerIndex() == srcRef.index)
             throw std::invalid_argument("Cannot merge the current layer — set a different current layer first");
 
-        // Check: source has no child layers
+        // Preflight: source has no child layers
         {
             ON_UUID srcId = pDoc->m_layer_table[srcRef.index].Id();
             for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
@@ -998,8 +1002,32 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
             }
         }
 
-        // Move all objects
+        // Preflight: no block definitions have geometry on the source layer
+        // (block-owned geometry would prevent DeleteLayer and leave a partial mutation)
+        {
+            const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
+            for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
+            {
+                const CRhinoInstanceDefinition* idef = idefTable[d];
+                if (!idef || idef->IsDeleted()) continue;
+
+                ON_SimpleArray<const CRhinoObject*> objArray;
+                idef->GetObjects(objArray);
+                for (int j = 0; j < objArray.Count(); ++j)
+                {
+                    if (objArray[j] && objArray[j]->Attributes().m_layer_index == srcRef.index)
+                        throw std::invalid_argument(
+                            "Cannot merge layer '" + source + "': block definition '" +
+                            WideToUtf8(idef->Name()) + "' has geometry on this layer. "
+                            "Use rhino_block_set_layers to remap block geometry first, or "
+                            "use rhino_layer_dependencies to see all references.");
+                }
+            }
+        }
+
+        // Move all objects (preflight passed — delete will succeed)
         int moved = 0;
+        int failed = 0;
         {
             CRhinoObjectIterator it(*pDoc,
                 CRhinoObjectIterator::normal_or_locked_objects,
@@ -1011,11 +1039,17 @@ void HandleLayerMerge(const httplib::Request& req, httplib::Response& res)
                 {
                     CRhinoObjectAttributes attrs = obj->Attributes();
                     attrs.m_layer_index = tgtRef.index;
-                    pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs);
-                    ++moved;
+                    if (pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+                        ++moved;
+                    else
+                        ++failed;
                 }
             }
         }
+
+        if (failed > 0)
+            throw std::runtime_error("Failed to move " + std::to_string(failed) +
+                " object(s) from '" + source + "' to '" + target + "'");
 
         // Delete the now-empty source layer
         if (!pDoc->m_layer_table.DeleteLayer(srcRef.index, true))

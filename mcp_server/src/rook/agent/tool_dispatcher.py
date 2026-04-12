@@ -125,12 +125,17 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_group":              ("/group", "POST"),
 
     # --- Layers ---
-    "rhino_layer_create":       ("/layers", "POST"),
-    "rhino_layer_create_batch": ("/layers/batch", "POST"),
-    "rhino_layer_delete":       ("/layers", "DELETE"),
-    "rhino_layer_visibility":   ("/layers/visibility", "POST"),
-    "rhino_layer_lock":         ("/layers/lock", "POST"),
-    "rhino_layer_current":      ("/layers/current", "POST"),
+    "rhino_layer_create":         ("/layers", "POST"),
+    "rhino_layer_create_batch":   ("/layers/batch", "POST"),
+    "rhino_layer_delete":         ("/layers", "DELETE"),
+    "rhino_layer_visibility":     ("/layers/visibility", "POST"),
+    "rhino_layer_lock":           ("/layers/lock", "POST"),
+    "rhino_layer_current":        ("/layers/current", "POST"),
+    "rhino_layer_set_properties": ("/layers/properties", "POST"),
+    "rhino_layer_rename":         ("/layers/rename", "POST"),
+    "rhino_layer_move_objects":   ("/layers/move-objects", "POST"),
+    "rhino_layer_merge":          ("/layers/merge", "POST"),
+    "rhino_layer_dependencies":   ("/layers/dependencies", "GET"),
 
     # --- Selection variants ---
     "rhino_select_by_type":     ("/select", "POST"),

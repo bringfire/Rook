@@ -109,7 +109,8 @@ SAMPLE_INTENTS = {
 TOOLS_BY_CATEGORY = {
     "create": ["rhino_create"],
     "layer": ["rhino_layer_create", "rhino_layer_create_batch", "rhino_layer_delete", "rhino_layer_visibility",
-              "rhino_layer_lock", "rhino_layer_current"],
+              "rhino_layer_lock", "rhino_layer_current", "rhino_layer_set_properties", "rhino_layer_rename",
+              "rhino_layer_move_objects", "rhino_layer_merge", "rhino_layer_dependencies"],
     "boolean": ["rhino_boolean"],
     "curve": ["rhino_curve_ops", "rhino_loft", "rhino_sweep", "rhino_extrude"],
     "transform": ["rhino_transform", "rhino_copy"],

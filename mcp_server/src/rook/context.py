@@ -39,6 +39,11 @@ TOOL_CATEGORIES = {
     "rhino_layer_visibility": "layer",
     "rhino_layer_lock": "layer",
     "rhino_layer_current": "layer",
+    "rhino_layer_set_properties": "layer",
+    "rhino_layer_rename": "layer",
+    "rhino_layer_move_objects": "layer",
+    "rhino_layer_merge": "layer",
+    "rhino_layer_dependencies": "layer",
 
     # Boolean category - boolean operations
     "rhino_boolean": "boolean",

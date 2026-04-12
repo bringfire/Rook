@@ -1339,15 +1339,19 @@ Examples:
         # Layer management
         Tool(
             name="rhino_layer_create",
-            description="Create a new layer.",
+            description="Create a new layer with optional properties.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Layer name. Must be a single segment; do not include '::'"},
                     "color": {"description": "Layer color as [r, g, b] array"},
+                    "plotColor": {"description": "Print color as [r, g, b] array"},
+                    "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
                     "parent": {"type": "string", "description": "Existing parent layer name or full path"},
                     "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
-                    "locked": {"type": "boolean", "description": "Layer locked state (default false)"}
+                    "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
+                    "linetype": {"type": "string", "description": "Linetype name (e.g. 'Continuous', 'Dashed')"},
+                    "material": {"type": "string", "description": "Render material name"}
                 },
                 "required": ["name"]
             }
@@ -1360,7 +1364,7 @@ Examples:
                 "properties": {
                     "layers": {
                         "type": "array",
-                        "description": "Layer specs to create. Each item must include {key, name} and may include {parentKey, color, visible, locked}.",
+                        "description": "Layer specs to create. Each item must include {key, name} and may include {parentKey, color, plotColor, plotWeight, linetype, material, visible, locked}.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1368,8 +1372,12 @@ Examples:
                                 "name": {"type": "string", "description": "Single-segment layer name for this node"},
                                 "parentKey": {"type": "string", "description": "Optional local key of this item's parent within the same batch"},
                                 "color": {"description": "Layer color as [r, g, b] array"},
+                                "plotColor": {"description": "Print color as [r, g, b] array"},
+                                "plotWeight": {"type": "number", "description": "Print width in mm (0 = default)"},
                                 "visible": {"type": "boolean", "description": "Layer visibility (default true)"},
-                                "locked": {"type": "boolean", "description": "Layer locked state (default false)"}
+                                "locked": {"type": "boolean", "description": "Layer locked state (default false)"},
+                                "linetype": {"type": "string", "description": "Linetype name"},
+                                "material": {"type": "string", "description": "Render material name"}
                             },
                             "required": ["key", "name"]
                         }
@@ -1427,7 +1435,7 @@ Examples:
         ),
         Tool(
             name="rhino_layer_set_properties",
-            description="""Set any combination of layer properties in a single call. The 'set' object can include any subset of: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked, expanded. Only provided fields are modified.""",
+            description="""Set any combination of layer properties in a single call. The 'set' object can include any subset of: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked. Only provided fields are modified.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1446,8 +1454,7 @@ Examples:
                             "material": {"type": "string", "description": "Render material name"},
                             "materialIndex": {"type": "integer", "description": "Material table index"},
                             "visible": {"type": "boolean", "description": "Visibility state"},
-                            "locked": {"type": "boolean", "description": "Lock state"},
-                            "expanded": {"type": "boolean", "description": "UI tree expansion state"}
+                            "locked": {"type": "boolean", "description": "Lock state"}
                         }
                     }
                 },
@@ -8470,8 +8477,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await call_rhino("/layers/merge", "POST", arguments)
 
         case "rhino_layer_dependencies":
-            name = arguments.get("name", "")
-            result = await call_rhino(f"/layers/dependencies?name={name}", "GET", {})
+            result = await call_rhino("/layers/dependencies", "GET", arguments)
 
         # Advanced selection
         case "rhino_select_by_type":
