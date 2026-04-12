@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 escape_for_json() {
     local s="$1"
     s="${s//\\/\\\\}"
@@ -15,13 +17,30 @@ escape_for_json() {
     printf '%s' "$s"
 }
 
+# --- Project detection ---
+# Source the detection script and check if the user needs /project-setup
+project_hint=""
+if [ -f "$SCRIPT_DIR/project-detect.sh" ]; then
+    # shellcheck source=project-detect.sh
+    source "$SCRIPT_DIR/project-detect.sh"
+    project_hint="$(detect_project_setup)"
+fi
+
+# --- Skill cascade context ---
 context="Chirp component categories are available: planner, interpreter, critic, narrator, classifier, gate, editor. When creating Chirp components, use the /chirp skill for single components or /chirp-cascade for multi-component workflows. The chirp_create MCP tool REQUIRES a category parameter. Correction input pin and Reasoning output pin are auto-added to all components — do NOT include them in pins_in/pins_out.
 
 When the user asks to BUILD, CREATE, or DESIGN a complex Grasshopper definition (4+ components), use the /design-grasshopper skill cascade. This starts a 4-phase workflow: design \u2192 plan \u2192 execute \u2192 consolidate. For simple definitions (1-3 components), use gh_execute_intent directly.
 
 When the user asks to create a road, 3D road, highway, alignment, or road surface, use /design-road. This orchestrates RoadCreator through a 6-phase pipeline (horizontal \u2192 vertical \u2192 3D route \u2192 surface \u2192 terrain \u2192 accessories). Requires RookRoads and RoadCreator plugins in Rhino.
 
-Other skills: /consolidate (knowledge consolidation), /twisted-column (parametric columns)."
+Other skills: /consolidate (knowledge consolidation), /twisted-column (parametric columns), /project-setup (configure a project folder for Rook)."
+
+# Append project detection hint if needed
+if [ -n "$project_hint" ]; then
+    context="${context}
+
+PROJECT SETUP: ${project_hint}"
+fi
 
 escaped=$(escape_for_json "$context")
 

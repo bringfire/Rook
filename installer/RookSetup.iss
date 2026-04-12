@@ -107,6 +107,7 @@ Source: "{#PluginDir}\marketplace.json"; DestDir: "{app}\.claude-plugin"; Compon
 Source: "{#SkillsDir}\*"; DestDir: "{app}\.claude\skills"; Components: claude codex; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#HooksDir}\hooks.json"; DestDir: "{app}\hooks"; Components: claude; Flags: ignoreversion
 Source: "{#RepoRoot}\scripts\session-start.sh"; DestDir: "{app}\scripts"; Components: claude; Flags: ignoreversion
+Source: "{#RepoRoot}\scripts\project-detect.sh"; DestDir: "{app}\scripts"; Components: claude; Flags: ignoreversion
 
 ; --- Post-install setup script (always included, used by [Run]) ---
 Source: "post_install.py"; DestDir: "{app}"; Flags: ignoreversion
