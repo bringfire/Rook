@@ -9,6 +9,9 @@
     <script src="vendor/layout-base.js"></script>
     <script src="vendor/cose-base.js"></script>
     <script src="vendor/cytoscape-fcose.js"></script>
+    <script src="vendor/cola.min.js"></script>
+    <script>if(window.cola && !window.webcola) window.webcola = window.cola;</script>
+    <script src="vendor/cytoscape-cola.js"></script>
 </head>
 <body>
     <div id="toolbar">
@@ -20,6 +23,7 @@
                 <option value="recipe">recipe</option>
                 <option value="struggle">struggle</option>
                 <option value="teaching">teaching</option>
+                <option value="command">command</option>
             </select>
             <select id="category-filter">
                 <option value="">All categories</option>

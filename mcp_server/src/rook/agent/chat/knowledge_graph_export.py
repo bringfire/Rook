@@ -1,16 +1,21 @@
 """Knowledge graph exporter for the WebUI visualizer.
 
-Walks the UnifiedStore and produces normalized JSON payloads matching
-the ``/knowledge/graph`` and ``/knowledge/note/{id}`` contracts defined
-in the knowledge-graph-visualizer spec.
+Walks the UnifiedStore and CommandKnowledgeStore to produce normalized
+JSON payloads matching the ``/knowledge/graph`` and
+``/knowledge/note/{id}`` contracts defined in the knowledge-graph-
+visualizer spec.
 """
 from datetime import datetime, timezone
 from typing import Optional
 
 from ...learning.unified_store import UnifiedStore
+from ...learning.command_knowledge_store import CommandKnowledgeStore
 
 
-def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
+def build_knowledge_graph_payload(
+    store: UnifiedStore,
+    command_store: Optional[CommandKnowledgeStore] = None,
+) -> dict:
     """Build the full graph payload for ``GET /knowledge/graph``.
 
     Rules:
@@ -18,6 +23,7 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
     - Drop edges whose source or target is missing after filtering
     - Deduplicate edges (same source→target)
     - Compute inDegree, outDegree, degree per node
+    - Merge Rhino command nodes/edges when *command_store* is provided
     """
     all_notes = store.all()
 
@@ -56,7 +62,7 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
             out_degree[note.note_id] = out_degree.get(note.note_id, 0) + 1
             in_degree[target_id] = in_degree.get(target_id, 0) + 1
 
-    # Build nodes
+    # Build GH nodes
     nodes = []
     for note in active:
         od = out_degree.get(note.note_id, 0)
@@ -66,6 +72,7 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
             "id": note.note_id,
             "label": note.name,
             "noteType": note.note_type,
+            "source": "gh",
             "category": note.category,
             "tags": note.tags,
             "components": note.components,
@@ -85,6 +92,65 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
             node["componentGuid"] = None
 
         nodes.append(node)
+
+    # ── Rhino command nodes + edges ──────────────────────────────
+    command_count = 0
+    if command_store is not None:
+        all_cmds = command_store.get_all()
+        cmd_ids = {f"cmd_{name}" for name in all_cmds}
+        command_count = len(all_cmds)
+
+        # Degree tracking for commands
+        cmd_out: dict[str, int] = {cid: 0 for cid in cmd_ids}
+        cmd_in: dict[str, int] = {cid: 0 for cid in cmd_ids}
+
+        # Build internal edges from related_commands
+        for cmd_name, cmd in all_cmds.items():
+            src_id = f"cmd_{cmd_name}"
+            for rel_name in cmd.related_commands:
+                # related_commands stores names without dash prefix
+                target_id = f"cmd_-{rel_name}" if not rel_name.startswith("-") else f"cmd_{rel_name}"
+                if target_id not in cmd_ids:
+                    continue
+                edge_key = (src_id, target_id)
+                if edge_key in edge_set:
+                    continue
+                edge_set.add(edge_key)
+
+                edges.append({
+                    "id": f"{src_id}->{target_id}",
+                    "source": src_id,
+                    "target": target_id,
+                    "linkType": "related",
+                })
+                cmd_out[src_id] = cmd_out.get(src_id, 0) + 1
+                cmd_in[target_id] = cmd_in.get(target_id, 0) + 1
+
+        # Build command nodes
+        for cmd_name, cmd in all_cmds.items():
+            cid = f"cmd_{cmd_name}"
+            od = cmd_out.get(cid, 0)
+            ind = cmd_in.get(cid, 0)
+
+            family = command_store.get_family(cmd_name)
+            category = family if family else "uncategorized"
+
+            nodes.append({
+                "id": cid,
+                "label": cmd_name,
+                "noteType": "command",
+                "source": "rhino",
+                "category": category,
+                "tags": [],
+                "components": [],
+                "brief": cmd.description or "",
+                "deprecated": False,
+                "created": None,
+                "outDegree": od,
+                "inDegree": ind,
+                "degree": od + ind,
+                "componentGuid": None,
+            })
 
     # Build similar_to edges (component-only, GUID-based, undirected, deduped).
     # similar_to stores component GUIDs, not note IDs — resolve via map.
@@ -128,8 +194,9 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
     return {
         "meta": {
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "source": "UnifiedStore",
+            "source": "UnifiedStore+CommandKnowledgeStore" if command_count > 0 else "UnifiedStore",
             "noteCount": len(nodes),
+            "commandCount": command_count,
             "edgeCount": len(edges),
             "excludedDeprecatedCount": deprecated_count,
             "excludedDanglingEdgeCount": dangling_count,
@@ -138,6 +205,89 @@ def build_knowledge_graph_payload(store: UnifiedStore) -> dict:
         "nodes": nodes,
         "edges": edges,
         "similarEdges": similar_edges,
+    }
+
+
+def command_to_note_dict(
+    cmd: "CommandKnowledge",
+    command_store: CommandKnowledgeStore,
+) -> dict:
+    """Adapt a CommandKnowledge object to the note-detail contract.
+
+    Returns a dict shaped like ``KnowledgeNote.to_dict()`` so the
+    frontend ``renderNoteDetail()`` works unchanged.
+    """
+    cmd_id = f"cmd_{cmd.command}"
+    family = command_store.get_family(cmd.command)
+
+    return {
+        "note_id": cmd_id,
+        "name": cmd.command,
+        "note_type": "command",
+        "source": "rhino",
+        "category": family or "uncategorized",
+        "brief": cmd.description or "",
+        "context": None,
+        "tags": [],
+        "components": [],
+        "links": [
+            f"cmd_-{r}" if not r.startswith("-") else f"cmd_{r}"
+            for r in cmd.related_commands
+        ],
+        "deprecated": False,
+        "created": None,
+        "solution_principle": None,
+        "type_data": {
+            "modes": cmd.modes,
+            "options": cmd.options,
+            "preconditions": cmd.preconditions,
+            "gotchas": cmd.gotchas,
+        },
+    }
+
+
+def build_command_detail_payload(
+    cmd_name: str,
+    command_store: CommandKnowledgeStore,
+) -> Optional[dict]:
+    """Build the note detail payload for a Rhino command.
+
+    Returns None if the command does not exist.
+    """
+    # Strip the cmd_ prefix to get the actual command name
+    actual_name = cmd_name[4:] if cmd_name.startswith("cmd_") else cmd_name
+    cmd = command_store.get_command(actual_name)
+    if cmd is None:
+        return None
+
+    note_dict = command_to_note_dict(cmd, command_store)
+
+    # Build related: linksFrom (outgoing) and linksTo (backlinks)
+    all_cmds = command_store.get_all()
+    cmd_ids = {f"cmd_{n}" for n in all_cmds}
+
+    links_from = [
+        link_id for link_id in note_dict["links"]
+        if link_id in cmd_ids
+    ]
+
+    links_to = []
+    for other_name, other_cmd in all_cmds.items():
+        if other_name == actual_name:
+            continue
+        other_related_ids = [
+            f"cmd_-{r}" if not r.startswith("-") else f"cmd_{r}"
+            for r in other_cmd.related_commands
+        ]
+        if note_dict["note_id"] in other_related_ids:
+            links_to.append(f"cmd_{other_name}")
+
+    return {
+        "note": note_dict,
+        "related": {
+            "linksFrom": links_from,
+            "linksTo": links_to,
+        },
     }
 
 
@@ -158,8 +308,11 @@ def build_note_detail_payload(
 
     related = store.get_related(note_id)
 
+    note_data = note.to_dict()
+    note_data["source"] = "gh"
+
     return {
-        "note": note.to_dict(),
+        "note": note_data,
         "related": {
             "linksFrom": related.get("links_from", []),
             "linksTo": related.get("links_to", []),
