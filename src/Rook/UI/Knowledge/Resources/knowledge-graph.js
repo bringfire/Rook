@@ -33,7 +33,8 @@
         component: '#3b82f6',
         recipe: '#22c55e',
         struggle: '#ef4444',
-        teaching: '#f59e0b'
+        teaching: '#f59e0b',
+        command: '#a855f7'
     };
 
     // ─── Helpers ──────────────────────────────────────────────────
@@ -114,13 +115,10 @@
         return 'http://127.0.0.1:' + port + path;
     }
 
-    // ─── Register fcose layout extension ────────────────────────────
-    // Dependency chain: layout-base → cose-base → cytoscape-fcose.
-    // All three must be loaded and globally available before we can
-    // use the fcose layout.  Explicit checks + registration here
-    // because UMD side-effect registration is not reliable in all
-    // WebView hosts.
-    var fcoseReady = (function registerFcose() {
+    // ─── Register layout extensions ─────────────────────────────────
+    // fcose: batch layout for initial positioning
+    // cola: continuous force simulation for real-time physics
+    var layoutsReady = (function registerLayouts() {
         var missing = [];
         if (typeof cytoscape === 'undefined') missing.push('cytoscape');
         if (typeof layoutBase === 'undefined') missing.push('layout-base');
@@ -134,16 +132,20 @@
             return false;
         }
 
-        // Explicit registration (don't rely on side effects)
-        try {
-            cytoscape.use(cytoscapeFcose);
-        } catch (e) {
-            // May already be registered — that's fine
+        try { cytoscape.use(cytoscapeFcose); } catch (e) { /* already registered */ }
+
+        // cola is optional — degrade to fcose-only if missing
+        if (typeof cytoscapeCola !== 'undefined') {
+            try { cytoscape.use(cytoscapeCola); } catch (e) { /* already registered */ }
         }
+
         return true;
     })();
 
-    if (!fcoseReady) return;
+    if (!layoutsReady) return;
+
+    var colaAvailable = typeof cytoscapeCola !== 'undefined';
+    var activeColaLayout = null;  // reference to running cola simulation
 
     // ─── Bootstrap with timeout ───────────────────────────────────
     var BOOTSTRAP_TIMEOUT_MS = 15000;
@@ -335,6 +337,9 @@
                     }
                 }
             ],
+            // Start with fcose for initial positioning, then switch to
+            // cola for continuous physics.  If cola is unavailable, fcose
+            // is the final layout.
             layout: {
                 name: 'fcose',
                 animate: false,
@@ -348,6 +353,12 @@
             maxZoom: 5,
             wheelSensitivity: 0.3
         });
+
+        // After fcose finishes, run a bounded cola settle pass to
+        // resolve any remaining overlaps, then freeze.
+        if (colaAvailable) {
+            settleColaPhysics();
+        }
 
         cy.on('tap', 'node', function (evt) {
             hideTooltip();
@@ -372,6 +383,48 @@
         cy.on('mouseout', 'node', function () {
             hideTooltip();
         });
+
+    }
+
+    // ─── Cola physics — bounded settle only ──────────────────────
+    // Cola runs once after initial layout and after topology changes
+    // (edge toggle, reset) to resolve overlaps, then stops.  After
+    // that, dragging is plain cytoscape grab-and-move — no physics.
+
+    var SETTLE_MS = 2500;
+
+    function settleColaPhysics() {
+        if (!cy || !colaAvailable) return;
+        stopColaPhysics();
+
+        activeColaLayout = cy.layout({
+            name: 'cola',
+            animate: true,
+            refresh: 3,
+            infinite: false,
+            maxSimulationTime: SETTLE_MS,
+            fit: false,
+            randomize: false,
+            centerGraph: false,
+            avoidOverlap: true,
+            ungrabifyWhileSimulating: false,
+            handleDisconnected: true,
+            nodeDimensionsIncludeLabels: false,
+            nodeSpacing: function () { return 12; },
+            edgeLength: function (edge) {
+                return edge.data('linkType') === 'similar' ? 200 : 100;
+            },
+            convergenceThreshold: 0.001
+        });
+
+        activeColaLayout.run();
+    }
+
+    function stopColaPhysics() {
+        if (activeColaLayout) {
+            activeColaLayout.stop();
+            activeColaLayout = null;
+        }
     }
 
     // ─── Node selection + sidebar ─────────────────────────────────
@@ -700,6 +753,8 @@
         });
 
         btnSimilar.classList.toggle('active', similarVisible);
+        // Bounded settle to account for the changed edge set
+        settleColaPhysics();
         recomputeVisibility();
     }
 
@@ -727,6 +782,8 @@
         });
         updateStatusBar();
         cy.fit(undefined, 40);
+        // Bounded settle after reset — don't restart perpetual physics
+        settleColaPhysics();
     }
 
     // ─── Event wiring ─────────────────────────────────────────────

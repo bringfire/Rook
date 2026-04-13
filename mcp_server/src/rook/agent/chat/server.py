@@ -346,6 +346,7 @@ async def handle_stop(request: web.Request) -> web.Response:
 # --- Knowledge Graph Handlers ---
 
 _knowledge_store = None
+_command_knowledge_store = None
 
 
 def _get_knowledge_store():
@@ -357,20 +358,37 @@ def _get_knowledge_store():
     return _knowledge_store
 
 
+def _get_command_knowledge_store():
+    """Lazy-load the CommandKnowledgeStore for knowledge graph routes."""
+    global _command_knowledge_store
+    if _command_knowledge_store is None:
+        from ...learning.command_knowledge_store import CommandKnowledgeStore
+        _command_knowledge_store = CommandKnowledgeStore()
+    return _command_knowledge_store
+
+
 async def handle_knowledge_graph(request: web.Request) -> web.Response:
     """GET /knowledge/graph — full graph payload for Cytoscape."""
     from .knowledge_graph_export import build_knowledge_graph_payload
     store = _get_knowledge_store()
-    payload = build_knowledge_graph_payload(store)
+    command_store = _get_command_knowledge_store()
+    payload = build_knowledge_graph_payload(store, command_store)
     return web.json_response(payload)
 
 
 async def handle_knowledge_note(request: web.Request) -> web.Response:
     """GET /knowledge/note/{note_id} — single note detail."""
-    from .knowledge_graph_export import build_note_detail_payload
+    from .knowledge_graph_export import build_note_detail_payload, build_command_detail_payload
     note_id = request.match_info["note_id"]
-    store = _get_knowledge_store()
-    payload = build_note_detail_payload(store, note_id)
+
+    # Route cmd_* IDs to the command store
+    if note_id.startswith("cmd_"):
+        command_store = _get_command_knowledge_store()
+        payload = build_command_detail_payload(note_id, command_store)
+    else:
+        store = _get_knowledge_store()
+        payload = build_note_detail_payload(store, note_id)
+
     if payload is None:
         return web.json_response({"error": "Note not found"}, status=404)
     return web.json_response(payload)
