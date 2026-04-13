@@ -94,6 +94,15 @@ class TestRegexExtraction:
         assert plan.operation == "create_box"
         assert plan.params.get("width") == 10.0
 
+    def test_create_box_from_two_corners(self, planner):
+        plan = run(planner.plan("create a box from 0,0,0 to 10,10,5"))
+        assert plan.execution_route == "direct_api"
+        assert plan.operation == "create_box"
+        assert plan.params["origin"] == [0.0, 0.0, 0.0]
+        assert plan.params["width"] == 10.0
+        assert plan.params["depth"] == 10.0
+        assert plan.params["height"] == 5.0
+
     def test_create_cylinder(self, planner):
         plan = run(planner.plan("create a cylinder at 5,5,0 radius 3 height 10"))
         assert plan.execution_route == "direct_api"
@@ -340,6 +349,26 @@ class TestExtractCreationParams:
         assert params["width"] == 10.0
         assert params["depth"] == 8.0
         assert params["height"] == 6.0
+
+    def test_box_with_two_corner_pattern(self):
+        params = _extract_creation_params(
+            "create box from 0,0,0 to 10,10,5", "box"
+        )
+        assert params is not None
+        assert params["origin"] == [0.0, 0.0, 0.0]
+        assert params["width"] == 10.0
+        assert params["depth"] == 10.0
+        assert params["height"] == 5.0
+
+    def test_box_with_two_corner_pattern_normalizes_origin(self):
+        params = _extract_creation_params(
+            "create box from 10,10,5 to 0,0,0", "box"
+        )
+        assert params is not None
+        assert params["origin"] == [0.0, 0.0, 0.0]
+        assert params["width"] == 10.0
+        assert params["depth"] == 10.0
+        assert params["height"] == 5.0
 
     def test_line_two_coords(self):
         params = _extract_creation_params(

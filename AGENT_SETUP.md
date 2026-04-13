@@ -24,8 +24,9 @@ will get the 264 MCP tools but none of the orchestration skills (`/design-grassh
 hook that loads Rook context. If the user is on the older Claude Desktop app, help them
 install [Claude Code Desktop](https://code.claude.com/docs/en/desktop-quickstart) instead.
 
-Other MCP-compatible clients (Codex CLI, Cursor, Windsurf) get the MCP tools but not
-Rook's Claude Code plugin features (hooks, skills, agents).
+Other MCP-compatible clients (Codex CLI, Cursor, Windsurf) get the MCP tools.
+Codex CLI also gets the packaged Rook skill set, but Claude-specific features
+(hooks, plugins, Claude agents) remain Claude-only.
 
 ## What Is Rook
 
@@ -57,7 +58,7 @@ Before starting, verify the user has:
    - Creates a managed Python venv at `%LOCALAPPDATA%\Rook\venv`
    - Installs the MCP server (`pip install -e`) into that venv
    - Writes MCP configuration for Claude Code, Claude Desktop, and Codex CLI
-   - Copies knowledge stores and skills
+   - Copies knowledge stores, Claude skills/agents, and Codex skills
 
 3. After install, the user must **restart Rhino**.
 

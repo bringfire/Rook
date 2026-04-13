@@ -274,8 +274,8 @@
           "trigger": "always",
           "message": "Large canvases may return many components. Use filters (type, name) to narrow results.",
           "severity": "info",
-          "times_used": 323,
-          "last_verified": "2026-04-06T19:47:23.195219Z"
+          "times_used": 368,
+          "last_verified": "2026-04-10T21:08:31.197017Z"
         },
         {
           "id": "query-stale-data",
@@ -384,8 +384,8 @@
           "trigger": "always",
           "message": "Null outputs usually mean upstream error or missing input. Check gh_errors before debugging values.",
           "severity": "info",
-          "times_used": 56,
-          "last_verified": "2026-04-06T19:58:55.656995Z"
+          "times_used": 78,
+          "last_verified": "2026-04-09T18:08:25.082940Z"
         },
         {
           "id": "inspect-tree-structure",

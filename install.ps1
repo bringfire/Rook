@@ -1116,18 +1116,30 @@ print('ok')
         Write-Host "      [SKIP] Codex CLI not detected" -ForegroundColor Gray
     }
 
-    # --- User-level skills (release installs, optional for dev) ---
-    $skillsSource = Join-Path $Context.InstallDir ".claude\skills"
-    if (($Context.IsRelease -or $UserConfig) -and (Test-Path $skillsSource)) {
+    # --- User-level skills/agents (release installs, optional for dev) ---
+    $claudeSkillsSource = Join-Path $Context.InstallDir ".claude\skills"
+    $claudeAgentsSource = Join-Path $Context.InstallDir ".claude\agents"
+    $codexSkillsSource = Join-Path $Context.InstallDir ".agents\skills"
+    if (($Context.IsRelease -or $UserConfig) -and ((Test-Path $claudeSkillsSource) -or (Test-Path $claudeAgentsSource) -or (Test-Path $codexSkillsSource))) {
         $claudeSkillsDest = Join-Path $env:USERPROFILE ".claude\skills"
-        $codexSkillsDest = Join-Path $env:USERPROFILE ".agents\skills"
-        New-Item -ItemType Directory -Path $claudeSkillsDest -Force | Out-Null
-        New-Item -ItemType Directory -Path $codexSkillsDest -Force | Out-Null
-        Copy-Item (Join-Path $skillsSource "*") $claudeSkillsDest -Recurse -Force
-        Copy-Item (Join-Path $skillsSource "*") $codexSkillsDest -Recurse -Force
-        Write-Host "      [OK] User-level skills installed for Claude Code and Codex" -ForegroundColor Green
-    } elseif (Test-Path $skillsSource) {
-        Write-Host "      [SKIP] Repo skills retained in .claude/skills (user-level install not requested)" -ForegroundColor Gray
+        $claudeAgentsDest = Join-Path $env:USERPROFILE ".claude\agents"
+        $codexSkillsDest = Join-Path $env:USERPROFILE ".codex\skills"
+
+        if (Test-Path $claudeSkillsSource) {
+            New-Item -ItemType Directory -Path $claudeSkillsDest -Force | Out-Null
+            Copy-Item (Join-Path $claudeSkillsSource "*") $claudeSkillsDest -Recurse -Force
+        }
+        if (Test-Path $claudeAgentsSource) {
+            New-Item -ItemType Directory -Path $claudeAgentsDest -Force | Out-Null
+            Copy-Item (Join-Path $claudeAgentsSource "*") $claudeAgentsDest -Recurse -Force
+        }
+        if (Test-Path $codexSkillsSource) {
+            New-Item -ItemType Directory -Path $codexSkillsDest -Force | Out-Null
+            Copy-Item (Join-Path $codexSkillsSource "*") $codexSkillsDest -Recurse -Force
+        }
+        Write-Host "      [OK] User-level Claude/Codex skills and Claude agents installed" -ForegroundColor Green
+    } elseif ((Test-Path $claudeSkillsSource) -or (Test-Path $claudeAgentsSource) -or (Test-Path $codexSkillsSource)) {
+        Write-Host "      [SKIP] Repo skill/agent payload retained (user-level install not requested)" -ForegroundColor Gray
     }
 
     $Summary.steps.config.state = if ($configFailed) { "failed" } else { "completed" }

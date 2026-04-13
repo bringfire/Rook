@@ -132,6 +132,7 @@ references/
 # But track skill reference docs
 !skills/*/references/
 !.claude/skills/*/references/
+!.agents/skills/*/references/
 
 # Claude local settings
 .claude/settings.local.json

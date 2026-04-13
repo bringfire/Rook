@@ -190,7 +190,9 @@ The installer automatically:
   - Codex CLI: `~/.codex/config.toml`
 - Copies skills to:
   - Claude Code: `~/.claude/skills/`
-  - Codex: `~/.agents/skills/`
+  - Codex: `~/.codex/skills/`
+- Copies Claude agents to:
+  - Claude Code: `~/.claude/agents/`
 
 3. **Restart Rhino** and your MCP client
 5. In your MCP client, type `/mcp` — you should see `rook` with 264 tools
@@ -218,8 +220,8 @@ effects. `-RequireNative` fails hard if C++ toolchain is missing. See
 ### Install Design Cascade Skills
 
 The Grasshopper design cascade uses documented skill locations:
-- Release installs copy skills to `~/.claude/skills/` and `~/.agents/skills/`
-- Source checkouts expose the repo skills from `.claude/skills`
+- Release installs copy Claude skills to `~/.claude/skills/`, Codex skills to `~/.codex/skills/`, and Claude agents to `~/.claude/agents/`
+- Source checkouts expose Claude skills from `.claude/skills`, Codex skills from `.agents/skills`, and Claude agents from `.claude/agents`
 
 The old plugin marketplace path is optional and is no longer required for core install correctness.
 

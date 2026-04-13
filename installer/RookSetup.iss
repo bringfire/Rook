@@ -7,6 +7,7 @@
 ;   3. Python MCP server payload + knowledge stores
 ;   4. Chirp adapter service (venv + pip install) for LLM-powered GH components
 ;   5. Claude Code / Claude Desktop / Codex user-scope MCP configuration + skills
+;   6. Claude Code user agents
 ;
 ; Build with: "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" RookSetup.iss
 ; Or open in Inno Setup GUI and press Ctrl+F9.
@@ -25,7 +26,9 @@
 #define McpServerDir RepoRoot + "\mcp_server"
 #define KnowledgeDir RepoRoot + "\knowledge"
 #define ScriptsDir   RepoRoot + "\scripts"
-#define SkillsDir    RepoRoot + "\.claude\skills"
+#define ClaudeSkillsDir RepoRoot + "\.claude\skills"
+#define CodexSkillsDir  RepoRoot + "\.agents\skills"
+#define ClaudeAgentsDir RepoRoot + "\.claude\agents"
 #define PluginDir    RepoRoot + "\.claude-plugin"
 #define HooksDir     RepoRoot + "\hooks"
 #define ChirpDir     RepoRoot + "\..\Chirp"
@@ -70,7 +73,7 @@ Name: "plugins"; Description: "Rhino 8 Plugins (RookNative + Companion)"; Types:
 Name: "mcp"; Description: "Python MCP Server (requires Python 3.10+)"; Types: full custom
 Name: "chirp"; Description: "Chirp — LLM-powered Grasshopper components (requires MCP + Python 3.10+)"; Types: full custom
 Name: "knowledge"; Description: "Knowledge Stores (commands + Grasshopper)"; Types: full custom
-Name: "claude"; Description: "Claude Code / Desktop Configuration + user skills (requires MCP)"; Types: full custom
+Name: "claude"; Description: "Claude Code / Desktop Configuration + user skills/agents (requires MCP)"; Types: full custom
 Name: "codex"; Description: "OpenAI Codex CLI Configuration + user skills (requires MCP)"; Types: full custom
 
 ; ---------------------------------------------------------------------------
@@ -101,10 +104,12 @@ Source: "{#ChirpDir}\src\chirp\*"; DestDir: "{app}\chirp\src\chirp"; Components:
 Source: "{#KnowledgeDir}\commands\*"; DestDir: "{app}\knowledge\commands"; Components: knowledge; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#KnowledgeDir}\gh\*"; DestDir: "{app}\knowledge\gh"; Components: knowledge; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "sessions"
 
-; --- Optional Claude plugin metadata + shared skills payload ---
+; --- Optional Claude/Codex agent payloads ---
 Source: "{#PluginDir}\plugin.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
 Source: "{#PluginDir}\marketplace.json"; DestDir: "{app}\.claude-plugin"; Components: claude; Flags: ignoreversion
-Source: "{#SkillsDir}\*"; DestDir: "{app}\.claude\skills"; Components: claude codex; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ClaudeSkillsDir}\*"; DestDir: "{app}\.claude\skills"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#CodexSkillsDir}\*"; DestDir: "{app}\.agents\skills"; Components: codex; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ClaudeAgentsDir}\*"; DestDir: "{app}\.claude\agents"; Components: claude; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#HooksDir}\hooks.json"; DestDir: "{app}\hooks"; Components: claude; Flags: ignoreversion
 Source: "{#RepoRoot}\scripts\session-start.sh"; DestDir: "{app}\scripts"; Components: claude; Flags: ignoreversion
 

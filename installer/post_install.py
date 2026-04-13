@@ -7,7 +7,7 @@ This script runs after the installer copies files. It handles:
   4. Register rook MCP server in documented user-scope client config
   5. Merge Rook config into Claude Desktop config (if installed)
   6. Generate user-level config.toml for OpenAI Codex CLI
-  7. Copy skills to documented Claude/Codex user skill locations
+  7. Copy Claude/Codex skills plus Claude agents to documented user locations
   8. Validate the installation
 
 Uses only stdlib so it can run before dependencies are installed.
@@ -385,34 +385,51 @@ def create_env_examples(install_dir: Path, chirp_dir: Path | None = None) -> Non
             print(f"Created {chirp_example}")
 
 
-def install_user_skills(install_dir: Path, install_claude: bool, install_codex: bool) -> bool:
-    """Copy skills to documented user-level Claude and Codex skill dirs."""
-    source_root = install_dir / ".claude" / "skills"
+def _copy_children(source_root: Path, target_root: Path, label: str) -> bool:
+    """Copy the direct children of a payload root into a target root."""
     if not source_root.exists():
-        print(f"Skill source not found: {source_root} — skipping user skill install")
+        print(f"{label} source not found: {source_root} — skipping")
         return False
 
-    targets: list[Path] = []
-    if install_claude:
-        targets.append(Path.home() / ".claude" / "skills")
-    if install_codex:
-        targets.append(Path.home() / ".agents" / "skills")
+    target_root.mkdir(parents=True, exist_ok=True)
+    for child in source_root.iterdir():
+        destination = target_root / child.name
+        if child.is_dir():
+            shutil.copytree(child, destination, dirs_exist_ok=True)
+        else:
+            shutil.copy2(child, destination)
+    print(f"Installed {label} to {target_root}")
+    return True
 
-    if not targets:
-        print("No user skill targets selected — skipping skill install")
+
+def install_user_assets(install_dir: Path, install_claude: bool, install_codex: bool) -> bool:
+    """Copy Claude/Codex skills plus Claude agents to their user-level homes."""
+    installed_any = False
+
+    if install_claude:
+        installed_any |= _copy_children(
+            install_dir / ".claude" / "skills",
+            Path.home() / ".claude" / "skills",
+            "Claude skills",
+        )
+        installed_any |= _copy_children(
+            install_dir / ".claude" / "agents",
+            Path.home() / ".claude" / "agents",
+            "Claude agents",
+        )
+
+    if install_codex:
+        installed_any |= _copy_children(
+            install_dir / ".agents" / "skills",
+            Path.home() / ".codex" / "skills",
+            "Codex skills",
+        )
+
+    if not (install_claude or install_codex):
+        print("No user asset targets selected — skipping skills/agents install")
         return True
 
-    for target in targets:
-        target.mkdir(parents=True, exist_ok=True)
-        for child in source_root.iterdir():
-            destination = target / child.name
-            if child.is_dir():
-                shutil.copytree(child, destination, dirs_exist_ok=True)
-            else:
-                shutil.copy2(child, destination)
-        print(f"Installed skills to {target}")
-
-    return True
+    return installed_any
 
 
 def validate(
@@ -562,17 +579,26 @@ def uninstall_cleanup() -> None:
         except Exception as e:
             print(f"Warning: could not clean {config_path}: {e}")
 
-    # Remove user-level skills
-    for skills_dir in [
-        Path.home() / ".claude" / "skills" / "rook",
-        Path.home() / ".agents" / "skills" / "rook",
+    install_dir = Path(__file__).resolve().parent
+
+    for source_root, target_root, label in [
+        (install_dir / ".claude" / "skills", Path.home() / ".claude" / "skills", "Claude skill"),
+        (install_dir / ".claude" / "agents", Path.home() / ".claude" / "agents", "Claude agent"),
+        (install_dir / ".agents" / "skills", Path.home() / ".codex" / "skills", "Codex skill"),
     ]:
-        if skills_dir.exists():
+        if not source_root.exists() or not target_root.exists():
+            continue
+        for child in source_root.iterdir():
+            destination = target_root / child.name
             try:
-                shutil.rmtree(skills_dir)
-                print(f"Removed skills from {skills_dir}")
+                if destination.is_dir():
+                    shutil.rmtree(destination)
+                    print(f"Removed {label} directory {destination}")
+                elif destination.exists():
+                    destination.unlink()
+                    print(f"Removed {label} file {destination}")
             except Exception as e:
-                print(f"Warning: could not remove {skills_dir}: {e}")
+                print(f"Warning: could not remove {destination}: {e}")
 
     # Remove from Codex CLI config (~/.codex/config.toml)
     codex_config = Path.home() / ".codex" / "config.toml"
@@ -601,7 +627,7 @@ def main() -> int:
     parser.add_argument("--mcp-server-dir", required=False, help="MCP server directory")
     parser.add_argument("--runtime-root", required=False, help="Managed Rook runtime root")
     parser.add_argument("--chirp-dir", default=None, help="Chirp adapter directory")
-    parser.add_argument("--claude", action="store_true", help="Configure Claude Code/Desktop and Claude skills")
+    parser.add_argument("--claude", action="store_true", help="Configure Claude Code/Desktop plus Claude skills and agents")
     parser.add_argument("--codex", action="store_true", help="Configure OpenAI Codex CLI")
     parser.add_argument("--plugins", action="store_true", help="Validate Rhino plugin deployment")
     parser.add_argument("--uninstall", action="store_true", help="Run uninstall cleanup")
@@ -659,8 +685,8 @@ def main() -> int:
     else:
         print("Codex not selected — skipping Codex config.")
 
-    # Step 6: Install user-level skills
-    install_user_skills(install_dir, install_claude=args.claude, install_codex=args.codex)
+    # Step 6: Install user-level skills and agents
+    install_user_assets(install_dir, install_claude=args.claude, install_codex=args.codex)
 
     # Step 7: Write chat service manifest for Rhino panel
     write_chat_service_manifest(mcp_server_dir, managed_python_path)

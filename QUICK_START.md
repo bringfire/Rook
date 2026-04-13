@@ -91,7 +91,7 @@ Test with:
 | Rook Companion | Same directory | C# Grasshopper bridge + chat panel |
 | MCP Server | `%LOCALAPPDATA%\Rook\app\mcp_server\` (installer) or `./mcp_server/.venv/` (source) | Python MCP server — Claude ↔ Rhino bridge |
 | Knowledge Stores | `%LOCALAPPDATA%\Rook\app\knowledge\` (installer) or `./knowledge/` (source) | 1,200+ GH component notes, 500+ patterns, command knowledge |
-| Skills | `./.claude/skills/` (source); installer copies to `~/.claude/skills/` and `~/.agents/skills/` | 13 skills for design, planning, execution, chirp components |
+| Skills | Claude: `./.claude/skills/`; Codex: `./.agents/skills/`; installer copies to `~/.claude/skills/`, `~/.codex/skills/`, and `~/.claude/agents/` | Skills and Claude agents for design, planning, execution, chirp components |
 | Chirp Adapter | `%LOCALAPPDATA%\Rook\app\chirp\` (installer) | LLM-powered Grasshopper components (optional) |
 | Claude Code Config | `~/.claude.json` | Global MCP configuration (auto-generated) |
 | Claude Desktop Config | `%APPDATA%\Claude\claude_desktop_config.json` | Desktop MCP configuration (auto-generated) |

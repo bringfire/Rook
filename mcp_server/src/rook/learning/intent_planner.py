@@ -663,13 +663,37 @@ def _extract_creation_params(
     coords = _COORD_RE.findall(lower)
     if coords:
         first_coord = [float(x) for x in coords[0]]
+        second_coord = [float(x) for x in coords[1]] if len(coords) >= 2 else None
 
         if type_name in ("line",):
-            if len(coords) >= 2:
+            if second_coord is not None:
                 params["start"] = first_coord
-                params["end"] = [float(x) for x in coords[1]]
+                params["end"] = second_coord
                 return params
             return None
+
+        # Support corner-to-corner box/rectangle specs like:
+        # "box from 0,0,0 to 10,10,5"
+        if second_coord is not None and type_name in ("box", "rectangle"):
+            mins = [
+                min(first_coord[0], second_coord[0]),
+                min(first_coord[1], second_coord[1]),
+                min(first_coord[2], second_coord[2]),
+            ]
+            deltas = [
+                abs(second_coord[0] - first_coord[0]),
+                abs(second_coord[1] - first_coord[1]),
+                abs(second_coord[2] - first_coord[2]),
+            ]
+            params["origin"] = mins
+            if type_name == "box":
+                params.setdefault("width", deltas[0])
+                params.setdefault("depth", deltas[1])
+                params.setdefault("height", deltas[2])
+            else:
+                params.setdefault("width", deltas[0])
+                params.setdefault("height", deltas[1])
+            return params
 
         # First coordinate is center/origin
         center_key = "origin" if type_name in ("box", "rectangle") else "center"

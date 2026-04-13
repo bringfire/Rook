@@ -304,12 +304,14 @@ print("   [OK] ~/.codex/config.toml updated")
 PYEOF
 fi
 
-SKILLS_SOURCE="$INSTALL_DIR/.claude/skills"
-if [ "$USER_CONFIG" = true ] && [ -d "$SKILLS_SOURCE" ]; then
-    mkdir -p "$HOME/.claude/skills" "$HOME/.agents/skills"
-    cp -R "$SKILLS_SOURCE"/. "$HOME/.claude/skills/"
-    cp -R "$SKILLS_SOURCE"/. "$HOME/.agents/skills/"
-    echo "   [OK] User-level skills installed for Claude Code and Codex"
+CLAUDE_SKILLS_SOURCE="$INSTALL_DIR/.claude/skills"
+CLAUDE_AGENTS_SOURCE="$INSTALL_DIR/.claude/agents"
+CODEX_SKILLS_SOURCE="$INSTALL_DIR/.agents/skills"
+if [ "$USER_CONFIG" = true ] && { [ -d "$CLAUDE_SKILLS_SOURCE" ] || [ -d "$CLAUDE_AGENTS_SOURCE" ] || [ -d "$CODEX_SKILLS_SOURCE" ]; }; then
+    [ -d "$CLAUDE_SKILLS_SOURCE" ] && mkdir -p "$HOME/.claude/skills" && cp -R "$CLAUDE_SKILLS_SOURCE"/. "$HOME/.claude/skills/"
+    [ -d "$CLAUDE_AGENTS_SOURCE" ] && mkdir -p "$HOME/.claude/agents" && cp -R "$CLAUDE_AGENTS_SOURCE"/. "$HOME/.claude/agents/"
+    [ -d "$CODEX_SKILLS_SOURCE" ] && mkdir -p "$HOME/.codex/skills" && cp -R "$CODEX_SKILLS_SOURCE"/. "$HOME/.codex/skills/"
+    echo "   [OK] User-level Claude/Codex skills and Claude agents installed"
 fi
 
 # ============================================================================
