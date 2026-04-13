@@ -4,10 +4,10 @@ Context Feature Extraction for Contextual MAB
 This module extracts context features from intents and tool calls
 for use in contextual multi-armed bandit pattern ranking.
 
-Context Vector Structure (21 dimensions):
-- Tool category (one-hot, 10 categories): indices 0-9
+Context Vector Structure (23 dimensions):
+- Tool category (one-hot, 12 categories): indices 0-11
 - Geometry type (multi-hot, 8 types): indices 10-17
-- Operation characteristics (3 features): indices 18-20
+- Operation characteristics (3 features): indices 20-22
   - param_count (normalized)
   - has_selection_dependency
   - is_destructive
@@ -18,7 +18,7 @@ import re
 
 
 # =============================================================================
-# Tool Category Mapping (10 categories)
+# Tool Category Mapping (12 categories)
 # =============================================================================
 
 TOOL_CATEGORIES = {
@@ -44,6 +44,17 @@ TOOL_CATEGORIES = {
     "rhino_layer_move_objects": "layer",
     "rhino_layer_merge": "layer",
     "rhino_layer_dependencies": "layer",
+
+    # Material audit/purge
+    "rhino_materials": "material",
+    "rhino_material_purge": "material",
+
+    # Linetype category
+    "rhino_linetypes": "linetype",
+    "rhino_linetype_purge": "linetype",
+
+    # Block analysis
+    "rhino_block_layer_census": "block",
 
     # Boolean category - boolean operations
     "rhino_boolean": "boolean",
@@ -109,6 +120,8 @@ CATEGORY_ORDER = [
     "material",
     "select",
     "document",
+    "linetype",
+    "block",
 ]
 
 # Tools that require selected objects to function
@@ -301,15 +314,15 @@ def encode_context(
         params: Tool parameters
 
     Returns:
-        21-dimensional normalized feature vector:
-        - [0-9]: Tool category (one-hot, 10 dims)
-        - [10-17]: Geometry types (multi-hot, 8 dims)
-        - [18]: Param count (normalized 0-1)
-        - [19]: Has selection dependency (0 or 1)
-        - [20]: Is destructive (0 or 1)
+        23-dimensional normalized feature vector:
+        - [0-11]: Tool category (one-hot, 12 dims)
+        - [12-19]: Geometry types (multi-hot, 8 dims)
+        - [20]: Param count (normalized 0-1)
+        - [21]: Has selection dependency (0 or 1)
+        - [22]: Is destructive (0 or 1)
     """
-    # Initialize 21-dimensional vector
-    context = [0.0] * 21
+    # Initialize 23-dimensional vector
+    context = [0.0] * 23
 
     # Parse intent
     intent_data = parse_intent(intent)
@@ -317,16 +330,17 @@ def encode_context(
     # Analyze tool
     tool_data = analyze_tool(tool, params)
 
-    # --- Tool category (one-hot, indices 0-9) ---
+    # --- Tool category (one-hot, indices 0-11) ---
     category = tool_data["category"]
     if category and category in CATEGORY_ORDER:
         cat_idx = CATEGORY_ORDER.index(category)
         context[cat_idx] = 1.0
 
-    # --- Geometry types (multi-hot, indices 10-17) ---
+    # --- Geometry types (multi-hot, indices 12-19) ---
+    num_categories = len(CATEGORY_ORDER)  # 12
     for geom_type in intent_data["geometry_keywords"]:
         if geom_type in GEOMETRY_ORDER:
-            geom_idx = 10 + GEOMETRY_ORDER.index(geom_type)
+            geom_idx = num_categories + GEOMETRY_ORDER.index(geom_type)
             context[geom_idx] = 1.0
 
     # Also detect geometry from tool params if present
@@ -337,20 +351,23 @@ def encode_context(
             for geom_type, keywords in GEOMETRY_KEYWORDS.items():
                 for keyword in keywords:
                     if keyword in geom_type_param:
-                        geom_idx = 10 + GEOMETRY_ORDER.index(geom_type)
+                        geom_idx = num_categories + GEOMETRY_ORDER.index(geom_type)
                         context[geom_idx] = 1.0
                         break
 
-    # --- Operation characteristics (indices 18-20) ---
+    # --- Operation characteristics (indices 20-22) ---
+    num_geom = len(GEOMETRY_ORDER)  # 8
+    op_base = num_categories + num_geom  # 20
+
     # Param count normalized (assume max 10 params)
     param_count = tool_data["param_count"]
-    context[18] = min(param_count / 10.0, 1.0)
+    context[op_base] = min(param_count / 10.0, 1.0)
 
     # Selection dependency
-    context[19] = 1.0 if tool_data["has_selection_dependency"] else 0.0
+    context[op_base + 1] = 1.0 if tool_data["has_selection_dependency"] else 0.0
 
     # Destructive operation
-    context[20] = 1.0 if tool_data["is_destructive"] else 0.0
+    context[op_base + 2] = 1.0 if tool_data["is_destructive"] else 0.0
 
     return context
 

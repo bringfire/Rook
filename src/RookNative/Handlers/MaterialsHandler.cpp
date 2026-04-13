@@ -69,16 +69,80 @@ void HandleGetMaterials(const httplib::Request& req, httplib::Response& res)
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
 
+        int matCount = pDoc->m_material_table.MaterialCount();
+
+        // Pre-compute usage: objects per material (single pass over objects)
+        std::unordered_map<int, int> objectsPerMaterial;
+        {
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::normal_or_locked_objects,
+                CRhinoObjectIterator::active_objects);
+            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            {
+                const auto& attrs = obj->Attributes();
+                if (attrs.MaterialSource() == ON::material_from_object && attrs.m_material_index >= 0)
+                    objectsPerMaterial[attrs.m_material_index]++;
+            }
+        }
+
+        // Pre-compute usage: layers per material (single pass over layers)
+        std::unordered_map<int, int> layersPerMaterial;
+        for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+        {
+            const CRhinoLayer& layer = pDoc->m_layer_table[i];
+            if (layer.IsDeleted()) continue;
+            int matIdx = layer.RenderMaterialIndex();
+            if (matIdx >= 0)
+                layersPerMaterial[matIdx]++;
+        }
+
+        // Pre-compute usage: block definition objects per material
+        std::unordered_map<int, int> blockObjsPerMaterial;
+        const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
+        for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
+        {
+            const CRhinoInstanceDefinition* idef = idefTable[d];
+            if (!idef || idef->IsDeleted()) continue;
+
+            ON_SimpleArray<const CRhinoObject*> objArray;
+            idef->GetObjects(objArray);
+            for (int j = 0; j < objArray.Count(); ++j)
+            {
+                if (!objArray[j]) continue;
+                const auto& attrs = objArray[j]->Attributes();
+                if (attrs.MaterialSource() == ON::material_from_object && attrs.m_material_index >= 0)
+                    blockObjsPerMaterial[attrs.m_material_index]++;
+            }
+        }
+
         nlohmann::json materials = nlohmann::json::array();
-        int count = pDoc->m_material_table.MaterialCount();
         int activeCount = 0;
 
-        for (int i = 0; i < count; ++i)
+        for (int i = 0; i < matCount; ++i)
         {
             const CRhinoMaterial& mat = pDoc->m_material_table[i];
             if (mat.IsDeleted()) continue;
 
-            materials.push_back(SerializeMaterial(pDoc, i));
+            nlohmann::json j = SerializeMaterial(pDoc, i);
+
+            // Usage reporting
+            auto objIt = objectsPerMaterial.find(i);
+            auto layIt = layersPerMaterial.find(i);
+            auto blkIt = blockObjsPerMaterial.find(i);
+
+            int objCount = (objIt != objectsPerMaterial.end()) ? objIt->second : 0;
+            int layCount = (layIt != layersPerMaterial.end()) ? layIt->second : 0;
+            int blkCount = (blkIt != blockObjsPerMaterial.end()) ? blkIt->second : 0;
+
+            j["usage"] = {
+                {"objectCount", objCount},
+                {"layerCount", layCount},
+                {"blockDefinitionObjectCount", blkCount},
+                {"totalReferences", objCount + layCount + blkCount},
+                {"canPurge", (objCount + layCount + blkCount) == 0}
+            };
+
+            materials.push_back(std::move(j));
             ++activeCount;
         }
 
@@ -299,6 +363,145 @@ void HandleAssignMaterial(const httplib::Request& req, httplib::Response& res)
         wr.success = true;
         wr.data["material"] = materialName;
         wr.data["assignedCount"] = assignedCount;
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /materials/purge — Purge unused materials ─────────────────
+
+void HandlePurgeMaterials(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Purge Unused Materials");
+
+        int matCount = pDoc->m_material_table.MaterialCount();
+
+        // Compute usage (same logic as GET /materials)
+        std::unordered_map<int, int> objectsPerMaterial;
+        {
+            CRhinoObjectIterator it(*pDoc,
+                CRhinoObjectIterator::normal_or_locked_objects,
+                CRhinoObjectIterator::active_objects);
+            for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+            {
+                const auto& attrs = obj->Attributes();
+                if (attrs.MaterialSource() == ON::material_from_object && attrs.m_material_index >= 0)
+                    objectsPerMaterial[attrs.m_material_index]++;
+            }
+        }
+
+        std::unordered_map<int, int> layersPerMaterial;
+        for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
+        {
+            const CRhinoLayer& layer = pDoc->m_layer_table[i];
+            if (layer.IsDeleted()) continue;
+            int matIdx = layer.RenderMaterialIndex();
+            if (matIdx >= 0)
+                layersPerMaterial[matIdx]++;
+        }
+
+        std::unordered_map<int, int> blockObjsPerMaterial;
+        const CRhinoInstanceDefinitionTable& idefTable = pDoc->m_instance_definition_table;
+        for (int d = 0; d < idefTable.InstanceDefinitionCount(); ++d)
+        {
+            const CRhinoInstanceDefinition* idef = idefTable[d];
+            if (!idef || idef->IsDeleted()) continue;
+
+            ON_SimpleArray<const CRhinoObject*> objArray;
+            idef->GetObjects(objArray);
+            for (int j = 0; j < objArray.Count(); ++j)
+            {
+                if (!objArray[j]) continue;
+                const auto& attrs = objArray[j]->Attributes();
+                if (attrs.MaterialSource() == ON::material_from_object && attrs.m_material_index >= 0)
+                    blockObjsPerMaterial[attrs.m_material_index]++;
+            }
+        }
+
+        // Collect purgeable materials
+        nlohmann::json purged = nlohmann::json::array();
+        nlohmann::json skipped = nlohmann::json::array();
+        int purgedCount = 0;
+
+        std::vector<int> toPurge;
+        for (int i = 0; i < matCount; ++i)
+        {
+            const CRhinoMaterial& mat = pDoc->m_material_table[i];
+            if (mat.IsDeleted()) continue;
+
+            auto objIt = objectsPerMaterial.find(i);
+            auto layIt = layersPerMaterial.find(i);
+            auto blkIt = blockObjsPerMaterial.find(i);
+
+            int objCount = (objIt != objectsPerMaterial.end()) ? objIt->second : 0;
+            int layCount = (layIt != layersPerMaterial.end()) ? layIt->second : 0;
+            int blkCount = (blkIt != blockObjsPerMaterial.end()) ? blkIt->second : 0;
+            int total = objCount + layCount + blkCount;
+
+            std::string matName = WideToUtf8(mat.Name());
+
+            if (total == 0)
+            {
+                toPurge.push_back(i);
+            }
+            else
+            {
+                nlohmann::json skip;
+                skip["name"] = matName;
+                nlohmann::json reasons = nlohmann::json::array();
+                if (objCount > 0)
+                    reasons.push_back(std::to_string(objCount) + " object(s)");
+                if (layCount > 0)
+                    reasons.push_back(std::to_string(layCount) + " layer(s)");
+                if (blkCount > 0)
+                    reasons.push_back(std::to_string(blkCount) + " block definition object(s)");
+                skip["reasons"] = std::move(reasons);
+                skipped.push_back(std::move(skip));
+            }
+        }
+
+        // Delete in reverse index order; only report as purged after success
+        for (int j = static_cast<int>(toPurge.size()) - 1; j >= 0; --j)
+        {
+            std::string name = WideToUtf8(pDoc->m_material_table[toPurge[j]].Name());
+            if (pDoc->m_material_table.DeleteMaterial(toPurge[j]))
+            {
+                purged.push_back(name);
+                ++purgedCount;
+            }
+            else
+            {
+                nlohmann::json skip;
+                skip["name"] = name;
+                skip["reasons"] = nlohmann::json::array({"Delete failed"});
+                skipped.push_back(std::move(skip));
+            }
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["purgedCount"] = purgedCount;
+        wr.data["purged"] = std::move(purged);
+        wr.data["skippedCount"] = static_cast<int>(skipped.size());
+        wr.data["skipped"] = std::move(skipped);
         return wr;
     });
 

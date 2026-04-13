@@ -145,6 +145,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_block_rebase",
         "rhino_block_rebase_recursive",
         "rhino_block_purge",
+        "rhino_block_layer_census",
     ],
 
     # --- Rhino Selection ---
@@ -197,9 +198,14 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- Materials & UV Mapping ---
     "materials": [
-        "rhino_material_ops",
+        "rhino_material_ops", "rhino_materials", "rhino_material_purge",
         "rhino_apply_uv_box_mapping", "rhino_apply_uv_planar_mapping",
         "rhino_apply_uv_cylinder_mapping", "rhino_apply_uv_sphere_mapping",
+    ],
+
+    # --- Rhino Linetypes ---
+    "linetypes": [
+        "rhino_linetypes", "rhino_linetype_purge",
     ],
 
     # --- Game Export Pipeline ---

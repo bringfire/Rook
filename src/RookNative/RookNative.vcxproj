@@ -117,6 +117,7 @@
     <ClCompile Include="Handlers\GroupsHandler.cpp" />
     <ClCompile Include="Handlers\DocumentOpsHandler.cpp" />
     <ClCompile Include="Handlers\MaterialsHandler.cpp" />
+    <ClCompile Include="Handlers\LinetypesHandler.cpp" />
     <ClCompile Include="Handlers\ImportExportHandler.cpp" />
     <ClCompile Include="Handlers\BooleanHandler.cpp" />
     <ClCompile Include="Handlers\FilletChamferHandler.cpp" />
@@ -178,6 +179,7 @@
     <ClInclude Include="Handlers\GroupsHandler.h" />
     <ClInclude Include="Handlers\DocumentOpsHandler.h" />
     <ClInclude Include="Handlers\MaterialsHandler.h" />
+    <ClInclude Include="Handlers\LinetypesHandler.h" />
     <ClInclude Include="Handlers\ImportExportHandler.h" />
     <ClInclude Include="Handlers\BooleanHandler.h" />
     <ClInclude Include="Handlers\FilletChamferHandler.h" />

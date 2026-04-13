@@ -137,6 +137,15 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_layer_merge":          ("/layers/merge", "POST"),
     "rhino_layer_dependencies":   ("/layers/dependencies", "GET"),
 
+    # --- Materials / Linetypes ---
+    "rhino_materials":            ("/materials", "GET"),
+    "rhino_material_purge":       ("/materials/purge", "POST"),
+    "rhino_linetypes":            ("/linetypes", "GET"),
+    "rhino_linetype_purge":       ("/linetypes/purge", "POST"),
+
+    # --- Block analysis ---
+    "rhino_block_layer_census":   ("/block/layer-census", "GET"),
+
     # --- Selection variants ---
     "rhino_select_by_type":     ("/select", "POST"),
     "rhino_select_by_name":     ("/select", "POST"),
