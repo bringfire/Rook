@@ -322,9 +322,11 @@ class ScalerManager:
             True if fitting succeeded
         """
         if not contexts:
-            # Handle empty data gracefully
-            self._min = [0.0] * 21
-            self._max = [1.0] * 21
+            # Handle empty data gracefully — dimension must match encode_context() output
+            from .context import CATEGORY_ORDER, GEOMETRY_ORDER
+            n_dim = len(CATEGORY_ORDER) + len(GEOMETRY_ORDER) + 3  # categories + geometry + 3 op features
+            self._min = [0.0] * n_dim
+            self._max = [1.0] * n_dim
             self._is_fitted = True
             return True
 
