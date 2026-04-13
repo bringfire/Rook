@@ -38,7 +38,7 @@ SCHEMA_VERSION = "2.0.0"
 class ContextObservation:
     """A single context observation for MAB learning."""
     id: str
-    features: list[float]  # 21-dimensional context vector
+    features: list[float]  # 23-dimensional context vector
     pattern_id: str
     outcome: str  # "success" or "failure"
     timestamp: str  # ISO format
@@ -158,7 +158,7 @@ class ContextHistory:
         Add a new context observation.
 
         Args:
-            context: 21-dimensional feature vector
+            context: 23-dimensional feature vector
             pattern_id: ID of the pattern used
             outcome: "success" or "failure"
             intent: Natural language intent (optional)
@@ -176,8 +176,8 @@ class ContextHistory:
         # Validate context vector
         if not isinstance(context, list):
             raise ValueError("Context must be a list")
-        if len(context) != 21:
-            raise ValueError(f"Context must have 21 dimensions, got {len(context)}")
+        if len(context) not in (21, 23):
+            raise ValueError(f"Context must have 23 dimensions (or 21 for legacy), got {len(context)}")
         for i, val in enumerate(context):
             if not isinstance(val, (int, float)):
                 raise ValueError(f"Context value at index {i} must be numeric, got {type(val)}")
@@ -316,7 +316,7 @@ class ScalerManager:
         Fit scaler to context data.
 
         Args:
-            contexts: List of 21-dimensional context vectors
+            contexts: List of 23-dimensional context vectors
 
         Returns:
             True if fitting succeeded
@@ -353,7 +353,7 @@ class ScalerManager:
         Transform a single context vector.
 
         Args:
-            context: 21-dimensional feature vector
+            context: 23-dimensional feature vector
 
         Returns:
             Normalized feature vector
