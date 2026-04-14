@@ -76,6 +76,7 @@ void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib
 void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
