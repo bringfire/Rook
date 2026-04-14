@@ -678,11 +678,24 @@ def _build_route_table() -> dict[str, RouteSpec]:
     )
 
     # Block-definition object property mutation (single + batch pairs).
-    # The set_block_materials / colors / user_strings handlers accept either a
-    # bulk value OR per-object `mappings` — both listed in optional_params; the
-    # underlying handler enforces "at least one." set_block_object_names single
-    # is intentionally asymmetric with its batch: single requires per-object
-    # `mappings`, batch takes per-item `objectName`.
+    #
+    # Router-coverage scope (intentional, narrower than handler capability):
+    #   The handlers for set_block_materials / colors / user_strings accept
+    #   either a bulk value OR per-object `mappings` (XOR; handler enforces
+    #   "at least one"). CapabilityRouter.validate_params() only checks
+    #   required_params, so it cannot express that XOR — encoding both shapes
+    #   would let an incomplete payload {name: "X"} pass router validation
+    #   and only fail downstream in the HTTP handler. To prevent that
+    #   degraded failure mode, the router exposes ONLY the bulk path
+    #   (required = "name" + the bulk field) and treats the `mappings` path
+    #   as router-unreachable for now. Per-index `mappings` payloads remain
+    #   reachable via the MCP tool directly.
+    #   See rook_docs/2026-04-14-intent-runtime-followups.md for the deferred
+    #   architectural fix (RouteSpec `requires_one_of`) and other followups.
+    #
+    # set_block_object_names single is intentionally asymmetric with its
+    # batch: single requires per-object `mappings`, batch takes per-item
+    # `objectName`. That asymmetry is in the handler itself, not the router.
     routes["set_block_layers"] = RouteSpec(
         endpoint="/block/set-layers",
         required_params=("name", "layer"),
@@ -696,9 +709,8 @@ def _build_route_table() -> dict[str, RouteSpec]:
     )
     routes["set_block_materials"] = RouteSpec(
         endpoint="/block/set-materials",
-        required_params=("name",),
-        optional_params=("material", "mappings"),
-        description="Set object materials within a block definition",
+        required_params=("name", "material"),
+        description="Set bulk material on all objects within a block definition (router covers bulk path only; per-index mappings stays MCP-direct)",
     )
     routes["set_block_materials_batch"] = RouteSpec(
         endpoint="/block/set-materials-batch",
@@ -708,9 +720,8 @@ def _build_route_table() -> dict[str, RouteSpec]:
     )
     routes["set_block_object_colors"] = RouteSpec(
         endpoint="/block/set-object-colors",
-        required_params=("name",),
-        optional_params=("color", "mappings"),
-        description="Set object colors within a block definition",
+        required_params=("name", "color"),
+        description="Set bulk color on all objects within a block definition (router covers bulk path only; per-index mappings stays MCP-direct)",
     )
     routes["set_block_object_colors_batch"] = RouteSpec(
         endpoint="/block/set-object-colors-batch",
@@ -720,9 +731,8 @@ def _build_route_table() -> dict[str, RouteSpec]:
     )
     routes["set_block_object_user_strings"] = RouteSpec(
         endpoint="/block/set-object-user-strings",
-        required_params=("name",),
-        optional_params=("userStrings", "mappings"),
-        description="Set object user strings within a block definition",
+        required_params=("name", "userStrings"),
+        description="Stamp bulk user strings on all objects within a block definition (router covers bulk path only; per-index mappings stays MCP-direct)",
     )
     routes["set_block_object_user_strings_batch"] = RouteSpec(
         endpoint="/block/set-object-user-strings-batch",
