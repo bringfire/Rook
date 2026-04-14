@@ -125,6 +125,7 @@ class ToolRegistry:
         "rhino_block_replace_object_geometry": CATEGORY_MODIFICATION,
         "rhino_block_replace_object_geometry_batch": CATEGORY_MODIFICATION,
         "rhino_block_transform_object": CATEGORY_MODIFICATION,
+        "rhino_block_transform_object_batch": CATEGORY_MODIFICATION,
         "rhino_block_transform_instance": CATEGORY_MODIFICATION,
         "rhino_block_transform_instance_batch": CATEGORY_MODIFICATION,
         "rhino_block_set_layers": CATEGORY_MODIFICATION,

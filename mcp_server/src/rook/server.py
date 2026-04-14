@@ -2007,6 +2007,49 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_block_transform_object_batch",
+            description=(
+                "Batch transform-object across one or more block definitions in one call. "
+                "Each item bundles one transform applied to a set of indices inside one block "
+                "(same shape as the single-target). Items targeting the same block are coalesced "
+                "into a single ModifyGeometry call per definition. Best-effort per-item semantics "
+                "under one UndoScope; the item is the atomic unit. "
+                "Cross-item rule (first-occurrence-wins): if any of an item's (name, index) pairs "
+                "are already claimed by an earlier item, the whole later item is skipped with "
+                "overlapping_indices. No silent composition of transforms on the same slot. "
+                "Slot-level geom.Transform failure skips the whole item with item_transform_failed; "
+                "siblings in the same group continue. Group-level ModifyGeometry failure marks "
+                "every item that committed to that group as group_modify_failed. "
+                "Response: {routed, skipped, total, errors[]}. "
+                "errors[].indices is always sorted ascending for API stability; overlap subsets in "
+                "error messages are likewise ascending. "
+                "Attribute preservation invariant: only geometry is modified at target indices; "
+                "object attributes on all slots are retained unchanged. "
+                "Zero-scale acceptance is loose at parse phase (matches single-target wire behavior); "
+                "runtime outcome depends on geom.Transform for the chosen geometry."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Block definition name"},
+                                "indices": {"type": "array", "items": {"type": "integer"}, "description": "0-based indices of objects to transform; duplicates silently deduped"},
+                                "transform": {"type": "object", "description": "Transform spec: {type, ...params}. Same shape as rhino_block_transform_object (move/rotate/scale/scale3d)."}
+                            },
+                            "required": ["name", "indices", "transform"]
+                        },
+                        "description": "Array of transform-object items. Empty array is a valid no-op."
+                    },
+                    "redraw": {"type": "boolean", "description": "Redraw viewports after batch (default true)"}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
             name="rhino_block_set_layers",
             description="Set the layer assignments of objects within a block definition. Use 'layer' to set all objects to one layer, or 'mappings' for per-object control. Mappings override the bulk layer.",
             inputSchema={
@@ -8903,6 +8946,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_block_transform_object":
             result = await call_rhino("/block/transform-object", "POST", arguments)
+
+        case "rhino_block_transform_object_batch":
+            result = await call_rhino("/block/transform-object-batch", "POST", arguments)
 
         case "rhino_block_set_layers":
             result = await call_rhino("/block/set-layers", "POST", arguments)
