@@ -176,6 +176,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_replace_object_geometry": ("/block/replace-object-geometry", "POST"),
     "rhino_block_replace_object_geometry_batch": ("/block/replace-object-geometry-batch", "POST"),
     "rhino_block_transform_object": ("/block/transform-object", "POST"),
+    "rhino_block_transform_object_batch": ("/block/transform-object-batch", "POST"),
     "rhino_block_set_layers":   ("/block/set-layers", "POST"),
     "rhino_block_set_layers_batch": ("/block/set-layers-batch", "POST"),
     "rhino_block_set_materials": ("/block/set-materials", "POST"),

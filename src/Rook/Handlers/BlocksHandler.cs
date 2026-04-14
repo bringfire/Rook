@@ -5013,6 +5013,285 @@ namespace Rook.Handlers
             return entry;
         }
 
+        // ---- Transform-object shared helpers (used by single-target and batch) ----
+        //
+        // IMPORTANT: TryParseTransformSpec is LOOSE on zero-scale (factor: 0 and scale3d
+        // components of 0 are accepted at parse phase) to preserve single-target wire
+        // parity. Do NOT reuse TryParseScaleOp here — it serves the TransformInstance
+        // family, operates on a different scale shape (scalar-or-3-array), and rejects
+        // zero as invalid_scale. Swapping helpers would silently tighten the public
+        // contract for rhino_block_transform_object. Any future tightening here must be
+        // opt-in (pattern: strictDeleteFlag in PR #21), never a silent change.
+
+        private enum TransformItemShapeError
+        {
+            None,
+            InvalidName,
+            InvalidIndices,
+            InvalidTransform,
+            InvalidTransformType,
+            InvalidMove,
+            InvalidRotate,
+            InvalidScale,
+            InvalidScale3d,
+        }
+
+        private readonly struct TransformItemShape
+        {
+            public readonly string Name;
+            public readonly HashSet<int> Indices;   // deduped; serialize ascending for API stability
+            public readonly Transform Xform;
+            public readonly string XformType;       // lower-invariant; echoed in single-target response
+
+            public TransformItemShape(string name, HashSet<int> indices, Transform xform, string xformType)
+            {
+                Name = name;
+                Indices = indices;
+                Xform = xform;
+                XformType = xformType;
+            }
+        }
+
+        // Parse transform spec into a Transform. Loose on zero-scale by design.
+        private static TransformItemShapeError TryParseTransformSpec(
+            JsonElement xformEl,
+            out Transform xform,
+            out string xformType,
+            out string? errorMessage)
+        {
+            xform = Transform.Identity;
+            xformType = "";
+            errorMessage = null;
+
+            if (xformEl.ValueKind != JsonValueKind.Object)
+            {
+                errorMessage = "transform object required";
+                return TransformItemShapeError.InvalidTransform;
+            }
+
+            if (!xformEl.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
+            {
+                errorMessage = "transform.type required (string)";
+                return TransformItemShapeError.InvalidTransformType;
+            }
+            xformType = typeEl.GetString()?.ToLowerInvariant() ?? "";
+
+            switch (xformType)
+            {
+                case "move":
+                {
+                    if (!TryReadOptionalNumber(xformEl, "x", out double x, out errorMessage)
+                        || !TryReadOptionalNumber(xformEl, "y", out double y, out errorMessage)
+                        || !TryReadOptionalNumber(xformEl, "z", out double z, out errorMessage))
+                    {
+                        return TransformItemShapeError.InvalidMove;
+                    }
+                    xform = Transform.Translation(x, y, z);
+                    return TransformItemShapeError.None;
+                }
+                case "rotate":
+                {
+                    if (!xformEl.TryGetProperty("angle", out var angleEl) || angleEl.ValueKind != JsonValueKind.Number)
+                    {
+                        errorMessage = "rotate.angle required (number, degrees)";
+                        return TransformItemShapeError.InvalidRotate;
+                    }
+                    double angleRad = angleEl.GetDouble() * Math.PI / 180.0;
+
+                    if (!TryReadVector3d(xformEl, "axis", Vector3d.ZAxis, out Vector3d axis, out errorMessage))
+                        return TransformItemShapeError.InvalidRotate;
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidRotate;
+
+                    xform = Transform.Rotation(angleRad, axis, center);
+                    return TransformItemShapeError.None;
+                }
+                case "scale":
+                {
+                    if (!xformEl.TryGetProperty("factor", out var factorEl) || factorEl.ValueKind != JsonValueKind.Number)
+                    {
+                        errorMessage = "scale.factor required (number)";
+                        return TransformItemShapeError.InvalidScale;
+                    }
+                    double factor = factorEl.GetDouble();
+                    // Zero factor is accepted (loose parity with single-target). Runtime outcome
+                    // depends on geom.Transform for the chosen geometry.
+
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidScale;
+
+                    xform = Transform.Scale(center, factor);
+                    return TransformItemShapeError.None;
+                }
+                case "scale3d":
+                {
+                    if (!TryReadOptionalNumber(xformEl, "x", out double sx, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    if (!TryReadOptionalNumber(xformEl, "y", out double sy, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    if (!TryReadOptionalNumber(xformEl, "z", out double sz, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    // Zero components accepted (loose parity with single-target).
+
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidScale3d;
+
+                    var plane = new Plane(center, Vector3d.XAxis, Vector3d.YAxis);
+                    xform = Transform.Scale(plane, sx, sy, sz);
+                    return TransformItemShapeError.None;
+                }
+                default:
+                    errorMessage = $"Unknown transform type '{xformType}'. Supported: move, rotate, scale, scale3d";
+                    return TransformItemShapeError.InvalidTransformType;
+            }
+        }
+
+        // Returns true if absent or numeric. On non-numeric present, sets errorMessage and returns false.
+        private static bool TryReadOptionalNumber(JsonElement parent, string name, out double value, out string? errorMessage, double defaultValue = 0.0)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} must be a number";
+                return false;
+            }
+            value = el.GetDouble();
+            return true;
+        }
+
+        // Match pre-refactor loose behavior for axis/center overrides exactly:
+        //   absent         -> silent default
+        //   non-array      -> silent default (old inline code only entered the branch on ValueKind == Array)
+        //   short array    -> silent default (old inline code only applied override when arr.Length >= 3)
+        //   long-enough array with non-numeric element(s) -> error. Pre-refactor the .GetDouble()
+        //     would have thrown and been caught by the outer try/catch as "Transform block object
+        //     failed: ...". Surfacing as invalid_rotate / invalid_scale / invalid_scale3d is the
+        //     same class of exception-path cleanup PR #21 established.
+        private static bool TryReadPoint3d(JsonElement parent, string name, Point3d defaultValue, out Point3d value, out string? errorMessage)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Array) return true;
+            var arr = el.EnumerateArray().ToArray();
+            if (arr.Length < 3) return true;
+            if (arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number
+                || arr[2].ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} elements must be numeric";
+                return false;
+            }
+            value = new Point3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
+            return true;
+        }
+
+        private static bool TryReadVector3d(JsonElement parent, string name, Vector3d defaultValue, out Vector3d value, out string? errorMessage)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Array) return true;
+            var arr = el.EnumerateArray().ToArray();
+            if (arr.Length < 3) return true;
+            if (arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number
+                || arr[2].ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} elements must be numeric";
+                return false;
+            }
+            value = new Vector3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
+            return true;
+        }
+
+        // Parse one item's {name, indices[], transform} into shape record.
+        // Dedupes indices via HashSet<int>. Caller serializes ascending for wire stability.
+        private static TransformItemShapeError TryParseTransformItemShape(
+            JsonElement itemEl,
+            out TransformItemShape shape,
+            out string? errorMessage)
+        {
+            shape = default;
+            errorMessage = null;
+
+            if (itemEl.ValueKind != JsonValueKind.Object)
+            {
+                errorMessage = "Item must be a JSON object";
+                return TransformItemShapeError.InvalidName;
+            }
+
+            string? blockName = null;
+            if (itemEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+                blockName = nameEl.GetString();
+            if (string.IsNullOrEmpty(blockName))
+            {
+                errorMessage = "Block name required";
+                return TransformItemShapeError.InvalidName;
+            }
+
+            if (!itemEl.TryGetProperty("indices", out var indicesEl) || indicesEl.ValueKind != JsonValueKind.Array)
+            {
+                errorMessage = "indices array required";
+                return TransformItemShapeError.InvalidIndices;
+            }
+            var deduped = new HashSet<int>();
+            foreach (var idx in indicesEl.EnumerateArray())
+            {
+                if (idx.ValueKind != JsonValueKind.Number || !idx.TryGetInt32(out int iv))
+                {
+                    errorMessage = "indices must be integers";
+                    return TransformItemShapeError.InvalidIndices;
+                }
+                deduped.Add(iv);
+            }
+            if (deduped.Count == 0)
+            {
+                errorMessage = "At least one index required";
+                return TransformItemShapeError.InvalidIndices;
+            }
+
+            if (!itemEl.TryGetProperty("transform", out var xformEl))
+            {
+                errorMessage = "transform object required";
+                return TransformItemShapeError.InvalidTransform;
+            }
+
+            var specErr = TryParseTransformSpec(xformEl, out Transform xform, out string xformType, out errorMessage);
+            if (specErr != TransformItemShapeError.None)
+                return specErr;
+
+            shape = new TransformItemShape(blockName!, deduped, xform, xformType);
+            return TransformItemShapeError.None;
+        }
+
+        // Validate deduped index set against a fixed snapshot. Returns the first out-of-range
+        // index in ASCENDING order for deterministic error messages (HashSet<int> iteration order
+        // is undefined). The batch handler needs stable error output across runs; the single-target
+        // call site prior to this refactor was also effectively undefined, so switching to
+        // ascending is strictly better here.
+        private static bool TryValidateItemIndicesAgainstSnapshot(
+            RhinoObject[] existingObjects,
+            HashSet<int> indices,
+            out int offendingIndex,
+            out string? errorMessage)
+        {
+            errorMessage = null;
+            offendingIndex = 0;
+            foreach (int idx in indices.OrderBy(i => i))
+            {
+                if (idx < 0 || idx >= existingObjects.Length)
+                {
+                    offendingIndex = idx;
+                    errorMessage = $"Object index {idx} out of range (block has {existingObjects.Length} objects)";
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /// <summary>
         /// POST /block/transform-object - Transform objects within a block definition by index.
         /// Body: { "name": "BlockA", "indices": [0, 2], "transform": { "type": "move", "x": 5, "y": 0, "z": 0 } }
@@ -5034,127 +5313,23 @@ namespace Rook.Handlers
                 }
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
-                var blockName = request.GetProperty("name").GetString();
-                if (string.IsNullOrEmpty(blockName))
+
+                var shapeErr = TryParseTransformItemShape(request, out var shape, out var shapeMsg);
+                if (shapeErr != TransformItemShapeError.None)
                 {
-                    return new ApiResponse { Success = false, Data = "Block name required" };
+                    return new ApiResponse { Success = false, Data = shapeMsg ?? "Invalid request" };
                 }
 
-                if (!request.TryGetProperty("indices", out var indicesEl) || indicesEl.ValueKind != JsonValueKind.Array)
-                {
-                    return new ApiResponse { Success = false, Data = "indices array required" };
-                }
-
-                var indices = new HashSet<int>();
-                foreach (var idx in indicesEl.EnumerateArray())
-                {
-                    if (idx.ValueKind != JsonValueKind.Number)
-                    {
-                        return new ApiResponse { Success = false, Data = "indices must be integers" };
-                    }
-                    indices.Add(idx.GetInt32());
-                }
-
-                if (indices.Count == 0)
-                {
-                    return new ApiResponse { Success = false, Data = "At least one index required" };
-                }
-
-                if (!request.TryGetProperty("transform", out var xformEl) || xformEl.ValueKind != JsonValueKind.Object)
-                {
-                    return new ApiResponse { Success = false, Data = "transform object required" };
-                }
-
-                var xformType = xformEl.GetProperty("type").GetString()?.ToLowerInvariant();
-
-                var idef = doc.InstanceDefinitions.Find(blockName);
+                var idef = doc.InstanceDefinitions.Find(shape.Name);
                 if (idef == null)
                 {
-                    return new ApiResponse { Success = false, Data = $"Block definition '{blockName}' not found" };
+                    return new ApiResponse { Success = false, Data = $"Block definition '{shape.Name}' not found" };
                 }
 
                 var existingObjects = idef.GetObjects();
-
-                // Validate all indices before mutation
-                foreach (int idx in indices)
+                if (!TryValidateItemIndicesAgainstSnapshot(existingObjects, shape.Indices, out int _, out string? resMsg))
                 {
-                    if (idx < 0 || idx >= existingObjects.Length)
-                    {
-                        return new ApiResponse { Success = false, Data = $"Object index {idx} out of range (block has {existingObjects.Length} objects)" };
-                    }
-                }
-
-                // Build the transform
-                Transform xform;
-                switch (xformType)
-                {
-                    case "move":
-                    {
-                        double x = xformEl.TryGetProperty("x", out var xp) ? xp.GetDouble() : 0;
-                        double y = xformEl.TryGetProperty("y", out var yp) ? yp.GetDouble() : 0;
-                        double z = xformEl.TryGetProperty("z", out var zp) ? zp.GetDouble() : 0;
-                        xform = Transform.Translation(x, y, z);
-                        break;
-                    }
-                    case "rotate":
-                    {
-                        double angleDeg = xformEl.GetProperty("angle").GetDouble();
-                        double angleRad = angleDeg * Math.PI / 180.0;
-
-                        Vector3d axis = Vector3d.ZAxis;
-                        if (xformEl.TryGetProperty("axis", out var axisEl) && axisEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var axisArr = axisEl.EnumerateArray().ToArray();
-                            if (axisArr.Length >= 3)
-                                axis = new Vector3d(axisArr[0].GetDouble(), axisArr[1].GetDouble(), axisArr[2].GetDouble());
-                        }
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        xform = Transform.Rotation(angleRad, axis, center);
-                        break;
-                    }
-                    case "scale":
-                    {
-                        double factor = xformEl.GetProperty("factor").GetDouble();
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        xform = Transform.Scale(center, factor);
-                        break;
-                    }
-                    case "scale3d":
-                    {
-                        double sx = xformEl.TryGetProperty("x", out var sxp) ? sxp.GetDouble() : 1;
-                        double sy = xformEl.TryGetProperty("y", out var syp) ? syp.GetDouble() : 1;
-                        double sz = xformEl.TryGetProperty("z", out var szp) ? szp.GetDouble() : 1;
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        var plane = new Plane(center, Vector3d.XAxis, Vector3d.YAxis);
-                        xform = Transform.Scale(plane, sx, sy, sz);
-                        break;
-                    }
-                    default:
-                        return new ApiResponse { Success = false, Data = $"Unknown transform type '{xformType}'. Supported: move, rotate, scale, scale3d" };
+                    return new ApiResponse { Success = false, Data = resMsg ?? "Invalid request" };
                 }
 
                 var allGeometry = new List<GeometryBase>();
@@ -5164,9 +5339,9 @@ namespace Rook.Handlers
                 for (int i = 0; i < existingObjects.Length; i++)
                 {
                     var geom = existingObjects[i].Geometry.Duplicate();
-                    if (indices.Contains(i))
+                    if (shape.Indices.Contains(i))
                     {
-                        if (!geom.Transform(xform))
+                        if (!geom.Transform(shape.Xform))
                         {
                             failedIndices.Add(i);
                         }
@@ -5180,7 +5355,7 @@ namespace Rook.Handlers
                     return new ApiResponse
                     {
                         Success = false,
-                        Data = $"Transform failed for object(s) at index {string.Join(", ", failedIndices)}. No changes applied."
+                        Data = $"Transform failed for object(s) at index {string.Join(", ", failedIndices.OrderBy(i => i))}. No changes applied."
                     };
                 }
 
@@ -5189,7 +5364,7 @@ namespace Rook.Handlers
 
                 if (!modified)
                 {
-                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{blockName}'" };
+                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{shape.Name}'" };
                 }
 
                 doc.Views.Redraw();
@@ -5199,10 +5374,10 @@ namespace Rook.Handlers
                     Success = true,
                     Data = new Dictionary<string, object>
                     {
-                        ["blockName"] = blockName,
+                        ["blockName"] = shape.Name,
                         ["objectCount"] = existingObjects.Length,
-                        ["transformedIndices"] = indices.OrderBy(i => i).ToArray(),
-                        ["transformType"] = xformType ?? ""
+                        ["transformedIndices"] = shape.Indices.OrderBy(i => i).ToArray(),
+                        ["transformType"] = shape.XformType
                     }
                 };
             }
@@ -5210,6 +5385,319 @@ namespace Rook.Handlers
             {
                 return new ApiResponse { Success = false, Data = $"Transform block object failed: {ex.Message}" };
             }
+        }
+
+        /// <summary>
+        /// POST /block/transform-object-batch - Batch variant. Apply move/rotate/scale/scale3d
+        /// transforms to objects inside one or more block definitions in a single call. Items
+        /// targeting the same block are coalesced into a single ModifyGeometry call per definition.
+        /// Best-effort per-item semantics under one UndoScope; item is the atomic unit.
+        /// Body: { "items": [{ "name": "BlockA", "indices": [0, 1], "transform": {...} }], "redraw": false }
+        /// </summary>
+        public ApiResponse TransformBlockObjectBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard inherited from PR #21: JsonElement.TryGetProperty throws
+                // InvalidOperationException on non-object kinds.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                {
+                    if (redrawEl.ValueKind != JsonValueKind.True && redrawEl.ValueKind != JsonValueKind.False)
+                        return new ApiResponse { Success = false, Data = "'redraw' must be a boolean" };
+                    redraw = redrawEl.GetBoolean();
+                }
+
+                int total = itemsEl.GetArrayLength();
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object?>>();
+
+                var slots = new List<TransformSlot>();
+
+                using var undo = new UndoScope(doc, "Batch Transform Block Objects");
+
+                // ==== Phase 1: Shape validation (per item, independent) ====
+                int requestIdx = -1;
+                foreach (var itemEl in itemsEl.EnumerateArray())
+                {
+                    requestIdx++;
+
+                    // Capture raw name JsonElement for verbatim echo in errors, including
+                    // non-string / null / missing (per PR #21 convention).
+                    JsonElement? rawName = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object && itemEl.TryGetProperty("name", out var nEl))
+                        rawName = nEl.Clone();
+
+                    // Pre-parse indices for error echo independently of the full-shape helper
+                    // (PR #21 pre-parse pattern). The design rule is: errors[].indices echoes
+                    // in ascending order whenever indices[] parsed successfully; omitted only
+                    // on invalid_indices. If the item has valid indices but a bad name or
+                    // transform, we still want the parseable set in diagnostics.
+                    int[]? parseableIndicesAsc = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object
+                        && itemEl.TryGetProperty("indices", out var rawIdxEl)
+                        && rawIdxEl.ValueKind == JsonValueKind.Array)
+                    {
+                        var echoSet = new HashSet<int>();
+                        bool allIntegers = true;
+                        foreach (var ix in rawIdxEl.EnumerateArray())
+                        {
+                            if (ix.ValueKind != JsonValueKind.Number || !ix.TryGetInt32(out int iv))
+                            {
+                                allIntegers = false;
+                                break;
+                            }
+                            echoSet.Add(iv);
+                        }
+                        if (allIntegers && echoSet.Count > 0)
+                            parseableIndicesAsc = echoSet.OrderBy(i => i).ToArray();
+                    }
+
+                    var shapeErr = TryParseTransformItemShape(itemEl, out var shape, out var shapeMsg);
+                    if (shapeErr != TransformItemShapeError.None)
+                    {
+                        // Omit indices on invalid_indices (the offending field itself); echo
+                        // the parseable set on other shape errors (invalid_name, invalid_transform,
+                        // invalid_transform_type, invalid_move/rotate/scale/scale3d).
+                        int[]? indicesToEcho = (shapeErr == TransformItemShapeError.InvalidIndices) ? null : parseableIndicesAsc;
+                        errors.Add(BuildBatchTransformError(rawName, indicesAsc: indicesToEcho, TransformShapeErrorCode(shapeErr), shapeMsg));
+                        skipped++;
+                        continue;
+                    }
+
+                    slots.Add(new TransformSlot { RequestIndex = requestIdx, RawName = rawName, Shape = shape });
+                }
+
+                // ==== Phase 2: Relational validation (cross-item, first-occurrence-wins) ====
+                // Per-block claim set of already-taken indices. Overlap of ANY of an item's indices
+                // with an earlier item's claim set for the same block -> whole item skipped.
+                var claims = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+                var survivors = new List<TransformSlot>();
+                foreach (var slot in slots)
+                {
+                    if (!claims.TryGetValue(slot.Shape.Name, out var claimed))
+                    {
+                        claimed = new HashSet<int>();
+                        claims[slot.Shape.Name] = claimed;
+                    }
+
+                    // Find the overlap subset (ascending for deterministic message).
+                    var overlap = slot.Shape.Indices.Where(i => claimed.Contains(i)).OrderBy(i => i).ToArray();
+                    if (overlap.Length > 0)
+                    {
+                        errors.Add(BuildBatchTransformError(
+                            slot.RawName,
+                            slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                            "overlapping_indices",
+                            $"Indices {string.Join(", ", overlap)} already claimed by an earlier item for block '{slot.Shape.Name}'"));
+                        skipped++;
+                        continue;
+                    }
+                    // Claim the item's indices for future overlap detection.
+                    foreach (int i in slot.Shape.Indices) claimed.Add(i);
+                    survivors.Add(slot);
+                }
+
+                // ==== Phase 3: Grouping and resolution (per-group fixed snapshot) ====
+                // Preserve in-group order from survivors.
+                var groupOrder = new List<string>();
+                var groupItems = new Dictionary<string, List<TransformSlot>>(StringComparer.Ordinal);
+                foreach (var slot in survivors)
+                {
+                    if (!groupItems.ContainsKey(slot.Shape.Name))
+                    {
+                        groupOrder.Add(slot.Shape.Name);
+                        groupItems[slot.Shape.Name] = new List<TransformSlot>();
+                    }
+                    groupItems[slot.Shape.Name].Add(slot);
+                }
+
+                var resolvedGroups = new List<(InstanceDefinition idef, RhinoObject[] snapshot, List<TransformSlot> items)>();
+                foreach (var name in groupOrder)
+                {
+                    var idef = doc.InstanceDefinitions.Find(name);
+                    if (idef == null)
+                    {
+                        foreach (var slot in groupItems[name])
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "block_not_found",
+                                $"Block definition '{name}' not found"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    // Fixed snapshot read once per group.
+                    var existingObjects = idef.GetObjects();
+                    var resolvedItems = new List<TransformSlot>();
+                    foreach (var slot in groupItems[name])
+                    {
+                        if (!TryValidateItemIndicesAgainstSnapshot(existingObjects, slot.Shape.Indices, out int _, out string? resMsg))
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "index_out_of_range",
+                                resMsg));
+                            skipped++;
+                            continue;
+                        }
+                        resolvedItems.Add(slot);
+                    }
+
+                    if (resolvedItems.Count > 0)
+                        resolvedGroups.Add((idef, existingObjects, resolvedItems));
+                }
+
+                // ==== Phase 4: Per-group rebuild (try-then-commit per item) ====
+                foreach (var (idef, snapshot, items) in resolvedGroups)
+                {
+                    // Attribute preservation invariant (inherited from PR #21): allAttributes
+                    // is untouched across ALL slots; allGeometry starts as snapshot clones and is
+                    // overwritten only at indices of successfully-transformed items.
+                    var allGeometry = new List<GeometryBase>(snapshot.Length);
+                    var allAttributes = new List<ObjectAttributes>(snapshot.Length);
+                    for (int i = 0; i < snapshot.Length; i++)
+                    {
+                        allGeometry.Add(snapshot[i].Geometry.Duplicate());
+                        allAttributes.Add(snapshot[i].Attributes.Duplicate());
+                    }
+
+                    // Track which items committed so we can mark group_modify_failed correctly.
+                    var committedItems = new List<TransformSlot>();
+
+                    foreach (var slot in items)
+                    {
+                        // Try-then-commit: transform a duplicated copy at each target index. If any
+                        // index's geom.Transform returns false, discard the proposals and skip the
+                        // whole item (item_transform_failed). Siblings in the same group continue.
+                        var proposed = new Dictionary<int, GeometryBase>();
+                        var failed = new List<int>();
+                        foreach (int idx in slot.Shape.Indices)
+                        {
+                            var candidate = snapshot[idx].Geometry.Duplicate();
+                            if (!candidate.Transform(slot.Shape.Xform))
+                            {
+                                failed.Add(idx);
+                            }
+                            else
+                            {
+                                proposed[idx] = candidate;
+                            }
+                        }
+
+                        if (failed.Count > 0)
+                        {
+                            var failedAsc = failed.OrderBy(i => i).ToArray();
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "item_transform_failed",
+                                $"geom.Transform returned false for index(es) {string.Join(", ", failedAsc)}"));
+                            skipped++;
+                            continue;
+                        }
+
+                        // All proposals succeeded; commit into the group's image.
+                        foreach (var kvp in proposed)
+                            allGeometry[kvp.Key] = kvp.Value;
+                        committedItems.Add(slot);
+                    }
+
+                    if (committedItems.Count == 0)
+                        continue;
+
+                    bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                    if (!modified)
+                    {
+                        foreach (var slot in committedItems)
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "group_modify_failed",
+                                $"Failed to modify block '{idef.Name}'"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    routed += committedItems.Count;
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = total,
+                    ["errors"] = errors,
+                };
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch transform block object failed: {ex.Message}" };
+            }
+        }
+
+        // ---- Batch-local helpers for TransformBlockObjectBatch ----
+
+        private sealed class TransformSlot
+        {
+            public int RequestIndex;
+            public JsonElement? RawName;       // raw JsonElement for verbatim name echo
+            public TransformItemShape Shape;
+        }
+
+        private static string TransformShapeErrorCode(TransformItemShapeError err) => err switch
+        {
+            TransformItemShapeError.InvalidName => "invalid_name",
+            TransformItemShapeError.InvalidIndices => "invalid_indices",
+            TransformItemShapeError.InvalidTransform => "invalid_transform",
+            TransformItemShapeError.InvalidTransformType => "invalid_transform_type",
+            TransformItemShapeError.InvalidMove => "invalid_move",
+            TransformItemShapeError.InvalidRotate => "invalid_rotate",
+            TransformItemShapeError.InvalidScale => "invalid_scale",
+            TransformItemShapeError.InvalidScale3d => "invalid_scale3d",
+            _ => "exception",
+        };
+
+        private static Dictionary<string, object?> BuildBatchTransformError(
+            JsonElement? rawName,
+            int[]? indicesAsc,
+            string errorCode,
+            string? message)
+        {
+            var entry = new Dictionary<string, object?>();
+            // rawName echoes verbatim including non-string / null / missing ("" sentinel).
+            // STJ serializes boxed JsonElement in an object? value by emitting its raw JSON.
+            entry["name"] = rawName.HasValue ? (object)rawName.Value : (object)"";
+            if (indicesAsc != null)
+                entry["indices"] = indicesAsc;
+            entry["error"] = errorCode;
+            if (!string.IsNullOrEmpty(message))
+                entry["message"] = message;
+            return entry;
         }
 
         /// <summary>

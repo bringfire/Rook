@@ -230,6 +230,7 @@ class HttpExecutor:
             "block_replace_object_geometry": ("/block/replace-object-geometry", "POST"),
             "block_replace_object_geometry_batch": ("/block/replace-object-geometry-batch", "POST"),
             "block_transform_object": ("/block/transform-object", "POST"),
+            "block_transform_object_batch": ("/block/transform-object-batch", "POST"),
             "block_instances": ("/block/instances", "GET"),
             "block_replace_instance": ("/block/replace-instance", "POST"),
             "block_reset_scale": ("/block/reset-scale", "POST"),
