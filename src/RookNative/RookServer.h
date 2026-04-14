@@ -90,7 +90,12 @@ private:
     void HandleGrasshopperCanvasZoom(const httplib::Request& req, httplib::Response& res);
     void HandleGrasshopperCanvasImage(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockSetLayers(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockSetLayersBatch(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockSetMaterials(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockSetMaterialsBatch(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res);
     void HandleBlockSetInstancePropertiesRoute(const httplib::Request& req, httplib::Response& res);
     void HandleBlockSetInstanceVisibilityRoute(const httplib::Request& req, httplib::Response& res);
     void HandleBlockTransformInstanceRoute(const httplib::Request& req, httplib::Response& res);

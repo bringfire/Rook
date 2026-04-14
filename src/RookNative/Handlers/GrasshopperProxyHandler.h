@@ -65,10 +65,15 @@ void HandleGrasshopperCanvasZoom(const httplib::Request& req, httplib::Response&
 void HandleGrasshopperCanvasImage(const httplib::Request& req, httplib::Response& res);
 void HandleGrasshopperBakeOutput(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetLayers(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockSetLayersBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetMaterials(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockSetMaterialsBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetObjectColors(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetObjectNames(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res);
 

@@ -17,7 +17,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 7;
+        private const uint BridgeAbiVersion = 9;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -83,7 +83,12 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback GumballCutCallback = HandleGumballCut;
         private static readonly NativeGhBridgeCallback GumballSettingsCallback = HandleGumballSettings;
         private static readonly NativeGhBridgeCallback BlockSetLayersCallback = HandleBlockSetLayers;
+        private static readonly NativeGhBridgeCallback BlockSetLayersBatchCallback = HandleBlockSetLayersBatch;
         private static readonly NativeGhBridgeCallback BlockSetMaterialsCallback = HandleBlockSetMaterials;
+        private static readonly NativeGhBridgeCallback BlockSetMaterialsBatchCallback = HandleBlockSetMaterialsBatch;
+        private static readonly NativeGhBridgeCallback BlockSetObjectColorsBatchCallback = HandleBlockSetObjectColorsBatch;
+        private static readonly NativeGhBridgeCallback BlockSetObjectUserStringsBatchCallback = HandleBlockSetObjectUserStringsBatch;
+        private static readonly NativeGhBridgeCallback BlockSetObjectNamesBatchCallback = HandleBlockSetObjectNamesBatch;
         private static readonly NativeGhBridgeCallback BlockSetInstancePropertiesCallback = HandleBlockSetInstanceProperties;
         private static readonly NativeGhBridgeCallback BlockSetInstanceVisibilityCallback = HandleBlockSetInstanceVisibility;
         private static readonly NativeGhBridgeCallback BlockTransformInstanceCallback = HandleBlockTransformInstance;
@@ -192,6 +197,13 @@ namespace Rook.InternalBridge
             public IntPtr GameExportPrepare;
             public IntPtr GhScriptParams;
             public IntPtr GhBakeOutput;
+            // ABI v8: batch block operations
+            public IntPtr BlockSetLayersBatch;
+            // ABI v9: more batch block operations
+            public IntPtr BlockSetMaterialsBatch;
+            public IntPtr BlockSetObjectColorsBatch;
+            public IntPtr BlockSetObjectUserStringsBatch;
+            public IntPtr BlockSetObjectNamesBatch;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -280,6 +292,11 @@ namespace Rook.InternalBridge
                     GameExportPrepare = Marshal.GetFunctionPointerForDelegate(GameExportPrepareCallback),
                     GhScriptParams = Marshal.GetFunctionPointerForDelegate(ScriptParamsCallback),
                     GhBakeOutput = Marshal.GetFunctionPointerForDelegate(BakeOutputCallback),
+                    BlockSetLayersBatch = Marshal.GetFunctionPointerForDelegate(BlockSetLayersBatchCallback),
+                    BlockSetMaterialsBatch = Marshal.GetFunctionPointerForDelegate(BlockSetMaterialsBatchCallback),
+                    BlockSetObjectColorsBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectColorsBatchCallback),
+                    BlockSetObjectUserStringsBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectUserStringsBatchCallback),
+                    BlockSetObjectNamesBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectNamesBatchCallback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -1229,6 +1246,96 @@ namespace Rook.InternalBridge
                 responseJsonLength,
                 httpStatusCode,
                 requestJson => Blocks.SetBlockObjectLayers(requestJson));
+        }
+
+        private static int HandleBlockSetLayersBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.SetBlockObjectLayersBatch(requestJson));
+        }
+
+        private static int HandleBlockSetMaterialsBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.SetBlockObjectMaterialsBatch(requestJson));
+        }
+
+        private static int HandleBlockSetObjectColorsBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.SetBlockObjectColorsBatch(requestJson));
+        }
+
+        private static int HandleBlockSetObjectUserStringsBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.SetBlockObjectUserStringsBatch(requestJson));
+        }
+
+        private static int HandleBlockSetObjectNamesBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.SetBlockObjectNamesBatch(requestJson));
         }
 
         private static int HandleBlockSetMaterials(
