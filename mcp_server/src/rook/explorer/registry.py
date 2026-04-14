@@ -137,6 +137,7 @@ class ToolRegistry:
         "rhino_split_brep": CATEGORY_MODIFICATION,
         "rhino_trim_brep": CATEGORY_MODIFICATION,
         "rhino_split_face": CATEGORY_MODIFICATION,
+        "rhino_split_disjoint_breps": CATEGORY_MODIFICATION,
         "rhino_curvature_curve": CATEGORY_MODIFICATION,
         "rhino_curvature_surface": CATEGORY_MODIFICATION,
         "rhino_draft_angle": CATEGORY_MODIFICATION,
