@@ -78,6 +78,7 @@ void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httpl
 void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockTransformObjectBatch(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

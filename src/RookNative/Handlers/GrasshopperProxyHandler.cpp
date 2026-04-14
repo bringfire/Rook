@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 11;
+constexpr uint32_t kGhBridgeAbiVersion = 12;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -168,6 +168,8 @@ struct GhBridgeRegistration
     GhBridgeCallbackFn block_transform_instance_batch = nullptr;
     // ABI v11: batch replace-object-geometry
     GhBridgeCallbackFn block_replace_object_geometry_batch = nullptr;
+    // ABI v12: batch transform-object
+    GhBridgeCallbackFn block_transform_object_batch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -1417,6 +1419,12 @@ void HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, h
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/replace-object-geometry-batch", registration.block_replace_object_geometry_batch, true);
+}
+
+void HandleManagedBlockTransformObjectBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/transform-object-batch", registration.block_transform_object_batch, true);
 }
 
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res)
