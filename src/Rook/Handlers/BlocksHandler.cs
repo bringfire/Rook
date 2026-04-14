@@ -4477,6 +4477,161 @@ namespace Rook.Handlers
             };
         }
 
+        // ---- Replace-object-geometry shared helpers (used by single-target and batch) ----
+
+        private enum ReplaceItemShapeError
+        {
+            None,
+            InvalidName,
+            InvalidIndex,
+            InvalidSourceId,
+            InvalidDeleteFlag,
+        }
+
+        private enum ReplaceItemResolutionError
+        {
+            None,
+            SourceNotFound,
+            SourceHasNoGeometry,
+            IndexOutOfRange,
+        }
+
+        private readonly struct ReplaceItemShape
+        {
+            public readonly string Name;
+            public readonly int Index;
+            public readonly Guid SourceGuid;
+            public readonly string SourceIdRaw;    // raw user-supplied sourceId for echo/error preservation
+            public readonly bool DeleteOriginal;
+
+            public ReplaceItemShape(string name, int index, Guid sourceGuid, string sourceIdRaw, bool deleteOriginal)
+            {
+                Name = name;
+                Index = index;
+                SourceGuid = sourceGuid;
+                SourceIdRaw = sourceIdRaw;
+                DeleteOriginal = deleteOriginal;
+            }
+        }
+
+        private readonly struct ReplaceItemResolution
+        {
+            public readonly RhinoObject SourceObject;
+            public readonly int TargetIndex;
+
+            public ReplaceItemResolution(RhinoObject sourceObject, int targetIndex)
+            {
+                SourceObject = sourceObject;
+                TargetIndex = targetIndex;
+            }
+        }
+
+        // Shape validation for one replace-object-geometry item.
+        // strictDeleteFlag=false matches single-target behavior: any non-boolean deleteOriginal silently defaults to true.
+        // strictDeleteFlag=true is the batch semantic: non-boolean deleteOriginal is InvalidDeleteFlag.
+        private static ReplaceItemShapeError TryParseReplaceItemShape(
+            JsonElement itemEl,
+            bool strictDeleteFlag,
+            out ReplaceItemShape shape,
+            out string? errorMessage)
+        {
+            shape = default;
+            errorMessage = null;
+
+            if (itemEl.ValueKind != JsonValueKind.Object)
+            {
+                errorMessage = "Item must be a JSON object";
+                return ReplaceItemShapeError.InvalidName;
+            }
+
+            string? blockName = null;
+            if (itemEl.TryGetProperty("name", out var nameEl))
+            {
+                if (nameEl.ValueKind == JsonValueKind.String)
+                {
+                    blockName = nameEl.GetString();
+                }
+            }
+            if (string.IsNullOrEmpty(blockName))
+            {
+                errorMessage = "Block name required";
+                return ReplaceItemShapeError.InvalidName;
+            }
+
+            if (!itemEl.TryGetProperty("index", out var indexEl) || indexEl.ValueKind != JsonValueKind.Number || !indexEl.TryGetInt32(out int targetIndex))
+            {
+                errorMessage = "Object index required (integer)";
+                return ReplaceItemShapeError.InvalidIndex;
+            }
+
+            string? sourceIdStr = null;
+            if (itemEl.TryGetProperty("sourceId", out var sourceIdEl) && sourceIdEl.ValueKind == JsonValueKind.String)
+            {
+                sourceIdStr = sourceIdEl.GetString();
+            }
+            if (string.IsNullOrEmpty(sourceIdStr) || !Guid.TryParse(sourceIdStr, out Guid sourceGuid))
+            {
+                errorMessage = "Valid sourceId (GUID) required";
+                return ReplaceItemShapeError.InvalidSourceId;
+            }
+
+            bool deleteOriginal = true;
+            if (itemEl.TryGetProperty("deleteOriginal", out var delEl))
+            {
+                if (delEl.ValueKind == JsonValueKind.True)
+                {
+                    deleteOriginal = true;
+                }
+                else if (delEl.ValueKind == JsonValueKind.False)
+                {
+                    deleteOriginal = false;
+                }
+                else if (strictDeleteFlag)
+                {
+                    errorMessage = "deleteOriginal must be a boolean";
+                    return ReplaceItemShapeError.InvalidDeleteFlag;
+                }
+                // else: loose mode preserves single-target behavior (treat non-boolean as default true)
+            }
+
+            shape = new ReplaceItemShape(blockName!, targetIndex, sourceGuid, sourceIdStr!, deleteOriginal);
+            return ReplaceItemShapeError.None;
+        }
+
+        // Resolution against a FIXED idef snapshot. The caller supplies existingObjects read once at group entry;
+        // this helper never re-reads idef.GetObjects() to preserve the design's fixed-snapshot invariant.
+        private static ReplaceItemResolutionError TryResolveReplaceItem(
+            RhinoDoc doc,
+            RhinoObject[] existingObjects,
+            ReplaceItemShape shape,
+            out ReplaceItemResolution resolution,
+            out string? errorMessage)
+        {
+            resolution = default;
+            errorMessage = null;
+
+            if (shape.Index < 0 || shape.Index >= existingObjects.Length)
+            {
+                errorMessage = $"Object index {shape.Index} out of range (block has {existingObjects.Length} objects)";
+                return ReplaceItemResolutionError.IndexOutOfRange;
+            }
+
+            var sourceObj = doc.Objects.FindId(shape.SourceGuid);
+            if (sourceObj == null)
+            {
+                errorMessage = $"Source object '{shape.SourceIdRaw}' not found in document";
+                return ReplaceItemResolutionError.SourceNotFound;
+            }
+            if (sourceObj.Geometry == null)
+            {
+                errorMessage = $"Source object '{shape.SourceIdRaw}' has no geometry";
+                return ReplaceItemResolutionError.SourceHasNoGeometry;
+            }
+
+            resolution = new ReplaceItemResolution(sourceObj, shape.Index);
+            return ReplaceItemResolutionError.None;
+        }
+
         /// <summary>
         /// POST /block/replace-object-geometry - Replace the geometry of a single object within
         /// a block definition by index. The replacement comes from a document-resident object.
@@ -4498,47 +4653,34 @@ namespace Rook.Handlers
                 }
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
-                var blockName = request.GetProperty("name").GetString();
-                if (string.IsNullOrEmpty(blockName))
+
+                // Loose mode preserves existing behavior: non-boolean deleteOriginal silently defaults to true.
+                var shapeErr = TryParseReplaceItemShape(request, strictDeleteFlag: false, out var shape, out var shapeMsg);
+                if (shapeErr != ReplaceItemShapeError.None)
                 {
-                    return new ApiResponse { Success = false, Data = "Block name required" };
+                    return new ApiResponse { Success = false, Data = shapeMsg ?? "Invalid request" };
                 }
 
-                if (!request.TryGetProperty("index", out var indexEl) || indexEl.ValueKind != JsonValueKind.Number)
-                {
-                    return new ApiResponse { Success = false, Data = "Object index required (integer)" };
-                }
-                int targetIndex = indexEl.GetInt32();
-
-                var sourceIdStr = request.GetProperty("sourceId").GetString();
-                if (string.IsNullOrEmpty(sourceIdStr) || !Guid.TryParse(sourceIdStr, out Guid sourceGuid))
-                {
-                    return new ApiResponse { Success = false, Data = "Valid sourceId (GUID) required" };
-                }
-
-                bool deleteOriginal = true;
-                if (request.TryGetProperty("deleteOriginal", out var delEl) && delEl.ValueKind == JsonValueKind.False)
-                {
-                    deleteOriginal = false;
-                }
-
-                var idef = doc.InstanceDefinitions.Find(blockName);
+                var idef = doc.InstanceDefinitions.Find(shape.Name);
                 if (idef == null)
                 {
-                    return new ApiResponse { Success = false, Data = $"Block definition '{blockName}' not found" };
+                    return new ApiResponse { Success = false, Data = $"Block definition '{shape.Name}' not found" };
                 }
 
                 var existingObjects = idef.GetObjects();
-                if (targetIndex < 0 || targetIndex >= existingObjects.Length)
+                var resErr = TryResolveReplaceItem(doc, existingObjects, shape, out var resolution, out var resMsg);
+                if (resErr != ReplaceItemResolutionError.None)
                 {
-                    return new ApiResponse { Success = false, Data = $"Object index {targetIndex} out of range (block has {existingObjects.Length} objects)" };
+                    // Preserve legacy single-target wire message: SourceHasNoGeometry uses the same "not found in document" text
+                    // that previous builds emitted (the old inline check conflated null-object with null-geometry).
+                    string legacyMsg = resErr == ReplaceItemResolutionError.SourceHasNoGeometry
+                        ? $"Source object '{shape.SourceIdRaw}' not found in document"
+                        : resMsg ?? "Invalid request";
+                    return new ApiResponse { Success = false, Data = legacyMsg };
                 }
 
-                var sourceObj = doc.Objects.FindId(sourceGuid);
-                if (sourceObj == null || sourceObj.Geometry == null)
-                {
-                    return new ApiResponse { Success = false, Data = $"Source object '{sourceIdStr}' not found in document" };
-                }
+                var sourceObj = resolution.SourceObject;
+                int targetIndex = resolution.TargetIndex;
 
                 var allGeometry = new List<GeometryBase>();
                 var allAttributes = new List<ObjectAttributes>();
@@ -4562,11 +4704,11 @@ namespace Rook.Handlers
 
                 if (!modified)
                 {
-                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{blockName}'" };
+                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{shape.Name}'" };
                 }
 
                 bool sourceDeleted = false;
-                if (deleteOriginal)
+                if (shape.DeleteOriginal)
                 {
                     sourceDeleted = doc.Objects.Delete(sourceObj, true);
                 }
@@ -4578,7 +4720,7 @@ namespace Rook.Handlers
                     Success = true,
                     Data = new Dictionary<string, object>
                     {
-                        ["blockName"] = blockName,
+                        ["blockName"] = shape.Name,
                         ["objectCount"] = existingObjects.Length,
                         ["replacedIndex"] = targetIndex,
                         ["newGeometryType"] = sourceObj.Geometry.ObjectType.ToString(),
@@ -4590,6 +4732,285 @@ namespace Rook.Handlers
             {
                 return new ApiResponse { Success = false, Data = $"Replace object geometry failed: {ex.Message}" };
             }
+        }
+
+        /// <summary>
+        /// POST /block/replace-object-geometry-batch - Batch variant. Replace geometry of objects
+        /// across one or more block definitions in one call, coalescing same-block items into a
+        /// single ModifyGeometry call per definition. Best-effort per-item semantics under one UndoScope.
+        /// Body: { "items": [{ "name": "BlockA", "index": 0, "sourceId": "guid", "deleteOriginal": true }], "redraw": false }
+        /// </summary>
+        public ApiResponse ReplaceObjectGeometryBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Top-level envelope must be an object. JsonElement.TryGetProperty throws InvalidOperationException
+                // on non-object kinds (array / string / number / bool / null), which would otherwise fall into the
+                // generic exception wrapper instead of the intended contract-error response.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                {
+                    if (redrawEl.ValueKind != JsonValueKind.True && redrawEl.ValueKind != JsonValueKind.False)
+                        return new ApiResponse { Success = false, Data = "'redraw' must be a boolean" };
+                    redraw = redrawEl.GetBoolean();
+                }
+
+                int total = itemsEl.GetArrayLength();
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object?>>();
+
+                // Per-item state carried through the pipeline after shape passes
+                var slots = new List<Slot>();
+
+                using var undo = new UndoScope(doc, "Batch Replace Block Object Geometry");
+
+                // ==== Phase 1: Shape validation (per item, independent) ====
+                int requestIdx = -1;
+                foreach (var itemEl in itemsEl.EnumerateArray())
+                {
+                    requestIdx++;
+
+                    // Capture raw name element for verbatim echo on shape errors (non-string / null / missing).
+                    JsonElement? rawName = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object && itemEl.TryGetProperty("name", out var nEl))
+                        rawName = nEl.Clone();
+
+                    // Pre-parse the index so it can be echoed on non-invalid_index shape errors
+                    // (design rule: errors[].index echoes when the shape allowed it to parse; omitted on invalid_index).
+                    int? parseableIndex = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object
+                        && itemEl.TryGetProperty("index", out var rawIdxEl)
+                        && rawIdxEl.ValueKind == JsonValueKind.Number
+                        && rawIdxEl.TryGetInt32(out int parsedIdx))
+                    {
+                        parseableIndex = parsedIdx;
+                    }
+
+                    var shapeErr = TryParseReplaceItemShape(itemEl, strictDeleteFlag: true, out var shape, out var shapeMsg);
+                    if (shapeErr != ReplaceItemShapeError.None)
+                    {
+                        // Omit index for invalid_index (the offending field itself); echo it on other shape errors
+                        // (invalid_name, invalid_source_id, invalid_delete_flag) when the raw value was parseable.
+                        int? echoIndex = (shapeErr == ReplaceItemShapeError.InvalidIndex) ? null : parseableIndex;
+                        errors.Add(BuildBatchError(rawName, echoIndex, ShapeErrorCode(shapeErr), shapeMsg));
+                        skipped++;
+                        continue;
+                    }
+
+                    slots.Add(new Slot { RequestIndex = requestIdx, RawName = rawName, Shape = shape });
+                }
+
+                // ==== Phase 2: Relational validation (first-occurrence-wins, duplicate_target before conflicting_delete_flag) ====
+                var seenTargets = new HashSet<(string, int)>();
+                var sourcePolicies = new Dictionary<Guid, bool>();
+                var survivors = new List<Slot>();
+                foreach (var slot in slots)
+                {
+                    var targetKey = (slot.Shape.Name, slot.Shape.Index);
+                    if (!seenTargets.Add(targetKey))
+                    {
+                        errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "duplicate_target",
+                            $"Block '{slot.Shape.Name}' index {slot.Shape.Index} already targeted by an earlier item"));
+                        skipped++;
+                        continue;
+                    }
+                    if (sourcePolicies.TryGetValue(slot.Shape.SourceGuid, out bool existingPolicy))
+                    {
+                        if (existingPolicy != slot.Shape.DeleteOriginal)
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "conflicting_delete_flag",
+                                $"sourceId '{slot.Shape.SourceIdRaw}' referenced with conflicting deleteOriginal values"));
+                            skipped++;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        sourcePolicies[slot.Shape.SourceGuid] = slot.Shape.DeleteOriginal;
+                    }
+                    survivors.Add(slot);
+                }
+
+                // ==== Phase 3: Group + resolution against fixed per-group snapshot ====
+                // Preserve in-group order from survivors by iterating in order and appending to groups.
+                var groupOrder = new List<string>();
+                var groupItems = new Dictionary<string, List<Slot>>();
+                foreach (var slot in survivors)
+                {
+                    if (!groupItems.ContainsKey(slot.Shape.Name))
+                    {
+                        groupOrder.Add(slot.Shape.Name);
+                        groupItems[slot.Shape.Name] = new List<Slot>();
+                    }
+                    groupItems[slot.Shape.Name].Add(slot);
+                }
+
+                var resolvedGroups = new List<(InstanceDefinition idef, RhinoObject[] snapshot, List<(Slot slot, ReplaceItemResolution res)> resolved)>();
+                foreach (var name in groupOrder)
+                {
+                    var idef = doc.InstanceDefinitions.Find(name);
+                    if (idef == null)
+                    {
+                        foreach (var slot in groupItems[name])
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "block_not_found",
+                                $"Block definition '{name}' not found"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    // Fixed snapshot for the whole group — read once, never re-read mid-group.
+                    var existingObjects = idef.GetObjects();
+                    var resolvedList = new List<(Slot slot, ReplaceItemResolution res)>();
+                    foreach (var slot in groupItems[name])
+                    {
+                        var resErr = TryResolveReplaceItem(doc, existingObjects, slot.Shape, out var resolution, out var resMsg);
+                        if (resErr != ReplaceItemResolutionError.None)
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, ResolutionErrorCode(resErr), resMsg));
+                            skipped++;
+                            continue;
+                        }
+                        resolvedList.Add((slot, resolution));
+                    }
+
+                    if (resolvedList.Count > 0)
+                        resolvedGroups.Add((idef, existingObjects, resolvedList));
+                }
+
+                // ==== Phase 4: Per-group rebuild + queue deletions ====
+                var deletionOrder = new List<Guid>();
+                var deletionSet = new HashSet<Guid>();
+
+                foreach (var (idef, snapshot, resolvedList) in resolvedGroups)
+                {
+                    // Build allGeometry / allAttributes from the fixed snapshot.
+                    var allGeometry = new List<GeometryBase>(snapshot.Length);
+                    var allAttributes = new List<ObjectAttributes>(snapshot.Length);
+
+                    // Map target index → replacement source for this group.
+                    var replacementByIndex = new Dictionary<int, RhinoObject>();
+                    foreach (var (_, res) in resolvedList)
+                        replacementByIndex[res.TargetIndex] = res.SourceObject;
+
+                    for (int i = 0; i < snapshot.Length; i++)
+                    {
+                        // Attributes preserved unchanged across all slots — the key parity invariant.
+                        allAttributes.Add(snapshot[i].Attributes.Duplicate());
+
+                        if (replacementByIndex.TryGetValue(i, out var sourceObj))
+                            allGeometry.Add(sourceObj.Geometry.Duplicate());
+                        else
+                            allGeometry.Add(snapshot[i].Geometry.Duplicate());
+                    }
+
+                    bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                    if (!modified)
+                    {
+                        foreach (var (slot, _) in resolvedList)
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "group_modify_failed",
+                                $"Failed to modify block '{idef.Name}'"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    // Group succeeded — cement routed status and queue deletions for effective-true sources.
+                    foreach (var (slot, _) in resolvedList)
+                    {
+                        routed++;
+                        if (slot.Shape.DeleteOriginal && deletionSet.Add(slot.Shape.SourceGuid))
+                            deletionOrder.Add(slot.Shape.SourceGuid);
+                    }
+                }
+
+                // ==== Deferred deletions ====
+                // Failed Delete calls are silent — routed already cemented; deletedSources is the authoritative audit.
+                var deletedSources = new List<string>();
+                foreach (var guid in deletionOrder)
+                {
+                    var sourceObj = doc.Objects.FindId(guid);
+                    if (sourceObj != null && doc.Objects.Delete(sourceObj, true))
+                        deletedSources.Add(guid.ToString());
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = total,
+                    ["deletedSources"] = deletedSources,
+                    ["errors"] = errors,
+                };
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch replace object geometry failed: {ex.Message}" };
+            }
+        }
+
+        // ---- Batch-local helpers for error construction and slot state ----
+
+        private sealed class Slot
+        {
+            public int RequestIndex;
+            public JsonElement? RawName;  // raw JsonElement for verbatim name echo in error rows
+            public ReplaceItemShape Shape;
+        }
+
+        private static string ShapeErrorCode(ReplaceItemShapeError err) => err switch
+        {
+            ReplaceItemShapeError.InvalidName => "invalid_name",
+            ReplaceItemShapeError.InvalidIndex => "invalid_index",
+            ReplaceItemShapeError.InvalidSourceId => "invalid_source_id",
+            ReplaceItemShapeError.InvalidDeleteFlag => "invalid_delete_flag",
+            _ => "exception",
+        };
+
+        private static string ResolutionErrorCode(ReplaceItemResolutionError err) => err switch
+        {
+            ReplaceItemResolutionError.SourceNotFound => "source_not_found",
+            ReplaceItemResolutionError.SourceHasNoGeometry => "source_has_no_geometry",
+            ReplaceItemResolutionError.IndexOutOfRange => "index_out_of_range",
+            _ => "exception",
+        };
+
+        private static Dictionary<string, object?> BuildBatchError(
+            JsonElement? rawName,
+            int? index,
+            string errorCode,
+            string? message)
+        {
+            var entry = new Dictionary<string, object?>();
+            // rawName echoes verbatim including non-string / null / missing ("" sentinel).
+            // STJ serializes boxed JsonElement in an object? value by emitting its raw JSON.
+            entry["name"] = rawName.HasValue ? (object)rawName.Value : (object)"";
+            if (index.HasValue)
+                entry["index"] = index.Value;
+            entry["error"] = errorCode;
+            if (!string.IsNullOrEmpty(message))
+                entry["message"] = message;
+            return entry;
         }
 
         /// <summary>

@@ -1958,6 +1958,42 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_block_replace_object_geometry_batch",
+            description=(
+                "Batch replace-object-geometry across one or more block definitions in one call. "
+                "Items targeting the same block are coalesced into a single ModifyGeometry call per definition. "
+                "Best-effort per-item semantics under one UndoScope. "
+                "Cross-item rules (first-occurrence-wins): same (name, index) pair -> later items skipped with duplicate_target; "
+                "same sourceId referenced with different effective deleteOriginal values -> later conflicting items skipped with conflicting_delete_flag "
+                "(omitted deleteOriginal is treated as true for policy purposes). "
+                "Group rebuild failure marks every surviving item in that group as group_modify_failed (no per-item retries). "
+                "Response: {routed, skipped, total, deletedSources, errors[]}. "
+                "deletedSources is the authoritative audit of GUIDs actually removed from the document; routed is cemented at rebuild success and is not changed by deletion outcomes. "
+                "Attribute preservation invariant: only geometry is replaced at target indices; object attributes on all slots are retained unchanged."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Block definition name"},
+                                "index": {"type": "integer", "description": "0-based index of the object to replace"},
+                                "sourceId": {"type": "string", "description": "GUID of document object to use as replacement geometry"},
+                                "deleteOriginal": {"type": "boolean", "description": "Delete source object after replacement (default true)"}
+                            },
+                            "required": ["name", "index", "sourceId"]
+                        },
+                        "description": "Array of replace-object-geometry items. Empty array is a valid no-op."
+                    },
+                    "redraw": {"type": "boolean", "description": "Redraw viewports after batch (default true)"}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
             name="rhino_block_transform_object",
             description="Transform (move/rotate/scale) objects within a block definition by index. Coordinates are in definition-local space (relative to the block's insertion point origin). All instances of the block update automatically. Use rhino_block_objects_detailed to find indices first.",
             inputSchema={
@@ -8861,6 +8897,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_block_replace_object_geometry":
             result = await call_rhino("/block/replace-object-geometry", "POST", arguments)
+
+        case "rhino_block_replace_object_geometry_batch":
+            result = await call_rhino("/block/replace-object-geometry-batch", "POST", arguments)
 
         case "rhino_block_transform_object":
             result = await call_rhino("/block/transform-object", "POST", arguments)

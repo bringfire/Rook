@@ -105,6 +105,7 @@ private:
     void HandleManagedBlockSetObjectNames(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res);
     void HandleBlockFindInstancesRoute(const httplib::Request& req, httplib::Response& res);
     void HandleBlockUserStringsRoute(const httplib::Request& req, httplib::Response& res);
