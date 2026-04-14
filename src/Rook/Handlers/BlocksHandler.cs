@@ -5441,13 +5441,39 @@ namespace Rook.Handlers
                     if (itemEl.ValueKind == JsonValueKind.Object && itemEl.TryGetProperty("name", out var nEl))
                         rawName = nEl.Clone();
 
+                    // Pre-parse indices for error echo independently of the full-shape helper
+                    // (PR #21 pre-parse pattern). The design rule is: errors[].indices echoes
+                    // in ascending order whenever indices[] parsed successfully; omitted only
+                    // on invalid_indices. If the item has valid indices but a bad name or
+                    // transform, we still want the parseable set in diagnostics.
+                    int[]? parseableIndicesAsc = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object
+                        && itemEl.TryGetProperty("indices", out var rawIdxEl)
+                        && rawIdxEl.ValueKind == JsonValueKind.Array)
+                    {
+                        var echoSet = new HashSet<int>();
+                        bool allIntegers = true;
+                        foreach (var ix in rawIdxEl.EnumerateArray())
+                        {
+                            if (ix.ValueKind != JsonValueKind.Number || !ix.TryGetInt32(out int iv))
+                            {
+                                allIntegers = false;
+                                break;
+                            }
+                            echoSet.Add(iv);
+                        }
+                        if (allIntegers && echoSet.Count > 0)
+                            parseableIndicesAsc = echoSet.OrderBy(i => i).ToArray();
+                    }
+
                     var shapeErr = TryParseTransformItemShape(itemEl, out var shape, out var shapeMsg);
                     if (shapeErr != TransformItemShapeError.None)
                     {
-                        // errors[].indices is omitted on invalid_indices (per design). For other
-                        // shape errors we don't have a deduped-parsed set to echo here either,
-                        // so omit; batch users get the item's name and the error code/message.
-                        errors.Add(BuildBatchTransformError(rawName, indicesAsc: null, TransformShapeErrorCode(shapeErr), shapeMsg));
+                        // Omit indices on invalid_indices (the offending field itself); echo
+                        // the parseable set on other shape errors (invalid_name, invalid_transform,
+                        // invalid_transform_type, invalid_move/rotate/scale/scale3d).
+                        int[]? indicesToEcho = (shapeErr == TransformItemShapeError.InvalidIndices) ? null : parseableIndicesAsc;
+                        errors.Add(BuildBatchTransformError(rawName, indicesAsc: indicesToEcho, TransformShapeErrorCode(shapeErr), shapeMsg));
                         skipped++;
                         continue;
                     }
