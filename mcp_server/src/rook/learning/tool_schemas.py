@@ -876,6 +876,15 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
         ],
         needs_geometry=["brep", "curve"],
     ),
+    "rhino_split_disjoint_breps": ToolSchema(
+        name="rhino_split_disjoint_breps",
+        description="Separate disjoint Breps into individual connected components. Filter by ids array, layer name, or process all Breps.",
+        params=[
+            ParamSchema("ids", "array", "Optional: specific Brep GUIDs to check", items_type="string"),
+            ParamSchema("layer", "string", "Optional: only process Breps on this layer"),
+            ParamSchema("redraw", "boolean", "Redraw after split (default true)"),
+        ],
+    ),
 
     # =========================================================================
     # SubD Operations

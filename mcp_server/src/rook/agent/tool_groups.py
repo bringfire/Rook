@@ -115,7 +115,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_intersect_curves", "rhino_intersect_curve_brep",
         "rhino_intersect_curve_surface", "rhino_intersect_breps",
         "rhino_intersect_plane",
-        "rhino_split_brep", "rhino_split_face", "rhino_trim_brep",
+        "rhino_split_brep", "rhino_split_face", "rhino_split_disjoint_breps", "rhino_trim_brep",
         "rhino_offset_brep",
         "rhino_closest_point", "rhino_is_closed", "rhino_is_valid",
         "rhino_surface_normal", "rhino_draft_angle",

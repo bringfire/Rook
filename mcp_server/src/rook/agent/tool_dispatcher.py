@@ -176,7 +176,9 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_replace_object_geometry": ("/block/replace-object-geometry", "POST"),
     "rhino_block_transform_object": ("/block/transform-object", "POST"),
     "rhino_block_set_layers":   ("/block/set-layers", "POST"),
+    "rhino_block_set_layers_batch": ("/block/set-layers-batch", "POST"),
     "rhino_block_set_materials": ("/block/set-materials", "POST"),
+    "rhino_block_set_materials_batch": ("/block/set-materials-batch", "POST"),
     "rhino_block_replace_instance": ("/block/replace-instance", "POST"),
     "rhino_block_reset_scale":  ("/block/reset-scale", "POST"),
     "rhino_block_link":         ("/block/link", "POST"),
@@ -189,10 +191,14 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_set_instance_properties": ("/block/set-instance-properties", "POST"),
     "rhino_block_set_instance_visibility": ("/block/set-instance-visibility", "POST"),
     "rhino_block_transform_instance": ("/block/transform-instance", "POST"),
+    "rhino_block_transform_instance_batch": ("/block/transform-instance-batch", "POST"),
     "rhino_block_array_instances": ("/block/array-instances", "POST"),
     "rhino_block_set_object_colors": ("/block/set-object-colors", "POST"),
+    "rhino_block_set_object_colors_batch": ("/block/set-object-colors-batch", "POST"),
     "rhino_block_set_object_names": ("/block/set-object-names", "POST"),
+    "rhino_block_set_object_names_batch": ("/block/set-object-names-batch", "POST"),
     "rhino_block_set_object_user_strings": ("/block/set-object-user-strings", "POST"),
+    "rhino_block_set_object_user_strings_batch": ("/block/set-object-user-strings-batch", "POST"),
     "rhino_block_user_strings": ("/block/user-strings", "POST"),
     "rhino_block_find_instances": ("/block/find-instances", "POST"),
     "rhino_block_objects_detailed": ("/block/objects-detailed", "POST"),
@@ -210,6 +216,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # --- Brep (simple) ---
     "rhino_offset_brep":        ("/offset/brep", "POST"),
     "rhino_split_face":         ("/split/face", "POST"),
+    "rhino_split_disjoint_breps": ("/split/disjoint-breps", "POST"),
 
     # --- SubD ---
     "rhino_subd_box":           ("/subd/box", "POST"),
