@@ -3220,23 +3220,12 @@ namespace Rook.Handlers
                 // Scale (around instance pivot)
                 if (request.TryGetProperty("scale", out var scaleEl))
                 {
-                    if (scaleEl.ValueKind == JsonValueKind.Array)
+                    if (!TryParseScaleOp(scaleEl, pivot, out var scaleXform, out var scaleDesc, out var scaleErr))
                     {
-                        var factors = scaleEl.EnumerateArray().Select(e => e.GetDouble()).ToArray();
-                        if (factors.Length >= 3)
-                        {
-                            var plane = new Plane(pivot, Vector3d.XAxis, Vector3d.YAxis);
-                            var scaleXform = Transform.Scale(plane, factors[0], factors[1], factors[2]);
-                            combinedXform = scaleXform * combinedXform;
-                            appliedOps.Add($"scale [{factors[0]}, {factors[1]}, {factors[2]}]");
-                        }
+                        return new ApiResponse { Success = false, Data = $"scale: {scaleErr}" };
                     }
-                    else
-                    {
-                        double factor = scaleEl.GetDouble();
-                        combinedXform = Transform.Scale(pivot, factor) * combinedXform;
-                        appliedOps.Add($"scale {factor}");
-                    }
+                    combinedXform = scaleXform * combinedXform;
+                    appliedOps.Add(scaleDesc!);
                 }
 
                 // Rotate (around Z axis at instance pivot, degrees)
@@ -4554,6 +4543,68 @@ namespace Rook.Handlers
             {
                 return new ApiResponse { Success = false, Data = $"Transform block object failed: {ex.Message}" };
             }
+        }
+
+        /// <summary>
+        /// Parse a scale JsonElement into a Transform pivoted at <paramref name="pivot"/>.
+        /// Accepts a scalar or a 3-element numeric array. Zero scalar or any zero element
+        /// is rejected as "invalid_scale" — composing a zero-scale transform produces
+        /// degenerate geometry, and surfacing the error is more useful than silent damage.
+        /// No epsilon: zero means exact 0.
+        /// </summary>
+        private static bool TryParseScaleOp(
+            JsonElement scaleEl,
+            Point3d pivot,
+            out Transform scaleXform,
+            out string? description,
+            out string? errorCode)
+        {
+            scaleXform = Transform.Identity;
+            description = null;
+            errorCode = null;
+
+            if (scaleEl.ValueKind == JsonValueKind.Array)
+            {
+                var factors = new List<double>();
+                foreach (var e in scaleEl.EnumerateArray())
+                {
+                    if (e.ValueKind != JsonValueKind.Number)
+                    {
+                        errorCode = "invalid_scale";
+                        return false;
+                    }
+                    factors.Add(e.GetDouble());
+                }
+                if (factors.Count != 3)
+                {
+                    errorCode = "invalid_scale";
+                    return false;
+                }
+                if (factors[0] == 0.0 || factors[1] == 0.0 || factors[2] == 0.0)
+                {
+                    errorCode = "invalid_scale";
+                    return false;
+                }
+                var plane = new Plane(pivot, Vector3d.XAxis, Vector3d.YAxis);
+                scaleXform = Transform.Scale(plane, factors[0], factors[1], factors[2]);
+                description = $"scale [{factors[0]}, {factors[1]}, {factors[2]}]";
+                return true;
+            }
+            if (scaleEl.ValueKind == JsonValueKind.Number)
+            {
+                double factor = scaleEl.GetDouble();
+                if (factor == 0.0)
+                {
+                    errorCode = "invalid_scale";
+                    return false;
+                }
+                scaleXform = Transform.Scale(pivot, factor);
+                description = $"scale {factor}";
+                return true;
+            }
+
+            errorCode = "invalid_scale";
+            return false;
         }
     }
 }
