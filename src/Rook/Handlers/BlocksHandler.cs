@@ -4752,6 +4752,11 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Top-level envelope must be an object. JsonElement.TryGetProperty throws InvalidOperationException
+                // on non-object kinds (array / string / number / bool / null), which would otherwise fall into the
+                // generic exception wrapper instead of the intended contract-error response.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -4783,10 +4788,24 @@ namespace Rook.Handlers
                     if (itemEl.ValueKind == JsonValueKind.Object && itemEl.TryGetProperty("name", out var nEl))
                         rawName = nEl.Clone();
 
+                    // Pre-parse the index so it can be echoed on non-invalid_index shape errors
+                    // (design rule: errors[].index echoes when the shape allowed it to parse; omitted on invalid_index).
+                    int? parseableIndex = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object
+                        && itemEl.TryGetProperty("index", out var rawIdxEl)
+                        && rawIdxEl.ValueKind == JsonValueKind.Number
+                        && rawIdxEl.TryGetInt32(out int parsedIdx))
+                    {
+                        parseableIndex = parsedIdx;
+                    }
+
                     var shapeErr = TryParseReplaceItemShape(itemEl, strictDeleteFlag: true, out var shape, out var shapeMsg);
                     if (shapeErr != ReplaceItemShapeError.None)
                     {
-                        errors.Add(BuildBatchError(rawName, index: null, ShapeErrorCode(shapeErr), shapeMsg));
+                        // Omit index for invalid_index (the offending field itself); echo it on other shape errors
+                        // (invalid_name, invalid_source_id, invalid_delete_flag) when the raw value was parseable.
+                        int? echoIndex = (shapeErr == ReplaceItemShapeError.InvalidIndex) ? null : parseableIndex;
+                        errors.Add(BuildBatchError(rawName, echoIndex, ShapeErrorCode(shapeErr), shapeMsg));
                         skipped++;
                         continue;
                     }
