@@ -542,14 +542,32 @@ void HandleSplitDisjointBreps(const httplib::Request& req, httplib::Response& re
 {
     auto [docSn, body] = ParseBodyAndDocSn(req);
 
+    // Fail fast on malformed filter input. A wrong-type 'ids' or 'layer' key
+    // must never silently fall through to the unfiltered whole-document path.
+    if (body.contains("ids") && !body["ids"].is_array())
+    {
+        CRookServer::SendError(res, "'ids' must be an array of GUID strings");
+        return;
+    }
+    if (body.contains("layer") && !body["layer"].is_string())
+    {
+        CRookServer::SendError(res, "'layer' must be a layer-path string");
+        return;
+    }
+    if (body.contains("redraw") && !body["redraw"].is_boolean())
+    {
+        CRookServer::SendError(res, "'redraw' must be a boolean");
+        return;
+    }
+
     auto future = CMainThreadDispatcher::Instance().Dispatch(
         [docSn, body]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
 
-        // Determine filter mode
-        const bool hasIds = body.contains("ids") && body["ids"].is_array();
-        const bool hasLayer = body.contains("layer") && body["layer"].is_string();
+        // Determine filter mode (type-check already done above)
+        const bool hasIds = body.contains("ids");
+        const bool hasLayer = body.contains("layer");
         const bool redraw = !body.contains("redraw") || body["redraw"].get<bool>();
 
         int filterLayerIndex = -1;
@@ -686,7 +704,12 @@ void HandleSplitDisjointBreps(const httplib::Request& req, httplib::Response& re
             pDoc->Redraw();
 
         WriteResult wr;
-        wr.success = true;
+        // Rollback failures mean the document may be in a duplicated partial
+        // state (new components were added AND the original was not deleted,
+        // or the best-effort cleanup of added components itself failed). That
+        // is not a success for the caller — surface it as a hard failure so
+        // the tool response signals "investigate the document" instead of 200.
+        wr.success = (rollbackFailures == 0);
         wr.data["split"] = splitCount;
         wr.data["created"] = createdCount;
         wr.data["skipped"] = skippedCount;
@@ -696,7 +719,10 @@ void HandleSplitDisjointBreps(const httplib::Request& req, httplib::Response& re
         if (deleteFailures > 0)
             wr.data["deleteFailures"] = deleteFailures;
         if (rollbackFailures > 0)
+        {
             wr.data["rollbackFailures"] = rollbackFailures;
+            wr.data["error"] = "rollback_failed: document may contain duplicated geometry; inspect split/created/rollbackFailures counts";
+        }
         return wr;
     });
 
