@@ -39,6 +39,9 @@ namespace Handlers {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+// Forward declaration: definition at file scope below this namespace.
+static nlohmann::json SerializeLayerAtIndex(CRhinoDoc* pDoc, int layerIndex);
+
 namespace {
 
 // Find a non-deleted material by name (matches pattern used in MaterialsHandler/BlocksHandler).
@@ -54,6 +57,302 @@ int FindMaterialIndexSafe(CRhinoDoc* pDoc, const std::string& name)
             return i;
     }
     return -1;
+}
+
+// Validate that a JSON value is a 3-element [r,g,b] integer array with values 0-255.
+// Permissive about numeric clamping at parse time (ParseColor does its own coercion);
+// this check is strictly for pre-classification of shape errors in the batch path.
+bool IsValidRgbArray(const nlohmann::json& val)
+{
+    if (!val.is_array() || val.size() < 3) return false;
+    for (size_t i = 0; i < 3; ++i)
+    {
+        if (!val[i].is_number_integer()) return false;
+    }
+    return true;
+}
+
+// Validate a rename string. Returns empty string on success, error message on failure.
+std::string ValidateRenameShape(const nlohmann::json& val)
+{
+    if (!val.is_string()) return "rename must be a string";
+    const std::string s = val.get<std::string>();
+    if (s.empty()) return "rename must be non-empty";
+    if (s.find("::") != std::string::npos) return "rename must not contain '::'";
+    return "";
+}
+
+// Shared result carrier for the per-layer mutation. `success` is the canonical
+// field. `errorCode` + `errorMessage` are populated only on failure. `layerData`
+// is populated only on success (consumed by the single-target route's response).
+struct LayerMutationResult
+{
+    bool success = false;
+    std::string errorCode;
+    std::string errorMessage;
+    nlohmann::json layerData;
+};
+
+LayerMutationResult MakeLayerFailure(const std::string& code, const std::string& message)
+{
+    LayerMutationResult r;
+    r.success = false;
+    r.errorCode = code;
+    r.errorMessage = message;
+    return r;
+}
+
+// Apply one layer's property mutation against the current document state.
+// Must be called on the Rhino main thread, inside an active UndoScope owned
+// by the caller (single-target wraps with one UndoScope per request; batch
+// wraps with one UndoScope around the per-item loop).
+//
+// This helper is the shared source of truth for per-layer mutation rules:
+//   - shape validation of every property in `setProps`
+//   - resolution of target layer, parent (if reparenting), linetype, material
+//   - cycle detection and name-collision detection
+//   - final ModifyLayer call
+//
+// Error classification is structured: shape/type errors (invalid_*) come first,
+// then resolution errors (not_found, parent_not_found, linetype_not_found, etc.),
+// then commit errors (modify_failed). An `exception` fallback catches anything
+// unexpected from the underlying Rhino calls.
+LayerMutationResult ApplyLayerPropertiesMutation(
+    CRhinoDoc* pDoc,
+    const std::string& name,
+    const nlohmann::json& setProps)
+{
+    // ---- Shape: `name` — caller is expected to have checked, but guard anyway.
+    if (name.empty())
+        return MakeLayerFailure("invalid_name", "'name' must be a non-empty string");
+
+    // ---- Shape: `set` empty → no_changes
+    if (!setProps.is_object())
+        return MakeLayerFailure("invalid_set", "'set' must be an object");
+    if (setProps.empty())
+        return MakeLayerFailure("no_changes", "'set' has no properties to apply");
+
+    // ---- Shape validation (types/formats). Run before any doc mutation.
+    if (setProps.contains("rename"))
+    {
+        const std::string renameErr = ValidateRenameShape(setProps["rename"]);
+        if (!renameErr.empty()) return MakeLayerFailure("invalid_rename", renameErr);
+    }
+    if (setProps.contains("parent"))
+    {
+        const auto& pv = setProps["parent"];
+        if (!pv.is_null() && !pv.is_string())
+            return MakeLayerFailure("invalid_parent", "parent must be a string or null");
+    }
+    if (setProps.contains("color") && !IsValidRgbArray(setProps["color"]))
+        return MakeLayerFailure("invalid_color", "color must be a 3-element integer array [r,g,b]");
+    if (setProps.contains("plotColor") && !IsValidRgbArray(setProps["plotColor"]))
+        return MakeLayerFailure("invalid_plot_color", "plotColor must be a 3-element integer array [r,g,b]");
+    if (setProps.contains("plotWeight"))
+    {
+        if (!setProps["plotWeight"].is_number())
+            return MakeLayerFailure("invalid_plot_weight", "plotWeight must be a number");
+        if (setProps["plotWeight"].get<double>() < 0.0)
+            return MakeLayerFailure("invalid_plot_weight", "plotWeight must be >= 0");
+    }
+    if (setProps.contains("linetype") && !setProps["linetype"].is_string())
+        return MakeLayerFailure("invalid_linetype", "linetype must be a string");
+    if (setProps.contains("linetypeIndex") && !setProps["linetypeIndex"].is_number_integer())
+        return MakeLayerFailure("invalid_linetype_index", "linetypeIndex must be an integer");
+    if (setProps.contains("material") && !setProps["material"].is_string())
+        return MakeLayerFailure("invalid_material", "material must be a string");
+    if (setProps.contains("materialIndex") && !setProps["materialIndex"].is_number_integer())
+        return MakeLayerFailure("invalid_material_index", "materialIndex must be an integer");
+    if (setProps.contains("visible") && !setProps["visible"].is_boolean())
+        return MakeLayerFailure("invalid_visible", "visible must be a boolean");
+    if (setProps.contains("locked") && !setProps["locked"].is_boolean())
+        return MakeLayerFailure("invalid_locked", "locked must be a boolean");
+
+    // ---- Resolution: target layer
+    int idx = -1;
+    std::string targetFullPathBefore;
+    try
+    {
+        const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
+        idx = layerRef.index;
+        targetFullPathBefore = layerRef.fullPath;
+    }
+    catch (const std::exception&)
+    {
+        return MakeLayerFailure("not_found", "Layer '" + name + "' not found");
+    }
+
+    ON_Layer layerCopy = pDoc->m_layer_table[idx];
+    const ON_UUID layerId = layerCopy.Id();
+
+    // ---- Resolution: parent (if reparenting) + cycle detection
+    const bool hasParentOp = setProps.contains("parent");
+    ON_UUID newParentId = layerCopy.ParentLayerId();
+    std::string parentNameForError;
+    if (hasParentOp)
+    {
+        if (setProps["parent"].is_null())
+        {
+            newParentId = ON_nil_uuid;
+        }
+        else
+        {
+            parentNameForError = setProps["parent"].get<std::string>();
+            try
+            {
+                const ResolvedLayerRef parentRef =
+                    ResolveLayerRef(pDoc, parentNameForError, "parent");
+                newParentId = pDoc->m_layer_table[parentRef.index].Id();
+            }
+            catch (const std::exception&)
+            {
+                return MakeLayerFailure("parent_not_found",
+                    "Parent '" + parentNameForError + "' not found");
+            }
+
+            if (ON_UuidCompare(newParentId, layerId) == 0)
+                return MakeLayerFailure("cycle_detected",
+                    "Cannot reparent layer under itself");
+
+            ON_UUID walkId = newParentId;
+            while (!ON_UuidIsNil(walkId))
+            {
+                bool found = false;
+                const int layerCount = pDoc->m_layer_table.LayerCount();
+                for (int i = 0; i < layerCount; ++i)
+                {
+                    const CRhinoLayer& walkLayer = pDoc->m_layer_table[i];
+                    if (walkLayer.IsDeleted()) continue;
+                    if (ON_UuidCompare(walkLayer.Id(), walkId) == 0)
+                    {
+                        walkId = walkLayer.ParentLayerId();
+                        if (ON_UuidCompare(walkId, layerId) == 0)
+                            return MakeLayerFailure("cycle_detected",
+                                "Parent '" + parentNameForError +
+                                "' is a descendant of '" + name + "'");
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) break;
+            }
+        }
+    }
+
+    // ---- Rename + collision check (must run after parent resolution so
+    //      the collision check uses the target's final parent path)
+    if (setProps.contains("rename"))
+    {
+        const std::string newName = setProps["rename"].get<std::string>();
+        // ValidateNewLayerName throws on bad names; we've already pre-validated
+        // the shape, so any throw here is an unexpected case → exception.
+        try { ValidateNewLayerName(newName); }
+        catch (const std::exception& ex) { return MakeLayerFailure("invalid_rename", ex.what()); }
+
+        const ON_UUID targetParentId = hasParentOp ? newParentId : layerCopy.ParentLayerId();
+        std::string parentPath;
+        if (!ON_UuidIsNil(targetParentId))
+        {
+            const int layerCount = pDoc->m_layer_table.LayerCount();
+            for (int i = 0; i < layerCount; ++i)
+            {
+                if (!pDoc->m_layer_table[i].IsDeleted() &&
+                    ON_UuidCompare(pDoc->m_layer_table[i].Id(), targetParentId) == 0)
+                {
+                    ON_wString pp;
+                    pDoc->m_layer_table.GetLayerPathName(i, pp);
+                    parentPath = WideToUtf8(pp);
+                    break;
+                }
+            }
+        }
+        const std::string targetFullPath = JoinLayerPath(parentPath, newName);
+        if (LayerExistsByFullPath(pDoc, targetFullPath) &&
+            targetFullPath != targetFullPathBefore)
+        {
+            return MakeLayerFailure("name_collision",
+                "Layer '" + targetFullPath + "' already exists");
+        }
+
+        layerCopy.SetName(Utf8ToWide(newName));
+    }
+
+    // ---- Apply parent
+    if (hasParentOp)
+        layerCopy.SetParentLayerId(newParentId);
+
+    // ---- Apply display/render props. Shape was pre-validated; remaining
+    //      failure modes are value-lookup (linetype/material name → index).
+    if (setProps.contains("color"))
+        layerCopy.SetColor(ParseColor(setProps, "color"));
+    if (setProps.contains("plotColor"))
+        layerCopy.SetPlotColor(ParseColor(setProps, "plotColor"));
+    if (setProps.contains("plotWeight"))
+        layerCopy.SetPlotWeight(setProps["plotWeight"].get<double>());
+    if (setProps.contains("visible"))
+        layerCopy.SetVisible(setProps["visible"].get<bool>());
+    if (setProps.contains("locked"))
+        layerCopy.SetLocked(setProps["locked"].get<bool>());
+
+    if (setProps.contains("linetype"))
+    {
+        const std::string ltName = setProps["linetype"].get<std::string>();
+        const int ltIdx = pDoc->m_linetype_table.FindLinetype(Utf8ToWide(ltName));
+        if (ltIdx < 0)
+            return MakeLayerFailure("linetype_not_found",
+                "Linetype '" + ltName + "' not found");
+        layerCopy.SetLinetypeIndex(ltIdx);
+    }
+    else if (setProps.contains("linetypeIndex"))
+    {
+        const int ltIdx = setProps["linetypeIndex"].get<int>();
+        if (ltIdx < -1)
+            return MakeLayerFailure("invalid_linetype_index",
+                "linetypeIndex must be -1 (default) or a valid index");
+        if (ltIdx >= 0 && ltIdx >= pDoc->m_linetype_table.LinetypeCount())
+            return MakeLayerFailure("invalid_linetype_index",
+                "linetypeIndex out of range");
+        layerCopy.SetLinetypeIndex(ltIdx);
+    }
+
+    if (setProps.contains("material"))
+    {
+        const std::string matName = setProps["material"].get<std::string>();
+        const int matIdx = FindMaterialIndexSafe(pDoc, matName);
+        if (matIdx < 0)
+            return MakeLayerFailure("material_not_found",
+                "Material '" + matName + "' not found");
+        layerCopy.SetRenderMaterialIndex(matIdx);
+    }
+    else if (setProps.contains("materialIndex"))
+    {
+        const int matIdx = setProps["materialIndex"].get<int>();
+        if (matIdx < -1)
+            return MakeLayerFailure("invalid_material_index",
+                "materialIndex must be -1 (no material) or a valid index");
+        if (matIdx >= 0)
+        {
+            if (matIdx >= pDoc->m_material_table.MaterialCount())
+                return MakeLayerFailure("invalid_material_index",
+                    "materialIndex out of range");
+            if (pDoc->m_material_table[matIdx].IsDeleted())
+                return MakeLayerFailure("invalid_material_index",
+                    "materialIndex " + std::to_string(matIdx) +
+                    " references a deleted material");
+        }
+        layerCopy.SetRenderMaterialIndex(matIdx);
+    }
+
+    // ---- Commit
+    if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
+        return MakeLayerFailure("modify_failed",
+            "ModifyLayer returned false for '" + name + "'");
+
+    // ---- Success
+    LayerMutationResult ok;
+    ok.success = true;
+    ok.layerData = SerializeLayerAtIndex(pDoc, idx);
+    return ok;
 }
 
 // Apply optional layer properties from a JSON object to an ON_Layer.
