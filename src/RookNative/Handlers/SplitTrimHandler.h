@@ -1,8 +1,9 @@
 // SplitTrimHandler.h
 //
-// POST /split/brep  — Split brep by cutters or plane
-// POST /trim/brep   — Trim brep, keep one side
-// POST /split/face  — Split a single brep face
+// POST /split/brep           — Split brep by cutters or plane
+// POST /trim/brep            — Trim brep, keep one side
+// POST /split/face           — Split a single brep face
+// POST /split/disjoint-breps — Separate disjoint Breps into connected components
 
 #pragma once
 
@@ -14,6 +15,7 @@ namespace Handlers {
 void HandleSplitBrep(const httplib::Request& req, httplib::Response& res);
 void HandleTrimBrep(const httplib::Request& req, httplib::Response& res);
 void HandleSplitFace(const httplib::Request& req, httplib::Response& res);
+void HandleSplitDisjointBreps(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

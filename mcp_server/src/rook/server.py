@@ -2907,6 +2907,20 @@ Example:
             }
         ),
 
+        Tool(
+            name="rhino_split_disjoint_breps",
+            description="Separate disjoint Breps into individual connected components.\nCommon after Revit exports where multiple disconnected solids are packed into single polysurfaces.\nFilters: 'ids' for specific objects, 'layer' for a whole layer, or omit both for all Breps in document.\nReturns {split, created, skipped, candidates}. On partial failure also: addFailures (component add failed, original kept), deleteFailures (original delete failed after adds, adds rolled back), rollbackFailures (rollback itself failed — document may have duplicates).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {"type": "array", "items": {"type": "string"}, "description": "Optional: specific Brep GUIDs to check"},
+                    "layer": {"type": "string", "description": "Optional: only process Breps on this layer"},
+                    "redraw": {"type": "boolean", "description": "Redraw after split (default true)"}
+                },
+                "required": []
+            }
+        ),
+
         # Knowledge Graph tools
         Tool(
             name="knowledge_query",
@@ -9015,6 +9029,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_split_face":
             result = await call_rhino("/split/face", "POST", arguments)
+
+        case "rhino_split_disjoint_breps":
+            result = await call_rhino("/split/disjoint-breps", "POST", arguments)
 
         # SubD tools
         case "rhino_subd_box":

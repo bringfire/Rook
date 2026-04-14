@@ -986,6 +986,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/split/face", [this](const httplib::Request& req, httplib::Response& res) {
         HandleSplitFace(req, res);
     });
+    m_server->Post("/split/disjoint-breps", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleSplitDisjointBreps(req, res);
+    });
 
     // Phase 4E: Offset Brep
     m_server->Post("/offset/brep", [this](const httplib::Request& req, httplib::Response& res) {
