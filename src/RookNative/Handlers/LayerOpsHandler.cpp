@@ -243,16 +243,27 @@ LayerMutationResult ApplyLayerPropertiesMutation(
         }
     }
 
-    // ---- Rename + collision check (must run after parent resolution so
-    //      the collision check uses the target's final parent path)
+    // ---- Rename shape validation (defensive; pre-validation already covered it)
     if (setProps.contains("rename"))
     {
         const std::string newName = setProps["rename"].get<std::string>();
-        // ValidateNewLayerName throws on bad names; we've already pre-validated
-        // the shape, so any throw here is an unexpected case → exception.
         try { ValidateNewLayerName(newName); }
         catch (const std::exception& ex) { return MakeLayerFailure("invalid_rename", ex.what()); }
+    }
 
+    // ---- Collision check: runs whenever the target full path could change,
+    //      i.e. when EITHER `rename` OR `parent` is present. Pure reparent
+    //      that lands the layer next to an existing same-named sibling must
+    //      surface as `name_collision`, not fall through to `modify_failed`.
+    const bool hasRenameOp = setProps.contains("rename");
+    if (hasRenameOp || hasParentOp)
+    {
+        // Target leaf name: rename if specified, else current name.
+        const std::string targetLeafName = hasRenameOp
+            ? setProps["rename"].get<std::string>()
+            : WideToUtf8(layerCopy.Name());
+
+        // Target parent path: new parent if reparenting, else current parent.
         const ON_UUID targetParentId = hasParentOp ? newParentId : layerCopy.ParentLayerId();
         std::string parentPath;
         if (!ON_UuidIsNil(targetParentId))
@@ -270,18 +281,18 @@ LayerMutationResult ApplyLayerPropertiesMutation(
                 }
             }
         }
-        const std::string targetFullPath = JoinLayerPath(parentPath, newName);
+        const std::string targetFullPath = JoinLayerPath(parentPath, targetLeafName);
         if (LayerExistsByFullPath(pDoc, targetFullPath) &&
             targetFullPath != targetFullPathBefore)
         {
             return MakeLayerFailure("name_collision",
                 "Layer '" + targetFullPath + "' already exists");
         }
-
-        layerCopy.SetName(Utf8ToWide(newName));
     }
 
-    // ---- Apply parent
+    // ---- Apply rename + parent (after collision check has cleared the path)
+    if (setProps.contains("rename"))
+        layerCopy.SetName(Utf8ToWide(setProps["rename"].get<std::string>()));
     if (hasParentOp)
         layerCopy.SetParentLayerId(newParentId);
 
