@@ -7,6 +7,7 @@
 // POST   /layers/lock           — Lock/unlock a layer
 // POST   /layers/current        — Set current layer
 // POST   /layers/properties     — Set any combination of layer properties
+// POST   /layers/properties-batch — Best-effort batch of set-properties
 // POST   /layers/rename         — Rename a layer
 // POST   /layers/move-objects   — Move all objects from one layer to another
 // POST   /layers/merge          — Move objects + delete source layer
@@ -26,6 +27,7 @@ void HandleLayerVisibility(const httplib::Request& req, httplib::Response& res);
 void HandleLayerLock(const httplib::Request& req, httplib::Response& res);
 void HandleLayerCurrent(const httplib::Request& req, httplib::Response& res);
 void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& res);
+void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Response& res);
 void HandleLayerRename(const httplib::Request& req, httplib::Response& res);
 void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res);
 void HandleLayerMerge(const httplib::Request& req, httplib::Response& res);

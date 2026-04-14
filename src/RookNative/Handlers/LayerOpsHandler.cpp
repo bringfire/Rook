@@ -1129,6 +1129,157 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
     }
 }
 
+// ─── POST /layers/properties-batch — Best-effort batch set-properties ──
+//
+// Body: { "items": [{ "name": "...", "set": {...} }, ...], "redraw": false? }
+//
+// Shape/top-level contract (request-level failures, HTTP error):
+//   - body must parse
+//   - `items` must be an array
+//   - `redraw` if present must be boolean
+//
+// Per-item semantics (best-effort, structured skip on failure):
+//   - Each item resolves `name`, `parent`, linetype, material, and sibling
+//     collisions against the current doc state at that item's turn.
+//   - Order is observable; cross-item dependency choreography is NOT
+//     guaranteed. Callers sequence if they need strict ordering.
+//   - Empty `set: {}` records an item-level `no_changes` error (unlike the
+//     single-target route, which treats empty set as a silent no-op success).
+//
+// Response: { routed, skipped, total, errors? } — compact summary convention.
+void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    if (body.is_null())
+    {
+        CRookServer::SendError(res, "Request body required");
+        return;
+    }
+    if (!body.contains("items") || !body["items"].is_array())
+    {
+        CRookServer::SendError(res, "'items' array required");
+        return;
+    }
+    if (body.contains("redraw") && !body["redraw"].is_boolean())
+    {
+        CRookServer::SendError(res, "'redraw' must be a boolean");
+        return;
+    }
+
+    const bool redraw = !body.contains("redraw") || body["redraw"].get<bool>();
+    nlohmann::json items = body["items"];
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, items, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Batch Set Layer Properties");
+
+        int routed = 0;
+        int skipped = 0;
+        nlohmann::json errors = nlohmann::json::array();
+
+        for (const auto& item : items)
+        {
+            // Normalize the echo name for error records: whatever the request
+            // sent (even if unusable), we reflect it verbatim to the caller.
+            std::string echoName;
+            if (item.is_object() && item.contains("name") && item["name"].is_string())
+                echoName = item["name"].get<std::string>();
+
+            try
+            {
+                if (!item.is_object())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_name"},
+                                      {"message", "item must be an object"}});
+                    ++skipped;
+                    continue;
+                }
+                if (!item.contains("name") || !item["name"].is_string() ||
+                    item["name"].get<std::string>().empty())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_name"},
+                                      {"message", "'name' must be a non-empty string"}});
+                    ++skipped;
+                    continue;
+                }
+                if (!item.contains("set") || item["set"].is_null() || !item["set"].is_object())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_set"},
+                                      {"message", "'set' must be a non-null object"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const std::string itemName = item["name"].get<std::string>();
+                const nlohmann::json& setProps = item["set"];
+
+                LayerMutationResult r = ApplyLayerPropertiesMutation(pDoc, itemName, setProps);
+
+                if (r.success)
+                {
+                    ++routed;
+                }
+                else
+                {
+                    nlohmann::json entry = {
+                        {"name", itemName},
+                        {"error", r.errorCode},
+                    };
+                    if (!r.errorMessage.empty())
+                        entry["message"] = r.errorMessage;
+                    // Useful extras for retry diagnostics on structural failures.
+                    if (setProps.contains("rename") && setProps["rename"].is_string())
+                        entry["rename"] = setProps["rename"].get<std::string>();
+                    if (setProps.contains("parent"))
+                    {
+                        const auto& pv = setProps["parent"];
+                        if (pv.is_null())
+                            entry["parent"] = nullptr;
+                        else if (pv.is_string())
+                            entry["parent"] = pv.get<std::string>();
+                    }
+                    errors.push_back(entry);
+                    ++skipped;
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                errors.push_back({{"name", echoName}, {"error", "exception"},
+                                  {"message", ex.what()}});
+                ++skipped;
+            }
+        }
+
+        if (redraw)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["routed"] = routed;
+        wr.data["skipped"] = skipped;
+        wr.data["total"] = static_cast<int>(items.size());
+        if (!errors.empty())
+            wr.data["errors"] = std::move(errors);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
 // ─── POST /layers/rename — Convenience rename endpoint ─────────────
 
 void HandleLayerRename(const httplib::Request& req, httplib::Response& res)
