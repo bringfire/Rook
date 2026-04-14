@@ -512,6 +512,11 @@ def _build_route_table() -> dict[str, RouteSpec]:
         required_params=("brepId", "faceIndex", "curveIds"),
         description="Split brep face with curves",
     )
+    routes["split_disjoint_breps"] = RouteSpec(
+        endpoint="/split/disjoint-breps",
+        optional_params=("ids", "layer", "redraw"),
+        description="Separate disjoint Breps into individual connected components",
+    )
 
     # === Mesh operations ===
     routes["mesh_from_brep"] = RouteSpec(
@@ -629,6 +634,17 @@ def _build_route_table() -> dict[str, RouteSpec]:
         required_params=("name",),
         description="Set current layer",
     )
+    routes["set_layer_properties"] = RouteSpec(
+        endpoint="/layers/properties",
+        required_params=("name", "set"),
+        description="Set layer properties (rename, parent, color, etc.)",
+    )
+    routes["set_layer_properties_batch"] = RouteSpec(
+        endpoint="/layers/properties-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set layer properties; per-item {name, set}",
+    )
 
     # === Block operations ===
     routes["create_block"] = RouteSpec(
@@ -659,6 +675,83 @@ def _build_route_table() -> dict[str, RouteSpec]:
         endpoint="/block/rename",
         required_params=("name", "newName"),
         description="Rename block",
+    )
+
+    # Block-definition object property mutation (single + batch pairs).
+    # The set_block_materials / colors / user_strings handlers accept either a
+    # bulk value OR per-object `mappings` — both listed in optional_params; the
+    # underlying handler enforces "at least one." set_block_object_names single
+    # is intentionally asymmetric with its batch: single requires per-object
+    # `mappings`, batch takes per-item `objectName`.
+    routes["set_block_layers"] = RouteSpec(
+        endpoint="/block/set-layers",
+        required_params=("name", "layer"),
+        description="Route all objects within a block definition to a layer",
+    )
+    routes["set_block_layers_batch"] = RouteSpec(
+        endpoint="/block/set-layers-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set block object layers; per-item {name, layer}",
+    )
+    routes["set_block_materials"] = RouteSpec(
+        endpoint="/block/set-materials",
+        required_params=("name",),
+        optional_params=("material", "mappings"),
+        description="Set object materials within a block definition",
+    )
+    routes["set_block_materials_batch"] = RouteSpec(
+        endpoint="/block/set-materials-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set block object materials; per-item {name, material}",
+    )
+    routes["set_block_object_colors"] = RouteSpec(
+        endpoint="/block/set-object-colors",
+        required_params=("name",),
+        optional_params=("color", "mappings"),
+        description="Set object colors within a block definition",
+    )
+    routes["set_block_object_colors_batch"] = RouteSpec(
+        endpoint="/block/set-object-colors-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set block object colors; per-item {name, color}",
+    )
+    routes["set_block_object_user_strings"] = RouteSpec(
+        endpoint="/block/set-object-user-strings",
+        required_params=("name",),
+        optional_params=("userStrings", "mappings"),
+        description="Set object user strings within a block definition",
+    )
+    routes["set_block_object_user_strings_batch"] = RouteSpec(
+        endpoint="/block/set-object-user-strings-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set block object user strings; per-item {name, userStrings}",
+    )
+    routes["set_block_object_names"] = RouteSpec(
+        endpoint="/block/set-object-names",
+        required_params=("name", "mappings"),
+        description="Set object names within a block definition (per-index mappings)",
+    )
+    routes["set_block_object_names_batch"] = RouteSpec(
+        endpoint="/block/set-object-names-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch set block object names; per-item {name, objectName}",
+    )
+    routes["transform_block_instance"] = RouteSpec(
+        endpoint="/block/transform-instance",
+        required_params=("id",),
+        optional_params=("move", "rotate", "scale", "mirror"),
+        description="Apply incremental transforms to a block instance",
+    )
+    routes["transform_block_instance_batch"] = RouteSpec(
+        endpoint="/block/transform-instance-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch apply incremental transforms to block instances; per-item {id, ...}",
     )
 
     # === Group operations ===
@@ -812,7 +905,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "intersect_curves", "intersect_curve_surface", "intersect_curve_brep",
         "intersect_breps", "intersect_plane",
     ),
-    "split_trim": ("split_brep", "trim_brep", "split_face"),
+    "split_trim": ("split_brep", "trim_brep", "split_face", "split_disjoint_breps"),
     "mesh": (
         "mesh_from_brep", "mesh_boolean", "mesh_repair", "mesh_smooth",
         "mesh_weld", "mesh_unweld", "mesh_reduce", "quad_remesh",
@@ -824,10 +917,17 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "layers": (
         "create_layer", "delete_layer", "set_layer_visibility",
         "lock_layer", "set_current_layer",
+        "set_layer_properties", "set_layer_properties_batch",
     ),
     "blocks": (
         "create_block", "insert_block", "explode_block",
         "delete_block", "rename_block",
+        "set_block_layers", "set_block_layers_batch",
+        "set_block_materials", "set_block_materials_batch",
+        "set_block_object_colors", "set_block_object_colors_batch",
+        "set_block_object_user_strings", "set_block_object_user_strings_batch",
+        "set_block_object_names", "set_block_object_names_batch",
+        "transform_block_instance", "transform_block_instance_batch",
     ),
     "groups": ("create_group", "ungroup"),
     "materials": (
