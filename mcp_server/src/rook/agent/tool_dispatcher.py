@@ -132,6 +132,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_layer_lock":           ("/layers/lock", "POST"),
     "rhino_layer_current":        ("/layers/current", "POST"),
     "rhino_layer_set_properties": ("/layers/properties", "POST"),
+    "rhino_layer_set_properties_batch": ("/layers/properties-batch", "POST"),
     "rhino_layer_rename":         ("/layers/rename", "POST"),
     "rhino_layer_move_objects":   ("/layers/move-objects", "POST"),
     "rhino_layer_merge":          ("/layers/merge", "POST"),

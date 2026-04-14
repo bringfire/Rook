@@ -325,6 +325,14 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             ParamSchema("set", "object", "Properties to modify: rename, parent, color, plotColor, plotWeight, linetype, linetypeIndex, material, materialIndex, visible, locked", required=True),
         ],
     ),
+    "rhino_layer_set_properties_batch": ToolSchema(
+        name="rhino_layer_set_properties_batch",
+        description="Batch apply layer property changes to multiple layers in one call. Best-effort per-item semantics; single UndoScope wraps the batch. Each item has {name, set} matching the single-target shape.",
+        params=[
+            ParamSchema("items", "array", "Array of {name, set} items. Same set shape as rhino_layer_set_properties.", required=True),
+            ParamSchema("redraw", "boolean", "Redraw viewport after batch (default true)", required=False),
+        ],
+    ),
     "rhino_layer_rename": ToolSchema(
         name="rhino_layer_rename",
         description="Rename a layer. All objects remain on the layer.",
