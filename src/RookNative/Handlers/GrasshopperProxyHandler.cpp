@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 9;
+constexpr uint32_t kGhBridgeAbiVersion = 10;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -164,6 +164,8 @@ struct GhBridgeRegistration
     GhBridgeCallbackFn block_set_object_colors_batch = nullptr;
     GhBridgeCallbackFn block_set_object_user_strings_batch = nullptr;
     GhBridgeCallbackFn block_set_object_names_batch = nullptr;
+    // ABI v10: batch block-instance transform
+    GhBridgeCallbackFn block_transform_instance_batch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -1389,6 +1391,12 @@ void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, ht
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-user-strings-batch", registration.block_set_object_user_strings_batch, true);
+}
+
+void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/transform-instance-batch", registration.block_transform_instance_batch, true);
 }
 
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res)

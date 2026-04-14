@@ -2090,6 +2090,47 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_block_transform_instance_batch",
+            description=(
+                "Batch apply INCREMENTAL transforms to many block instances in one call. "
+                "Each item specifies an instance GUID and any subset of {move, rotate, scale, mirror}. "
+                "Per-item composition order matches single-target: scale → rotate → move → mirror, "
+                "pivoted at the instance's current position. Single UndoScope wraps the whole batch.\n\n"
+                "Best-effort semantics: a malformed item is skipped with a structured error record; "
+                "batch continues. Error codes: invalid_id, not_found, not_instance, invalid_move, "
+                "invalid_rotate, invalid_scale, invalid_mirror, no_ops, transform_failed, exception.\n\n"
+                "Duplicate-GUID behavior: GUIDs are preserved across instance transforms (verified live). "
+                "Repeating the same GUID in items[] causes transforms to accumulate — e.g. move [10,0,0] "
+                "twice produces a net +20 on X. Pivot is re-read between items.\n\n"
+                "Returns compact summary {routed, skipped, total, errors[]}. Position readback not included."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "Per-instance transform items",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Instance GUID to transform"},
+                                "move": {"type": "array", "items": {"type": "number"}, "description": "Translation [dx, dy, dz]"},
+                                "rotate": {"type": "number", "description": "Rotation in degrees around Z axis at instance pivot"},
+                                "scale": {"description": "Uniform number or [sx, sy, sz] array"},
+                                "mirror": {"type": "object", "properties": {
+                                    "normal": {"type": "array", "items": {"type": "number"}},
+                                    "origin": {"type": "array", "items": {"type": "number"}}
+                                }, "description": "Mirror across a plane"}
+                            },
+                            "required": ["id"]
+                        }
+                    },
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true). Set false when chaining multiple batches."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
             name="rhino_block_array_instances",
             description="""Create a linear or circular array of block instances.
 
@@ -8784,6 +8825,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # Block Instance Transforms (Phase 7)
         case "rhino_block_transform_instance":
             result = await call_rhino("/block/transform-instance", "POST", arguments)
+
+        case "rhino_block_transform_instance_batch":
+            result = await call_rhino("/block/transform-instance-batch", "POST", arguments)
 
         case "rhino_block_array_instances":
             result = await call_rhino("/block/array-instances", "POST", arguments)

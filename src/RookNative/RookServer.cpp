@@ -418,6 +418,11 @@ void CRookServer::HandleManagedBlockSetObjectNamesBatch(const httplib::Request& 
     Rook::Handlers::HandleManagedBlockSetObjectNamesBatch(req, res);
 }
 
+void CRookServer::HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockTransformInstanceBatch(req, res);
+}
+
 void CRookServer::HandleBlockSetInstancePropertiesRoute(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleBlockSetInstanceProperties(req, res);
@@ -1206,6 +1211,12 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/block/set-object-user-strings-batch", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetObjectUserStringsBatch(req, res);
+    });
+    // Companion-backed batch variant of the native /block/transform-instance route.
+    // The single-target route at line ~1191 remains native-owned intentionally;
+    // see design doc for two-engine justification.
+    m_server->Post("/block/transform-instance-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockTransformInstanceBatch(req, res);
     });
     // Companion-backed: per-object geometry mutations (same category as set-layers family)
     m_server->Post("/block/replace-object-geometry", [this](const httplib::Request& req, httplib::Response& res) {

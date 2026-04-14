@@ -1843,16 +1843,28 @@ void HandleBlockTransformInstance(const httplib::Request& req, httplib::Response
 
         if (body.contains("scale"))
         {
+            // Reject zero-scale inputs that would produce degenerate instance
+            // geometry. Matches the companion batch path's invalid_scale rule
+            // (rhino_block_transform_instance_batch) so the two public tools
+            // accept the same input set. No epsilon — exact zero only.
             if (body["scale"].is_array() && body["scale"].size() >= 3)
             {
+                const double sx = body["scale"][0].get<double>();
+                const double sy = body["scale"][1].get<double>();
+                const double sz = body["scale"][2].get<double>();
+                if (sx == 0.0 || sy == 0.0 || sz == 0.0)
+                    throw std::invalid_argument("invalid_scale: zero scale factor produces degenerate instance geometry");
                 ON_Xform s = ON_Xform::ScaleTransformation(ON_Plane(pivot, ON_3dVector::XAxis, ON_3dVector::YAxis),
-                    body["scale"][0].get<double>(), body["scale"][1].get<double>(), body["scale"][2].get<double>());
+                    sx, sy, sz);
                 combined = s * combined;
                 ops.push_back("scale");
             }
             else if (body["scale"].is_number())
             {
-                ON_Xform s = ON_Xform::ScaleTransformation(pivot, body["scale"].get<double>());
+                const double factor = body["scale"].get<double>();
+                if (factor == 0.0)
+                    throw std::invalid_argument("invalid_scale: zero scale factor produces degenerate instance geometry");
+                ON_Xform s = ON_Xform::ScaleTransformation(pivot, factor);
                 combined = s * combined;
                 ops.push_back("scale");
             }
