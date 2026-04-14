@@ -228,6 +228,7 @@ class HttpExecutor:
             "block_remove_objects": ("/block/remove-objects", "POST"),
             "block_replace_geometry": ("/block/replace-geometry", "POST"),
             "block_replace_object_geometry": ("/block/replace-object-geometry", "POST"),
+            "block_replace_object_geometry_batch": ("/block/replace-object-geometry-batch", "POST"),
             "block_transform_object": ("/block/transform-object", "POST"),
             "block_instances": ("/block/instances", "GET"),
             "block_replace_instance": ("/block/replace-instance", "POST"),
