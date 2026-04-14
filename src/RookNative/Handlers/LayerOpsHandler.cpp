@@ -39,6 +39,9 @@ namespace Handlers {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+// Forward declaration: definition at file scope below this namespace.
+static nlohmann::json SerializeLayerAtIndex(CRhinoDoc* pDoc, int layerIndex);
+
 namespace {
 
 // Find a non-deleted material by name (matches pattern used in MaterialsHandler/BlocksHandler).
@@ -54,6 +57,317 @@ int FindMaterialIndexSafe(CRhinoDoc* pDoc, const std::string& name)
             return i;
     }
     return -1;
+}
+
+// Validate that a JSON value is exactly a 3-element [r,g,b] integer array
+// with each component in [0, 255]. Strict: 4-element arrays, negative values,
+// out-of-range values, and non-integer types all fail. Prevents invalid
+// payloads from flowing into ParseColor(), which would otherwise wrap or
+// truncate them via implicit unsigned int conversion.
+bool IsValidRgbArray(const nlohmann::json& val)
+{
+    if (!val.is_array() || val.size() != 3) return false;
+    for (size_t i = 0; i < 3; ++i)
+    {
+        if (!val[i].is_number_integer()) return false;
+        const int component = val[i].get<int>();
+        if (component < 0 || component > 255) return false;
+    }
+    return true;
+}
+
+// Validate a rename string. Returns empty string on success, error message on failure.
+std::string ValidateRenameShape(const nlohmann::json& val)
+{
+    if (!val.is_string()) return "rename must be a string";
+    const std::string s = val.get<std::string>();
+    if (s.empty()) return "rename must be non-empty";
+    if (s.find("::") != std::string::npos) return "rename must not contain '::'";
+    return "";
+}
+
+// Shared result carrier for the per-layer mutation. `success` is the canonical
+// field. `errorCode` + `errorMessage` are populated only on failure. `layerData`
+// is populated only on success (consumed by the single-target route's response).
+struct LayerMutationResult
+{
+    bool success = false;
+    std::string errorCode;
+    std::string errorMessage;
+    nlohmann::json layerData;
+};
+
+LayerMutationResult MakeLayerFailure(const std::string& code, const std::string& message)
+{
+    LayerMutationResult r;
+    r.success = false;
+    r.errorCode = code;
+    r.errorMessage = message;
+    return r;
+}
+
+// Apply one layer's property mutation against the current document state.
+// Must be called on the Rhino main thread, inside an active UndoScope owned
+// by the caller (single-target wraps with one UndoScope per request; batch
+// wraps with one UndoScope around the per-item loop).
+//
+// This helper is the shared source of truth for per-layer mutation rules:
+//   - shape validation of every property in `setProps`
+//   - resolution of target layer, parent (if reparenting), linetype, material
+//   - cycle detection and name-collision detection
+//   - final ModifyLayer call
+//
+// Error classification is structured: shape/type errors (invalid_*) come first,
+// then resolution errors (not_found, parent_not_found, linetype_not_found, etc.),
+// then commit errors (modify_failed). An `exception` fallback catches anything
+// unexpected from the underlying Rhino calls.
+LayerMutationResult ApplyLayerPropertiesMutation(
+    CRhinoDoc* pDoc,
+    const std::string& name,
+    const nlohmann::json& setProps)
+{
+    // ---- Shape: `name` — caller is expected to have checked, but guard anyway.
+    if (name.empty())
+        return MakeLayerFailure("invalid_name", "'name' must be a non-empty string");
+
+    // ---- Shape: `set` empty → no_changes
+    if (!setProps.is_object())
+        return MakeLayerFailure("invalid_set", "'set' must be an object");
+    if (setProps.empty())
+        return MakeLayerFailure("no_changes", "'set' has no properties to apply");
+
+    // ---- Shape validation (types/formats). Run before any doc mutation.
+    if (setProps.contains("rename"))
+    {
+        const std::string renameErr = ValidateRenameShape(setProps["rename"]);
+        if (!renameErr.empty()) return MakeLayerFailure("invalid_rename", renameErr);
+    }
+    if (setProps.contains("parent"))
+    {
+        const auto& pv = setProps["parent"];
+        if (!pv.is_null() && !pv.is_string())
+            return MakeLayerFailure("invalid_parent", "parent must be a string or null");
+    }
+    if (setProps.contains("color") && !IsValidRgbArray(setProps["color"]))
+        return MakeLayerFailure("invalid_color", "color must be a 3-element integer array [r,g,b]");
+    if (setProps.contains("plotColor") && !IsValidRgbArray(setProps["plotColor"]))
+        return MakeLayerFailure("invalid_plot_color", "plotColor must be a 3-element integer array [r,g,b]");
+    if (setProps.contains("plotWeight"))
+    {
+        if (!setProps["plotWeight"].is_number())
+            return MakeLayerFailure("invalid_plot_weight", "plotWeight must be a number");
+        if (setProps["plotWeight"].get<double>() < 0.0)
+            return MakeLayerFailure("invalid_plot_weight", "plotWeight must be >= 0");
+    }
+    if (setProps.contains("linetype") && !setProps["linetype"].is_string())
+        return MakeLayerFailure("invalid_linetype", "linetype must be a string");
+    if (setProps.contains("linetypeIndex") && !setProps["linetypeIndex"].is_number_integer())
+        return MakeLayerFailure("invalid_linetype_index", "linetypeIndex must be an integer");
+    if (setProps.contains("material") && !setProps["material"].is_string())
+        return MakeLayerFailure("invalid_material", "material must be a string");
+    if (setProps.contains("materialIndex") && !setProps["materialIndex"].is_number_integer())
+        return MakeLayerFailure("invalid_material_index", "materialIndex must be an integer");
+    if (setProps.contains("visible") && !setProps["visible"].is_boolean())
+        return MakeLayerFailure("invalid_visible", "visible must be a boolean");
+    if (setProps.contains("locked") && !setProps["locked"].is_boolean())
+        return MakeLayerFailure("invalid_locked", "locked must be a boolean");
+
+    // ---- Resolution: target layer
+    int idx = -1;
+    std::string targetFullPathBefore;
+    try
+    {
+        const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
+        idx = layerRef.index;
+        targetFullPathBefore = layerRef.fullPath;
+    }
+    catch (const std::exception&)
+    {
+        return MakeLayerFailure("not_found", "Layer '" + name + "' not found");
+    }
+
+    ON_Layer layerCopy = pDoc->m_layer_table[idx];
+    const ON_UUID layerId = layerCopy.Id();
+
+    // ---- Resolution: parent (if reparenting) + cycle detection
+    const bool hasParentOp = setProps.contains("parent");
+    ON_UUID newParentId = layerCopy.ParentLayerId();
+    std::string parentNameForError;
+    if (hasParentOp)
+    {
+        if (setProps["parent"].is_null())
+        {
+            newParentId = ON_nil_uuid;
+        }
+        else
+        {
+            parentNameForError = setProps["parent"].get<std::string>();
+            try
+            {
+                const ResolvedLayerRef parentRef =
+                    ResolveLayerRef(pDoc, parentNameForError, "parent");
+                newParentId = pDoc->m_layer_table[parentRef.index].Id();
+            }
+            catch (const std::exception&)
+            {
+                return MakeLayerFailure("parent_not_found",
+                    "Parent '" + parentNameForError + "' not found");
+            }
+
+            if (ON_UuidCompare(newParentId, layerId) == 0)
+                return MakeLayerFailure("cycle_detected",
+                    "Cannot reparent layer under itself");
+
+            ON_UUID walkId = newParentId;
+            while (!ON_UuidIsNil(walkId))
+            {
+                bool found = false;
+                const int layerCount = pDoc->m_layer_table.LayerCount();
+                for (int i = 0; i < layerCount; ++i)
+                {
+                    const CRhinoLayer& walkLayer = pDoc->m_layer_table[i];
+                    if (walkLayer.IsDeleted()) continue;
+                    if (ON_UuidCompare(walkLayer.Id(), walkId) == 0)
+                    {
+                        walkId = walkLayer.ParentLayerId();
+                        if (ON_UuidCompare(walkId, layerId) == 0)
+                            return MakeLayerFailure("cycle_detected",
+                                "Parent '" + parentNameForError +
+                                "' is a descendant of '" + name + "'");
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) break;
+            }
+        }
+    }
+
+    // ---- Rename shape validation (defensive; pre-validation already covered it)
+    if (setProps.contains("rename"))
+    {
+        const std::string newName = setProps["rename"].get<std::string>();
+        try { ValidateNewLayerName(newName); }
+        catch (const std::exception& ex) { return MakeLayerFailure("invalid_rename", ex.what()); }
+    }
+
+    // ---- Collision check: runs whenever the target full path could change,
+    //      i.e. when EITHER `rename` OR `parent` is present. Pure reparent
+    //      that lands the layer next to an existing same-named sibling must
+    //      surface as `name_collision`, not fall through to `modify_failed`.
+    const bool hasRenameOp = setProps.contains("rename");
+    if (hasRenameOp || hasParentOp)
+    {
+        // Target leaf name: rename if specified, else current name.
+        const std::string targetLeafName = hasRenameOp
+            ? setProps["rename"].get<std::string>()
+            : WideToUtf8(layerCopy.Name());
+
+        // Target parent path: new parent if reparenting, else current parent.
+        const ON_UUID targetParentId = hasParentOp ? newParentId : layerCopy.ParentLayerId();
+        std::string parentPath;
+        if (!ON_UuidIsNil(targetParentId))
+        {
+            const int layerCount = pDoc->m_layer_table.LayerCount();
+            for (int i = 0; i < layerCount; ++i)
+            {
+                if (!pDoc->m_layer_table[i].IsDeleted() &&
+                    ON_UuidCompare(pDoc->m_layer_table[i].Id(), targetParentId) == 0)
+                {
+                    ON_wString pp;
+                    pDoc->m_layer_table.GetLayerPathName(i, pp);
+                    parentPath = WideToUtf8(pp);
+                    break;
+                }
+            }
+        }
+        const std::string targetFullPath = JoinLayerPath(parentPath, targetLeafName);
+        if (LayerExistsByFullPath(pDoc, targetFullPath) &&
+            targetFullPath != targetFullPathBefore)
+        {
+            return MakeLayerFailure("name_collision",
+                "Layer '" + targetFullPath + "' already exists");
+        }
+    }
+
+    // ---- Apply rename + parent (after collision check has cleared the path)
+    if (setProps.contains("rename"))
+        layerCopy.SetName(Utf8ToWide(setProps["rename"].get<std::string>()));
+    if (hasParentOp)
+        layerCopy.SetParentLayerId(newParentId);
+
+    // ---- Apply display/render props. Shape was pre-validated; remaining
+    //      failure modes are value-lookup (linetype/material name → index).
+    if (setProps.contains("color"))
+        layerCopy.SetColor(ParseColor(setProps, "color"));
+    if (setProps.contains("plotColor"))
+        layerCopy.SetPlotColor(ParseColor(setProps, "plotColor"));
+    if (setProps.contains("plotWeight"))
+        layerCopy.SetPlotWeight(setProps["plotWeight"].get<double>());
+    if (setProps.contains("visible"))
+        layerCopy.SetVisible(setProps["visible"].get<bool>());
+    if (setProps.contains("locked"))
+        layerCopy.SetLocked(setProps["locked"].get<bool>());
+
+    if (setProps.contains("linetype"))
+    {
+        const std::string ltName = setProps["linetype"].get<std::string>();
+        const int ltIdx = pDoc->m_linetype_table.FindLinetype(Utf8ToWide(ltName));
+        if (ltIdx < 0)
+            return MakeLayerFailure("linetype_not_found",
+                "Linetype '" + ltName + "' not found");
+        layerCopy.SetLinetypeIndex(ltIdx);
+    }
+    else if (setProps.contains("linetypeIndex"))
+    {
+        const int ltIdx = setProps["linetypeIndex"].get<int>();
+        if (ltIdx < -1)
+            return MakeLayerFailure("invalid_linetype_index",
+                "linetypeIndex must be -1 (default) or a valid index");
+        if (ltIdx >= 0 && ltIdx >= pDoc->m_linetype_table.LinetypeCount())
+            return MakeLayerFailure("invalid_linetype_index",
+                "linetypeIndex out of range");
+        layerCopy.SetLinetypeIndex(ltIdx);
+    }
+
+    if (setProps.contains("material"))
+    {
+        const std::string matName = setProps["material"].get<std::string>();
+        const int matIdx = FindMaterialIndexSafe(pDoc, matName);
+        if (matIdx < 0)
+            return MakeLayerFailure("material_not_found",
+                "Material '" + matName + "' not found");
+        layerCopy.SetRenderMaterialIndex(matIdx);
+    }
+    else if (setProps.contains("materialIndex"))
+    {
+        const int matIdx = setProps["materialIndex"].get<int>();
+        if (matIdx < -1)
+            return MakeLayerFailure("invalid_material_index",
+                "materialIndex must be -1 (no material) or a valid index");
+        if (matIdx >= 0)
+        {
+            if (matIdx >= pDoc->m_material_table.MaterialCount())
+                return MakeLayerFailure("invalid_material_index",
+                    "materialIndex out of range");
+            if (pDoc->m_material_table[matIdx].IsDeleted())
+                return MakeLayerFailure("invalid_material_index",
+                    "materialIndex " + std::to_string(matIdx) +
+                    " references a deleted material");
+        }
+        layerCopy.SetRenderMaterialIndex(matIdx);
+    }
+
+    // ---- Commit
+    if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
+        return MakeLayerFailure("modify_failed",
+            "ModifyLayer returned false for '" + name + "'");
+
+    // ---- Success
+    LayerMutationResult ok;
+    ok.success = true;
+    ok.layerData = SerializeLayerAtIndex(pDoc, idx);
+    return ok;
 }
 
 // Apply optional layer properties from a JSON object to an ON_Layer.
@@ -783,114 +1097,36 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Set Layer Properties");
 
-        const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
-        const int idx = layerRef.index;
+        // Route through the shared helper. The helper owns all validation,
+        // resolution, and the ModifyLayer call.
+        LayerMutationResult r = ApplyLayerPropertiesMutation(pDoc, name, props);
 
-        ON_Layer layerCopy = pDoc->m_layer_table[idx];
-        const ON_UUID layerId = layerCopy.Id();
-
-        // Rename (special — not in ApplyLayerProperties since it's name, not a display property)
-        if (props.contains("rename"))
+        // Preserve legacy single-target behavior: empty `set` is a successful
+        // no-op that returns the current (unchanged) layer snapshot. The batch
+        // route reports no_changes as a per-item skip; single-target doesn't.
+        if (!r.success && r.errorCode == "no_changes")
         {
-            std::string newName = props["rename"].get<std::string>();
-            ValidateNewLayerName(newName);
-
-            // Check for duplicate sibling: compute target full path and verify it doesn't exist
-            ON_UUID parentId = layerCopy.ParentLayerId();
-            // If reparent is also happening, use the new parent for collision check
-            if (props.contains("parent") && !props["parent"].is_null())
-            {
-                const ResolvedLayerRef newParentRef = ResolveLayerRef(pDoc, props["parent"].get<std::string>(), "parent");
-                parentId = pDoc->m_layer_table[newParentRef.index].Id();
-            }
-            else if (props.contains("parent") && props["parent"].is_null())
-            {
-                parentId = ON_nil_uuid;
-            }
-
-            std::string parentPath;
-            if (!ON_UuidIsNil(parentId))
-            {
-                // Find parent index to get its full path
-                for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-                {
-                    if (!pDoc->m_layer_table[i].IsDeleted() &&
-                        ON_UuidCompare(pDoc->m_layer_table[i].Id(), parentId) == 0)
-                    {
-                        ON_wString pp;
-                        pDoc->m_layer_table.GetLayerPathName(i, pp);
-                        parentPath = WideToUtf8(pp);
-                        break;
-                    }
-                }
-            }
-            const std::string targetFullPath = JoinLayerPath(parentPath, newName);
-            if (LayerExistsByFullPath(pDoc, targetFullPath))
-            {
-                // Allow if it's the same layer (no-op rename to same name)
-                if (targetFullPath != layerRef.fullPath)
-                    throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
-            }
-
-            layerCopy.SetName(Utf8ToWide(newName));
+            const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
+            pDoc->Redraw();
+            WriteResult wr;
+            wr.success = true;
+            wr.data = SerializeLayerAtIndex(pDoc, layerRef.index);
+            return wr;
         }
 
-        // Reparent
-        if (props.contains("parent"))
+        if (!r.success)
         {
-            if (props["parent"].is_null())
-            {
-                layerCopy.SetParentLayerId(ON_nil_uuid);
-            }
-            else
-            {
-                std::string parentName = props["parent"].get<std::string>();
-                const ResolvedLayerRef parentRef = ResolveLayerRef(pDoc, parentName, "parent");
-                ON_UUID newParentId = pDoc->m_layer_table[parentRef.index].Id();
-
-                // Cycle detection: walk up from proposed parent to root,
-                // verify the target layer is not an ancestor
-                if (ON_UuidCompare(newParentId, layerId) == 0)
-                    throw std::invalid_argument("Cannot reparent layer under itself");
-
-                ON_UUID walkId = newParentId;
-                while (!ON_UuidIsNil(walkId))
-                {
-                    // Find the layer with this ID
-                    bool found = false;
-                    for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-                    {
-                        const CRhinoLayer& walkLayer = pDoc->m_layer_table[i];
-                        if (walkLayer.IsDeleted()) continue;
-                        if (ON_UuidCompare(walkLayer.Id(), walkId) == 0)
-                        {
-                            walkId = walkLayer.ParentLayerId();
-                            if (ON_UuidCompare(walkId, layerId) == 0)
-                                throw std::invalid_argument(
-                                    "Cannot reparent: '" + parentName +
-                                    "' is a descendant of '" + name + "' (would create a cycle)");
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) break;
-                }
-
-                layerCopy.SetParentLayerId(newParentId);
-            }
+            // Any other failure raises; outer try/catch converts to SendError.
+            if (r.errorCode == "modify_failed")
+                throw std::runtime_error(r.errorMessage);
+            throw std::invalid_argument(r.errorMessage);
         }
-
-        // Apply all standard display/render properties
-        ApplyLayerProperties(layerCopy, props, pDoc);
-
-        if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
-            throw std::runtime_error("Failed to modify layer '" + name + "'");
 
         pDoc->Redraw();
 
         WriteResult wr;
         wr.success = true;
-        wr.data = SerializeLayerAtIndex(pDoc, idx);
+        wr.data = std::move(r.layerData);
         return wr;
     });
 
@@ -901,6 +1137,160 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
             CRookServer::SendSuccess(res, result.data);
         else
             CRookServer::SendError(res, result.error);
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /layers/properties-batch — Best-effort batch set-properties ──
+//
+// Body: { "items": [{ "name": "...", "set": {...} }, ...], "redraw": false? }
+//
+// Shape/top-level contract (request-level failures, HTTP error):
+//   - body must parse
+//   - `items` must be an array
+//   - `redraw` if present must be boolean
+//
+// Per-item semantics (best-effort, structured skip on failure):
+//   - Each item resolves `name`, `parent`, linetype, material, and sibling
+//     collisions against the current doc state at that item's turn.
+//   - Order is observable; cross-item dependency choreography is NOT
+//     guaranteed. Callers sequence if they need strict ordering.
+//   - Empty `set: {}` records an item-level `no_changes` error (unlike the
+//     single-target route, which treats empty set as a silent no-op success).
+//
+// Response: { routed, skipped, total, errors? } — compact summary convention.
+void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    if (body.is_null())
+    {
+        CRookServer::SendError(res, "Request body required");
+        return;
+    }
+    if (!body.contains("items") || !body["items"].is_array())
+    {
+        CRookServer::SendError(res, "'items' array required");
+        return;
+    }
+    if (body.contains("redraw") && !body["redraw"].is_boolean())
+    {
+        CRookServer::SendError(res, "'redraw' must be a boolean");
+        return;
+    }
+
+    const bool redraw = !body.contains("redraw") || body["redraw"].get<bool>();
+    nlohmann::json items = body["items"];
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, items, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Batch Set Layer Properties");
+
+        int routed = 0;
+        int skipped = 0;
+        nlohmann::json errors = nlohmann::json::array();
+
+        for (const auto& item : items)
+        {
+            // Echo the request's `name` verbatim as a raw JSON value. If the
+            // caller sent `{"name": 123}` we echo 123; if `{"name": null}`,
+            // null; if the item is not an object at all, null. This preserves
+            // the "errors[].name always echoes the request name verbatim"
+            // contract regardless of the value's type or shape.
+            nlohmann::json echoName = nullptr;
+            if (item.is_object() && item.contains("name"))
+                echoName = item["name"];
+
+            try
+            {
+                if (!item.is_object())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_name"},
+                                      {"message", "item must be an object"}});
+                    ++skipped;
+                    continue;
+                }
+                if (!item.contains("name") || !item["name"].is_string() ||
+                    item["name"].get<std::string>().empty())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_name"},
+                                      {"message", "'name' must be a non-empty string"}});
+                    ++skipped;
+                    continue;
+                }
+                if (!item.contains("set") || item["set"].is_null() || !item["set"].is_object())
+                {
+                    errors.push_back({{"name", echoName}, {"error", "invalid_set"},
+                                      {"message", "'set' must be a non-null object"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const std::string itemName = item["name"].get<std::string>();
+                const nlohmann::json& setProps = item["set"];
+
+                LayerMutationResult r = ApplyLayerPropertiesMutation(pDoc, itemName, setProps);
+
+                if (r.success)
+                {
+                    ++routed;
+                }
+                else
+                {
+                    nlohmann::json entry = {
+                        {"name", echoName},
+                        {"error", r.errorCode},
+                    };
+                    if (!r.errorMessage.empty())
+                        entry["message"] = r.errorMessage;
+                    // Useful extras for retry diagnostics on structural failures.
+                    if (setProps.contains("rename") && setProps["rename"].is_string())
+                        entry["rename"] = setProps["rename"].get<std::string>();
+                    if (setProps.contains("parent"))
+                    {
+                        const auto& pv = setProps["parent"];
+                        if (pv.is_null())
+                            entry["parent"] = nullptr;
+                        else if (pv.is_string())
+                            entry["parent"] = pv.get<std::string>();
+                    }
+                    errors.push_back(entry);
+                    ++skipped;
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                errors.push_back({{"name", echoName}, {"error", "exception"},
+                                  {"message", ex.what()}});
+                ++skipped;
+            }
+        }
+
+        if (redraw)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["routed"] = routed;
+        wr.data["skipped"] = skipped;
+        wr.data["total"] = static_cast<int>(items.size());
+        if (!errors.empty())
+            wr.data["errors"] = std::move(errors);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
     }
     catch (const std::exception& ex)
     {

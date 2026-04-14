@@ -136,6 +136,7 @@ private:
     void HandleLayerLock(const httplib::Request& req, httplib::Response& res);
     void HandleLayerCurrent(const httplib::Request& req, httplib::Response& res);
     void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& res);
+    void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Response& res);
     void HandleLayerRename(const httplib::Request& req, httplib::Response& res);
     void HandleLayerMoveObjects(const httplib::Request& req, httplib::Response& res);
     void HandleLayerMerge(const httplib::Request& req, httplib::Response& res);

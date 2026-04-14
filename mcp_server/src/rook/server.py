@@ -1466,6 +1466,65 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_layer_set_properties_batch",
+            description=(
+                "Batch apply layer property changes to multiple layers in one call. Each item has "
+                "{name, set} with the same 'set' shape as the single-target tool. Single UndoScope "
+                "wraps the whole batch; one Ctrl+Z reverts all routed changes.\n\n"
+                "Best-effort semantics: a malformed or unresolvable item is skipped with a structured "
+                "error record; batch continues. Error codes emitted in errors[].error:\n"
+                "  - shape errors: invalid_name, invalid_set, invalid_rename, invalid_parent, "
+                "invalid_color, invalid_plot_color, invalid_plot_weight, invalid_linetype, "
+                "invalid_linetype_index, invalid_material, invalid_material_index, invalid_visible, "
+                "invalid_locked\n"
+                "  - resolution errors: not_found, parent_not_found, linetype_not_found, "
+                "material_not_found, name_collision, cycle_detected\n"
+                "  - other: no_changes, modify_failed, exception\n\n"
+                "Resolution timing: each item resolves name, parent, collisions, linetype, and "
+                "material against the current document state at that item's turn. Order is observable "
+                "within a batch but cross-item dependency choreography is NOT a guarantee. Callers "
+                "sequence separately if strict ordering is required.\n\n"
+                "Returns compact summary {routed, skipped, total, errors[]}. errors[].name always "
+                "echoes the request item's name verbatim (even for malformed values like 123 or null). "
+                "Optional extras rename/parent/message included for diagnostic retry."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "Per-layer set-properties items",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Target layer (name or full path)"},
+                                "set": {
+                                    "type": "object",
+                                    "description": "Properties to modify; same shape as rhino_layer_set_properties",
+                                    "properties": {
+                                        "rename": {"type": "string"},
+                                        "parent": {"type": ["string", "null"]},
+                                        "color": {"type": "array", "items": {"type": "integer"}},
+                                        "plotColor": {"type": "array", "items": {"type": "integer"}},
+                                        "plotWeight": {"type": "number"},
+                                        "linetype": {"type": "string"},
+                                        "linetypeIndex": {"type": "integer"},
+                                        "material": {"type": "string"},
+                                        "materialIndex": {"type": "integer"},
+                                        "visible": {"type": "boolean"},
+                                        "locked": {"type": "boolean"}
+                                    }
+                                }
+                            },
+                            "required": ["name", "set"]
+                        }
+                    },
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true)."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
             name="rhino_layer_rename",
             description="Rename a layer. All objects remain on the layer.",
             inputSchema={
@@ -8660,6 +8719,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_layer_set_properties":
             result = await call_rhino("/layers/properties", "POST", arguments)
+
+        case "rhino_layer_set_properties_batch":
+            result = await call_rhino("/layers/properties-batch", "POST", arguments)
 
         case "rhino_layer_rename":
             result = await call_rhino("/layers/rename", "POST", arguments)
