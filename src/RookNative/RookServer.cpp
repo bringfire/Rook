@@ -388,9 +388,34 @@ void CRookServer::HandleManagedBlockSetLayers(const httplib::Request& req, httpl
     Rook::Handlers::HandleManagedBlockSetLayers(req, res);
 }
 
+void CRookServer::HandleManagedBlockSetLayersBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockSetLayersBatch(req, res);
+}
+
 void CRookServer::HandleManagedBlockSetMaterials(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleManagedBlockSetMaterials(req, res);
+}
+
+void CRookServer::HandleManagedBlockSetMaterialsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockSetMaterialsBatch(req, res);
+}
+
+void CRookServer::HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockSetObjectColorsBatch(req, res);
+}
+
+void CRookServer::HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockSetObjectUserStringsBatch(req, res);
+}
+
+void CRookServer::HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockSetObjectNamesBatch(req, res);
 }
 
 void CRookServer::HandleBlockSetInstancePropertiesRoute(const httplib::Request& req, httplib::Response& res)
@@ -1140,8 +1165,14 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/block/set-layers", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetLayers(req, res);
     });
+    m_server->Post("/block/set-layers-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockSetLayersBatch(req, res);
+    });
     m_server->Post("/block/set-materials", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetMaterials(req, res);
+    });
+    m_server->Post("/block/set-materials-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockSetMaterialsBatch(req, res);
     });
     m_server->Post("/block/set-instance-properties", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockSetInstancePropertiesRoute(req, res);
@@ -1158,11 +1189,20 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/block/set-object-colors", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetObjectColors(req, res);
     });
+    m_server->Post("/block/set-object-colors-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockSetObjectColorsBatch(req, res);
+    });
     m_server->Post("/block/set-object-names", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetObjectNames(req, res);
     });
+    m_server->Post("/block/set-object-names-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockSetObjectNamesBatch(req, res);
+    });
     m_server->Post("/block/set-object-user-strings", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetObjectUserStrings(req, res);
+    });
+    m_server->Post("/block/set-object-user-strings-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockSetObjectUserStringsBatch(req, res);
     });
     // Companion-backed: per-object geometry mutations (same category as set-layers family)
     m_server->Post("/block/replace-object-geometry", [this](const httplib::Request& req, httplib::Response& res) {

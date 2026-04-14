@@ -1290,6 +1290,588 @@ namespace Rook.Handlers
         }
 
         /// <summary>
+        /// POST /block/set-layers-batch - Batch set layer assignments for multiple block definitions.
+        /// Body: { "items": [{ "name": "BlockName", "layer": "LayerPath" }, ...], "redraw": false }
+        /// Single undo scope, deferred redraw, compact summary response.
+        /// </summary>
+        public ApiResponse SetBlockObjectLayersBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                    redraw = redrawEl.GetBoolean();
+
+                // Pre-resolve unique layer names
+                var layerCache = new Dictionary<string, int>();
+                var badLayers = new HashSet<string>();
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    if (!item.TryGetProperty("layer", out var lEl)) continue;
+                    var layerName = lEl.GetString();
+                    if (string.IsNullOrEmpty(layerName) || layerCache.ContainsKey(layerName) || badLayers.Contains(layerName))
+                        continue;
+                    int idx = doc.Layers.FindByFullPath(layerName, -1);
+                    if (idx >= 0)
+                        layerCache[layerName] = idx;
+                    else
+                        badLayers.Add(layerName);
+                }
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Set Block Object Layers");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? blockName = null;
+                    string? layerName = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("name", out var nEl) || !item.TryGetProperty("layer", out var lEl))
+                        { skipped++; continue; }
+                        blockName = nEl.GetString();
+                        layerName = lEl.GetString();
+                        if (string.IsNullOrEmpty(blockName) || string.IsNullOrEmpty(layerName))
+                        { skipped++; continue; }
+
+                        var idef = doc.InstanceDefinitions.Find(blockName);
+                        if (idef == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "not_found" });
+                            skipped++; continue;
+                        }
+
+                        if (!layerCache.TryGetValue(layerName, out int targetLayerIndex))
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "layer_not_resolved", ["layer"] = layerName });
+                            skipped++; continue;
+                        }
+
+                        var existingObjects = idef.GetObjects();
+                        var allGeometry = new List<GeometryBase>();
+                        var allAttributes = new List<ObjectAttributes>();
+
+                        for (int i = 0; i < existingObjects.Length; i++)
+                        {
+                            allGeometry.Add(existingObjects[i].Geometry.Duplicate());
+                            var attrs = existingObjects[i].Attributes.Duplicate();
+                            attrs.LayerIndex = targetLayerIndex;
+                            allAttributes.Add(attrs);
+                        }
+
+                        bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                        if (modified)
+                            routed++;
+                        else
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "modify_failed" });
+                            skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = blockName ?? "unknown",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (badLayers.Count > 0)
+                    result["unresolvableLayers"] = badLayers.ToList();
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch set block object layers failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// POST /block/set-materials-batch - Batch set bulk material for multiple block definitions.
+        /// Each item assigns one material to ALL objects within that block definition.
+        /// Body: { "items": [{ "name": "BlockName", "material": "MatName" }, ...], "redraw": false }
+        /// Single undo scope, deferred redraw, compact summary response.
+        /// </summary>
+        public ApiResponse SetBlockObjectMaterialsBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                    redraw = redrawEl.GetBoolean();
+
+                // Pre-resolve unique material names
+                var matCache = new Dictionary<string, int>();
+                var badMaterials = new HashSet<string>();
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    if (!item.TryGetProperty("material", out var mEl)) continue;
+                    var matName = mEl.GetString();
+                    if (string.IsNullOrEmpty(matName) || matCache.ContainsKey(matName) || badMaterials.Contains(matName))
+                        continue;
+                    int idx = doc.Materials.Find(matName, true);
+                    if (idx >= 0)
+                        matCache[matName] = idx;
+                    else
+                        badMaterials.Add(matName);
+                }
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Set Block Object Materials");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? blockName = null;
+                    string? matName = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("name", out var nEl) || !item.TryGetProperty("material", out var mEl))
+                        { skipped++; continue; }
+                        blockName = nEl.GetString();
+                        matName = mEl.GetString();
+                        if (string.IsNullOrEmpty(blockName) || string.IsNullOrEmpty(matName))
+                        { skipped++; continue; }
+
+                        var idef = doc.InstanceDefinitions.Find(blockName);
+                        if (idef == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "not_found" });
+                            skipped++; continue;
+                        }
+
+                        if (!matCache.TryGetValue(matName, out int targetMatIndex))
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "material_not_resolved", ["material"] = matName });
+                            skipped++; continue;
+                        }
+
+                        var existingObjects = idef.GetObjects();
+                        var allGeometry = new List<GeometryBase>();
+                        var allAttributes = new List<ObjectAttributes>();
+
+                        for (int i = 0; i < existingObjects.Length; i++)
+                        {
+                            allGeometry.Add(existingObjects[i].Geometry.Duplicate());
+                            var attrs = existingObjects[i].Attributes.Duplicate();
+                            attrs.MaterialSource = ObjectMaterialSource.MaterialFromObject;
+                            attrs.MaterialIndex = targetMatIndex;
+                            allAttributes.Add(attrs);
+                        }
+
+                        bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                        if (modified)
+                            routed++;
+                        else
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "modify_failed" });
+                            skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = blockName ?? "unknown",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (badMaterials.Count > 0)
+                    result["unresolvableMaterials"] = badMaterials.ToList();
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch set block object materials failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// POST /block/set-object-colors-batch - Batch set bulk object color for multiple block definitions.
+        /// Each item assigns one RGB color to ALL objects within that block definition.
+        /// Body: { "items": [{ "name": "BlockName", "color": [r, g, b] }, ...], "redraw": false }
+        /// </summary>
+        public ApiResponse SetBlockObjectColorsBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                    redraw = redrawEl.GetBoolean();
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Set Block Object Colors");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? blockName = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("name", out var nEl) || !item.TryGetProperty("color", out var cEl) ||
+                            cEl.ValueKind != JsonValueKind.Array)
+                        { skipped++; continue; }
+                        blockName = nEl.GetString();
+                        if (string.IsNullOrEmpty(blockName))
+                        { skipped++; continue; }
+
+                        var rgb = cEl.EnumerateArray().Select(e => Math.Min(Math.Max(e.GetInt32(), 0), 255)).ToArray();
+                        if (rgb.Length < 3)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "color_needs_3_channels" });
+                            skipped++; continue;
+                        }
+                        var color = System.Drawing.Color.FromArgb(rgb[0], rgb[1], rgb[2]);
+
+                        var idef = doc.InstanceDefinitions.Find(blockName);
+                        if (idef == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "not_found" });
+                            skipped++; continue;
+                        }
+
+                        var existingObjects = idef.GetObjects();
+                        var allGeometry = new List<GeometryBase>();
+                        var allAttributes = new List<ObjectAttributes>();
+
+                        for (int i = 0; i < existingObjects.Length; i++)
+                        {
+                            allGeometry.Add(existingObjects[i].Geometry.Duplicate());
+                            var attrs = existingObjects[i].Attributes.Duplicate();
+                            attrs.ColorSource = ObjectColorSource.ColorFromObject;
+                            attrs.ObjectColor = color;
+                            allAttributes.Add(attrs);
+                        }
+
+                        bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                        if (modified) routed++;
+                        else
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "modify_failed" });
+                            skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = blockName ?? "unknown",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch set block object colors failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// POST /block/set-object-user-strings-batch - Batch stamp user strings on all objects within multiple block definitions.
+        /// Each item applies the given key/value map to every object in that block definition.
+        /// Body: { "items": [{ "name": "BlockName", "userStrings": {"k": "v"} }, ...], "redraw": false }
+        /// </summary>
+        public ApiResponse SetBlockObjectUserStringsBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                    redraw = redrawEl.GetBoolean();
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Set Block Object User Strings");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? blockName = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("name", out var nEl) || !item.TryGetProperty("userStrings", out var usEl) ||
+                            usEl.ValueKind != JsonValueKind.Object)
+                        { skipped++; continue; }
+                        blockName = nEl.GetString();
+                        if (string.IsNullOrEmpty(blockName))
+                        { skipped++; continue; }
+
+                        var kvs = new Dictionary<string, string>();
+                        foreach (var prop in usEl.EnumerateObject())
+                            kvs[prop.Name] = prop.Value.GetString() ?? "";
+
+                        if (kvs.Count == 0)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "userStrings_empty" });
+                            skipped++; continue;
+                        }
+
+                        var idef = doc.InstanceDefinitions.Find(blockName);
+                        if (idef == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "not_found" });
+                            skipped++; continue;
+                        }
+
+                        var existingObjects = idef.GetObjects();
+                        var allGeometry = new List<GeometryBase>();
+                        var allAttributes = new List<ObjectAttributes>();
+
+                        for (int i = 0; i < existingObjects.Length; i++)
+                        {
+                            allGeometry.Add(existingObjects[i].Geometry.Duplicate());
+                            var attrs = existingObjects[i].Attributes.Duplicate();
+                            foreach (var kvp in kvs)
+                                attrs.SetUserString(kvp.Key, kvp.Value);
+                            allAttributes.Add(attrs);
+                        }
+
+                        bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                        if (modified) routed++;
+                        else
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "modify_failed" });
+                            skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = blockName ?? "unknown",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch set block object user strings failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// POST /block/set-object-names-batch - Batch set object name on all objects within multiple block definitions.
+        /// Each item assigns one name to ALL objects within that block definition (useful for tagging Revit family/type).
+        /// Body: { "items": [{ "name": "BlockName", "objectName": "W-BEAM-01" }, ...], "redraw": false }
+        /// </summary>
+        public ApiResponse SetBlockObjectNamesBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                    redraw = redrawEl.GetBoolean();
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Set Block Object Names");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? blockName = null;
+                    string? objName = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("name", out var nEl) || !item.TryGetProperty("objectName", out var oEl))
+                        { skipped++; continue; }
+                        blockName = nEl.GetString();
+                        objName = oEl.GetString() ?? "";
+                        if (string.IsNullOrEmpty(blockName))
+                        { skipped++; continue; }
+
+                        var idef = doc.InstanceDefinitions.Find(blockName);
+                        if (idef == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "not_found" });
+                            skipped++; continue;
+                        }
+
+                        var existingObjects = idef.GetObjects();
+                        var allGeometry = new List<GeometryBase>();
+                        var allAttributes = new List<ObjectAttributes>();
+
+                        for (int i = 0; i < existingObjects.Length; i++)
+                        {
+                            allGeometry.Add(existingObjects[i].Geometry.Duplicate());
+                            var attrs = existingObjects[i].Attributes.Duplicate();
+                            attrs.Name = objName;
+                            allAttributes.Add(attrs);
+                        }
+
+                        bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                        if (modified) routed++;
+                        else
+                        {
+                            errors.Add(new Dictionary<string, object> { ["name"] = blockName, ["error"] = "modify_failed" });
+                            skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = blockName ?? "unknown",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch set block object names failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
         /// POST /block/set-materials - Set material assignments of objects within a block definition.
         /// Body: { "name": "BlockName", "material": "MatName", "mappings": [{ "index": 0, "material": "OtherMat" }] }
         /// </summary>

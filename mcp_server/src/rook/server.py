@@ -1931,6 +1931,96 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_block_set_layers_batch",
+            description="Batch set layer assignments for multiple block definitions in one call.\nEach item routes all objects within a block definition to the specified target layer.\nSingle undo, compact summary response.\n\nExample: {\"items\": [{\"name\": \"Block A\", \"layer\": \"01-ARCHITECTURE::A-GLASS\"}, {\"name\": \"Block B\", \"layer\": \"01-ARCHITECTURE::S-STRUCTURE::S-BEAM\"}]}",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Block definition name"},
+                            "layer": {"type": "string", "description": "Target layer full path"}
+                        }, "required": ["name", "layer"]
+                    }, "description": "Array of {name, layer} pairs to route"},
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true). Set false when chaining multiple batches."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
+            name="rhino_block_set_materials_batch",
+            description="Batch set bulk material for multiple block definitions in one call.\nEach item assigns one material to ALL objects within that block definition.\nSingle undo, compact summary response.\n\nExample: {\"items\": [{\"name\": \"Block A\", \"material\": \"Concrete\"}, {\"name\": \"Block B\", \"material\": \"Steel\"}]}",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Block definition name"},
+                            "material": {"type": "string", "description": "Target material name (must exist in document)"}
+                        }, "required": ["name", "material"]
+                    }, "description": "Array of {name, material} pairs to assign"},
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true). Set false when chaining multiple batches."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
+            name="rhino_block_set_object_colors_batch",
+            description="Batch set bulk object color for multiple block definitions in one call.\nEach item assigns one RGB color to ALL objects within that block definition.\nSingle undo, compact summary response.\n\nExample: {\"items\": [{\"name\": \"Block A\", \"color\": [255, 0, 0]}, {\"name\": \"Block B\", \"color\": [0, 255, 0]}]}",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Block definition name"},
+                            "color": {"type": "array", "items": {"type": "integer"}, "description": "[r, g, b] values 0-255"}
+                        }, "required": ["name", "color"]
+                    }, "description": "Array of {name, color} pairs"},
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true)."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
+            name="rhino_block_set_object_user_strings_batch",
+            description="Batch stamp user strings on all objects within multiple block definitions.\nEach item applies its key/value map to every object in that block (useful for tagging Revit family/type).\nSingle undo, compact summary response.\n\nExample: {\"items\": [{\"name\": \"Block A\", \"userStrings\": {\"category\": \"structural\", \"family\": \"W-Beam\"}}]}",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Block definition name"},
+                            "userStrings": {"type": "object", "description": "Key/value map of user strings to stamp on every object"}
+                        }, "required": ["name", "userStrings"]
+                    }, "description": "Array of {name, userStrings} pairs"},
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true)."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
+            name="rhino_block_set_object_names_batch",
+            description="Batch set object name on all objects within multiple block definitions in one call.\nEach item assigns one name to ALL objects within that block (useful for tagging Revit family/type).\nSingle undo, compact summary response.\n\nExample: {\"items\": [{\"name\": \"Rectangular_Mullion_6x2\", \"objectName\": \"W-BEAM-01\"}]}",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Block definition name"},
+                            "objectName": {"type": "string", "description": "Object name to assign to every object in the block"}
+                        }, "required": ["name", "objectName"]
+                    }, "description": "Array of {name, objectName} pairs"},
+                    "redraw": {"type": "boolean", "description": "Redraw viewport after batch (default true)."}
+                },
+                "required": ["items"]
+            }
+        ),
+        Tool(
             name="rhino_block_set_materials",
             description="Set the material assignments of objects within a block definition. Use 'material' to set all objects to one material, or 'mappings' for per-object control. Mappings override the bulk material. Materials must exist in the document first (use rhino_material_ops to create them).",
             inputSchema={
@@ -2904,6 +2994,20 @@ Example:
                     "tolerance": {"type": "number", "description": "Split tolerance (optional)"}
                 },
                 "required": ["brepId", "faceIndex", "curveIds"]
+            }
+        ),
+
+        Tool(
+            name="rhino_split_disjoint_breps",
+            description="Separate disjoint Breps into individual connected components.\nCommon after Revit exports where multiple disconnected solids are packed into single polysurfaces.\nFilters: 'ids' for specific objects, 'layer' for a whole layer, or omit both for all Breps in document.\nReturns {split, created, skipped, candidates}. On partial failure also: addFailures (component add failed, original kept), deleteFailures (original delete failed after adds, adds rolled back), rollbackFailures (rollback itself failed — document may have duplicates).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {"type": "array", "items": {"type": "string"}, "description": "Optional: specific Brep GUIDs to check"},
+                    "layer": {"type": "string", "description": "Optional: only process Breps on this layer"},
+                    "redraw": {"type": "boolean", "description": "Redraw after split (default true)"}
+                },
+                "required": []
             }
         ),
 
@@ -8661,8 +8765,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         case "rhino_block_set_layers":
             result = await call_rhino("/block/set-layers", "POST", arguments)
 
+        case "rhino_block_set_layers_batch":
+            result = await call_rhino("/block/set-layers-batch", "POST", arguments)
+
         case "rhino_block_set_materials":
             result = await call_rhino("/block/set-materials", "POST", arguments)
+
+        case "rhino_block_set_materials_batch":
+            result = await call_rhino("/block/set-materials-batch", "POST", arguments)
 
         # Block Instance Properties (Phase 6)
         case "rhino_block_set_instance_properties":
@@ -8682,11 +8792,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         case "rhino_block_set_object_colors":
             result = await call_rhino("/block/set-object-colors", "POST", arguments)
 
+        case "rhino_block_set_object_colors_batch":
+            result = await call_rhino("/block/set-object-colors-batch", "POST", arguments)
+
         case "rhino_block_set_object_names":
             result = await call_rhino("/block/set-object-names", "POST", arguments)
 
+        case "rhino_block_set_object_names_batch":
+            result = await call_rhino("/block/set-object-names-batch", "POST", arguments)
+
         case "rhino_block_set_object_user_strings":
             result = await call_rhino("/block/set-object-user-strings", "POST", arguments)
+
+        case "rhino_block_set_object_user_strings_batch":
+            result = await call_rhino("/block/set-object-user-strings-batch", "POST", arguments)
 
         # Block Definition Metadata (Phase 9)
         case "rhino_block_user_strings":
@@ -9015,6 +9134,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_split_face":
             result = await call_rhino("/split/face", "POST", arguments)
+
+        case "rhino_split_disjoint_breps":
+            result = await call_rhino("/split/disjoint-breps", "POST", arguments)
 
         # SubD tools
         case "rhino_subd_box":

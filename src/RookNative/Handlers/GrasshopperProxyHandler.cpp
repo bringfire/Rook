@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 7;
+constexpr uint32_t kGhBridgeAbiVersion = 9;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -157,6 +157,13 @@ struct GhBridgeRegistration
     GhBridgeCallbackFn game_export_prepare = nullptr;
     GhBridgeCallbackFn gh_script_params = nullptr;
     GhBridgeCallbackFn gh_bake_output = nullptr;
+    // ABI v8: batch block operations
+    GhBridgeCallbackFn block_set_layers_batch = nullptr;
+    // ABI v9: more batch block operations
+    GhBridgeCallbackFn block_set_materials_batch = nullptr;
+    GhBridgeCallbackFn block_set_object_colors_batch = nullptr;
+    GhBridgeCallbackFn block_set_object_user_strings_batch = nullptr;
+    GhBridgeCallbackFn block_set_object_names_batch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -1336,10 +1343,22 @@ void HandleManagedBlockSetLayers(const httplib::Request& req, httplib::Response&
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-layers", registration.block_set_layers, true);
 }
 
+void HandleManagedBlockSetLayersBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-layers-batch", registration.block_set_layers_batch, true);
+}
+
 void HandleManagedBlockSetMaterials(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-materials", registration.block_set_materials, true);
+}
+
+void HandleManagedBlockSetMaterialsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-materials-batch", registration.block_set_materials_batch, true);
 }
 
 void HandleManagedBlockSetObjectColors(const httplib::Request& req, httplib::Response& res)
@@ -1348,10 +1367,28 @@ void HandleManagedBlockSetObjectColors(const httplib::Request& req, httplib::Res
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-colors", registration.block_set_object_colors, true);
 }
 
+void HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-colors-batch", registration.block_set_object_colors_batch, true);
+}
+
 void HandleManagedBlockSetObjectNames(const httplib::Request& req, httplib::Response& res)
 {
     const auto registration = GetGhBridgeRegistrationSnapshot();
     DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-names", registration.block_set_object_names, true);
+}
+
+void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-names-batch", registration.block_set_object_names_batch, true);
+}
+
+void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    DispatchManagedCompanionRouteOrProxy(req, res, "/block/set-object-user-strings-batch", registration.block_set_object_user_strings_batch, true);
 }
 
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res)
