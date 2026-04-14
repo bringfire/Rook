@@ -1082,114 +1082,36 @@ void HandleLayerSetProperties(const httplib::Request& req, httplib::Response& re
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Set Layer Properties");
 
-        const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
-        const int idx = layerRef.index;
+        // Route through the shared helper. The helper owns all validation,
+        // resolution, and the ModifyLayer call.
+        LayerMutationResult r = ApplyLayerPropertiesMutation(pDoc, name, props);
 
-        ON_Layer layerCopy = pDoc->m_layer_table[idx];
-        const ON_UUID layerId = layerCopy.Id();
-
-        // Rename (special — not in ApplyLayerProperties since it's name, not a display property)
-        if (props.contains("rename"))
+        // Preserve legacy single-target behavior: empty `set` is a successful
+        // no-op that returns the current (unchanged) layer snapshot. The batch
+        // route reports no_changes as a per-item skip; single-target doesn't.
+        if (!r.success && r.errorCode == "no_changes")
         {
-            std::string newName = props["rename"].get<std::string>();
-            ValidateNewLayerName(newName);
-
-            // Check for duplicate sibling: compute target full path and verify it doesn't exist
-            ON_UUID parentId = layerCopy.ParentLayerId();
-            // If reparent is also happening, use the new parent for collision check
-            if (props.contains("parent") && !props["parent"].is_null())
-            {
-                const ResolvedLayerRef newParentRef = ResolveLayerRef(pDoc, props["parent"].get<std::string>(), "parent");
-                parentId = pDoc->m_layer_table[newParentRef.index].Id();
-            }
-            else if (props.contains("parent") && props["parent"].is_null())
-            {
-                parentId = ON_nil_uuid;
-            }
-
-            std::string parentPath;
-            if (!ON_UuidIsNil(parentId))
-            {
-                // Find parent index to get its full path
-                for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-                {
-                    if (!pDoc->m_layer_table[i].IsDeleted() &&
-                        ON_UuidCompare(pDoc->m_layer_table[i].Id(), parentId) == 0)
-                    {
-                        ON_wString pp;
-                        pDoc->m_layer_table.GetLayerPathName(i, pp);
-                        parentPath = WideToUtf8(pp);
-                        break;
-                    }
-                }
-            }
-            const std::string targetFullPath = JoinLayerPath(parentPath, newName);
-            if (LayerExistsByFullPath(pDoc, targetFullPath))
-            {
-                // Allow if it's the same layer (no-op rename to same name)
-                if (targetFullPath != layerRef.fullPath)
-                    throw std::invalid_argument("Cannot rename: layer '" + targetFullPath + "' already exists");
-            }
-
-            layerCopy.SetName(Utf8ToWide(newName));
+            const ResolvedLayerRef layerRef = ResolveLayerRef(pDoc, name, "name");
+            pDoc->Redraw();
+            WriteResult wr;
+            wr.success = true;
+            wr.data = SerializeLayerAtIndex(pDoc, layerRef.index);
+            return wr;
         }
 
-        // Reparent
-        if (props.contains("parent"))
+        if (!r.success)
         {
-            if (props["parent"].is_null())
-            {
-                layerCopy.SetParentLayerId(ON_nil_uuid);
-            }
-            else
-            {
-                std::string parentName = props["parent"].get<std::string>();
-                const ResolvedLayerRef parentRef = ResolveLayerRef(pDoc, parentName, "parent");
-                ON_UUID newParentId = pDoc->m_layer_table[parentRef.index].Id();
-
-                // Cycle detection: walk up from proposed parent to root,
-                // verify the target layer is not an ancestor
-                if (ON_UuidCompare(newParentId, layerId) == 0)
-                    throw std::invalid_argument("Cannot reparent layer under itself");
-
-                ON_UUID walkId = newParentId;
-                while (!ON_UuidIsNil(walkId))
-                {
-                    // Find the layer with this ID
-                    bool found = false;
-                    for (int i = 0; i < pDoc->m_layer_table.LayerCount(); ++i)
-                    {
-                        const CRhinoLayer& walkLayer = pDoc->m_layer_table[i];
-                        if (walkLayer.IsDeleted()) continue;
-                        if (ON_UuidCompare(walkLayer.Id(), walkId) == 0)
-                        {
-                            walkId = walkLayer.ParentLayerId();
-                            if (ON_UuidCompare(walkId, layerId) == 0)
-                                throw std::invalid_argument(
-                                    "Cannot reparent: '" + parentName +
-                                    "' is a descendant of '" + name + "' (would create a cycle)");
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) break;
-                }
-
-                layerCopy.SetParentLayerId(newParentId);
-            }
+            // Any other failure raises; outer try/catch converts to SendError.
+            if (r.errorCode == "modify_failed")
+                throw std::runtime_error(r.errorMessage);
+            throw std::invalid_argument(r.errorMessage);
         }
-
-        // Apply all standard display/render properties
-        ApplyLayerProperties(layerCopy, props, pDoc);
-
-        if (!pDoc->m_layer_table.ModifyLayer(layerCopy, idx))
-            throw std::runtime_error("Failed to modify layer '" + name + "'");
 
         pDoc->Redraw();
 
         WriteResult wr;
         wr.success = true;
-        wr.data = SerializeLayerAtIndex(pDoc, idx);
+        wr.data = std::move(r.layerData);
         return wr;
     });
 
