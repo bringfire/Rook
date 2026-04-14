@@ -7,6 +7,7 @@
 #include "Handlers/SplitTrimHandler.h"
 #include "Infrastructure/UndoScope.h"
 #include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/LayerHelpers.h"
 #include "Infrastructure/WriteResult.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
@@ -531,6 +532,207 @@ void HandleSplitFace(const httplib::Request& req, httplib::Response& res)
     {
         CRookServer::SendError(res, ex.what());
     }
+}
+
+// POST /split/disjoint-breps
+// Separate disjoint Breps into connected components.
+// Filters: "ids" (array of GUIDs), "layer" (layer path), or omit both for all Breps.
+// Uses RhinoSeparateBreps from rhinoSdkUtilities.h — native SDK function.
+void HandleSplitDisjointBreps(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    // Fail fast on malformed filter input. A wrong-type 'ids' or 'layer' key
+    // must never silently fall through to the unfiltered whole-document path.
+    if (body.contains("ids") && !body["ids"].is_array())
+    {
+        CRookServer::SendError(res, "'ids' must be an array of GUID strings");
+        return;
+    }
+    if (body.contains("layer") && !body["layer"].is_string())
+    {
+        CRookServer::SendError(res, "'layer' must be a layer-path string");
+        return;
+    }
+    if (body.contains("redraw") && !body["redraw"].is_boolean())
+    {
+        CRookServer::SendError(res, "'redraw' must be a boolean");
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        // Determine filter mode (type-check already done above)
+        const bool hasIds = body.contains("ids");
+        const bool hasLayer = body.contains("layer");
+        const bool redraw = !body.contains("redraw") || body["redraw"].get<bool>();
+
+        int filterLayerIndex = -1;
+        if (hasLayer)
+        {
+            filterLayerIndex = Rook::Infrastructure::ResolveLayerRef(
+                pDoc, body["layer"].get<std::string>(), "layer").index;
+        }
+
+        // Use shared UUID validator for consistent error handling
+        std::vector<ON_UUID> filterIds;
+        if (hasIds)
+            filterIds = ParseUuids(body, "ids");
+
+        // Collect candidate Breps — active objects only, skip reference geometry
+        // Collect candidate UUIDs only — no raw pointers across mutations
+        std::vector<ON_UUID> candidateIds;
+
+        CRhinoObjectIterator it(*pDoc,
+            CRhinoObjectIterator::undeleted_objects,
+            CRhinoObjectIterator::active_objects);
+        for (const CRhinoObject* obj = it.First(); obj; obj = it.Next())
+        {
+            if (obj->ObjectType() != ON::brep_object)
+                continue;
+            if (hasIds)
+            {
+                bool found = false;
+                for (const auto& fid : filterIds)
+                    if (ON_UuidCompare(fid, obj->Attributes().m_uuid) == 0) { found = true; break; }
+                if (!found) continue;
+            }
+            if (hasLayer && obj->Attributes().m_layer_index != filterLayerIndex)
+                continue;
+
+            candidateIds.push_back(obj->Attributes().m_uuid);
+        }
+
+        UndoScope undo(pDoc, L"Split Disjoint Breps");
+
+        int splitCount = 0;
+        int createdCount = 0;
+        int skippedCount = 0;
+        int addFailures = 0;
+        int deleteFailures = 0;
+        int rollbackFailures = 0;
+
+        for (const auto& candId : candidateIds)
+        {
+            // Fresh lookup each iteration — safe across mutations
+            const CRhinoObject* rawObj = pDoc->LookupObject(candId);
+            if (!rawObj || rawObj->IsDeleted()) { ++skippedCount; continue; }
+
+            const CRhinoBrepObject* brepObj = CRhinoBrepObject::Cast(rawObj);
+            if (!brepObj) { ++skippedCount; continue; }
+
+            const ON_Brep* brep = brepObj->Brep();
+            if (!brep) { ++skippedCount; continue; }
+
+            ON_SimpleArray<ON_Brep*> pieces;
+            bool separated = RhinoSeparateBreps(*brep, pieces, nullptr);
+
+            if (!separated || pieces.Count() <= 1)
+            {
+                for (int i = 0; i < pieces.Count(); ++i)
+                    delete pieces[i];
+                ++skippedCount;
+                continue;
+            }
+
+            // Snapshot attributes before adding anything
+            ON_3dmObjectAttributes attrs = brepObj->Attributes();
+
+            // Add ALL connected components
+            std::vector<ON_UUID> addedIds;
+            bool allAddsSucceeded = true;
+            for (int i = 0; i < pieces.Count(); ++i)
+            {
+                if (pieces[i])
+                {
+                    CRhinoBrepObject* newObj = pDoc->AddBrepObject(*pieces[i], &attrs);
+                    if (newObj)
+                        addedIds.push_back(newObj->Attributes().m_uuid);
+                    else
+                        allAddsSucceeded = false;
+                    delete pieces[i];
+                    pieces[i] = nullptr;
+                }
+            }
+
+            // Only proceed if every component was added — otherwise attempt
+            // best-effort rollback. Rhino has no transactional object table, so
+            // rollback can itself fail; rollbackFailures tracks that case.
+            if (!allAddsSucceeded)
+            {
+                // Roll back any components that did get added
+                int rollbackOk = 0;
+                for (const auto& addedId : addedIds)
+                {
+                    const CRhinoObject* added = pDoc->LookupObject(addedId);
+                    if (added && pDoc->DeleteObject(CRhinoObjRef(added)))
+                        ++rollbackOk;
+                    else
+                        ++rollbackFailures;
+                }
+                ++addFailures;
+                continue;
+            }
+
+            // All components added — now delete the original
+            // Re-lookup original since adds may have mutated the table
+            const CRhinoObject* freshOriginal = pDoc->LookupObject(candId);
+            if (freshOriginal && pDoc->DeleteObject(CRhinoObjRef(freshOriginal)))
+            {
+                ++splitCount;
+                createdCount += static_cast<int>(addedIds.size());
+            }
+            else
+            {
+                // Delete failed — roll back all added components
+                for (const auto& addedId : addedIds)
+                {
+                    const CRhinoObject* added = pDoc->LookupObject(addedId);
+                    if (added && pDoc->DeleteObject(CRhinoObjRef(added)))
+                        ; // rolled back ok
+                    else
+                        ++rollbackFailures;
+                }
+                ++deleteFailures;
+            }
+        }
+
+        if (redraw)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        // Rollback failures mean the document may be in a duplicated partial
+        // state (new components were added AND the original was not deleted,
+        // or the best-effort cleanup of added components itself failed). That
+        // is not a success for the caller — surface it as a hard failure so
+        // the tool response signals "investigate the document" instead of 200.
+        wr.success = (rollbackFailures == 0);
+        wr.data["split"] = splitCount;
+        wr.data["created"] = createdCount;
+        wr.data["skipped"] = skippedCount;
+        wr.data["candidates"] = static_cast<int>(candidateIds.size());
+        if (addFailures > 0)
+            wr.data["addFailures"] = addFailures;
+        if (deleteFailures > 0)
+            wr.data["deleteFailures"] = deleteFailures;
+        if (rollbackFailures > 0)
+        {
+            wr.data["rollbackFailures"] = rollbackFailures;
+            wr.data["error"] = "rollback_failed: document may contain duplicated geometry; inspect split/created/rollbackFailures counts";
+        }
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
 }
 
 } // namespace Handlers
