@@ -742,6 +742,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/layers/properties", [this](const httplib::Request& req, httplib::Response& res) {
         HandleLayerSetProperties(req, res);
     });
+    m_server->Post("/layers/properties-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleLayerSetPropertiesBatch(req, res);
+    });
     m_server->Post("/layers/rename", [this](const httplib::Request& req, httplib::Response& res) {
         HandleLayerRename(req, res);
     });
@@ -1814,6 +1817,11 @@ void CRookServer::HandleLayerCurrent(const httplib::Request& req, httplib::Respo
 void CRookServer::HandleLayerSetProperties(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleLayerSetProperties(req, res);
+}
+
+void CRookServer::HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleLayerSetPropertiesBatch(req, res);
 }
 
 void CRookServer::HandleLayerRename(const httplib::Request& req, httplib::Response& res)
