@@ -463,6 +463,11 @@ void CRookServer::HandleManagedBlockReplaceObjectGeometry(const httplib::Request
     Rook::Handlers::HandleManagedBlockReplaceObjectGeometry(req, res);
 }
 
+void CRookServer::HandleManagedBlockReplaceObjectGeometryBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockReplaceObjectGeometryBatch(req, res);
+}
+
 void CRookServer::HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleManagedBlockTransformObject(req, res);
@@ -1224,6 +1229,11 @@ void CRookServer::RegisterRoutes()
     // Companion-backed: per-object geometry mutations (same category as set-layers family)
     m_server->Post("/block/replace-object-geometry", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockReplaceObjectGeometry(req, res);
+    });
+    // Companion-backed batch variant. Coalesces same-block items into one
+    // InstanceDefinitions.ModifyGeometry call per block; see design doc 2026-04-14.
+    m_server->Post("/block/replace-object-geometry-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockReplaceObjectGeometryBatch(req, res);
     });
     m_server->Post("/block/transform-object", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockTransformObject(req, res);
