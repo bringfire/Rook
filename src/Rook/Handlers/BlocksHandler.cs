@@ -3302,6 +3302,244 @@ namespace Rook.Handlers
         }
 
         /// <summary>
+        /// POST /block/transform-instance-batch - Apply incremental transforms to many
+        /// block instances in one call. Each item specifies an instance GUID and any
+        /// subset of {move, rotate, scale, mirror}. Composition order per item matches
+        /// the single-target tool: scale -> rotate -> move -> mirror, pivoted at the
+        /// current instance translation. Best-effort: a malformed item is skipped with
+        /// a structured error record, batch continues. Duplicate GUIDs apply in listed
+        /// order with the pivot re-read between items.
+        /// Body: { "items": [{ "id": "guid", "move": [...], ... }, ...], "redraw": false }
+        /// </summary>
+        public ApiResponse TransformInstanceBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                {
+                    if (redrawEl.ValueKind != JsonValueKind.True && redrawEl.ValueKind != JsonValueKind.False)
+                        return new ApiResponse { Success = false, Data = "'redraw' must be a boolean" };
+                    redraw = redrawEl.GetBoolean();
+                }
+
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object>>();
+
+                using var undo = new UndoScope(doc, "Batch Transform Instances");
+
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    string? recordedId = null;
+                    try
+                    {
+                        if (item.ValueKind != JsonValueKind.Object)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["id"] = "", ["error"] = "invalid_id" });
+                            skipped++;
+                            continue;
+                        }
+
+                        // ---- id validation
+                        if (!item.TryGetProperty("id", out var idEl) ||
+                            idEl.ValueKind != JsonValueKind.String ||
+                            !Guid.TryParse(idEl.GetString(), out var instanceGuid))
+                        {
+                            errors.Add(new Dictionary<string, object>
+                            {
+                                ["id"] = (item.TryGetProperty("id", out var rawId) && rawId.ValueKind == JsonValueKind.String)
+                                    ? (rawId.GetString() ?? "") : "",
+                                ["error"] = "invalid_id"
+                            });
+                            skipped++;
+                            continue;
+                        }
+                        recordedId = instanceGuid.ToString();
+
+                        // ---- lookup
+                        var rhinoObj = doc.Objects.FindId(instanceGuid);
+                        if (rhinoObj == null)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "not_found" });
+                            skipped++;
+                            continue;
+                        }
+                        if (!(rhinoObj is InstanceObject inst))
+                        {
+                            errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "not_instance" });
+                            skipped++;
+                            continue;
+                        }
+
+                        // ---- pivot re-read per item
+                        var currentXform = inst.InstanceXform;
+                        var pivot = new Point3d(currentXform.M03, currentXform.M13, currentXform.M23);
+
+                        var combinedXform = Transform.Identity;
+                        bool anyOp = false;
+
+                        // ---- scale (shared helper)
+                        if (item.TryGetProperty("scale", out var scaleEl))
+                        {
+                            if (!TryParseScaleOp(scaleEl, pivot, out var scaleXform, out _, out var scaleErr))
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = scaleErr ?? "invalid_scale" });
+                                skipped++;
+                                continue;
+                            }
+                            combinedXform = scaleXform * combinedXform;
+                            anyOp = true;
+                        }
+
+                        // ---- rotate
+                        if (item.TryGetProperty("rotate", out var rotEl))
+                        {
+                            if (rotEl.ValueKind != JsonValueKind.Number)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_rotate" });
+                                skipped++;
+                                continue;
+                            }
+                            double angleDeg = rotEl.GetDouble();
+                            var rotXform = Transform.Rotation(angleDeg * Math.PI / 180.0, Vector3d.ZAxis, pivot);
+                            combinedXform = rotXform * combinedXform;
+                            anyOp = true;
+                        }
+
+                        // ---- move
+                        if (item.TryGetProperty("move", out var moveEl))
+                        {
+                            if (moveEl.ValueKind != JsonValueKind.Array)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_move" });
+                                skipped++;
+                                continue;
+                            }
+                            var delta = new List<double>();
+                            bool moveBad = false;
+                            foreach (var e in moveEl.EnumerateArray())
+                            {
+                                if (e.ValueKind != JsonValueKind.Number) { moveBad = true; break; }
+                                delta.Add(e.GetDouble());
+                            }
+                            if (moveBad || delta.Count != 3)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_move" });
+                                skipped++;
+                                continue;
+                            }
+                            combinedXform = Transform.Translation(delta[0], delta[1], delta[2]) * combinedXform;
+                            anyOp = true;
+                        }
+
+                        // ---- mirror
+                        if (item.TryGetProperty("mirror", out var mirrorEl))
+                        {
+                            if (mirrorEl.ValueKind != JsonValueKind.Object ||
+                                !mirrorEl.TryGetProperty("normal", out var normalEl) ||
+                                !mirrorEl.TryGetProperty("origin", out var originEl) ||
+                                normalEl.ValueKind != JsonValueKind.Array ||
+                                originEl.ValueKind != JsonValueKind.Array)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_mirror" });
+                                skipped++;
+                                continue;
+                            }
+                            var normalVals = new List<double>();
+                            bool mirrorBad = false;
+                            foreach (var e in normalEl.EnumerateArray())
+                            {
+                                if (e.ValueKind != JsonValueKind.Number) { mirrorBad = true; break; }
+                                normalVals.Add(e.GetDouble());
+                            }
+                            var originVals = new List<double>();
+                            if (!mirrorBad)
+                            {
+                                foreach (var e in originEl.EnumerateArray())
+                                {
+                                    if (e.ValueKind != JsonValueKind.Number) { mirrorBad = true; break; }
+                                    originVals.Add(e.GetDouble());
+                                }
+                            }
+                            if (mirrorBad || normalVals.Count != 3 || originVals.Count != 3)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_mirror" });
+                                skipped++;
+                                continue;
+                            }
+                            if (normalVals[0] == 0.0 && normalVals[1] == 0.0 && normalVals[2] == 0.0)
+                            {
+                                errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "invalid_mirror" });
+                                skipped++;
+                                continue;
+                            }
+                            var mirrorPlane = new Plane(
+                                new Point3d(originVals[0], originVals[1], originVals[2]),
+                                new Vector3d(normalVals[0], normalVals[1], normalVals[2]));
+                            combinedXform = Transform.Mirror(mirrorPlane) * combinedXform;
+                            anyOp = true;
+                        }
+
+                        if (!anyOp)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "no_ops" });
+                            skipped++;
+                            continue;
+                        }
+
+                        // ---- apply
+                        if (doc.Objects.Transform(instanceGuid, combinedXform, true) == Guid.Empty)
+                        {
+                            errors.Add(new Dictionary<string, object> { ["id"] = recordedId, ["error"] = "transform_failed" });
+                            skipped++;
+                            continue;
+                        }
+                        routed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add(new Dictionary<string, object>
+                        {
+                            ["id"] = recordedId ?? "",
+                            ["error"] = "exception",
+                            ["message"] = ex.Message
+                        });
+                        skipped++;
+                    }
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = itemsEl.GetArrayLength()
+                };
+                if (errors.Count > 0)
+                    result["errors"] = errors;
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch transform instances failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
         /// POST /block/array-instances - Create a linear or circular array of block instances.
         /// Linear: { "name": "BlockName", "count": 5, "direction": [10, 0, 0] }
         /// Circular: { "name": "BlockName", "count": 8, "center": [0, 0, 0], "radius": 10, "startAngle": 0, "endAngle": 360 }
