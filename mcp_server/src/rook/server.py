@@ -2099,9 +2099,9 @@ Examples:
                 "Best-effort semantics: a malformed item is skipped with a structured error record; "
                 "batch continues. Error codes: invalid_id, not_found, not_instance, invalid_move, "
                 "invalid_rotate, invalid_scale, invalid_mirror, no_ops, transform_failed, exception.\n\n"
-                "Duplicate-GUID behavior: doc.Objects.Transform deletes the original and emits a new "
-                "GUID on success. Repeating the same original GUID in items[] yields not_found on "
-                "iteration 2. To apply multiple transforms to one instance, compose them in a single item.\n\n"
+                "Duplicate-GUID behavior: GUIDs are preserved across instance transforms (verified live). "
+                "Repeating the same GUID in items[] causes transforms to accumulate — e.g. move [10,0,0] "
+                "twice produces a net +20 on X. Pivot is re-read between items.\n\n"
                 "Returns compact summary {routed, skipped, total, errors[]}. Position readback not included."
             ),
             inputSchema={

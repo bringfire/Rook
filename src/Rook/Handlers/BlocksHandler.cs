@@ -3309,14 +3309,13 @@ namespace Rook.Handlers
         /// current instance translation. Best-effort: a malformed item is skipped with
         /// a structured error record, batch continues.
         ///
-        /// Duplicate-GUID behavior (batch-specific): doc.Objects.Transform(guid, xform,
-        /// deleteOriginal: true) deletes the original and emits a new GUID on success.
-        /// If the same GUID appears twice in items[], iteration 2 will resolve
-        /// "not_found" because the original no longer exists. To apply multiple
-        /// transforms to one instance, either compose them into a single item's
-        /// move/rotate/scale/mirror combo, or call batch twice with the new GUID.
-        /// This matches the lifecycle of the native single-target route
-        /// (/block/transform-instance), which returns the replacement GUID.
+        /// Duplicate-GUID behavior: GUIDs are preserved across instance transforms
+        /// (empirically verified against both the companion batch path and the native
+        /// single-target path, which explicitly copies the original ObjectAttributes
+        /// including m_uuid when recreating the instance). Consequently, if the same
+        /// GUID appears twice in items[], both iterations apply and transforms
+        /// accumulate against the current state. The pivot is re-read between items,
+        /// so e.g. the same GUID with move [10,0,0] twice produces a net +20 on X.
         ///
         /// Body: { "items": [{ "id": "guid", "move": [...], ... }, ...], "redraw": false }
         /// </summary>
