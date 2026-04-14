@@ -5013,6 +5013,277 @@ namespace Rook.Handlers
             return entry;
         }
 
+        // ---- Transform-object shared helpers (used by single-target and batch) ----
+        //
+        // IMPORTANT: TryParseTransformSpec is LOOSE on zero-scale (factor: 0 and scale3d
+        // components of 0 are accepted at parse phase) to preserve single-target wire
+        // parity. Do NOT reuse TryParseScaleOp here — it serves the TransformInstance
+        // family, operates on a different scale shape (scalar-or-3-array), and rejects
+        // zero as invalid_scale. Swapping helpers would silently tighten the public
+        // contract for rhino_block_transform_object. Any future tightening here must be
+        // opt-in (pattern: strictDeleteFlag in PR #21), never a silent change.
+
+        private enum TransformItemShapeError
+        {
+            None,
+            InvalidName,
+            InvalidIndices,
+            InvalidTransform,
+            InvalidTransformType,
+            InvalidMove,
+            InvalidRotate,
+            InvalidScale,
+            InvalidScale3d,
+        }
+
+        private readonly struct TransformItemShape
+        {
+            public readonly string Name;
+            public readonly HashSet<int> Indices;   // deduped; serialize ascending for API stability
+            public readonly Transform Xform;
+            public readonly string XformType;       // lower-invariant; echoed in single-target response
+
+            public TransformItemShape(string name, HashSet<int> indices, Transform xform, string xformType)
+            {
+                Name = name;
+                Indices = indices;
+                Xform = xform;
+                XformType = xformType;
+            }
+        }
+
+        // Parse transform spec into a Transform. Loose on zero-scale by design.
+        private static TransformItemShapeError TryParseTransformSpec(
+            JsonElement xformEl,
+            out Transform xform,
+            out string xformType,
+            out string? errorMessage)
+        {
+            xform = Transform.Identity;
+            xformType = "";
+            errorMessage = null;
+
+            if (xformEl.ValueKind != JsonValueKind.Object)
+            {
+                errorMessage = "transform object required";
+                return TransformItemShapeError.InvalidTransform;
+            }
+
+            if (!xformEl.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
+            {
+                errorMessage = "transform.type required (string)";
+                return TransformItemShapeError.InvalidTransformType;
+            }
+            xformType = typeEl.GetString()?.ToLowerInvariant() ?? "";
+
+            switch (xformType)
+            {
+                case "move":
+                {
+                    if (!TryReadOptionalNumber(xformEl, "x", out double x, out errorMessage)
+                        || !TryReadOptionalNumber(xformEl, "y", out double y, out errorMessage)
+                        || !TryReadOptionalNumber(xformEl, "z", out double z, out errorMessage))
+                    {
+                        return TransformItemShapeError.InvalidMove;
+                    }
+                    xform = Transform.Translation(x, y, z);
+                    return TransformItemShapeError.None;
+                }
+                case "rotate":
+                {
+                    if (!xformEl.TryGetProperty("angle", out var angleEl) || angleEl.ValueKind != JsonValueKind.Number)
+                    {
+                        errorMessage = "rotate.angle required (number, degrees)";
+                        return TransformItemShapeError.InvalidRotate;
+                    }
+                    double angleRad = angleEl.GetDouble() * Math.PI / 180.0;
+
+                    if (!TryReadVector3d(xformEl, "axis", Vector3d.ZAxis, out Vector3d axis, out errorMessage))
+                        return TransformItemShapeError.InvalidRotate;
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidRotate;
+
+                    xform = Transform.Rotation(angleRad, axis, center);
+                    return TransformItemShapeError.None;
+                }
+                case "scale":
+                {
+                    if (!xformEl.TryGetProperty("factor", out var factorEl) || factorEl.ValueKind != JsonValueKind.Number)
+                    {
+                        errorMessage = "scale.factor required (number)";
+                        return TransformItemShapeError.InvalidScale;
+                    }
+                    double factor = factorEl.GetDouble();
+                    // Zero factor is accepted (loose parity with single-target). Runtime outcome
+                    // depends on geom.Transform for the chosen geometry.
+
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidScale;
+
+                    xform = Transform.Scale(center, factor);
+                    return TransformItemShapeError.None;
+                }
+                case "scale3d":
+                {
+                    if (!TryReadOptionalNumber(xformEl, "x", out double sx, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    if (!TryReadOptionalNumber(xformEl, "y", out double sy, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    if (!TryReadOptionalNumber(xformEl, "z", out double sz, out errorMessage, defaultValue: 1.0))
+                        return TransformItemShapeError.InvalidScale3d;
+                    // Zero components accepted (loose parity with single-target).
+
+                    if (!TryReadPoint3d(xformEl, "center", Point3d.Origin, out Point3d center, out errorMessage))
+                        return TransformItemShapeError.InvalidScale3d;
+
+                    var plane = new Plane(center, Vector3d.XAxis, Vector3d.YAxis);
+                    xform = Transform.Scale(plane, sx, sy, sz);
+                    return TransformItemShapeError.None;
+                }
+                default:
+                    errorMessage = $"Unknown transform type '{xformType}'. Supported: move, rotate, scale, scale3d";
+                    return TransformItemShapeError.InvalidTransformType;
+            }
+        }
+
+        // Returns true if absent or numeric. On non-numeric present, sets errorMessage and returns false.
+        private static bool TryReadOptionalNumber(JsonElement parent, string name, out double value, out string? errorMessage, double defaultValue = 0.0)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} must be a number";
+                return false;
+            }
+            value = el.GetDouble();
+            return true;
+        }
+
+        private static bool TryReadPoint3d(JsonElement parent, string name, Point3d defaultValue, out Point3d value, out string? errorMessage)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Array)
+            {
+                errorMessage = $"{name} must be a 3-element numeric array";
+                return false;
+            }
+            var arr = el.EnumerateArray().ToArray();
+            if (arr.Length < 3 || arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number || arr[2].ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} must be a 3-element numeric array";
+                return false;
+            }
+            value = new Point3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
+            return true;
+        }
+
+        private static bool TryReadVector3d(JsonElement parent, string name, Vector3d defaultValue, out Vector3d value, out string? errorMessage)
+        {
+            value = defaultValue;
+            errorMessage = null;
+            if (!parent.TryGetProperty(name, out var el)) return true;
+            if (el.ValueKind != JsonValueKind.Array)
+            {
+                errorMessage = $"{name} must be a 3-element numeric array";
+                return false;
+            }
+            var arr = el.EnumerateArray().ToArray();
+            if (arr.Length < 3 || arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number || arr[2].ValueKind != JsonValueKind.Number)
+            {
+                errorMessage = $"{name} must be a 3-element numeric array";
+                return false;
+            }
+            value = new Vector3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
+            return true;
+        }
+
+        // Parse one item's {name, indices[], transform} into shape record.
+        // Dedupes indices via HashSet<int>. Caller serializes ascending for wire stability.
+        private static TransformItemShapeError TryParseTransformItemShape(
+            JsonElement itemEl,
+            out TransformItemShape shape,
+            out string? errorMessage)
+        {
+            shape = default;
+            errorMessage = null;
+
+            if (itemEl.ValueKind != JsonValueKind.Object)
+            {
+                errorMessage = "Item must be a JSON object";
+                return TransformItemShapeError.InvalidName;
+            }
+
+            string? blockName = null;
+            if (itemEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+                blockName = nameEl.GetString();
+            if (string.IsNullOrEmpty(blockName))
+            {
+                errorMessage = "Block name required";
+                return TransformItemShapeError.InvalidName;
+            }
+
+            if (!itemEl.TryGetProperty("indices", out var indicesEl) || indicesEl.ValueKind != JsonValueKind.Array)
+            {
+                errorMessage = "indices array required";
+                return TransformItemShapeError.InvalidIndices;
+            }
+            var deduped = new HashSet<int>();
+            foreach (var idx in indicesEl.EnumerateArray())
+            {
+                if (idx.ValueKind != JsonValueKind.Number || !idx.TryGetInt32(out int iv))
+                {
+                    errorMessage = "indices must be integers";
+                    return TransformItemShapeError.InvalidIndices;
+                }
+                deduped.Add(iv);
+            }
+            if (deduped.Count == 0)
+            {
+                errorMessage = "At least one index required";
+                return TransformItemShapeError.InvalidIndices;
+            }
+
+            if (!itemEl.TryGetProperty("transform", out var xformEl))
+            {
+                errorMessage = "transform object required";
+                return TransformItemShapeError.InvalidTransform;
+            }
+
+            var specErr = TryParseTransformSpec(xformEl, out Transform xform, out string xformType, out errorMessage);
+            if (specErr != TransformItemShapeError.None)
+                return specErr;
+
+            shape = new TransformItemShape(blockName!, deduped, xform, xformType);
+            return TransformItemShapeError.None;
+        }
+
+        // Validate deduped index set against a fixed snapshot. Returns the first out-of-range index.
+        private static bool TryValidateItemIndicesAgainstSnapshot(
+            RhinoObject[] existingObjects,
+            HashSet<int> indices,
+            out int offendingIndex,
+            out string? errorMessage)
+        {
+            errorMessage = null;
+            offendingIndex = 0;
+            foreach (int idx in indices)
+            {
+                if (idx < 0 || idx >= existingObjects.Length)
+                {
+                    offendingIndex = idx;
+                    errorMessage = $"Object index {idx} out of range (block has {existingObjects.Length} objects)";
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /// <summary>
         /// POST /block/transform-object - Transform objects within a block definition by index.
         /// Body: { "name": "BlockA", "indices": [0, 2], "transform": { "type": "move", "x": 5, "y": 0, "z": 0 } }
@@ -5034,127 +5305,23 @@ namespace Rook.Handlers
                 }
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
-                var blockName = request.GetProperty("name").GetString();
-                if (string.IsNullOrEmpty(blockName))
+
+                var shapeErr = TryParseTransformItemShape(request, out var shape, out var shapeMsg);
+                if (shapeErr != TransformItemShapeError.None)
                 {
-                    return new ApiResponse { Success = false, Data = "Block name required" };
+                    return new ApiResponse { Success = false, Data = shapeMsg ?? "Invalid request" };
                 }
 
-                if (!request.TryGetProperty("indices", out var indicesEl) || indicesEl.ValueKind != JsonValueKind.Array)
-                {
-                    return new ApiResponse { Success = false, Data = "indices array required" };
-                }
-
-                var indices = new HashSet<int>();
-                foreach (var idx in indicesEl.EnumerateArray())
-                {
-                    if (idx.ValueKind != JsonValueKind.Number)
-                    {
-                        return new ApiResponse { Success = false, Data = "indices must be integers" };
-                    }
-                    indices.Add(idx.GetInt32());
-                }
-
-                if (indices.Count == 0)
-                {
-                    return new ApiResponse { Success = false, Data = "At least one index required" };
-                }
-
-                if (!request.TryGetProperty("transform", out var xformEl) || xformEl.ValueKind != JsonValueKind.Object)
-                {
-                    return new ApiResponse { Success = false, Data = "transform object required" };
-                }
-
-                var xformType = xformEl.GetProperty("type").GetString()?.ToLowerInvariant();
-
-                var idef = doc.InstanceDefinitions.Find(blockName);
+                var idef = doc.InstanceDefinitions.Find(shape.Name);
                 if (idef == null)
                 {
-                    return new ApiResponse { Success = false, Data = $"Block definition '{blockName}' not found" };
+                    return new ApiResponse { Success = false, Data = $"Block definition '{shape.Name}' not found" };
                 }
 
                 var existingObjects = idef.GetObjects();
-
-                // Validate all indices before mutation
-                foreach (int idx in indices)
+                if (!TryValidateItemIndicesAgainstSnapshot(existingObjects, shape.Indices, out int _, out string? resMsg))
                 {
-                    if (idx < 0 || idx >= existingObjects.Length)
-                    {
-                        return new ApiResponse { Success = false, Data = $"Object index {idx} out of range (block has {existingObjects.Length} objects)" };
-                    }
-                }
-
-                // Build the transform
-                Transform xform;
-                switch (xformType)
-                {
-                    case "move":
-                    {
-                        double x = xformEl.TryGetProperty("x", out var xp) ? xp.GetDouble() : 0;
-                        double y = xformEl.TryGetProperty("y", out var yp) ? yp.GetDouble() : 0;
-                        double z = xformEl.TryGetProperty("z", out var zp) ? zp.GetDouble() : 0;
-                        xform = Transform.Translation(x, y, z);
-                        break;
-                    }
-                    case "rotate":
-                    {
-                        double angleDeg = xformEl.GetProperty("angle").GetDouble();
-                        double angleRad = angleDeg * Math.PI / 180.0;
-
-                        Vector3d axis = Vector3d.ZAxis;
-                        if (xformEl.TryGetProperty("axis", out var axisEl) && axisEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var axisArr = axisEl.EnumerateArray().ToArray();
-                            if (axisArr.Length >= 3)
-                                axis = new Vector3d(axisArr[0].GetDouble(), axisArr[1].GetDouble(), axisArr[2].GetDouble());
-                        }
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        xform = Transform.Rotation(angleRad, axis, center);
-                        break;
-                    }
-                    case "scale":
-                    {
-                        double factor = xformEl.GetProperty("factor").GetDouble();
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        xform = Transform.Scale(center, factor);
-                        break;
-                    }
-                    case "scale3d":
-                    {
-                        double sx = xformEl.TryGetProperty("x", out var sxp) ? sxp.GetDouble() : 1;
-                        double sy = xformEl.TryGetProperty("y", out var syp) ? syp.GetDouble() : 1;
-                        double sz = xformEl.TryGetProperty("z", out var szp) ? szp.GetDouble() : 1;
-
-                        Point3d center = Point3d.Origin;
-                        if (xformEl.TryGetProperty("center", out var centerEl) && centerEl.ValueKind == JsonValueKind.Array)
-                        {
-                            var centerArr = centerEl.EnumerateArray().ToArray();
-                            if (centerArr.Length >= 3)
-                                center = new Point3d(centerArr[0].GetDouble(), centerArr[1].GetDouble(), centerArr[2].GetDouble());
-                        }
-
-                        var plane = new Plane(center, Vector3d.XAxis, Vector3d.YAxis);
-                        xform = Transform.Scale(plane, sx, sy, sz);
-                        break;
-                    }
-                    default:
-                        return new ApiResponse { Success = false, Data = $"Unknown transform type '{xformType}'. Supported: move, rotate, scale, scale3d" };
+                    return new ApiResponse { Success = false, Data = resMsg ?? "Invalid request" };
                 }
 
                 var allGeometry = new List<GeometryBase>();
@@ -5164,9 +5331,9 @@ namespace Rook.Handlers
                 for (int i = 0; i < existingObjects.Length; i++)
                 {
                     var geom = existingObjects[i].Geometry.Duplicate();
-                    if (indices.Contains(i))
+                    if (shape.Indices.Contains(i))
                     {
-                        if (!geom.Transform(xform))
+                        if (!geom.Transform(shape.Xform))
                         {
                             failedIndices.Add(i);
                         }
@@ -5180,7 +5347,7 @@ namespace Rook.Handlers
                     return new ApiResponse
                     {
                         Success = false,
-                        Data = $"Transform failed for object(s) at index {string.Join(", ", failedIndices)}. No changes applied."
+                        Data = $"Transform failed for object(s) at index {string.Join(", ", failedIndices.OrderBy(i => i))}. No changes applied."
                     };
                 }
 
@@ -5189,7 +5356,7 @@ namespace Rook.Handlers
 
                 if (!modified)
                 {
-                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{blockName}'" };
+                    return new ApiResponse { Success = false, Data = $"Failed to modify block '{shape.Name}'" };
                 }
 
                 doc.Views.Redraw();
@@ -5199,10 +5366,10 @@ namespace Rook.Handlers
                     Success = true,
                     Data = new Dictionary<string, object>
                     {
-                        ["blockName"] = blockName,
+                        ["blockName"] = shape.Name,
                         ["objectCount"] = existingObjects.Length,
-                        ["transformedIndices"] = indices.OrderBy(i => i).ToArray(),
-                        ["transformType"] = xformType ?? ""
+                        ["transformedIndices"] = shape.Indices.OrderBy(i => i).ToArray(),
+                        ["transformType"] = shape.XformType
                     }
                 };
             }
