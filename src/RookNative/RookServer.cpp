@@ -473,6 +473,11 @@ void CRookServer::HandleManagedBlockTransformObject(const httplib::Request& req,
     Rook::Handlers::HandleManagedBlockTransformObject(req, res);
 }
 
+void CRookServer::HandleManagedBlockTransformObjectBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleManagedBlockTransformObjectBatch(req, res);
+}
+
 void CRookServer::HandleBlockFindInstancesRoute(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleBlockFindInstances(req, res);
@@ -1237,6 +1242,12 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/block/transform-object", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockTransformObject(req, res);
+    });
+    // Companion-backed batch variant. Coalesces same-block items into one
+    // InstanceDefinitions.ModifyGeometry call per block; see design doc
+    // 2026-04-14-block-transform-object-batch-design.md.
+    m_server->Post("/block/transform-object-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleManagedBlockTransformObjectBatch(req, res);
     });
     m_server->Post("/block/find-instances", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockFindInstancesRoute(req, res);
