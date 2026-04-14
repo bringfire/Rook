@@ -1310,16 +1310,19 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
                 bool redraw = true;
-                if (request.TryGetProperty("redraw", out var redrawEl))
+                if (request.TryGetProperty("redraw", out var redrawEl) &&
+                    (redrawEl.ValueKind == JsonValueKind.True || redrawEl.ValueKind == JsonValueKind.False))
                     redraw = redrawEl.GetBoolean();
 
-                // Pre-resolve unique layer names
+                // Pre-resolve unique layer names. Skip malformed items silently here —
+                // the main loop records them as skipped so callers still get a summary
+                // instead of the whole batch aborting on a single bad entry.
                 var layerCache = new Dictionary<string, int>();
                 var badLayers = new HashSet<string>();
                 foreach (var item in itemsEl.EnumerateArray())
                 {
                     if (item.ValueKind != JsonValueKind.Object) continue;
-                    if (!item.TryGetProperty("layer", out var lEl)) continue;
+                    if (!item.TryGetProperty("layer", out var lEl) || lEl.ValueKind != JsonValueKind.String) continue;
                     var layerName = lEl.GetString();
                     if (string.IsNullOrEmpty(layerName) || layerCache.ContainsKey(layerName) || badLayers.Contains(layerName))
                         continue;
@@ -1439,16 +1442,19 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
                 bool redraw = true;
-                if (request.TryGetProperty("redraw", out var redrawEl))
+                if (request.TryGetProperty("redraw", out var redrawEl) &&
+                    (redrawEl.ValueKind == JsonValueKind.True || redrawEl.ValueKind == JsonValueKind.False))
                     redraw = redrawEl.GetBoolean();
 
-                // Pre-resolve unique material names
+                // Pre-resolve unique material names. Skip malformed items silently here —
+                // the main loop records them as skipped so callers still get a summary
+                // instead of the whole batch aborting on a single bad entry.
                 var matCache = new Dictionary<string, int>();
                 var badMaterials = new HashSet<string>();
                 foreach (var item in itemsEl.EnumerateArray())
                 {
                     if (item.ValueKind != JsonValueKind.Object) continue;
-                    if (!item.TryGetProperty("material", out var mEl)) continue;
+                    if (!item.TryGetProperty("material", out var mEl) || mEl.ValueKind != JsonValueKind.String) continue;
                     var matName = mEl.GetString();
                     if (string.IsNullOrEmpty(matName) || matCache.ContainsKey(matName) || badMaterials.Contains(matName))
                         continue;
@@ -1568,7 +1574,8 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
                 bool redraw = true;
-                if (request.TryGetProperty("redraw", out var redrawEl))
+                if (request.TryGetProperty("redraw", out var redrawEl) &&
+                    (redrawEl.ValueKind == JsonValueKind.True || redrawEl.ValueKind == JsonValueKind.False))
                     redraw = redrawEl.GetBoolean();
 
                 int routed = 0, skipped = 0;
@@ -1678,7 +1685,8 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
                 bool redraw = true;
-                if (request.TryGetProperty("redraw", out var redrawEl))
+                if (request.TryGetProperty("redraw", out var redrawEl) &&
+                    (redrawEl.ValueKind == JsonValueKind.True || redrawEl.ValueKind == JsonValueKind.False))
                     redraw = redrawEl.GetBoolean();
 
                 int routed = 0, skipped = 0;
@@ -1790,7 +1798,8 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
                 bool redraw = true;
-                if (request.TryGetProperty("redraw", out var redrawEl))
+                if (request.TryGetProperty("redraw", out var redrawEl) &&
+                    (redrawEl.ValueKind == JsonValueKind.True || redrawEl.ValueKind == JsonValueKind.False))
                     redraw = redrawEl.GetBoolean();
 
                 int routed = 0, skipped = 0;
