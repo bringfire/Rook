@@ -764,6 +764,86 @@ def _build_route_table() -> dict[str, RouteSpec]:
         description="Batch apply incremental transforms to block instances; per-item {id, ...}",
     )
 
+    # Historical block tools — coverage expansion to close the substrate gap
+    # that pre-dates the batch-tools work. Same scope discipline as the prior
+    # intent-runtime PR: only routes that fit cleanly under the current
+    # validate_params() model (required-field check only) are exposed here.
+    # Tools with multi-shape XOR (block_array_instances / rebase / rebase_recursive
+    # / set_instance_properties / user_strings) and the bulk-shape variants of
+    # set_block_materials / colors / user_strings / instance_visibility are
+    # documented as router-deferred in
+    # rook_docs/2026-04-14-intent-runtime-followups.md and remain MCP-direct
+    # callable. The architectural fix (RouteSpec.requires_one_of) unblocks them.
+    #
+    # set_block_instance_visibility: only the single-id shape is exposed (the
+    # bulk `ids` shape is the same XOR pattern). Same precedent as the bulk-
+    # only routes from PR #18.
+    routes["purge_blocks"] = RouteSpec(
+        endpoint="/block/purge",
+        optional_params=("unused", "deleted"),
+        description="Purge unused or deleted block definitions",
+    )
+    routes["replace_block_geometry"] = RouteSpec(
+        endpoint="/block/replace-geometry",
+        required_params=("name", "ids"),
+        optional_params=("deleteOriginals",),
+        description="Replace a block definition's full geometry with one or more document objects",
+    )
+    routes["replace_block_object_geometry"] = RouteSpec(
+        endpoint="/block/replace-object-geometry",
+        required_params=("name", "index", "sourceId"),
+        optional_params=("deleteOriginal",),
+        description="Replace a single object within a block definition (by index) with a document object",
+    )
+    routes["transform_block_object"] = RouteSpec(
+        endpoint="/block/transform-object",
+        required_params=("name", "indices", "transform"),
+        description="Transform (move/rotate/scale) objects within a block definition by index",
+    )
+    routes["replace_block_instance"] = RouteSpec(
+        endpoint="/block/replace-instance",
+        required_params=("instanceId", "newBlockName"),
+        description="Swap a block instance's definition (e.g., RAILING WEST 2 → RAILING WEST)",
+    )
+    routes["reset_block_instance_scale"] = RouteSpec(
+        endpoint="/block/reset-scale",
+        required_params=("id",),
+        optional_params=("mode",),
+        description="Reset a block instance's scale to 1.0",
+    )
+    routes["link_block"] = RouteSpec(
+        endpoint="/block/link",
+        required_params=("path", "name"),
+        optional_params=("updateType", "insertionPoint"),
+        description="Link a block definition to an external file",
+    )
+    routes["unlink_block"] = RouteSpec(
+        endpoint="/block/unlink",
+        required_params=("name",),
+        description="Unlink a block definition from its external file",
+    )
+    routes["refresh_block"] = RouteSpec(
+        endpoint="/block/refresh",
+        required_params=("name",),
+        description="Refresh a linked block definition from its external file",
+    )
+    routes["find_block_instances"] = RouteSpec(
+        endpoint="/block/find-instances",
+        optional_params=("name", "layer", "namePattern", "bbox"),
+        description="Find block instances matching name, layer, name pattern, or bbox filter",
+    )
+    routes["block_objects_detailed"] = RouteSpec(
+        endpoint="/block/objects-detailed",
+        required_params=("name",),
+        optional_params=("geometry",),
+        description="Get detailed object info (id, type, layer, material, color, bbox, user strings) within a block definition",
+    )
+    routes["set_block_instance_visibility"] = RouteSpec(
+        endpoint="/block/set-instance-visibility",
+        required_params=("id", "visible"),
+        description="Set visibility on a single block instance (router covers single-id path only; bulk `ids` shape stays MCP-direct)",
+    )
+
     # === Group operations ===
     routes["create_group"] = RouteSpec(
         endpoint="/group",
@@ -938,6 +1018,13 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "set_block_object_user_strings", "set_block_object_user_strings_batch",
         "set_block_object_names", "set_block_object_names_batch",
         "transform_block_instance", "transform_block_instance_batch",
+        "purge_blocks",
+        "replace_block_geometry", "replace_block_object_geometry",
+        "transform_block_object",
+        "replace_block_instance", "reset_block_instance_scale",
+        "link_block", "unlink_block", "refresh_block",
+        "find_block_instances", "block_objects_detailed",
+        "set_block_instance_visibility",
     ),
     "groups": ("create_group", "ungroup"),
     "materials": (
