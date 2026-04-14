@@ -96,6 +96,7 @@ private:
     void HandleManagedBlockSetObjectColorsBatch(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res);
     void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res);
+    void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res);
     void HandleBlockSetInstancePropertiesRoute(const httplib::Request& req, httplib::Response& res);
     void HandleBlockSetInstanceVisibilityRoute(const httplib::Request& req, httplib::Response& res);
     void HandleBlockTransformInstanceRoute(const httplib::Request& req, httplib::Response& res);
