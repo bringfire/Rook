@@ -113,6 +113,7 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_layer_lock": "Lock or unlock a layer",
     "rhino_layer_current": "Set the current active layer",
     "rhino_layer_set_properties": "Set any combination of layer properties (rename, reparent, color, plotColor, plotWeight, linetype, material, visible, locked)",
+    "rhino_layer_set_properties_batch": "Best-effort batch of set-properties across many layers in one undo step. Items are {name, set} with the single-target set shape; structured per-item errors on failure.",
     "rhino_layer_rename": "Rename a layer",
     "rhino_layer_move_objects": "Move all objects from one layer to another",
     "rhino_layer_merge": "Move objects from source to target layer, then delete source",
