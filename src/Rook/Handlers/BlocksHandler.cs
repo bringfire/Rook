@@ -5161,21 +5161,27 @@ namespace Rook.Handlers
             return true;
         }
 
+        // Match pre-refactor loose behavior for axis/center overrides exactly:
+        //   absent         -> silent default
+        //   non-array      -> silent default (old inline code only entered the branch on ValueKind == Array)
+        //   short array    -> silent default (old inline code only applied override when arr.Length >= 3)
+        //   long-enough array with non-numeric element(s) -> error. Pre-refactor the .GetDouble()
+        //     would have thrown and been caught by the outer try/catch as "Transform block object
+        //     failed: ...". Surfacing as invalid_rotate / invalid_scale / invalid_scale3d is the
+        //     same class of exception-path cleanup PR #21 established.
         private static bool TryReadPoint3d(JsonElement parent, string name, Point3d defaultValue, out Point3d value, out string? errorMessage)
         {
             value = defaultValue;
             errorMessage = null;
             if (!parent.TryGetProperty(name, out var el)) return true;
-            if (el.ValueKind != JsonValueKind.Array)
-            {
-                errorMessage = $"{name} must be a 3-element numeric array";
-                return false;
-            }
+            if (el.ValueKind != JsonValueKind.Array) return true;
             var arr = el.EnumerateArray().ToArray();
-            if (arr.Length < 3 || arr[0].ValueKind != JsonValueKind.Number
-                || arr[1].ValueKind != JsonValueKind.Number || arr[2].ValueKind != JsonValueKind.Number)
+            if (arr.Length < 3) return true;
+            if (arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number
+                || arr[2].ValueKind != JsonValueKind.Number)
             {
-                errorMessage = $"{name} must be a 3-element numeric array";
+                errorMessage = $"{name} elements must be numeric";
                 return false;
             }
             value = new Point3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
@@ -5187,16 +5193,14 @@ namespace Rook.Handlers
             value = defaultValue;
             errorMessage = null;
             if (!parent.TryGetProperty(name, out var el)) return true;
-            if (el.ValueKind != JsonValueKind.Array)
-            {
-                errorMessage = $"{name} must be a 3-element numeric array";
-                return false;
-            }
+            if (el.ValueKind != JsonValueKind.Array) return true;
             var arr = el.EnumerateArray().ToArray();
-            if (arr.Length < 3 || arr[0].ValueKind != JsonValueKind.Number
-                || arr[1].ValueKind != JsonValueKind.Number || arr[2].ValueKind != JsonValueKind.Number)
+            if (arr.Length < 3) return true;
+            if (arr[0].ValueKind != JsonValueKind.Number
+                || arr[1].ValueKind != JsonValueKind.Number
+                || arr[2].ValueKind != JsonValueKind.Number)
             {
-                errorMessage = $"{name} must be a 3-element numeric array";
+                errorMessage = $"{name} elements must be numeric";
                 return false;
             }
             value = new Vector3d(arr[0].GetDouble(), arr[1].GetDouble(), arr[2].GetDouble());
@@ -5263,7 +5267,11 @@ namespace Rook.Handlers
             return TransformItemShapeError.None;
         }
 
-        // Validate deduped index set against a fixed snapshot. Returns the first out-of-range index.
+        // Validate deduped index set against a fixed snapshot. Returns the first out-of-range
+        // index in ASCENDING order for deterministic error messages (HashSet<int> iteration order
+        // is undefined). The batch handler needs stable error output across runs; the single-target
+        // call site prior to this refactor was also effectively undefined, so switching to
+        // ascending is strictly better here.
         private static bool TryValidateItemIndicesAgainstSnapshot(
             RhinoObject[] existingObjects,
             HashSet<int> indices,
@@ -5272,7 +5280,7 @@ namespace Rook.Handlers
         {
             errorMessage = null;
             offendingIndex = 0;
-            foreach (int idx in indices)
+            foreach (int idx in indices.OrderBy(i => i))
             {
                 if (idx < 0 || idx >= existingObjects.Length)
                 {
