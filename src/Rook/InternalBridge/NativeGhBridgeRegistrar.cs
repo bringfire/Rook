@@ -17,7 +17,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 9;
+        private const uint BridgeAbiVersion = 10;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -89,6 +89,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback BlockSetObjectColorsBatchCallback = HandleBlockSetObjectColorsBatch;
         private static readonly NativeGhBridgeCallback BlockSetObjectUserStringsBatchCallback = HandleBlockSetObjectUserStringsBatch;
         private static readonly NativeGhBridgeCallback BlockSetObjectNamesBatchCallback = HandleBlockSetObjectNamesBatch;
+        private static readonly NativeGhBridgeCallback BlockTransformInstanceBatchCallback = HandleBlockTransformInstanceBatch;
         private static readonly NativeGhBridgeCallback BlockSetInstancePropertiesCallback = HandleBlockSetInstanceProperties;
         private static readonly NativeGhBridgeCallback BlockSetInstanceVisibilityCallback = HandleBlockSetInstanceVisibility;
         private static readonly NativeGhBridgeCallback BlockTransformInstanceCallback = HandleBlockTransformInstance;
@@ -204,6 +205,8 @@ namespace Rook.InternalBridge
             public IntPtr BlockSetObjectColorsBatch;
             public IntPtr BlockSetObjectUserStringsBatch;
             public IntPtr BlockSetObjectNamesBatch;
+            // ABI v10: batch block-instance transform
+            public IntPtr BlockTransformInstanceBatch;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -297,6 +300,7 @@ namespace Rook.InternalBridge
                     BlockSetObjectColorsBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectColorsBatchCallback),
                     BlockSetObjectUserStringsBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectUserStringsBatchCallback),
                     BlockSetObjectNamesBatch = Marshal.GetFunctionPointerForDelegate(BlockSetObjectNamesBatchCallback),
+                    BlockTransformInstanceBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformInstanceBatchCallback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -1336,6 +1340,24 @@ namespace Rook.InternalBridge
                 responseJsonLength,
                 httpStatusCode,
                 requestJson => Blocks.SetBlockObjectNamesBatch(requestJson));
+        }
+
+        private static int HandleBlockTransformInstanceBatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Blocks.TransformInstanceBatch(requestJson));
         }
 
         private static int HandleBlockSetMaterials(

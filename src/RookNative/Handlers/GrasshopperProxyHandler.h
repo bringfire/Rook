@@ -74,6 +74,7 @@ void HandleManagedBlockSetObjectNames(const httplib::Request& req, httplib::Resp
 void HandleManagedBlockSetObjectNamesBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetObjectUserStrings(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockSetObjectUserStringsBatch(const httplib::Request& req, httplib::Response& res);
+void HandleManagedBlockTransformInstanceBatch(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockReplaceObjectGeometry(const httplib::Request& req, httplib::Response& res);
 void HandleManagedBlockTransformObject(const httplib::Request& req, httplib::Response& res);
 
