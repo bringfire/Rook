@@ -3307,8 +3307,17 @@ namespace Rook.Handlers
         /// subset of {move, rotate, scale, mirror}. Composition order per item matches
         /// the single-target tool: scale -> rotate -> move -> mirror, pivoted at the
         /// current instance translation. Best-effort: a malformed item is skipped with
-        /// a structured error record, batch continues. Duplicate GUIDs apply in listed
-        /// order with the pivot re-read between items.
+        /// a structured error record, batch continues.
+        ///
+        /// Duplicate-GUID behavior (batch-specific): doc.Objects.Transform(guid, xform,
+        /// deleteOriginal: true) deletes the original and emits a new GUID on success.
+        /// If the same GUID appears twice in items[], iteration 2 will resolve
+        /// "not_found" because the original no longer exists. To apply multiple
+        /// transforms to one instance, either compose them into a single item's
+        /// move/rotate/scale/mirror combo, or call batch twice with the new GUID.
+        /// This matches the lifecycle of the native single-target route
+        /// (/block/transform-instance), which returns the replacement GUID.
+        ///
         /// Body: { "items": [{ "id": "guid", "move": [...], ... }, ...], "redraw": false }
         /// </summary>
         public ApiResponse TransformInstanceBatch(string? body)
