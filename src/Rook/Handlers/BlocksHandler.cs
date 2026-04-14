@@ -5388,6 +5388,293 @@ namespace Rook.Handlers
         }
 
         /// <summary>
+        /// POST /block/transform-object-batch - Batch variant. Apply move/rotate/scale/scale3d
+        /// transforms to objects inside one or more block definitions in a single call. Items
+        /// targeting the same block are coalesced into a single ModifyGeometry call per definition.
+        /// Best-effort per-item semantics under one UndoScope; item is the atomic unit.
+        /// Body: { "items": [{ "name": "BlockA", "indices": [0, 1], "transform": {...} }], "redraw": false }
+        /// </summary>
+        public ApiResponse TransformBlockObjectBatch(string? body)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+                return new ApiResponse { Success = false, Data = "No active document" };
+
+            try
+            {
+                if (string.IsNullOrEmpty(body))
+                    return new ApiResponse { Success = false, Data = "Request body required" };
+
+                var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard inherited from PR #21: JsonElement.TryGetProperty throws
+                // InvalidOperationException on non-object kinds.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
+                if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+                    return new ApiResponse { Success = false, Data = "'items' array required" };
+
+                bool redraw = true;
+                if (request.TryGetProperty("redraw", out var redrawEl))
+                {
+                    if (redrawEl.ValueKind != JsonValueKind.True && redrawEl.ValueKind != JsonValueKind.False)
+                        return new ApiResponse { Success = false, Data = "'redraw' must be a boolean" };
+                    redraw = redrawEl.GetBoolean();
+                }
+
+                int total = itemsEl.GetArrayLength();
+                int routed = 0, skipped = 0;
+                var errors = new List<Dictionary<string, object?>>();
+
+                var slots = new List<TransformSlot>();
+
+                using var undo = new UndoScope(doc, "Batch Transform Block Objects");
+
+                // ==== Phase 1: Shape validation (per item, independent) ====
+                int requestIdx = -1;
+                foreach (var itemEl in itemsEl.EnumerateArray())
+                {
+                    requestIdx++;
+
+                    // Capture raw name JsonElement for verbatim echo in errors, including
+                    // non-string / null / missing (per PR #21 convention).
+                    JsonElement? rawName = null;
+                    if (itemEl.ValueKind == JsonValueKind.Object && itemEl.TryGetProperty("name", out var nEl))
+                        rawName = nEl.Clone();
+
+                    var shapeErr = TryParseTransformItemShape(itemEl, out var shape, out var shapeMsg);
+                    if (shapeErr != TransformItemShapeError.None)
+                    {
+                        // errors[].indices is omitted on invalid_indices (per design). For other
+                        // shape errors we don't have a deduped-parsed set to echo here either,
+                        // so omit; batch users get the item's name and the error code/message.
+                        errors.Add(BuildBatchTransformError(rawName, indicesAsc: null, TransformShapeErrorCode(shapeErr), shapeMsg));
+                        skipped++;
+                        continue;
+                    }
+
+                    slots.Add(new TransformSlot { RequestIndex = requestIdx, RawName = rawName, Shape = shape });
+                }
+
+                // ==== Phase 2: Relational validation (cross-item, first-occurrence-wins) ====
+                // Per-block claim set of already-taken indices. Overlap of ANY of an item's indices
+                // with an earlier item's claim set for the same block -> whole item skipped.
+                var claims = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+                var survivors = new List<TransformSlot>();
+                foreach (var slot in slots)
+                {
+                    if (!claims.TryGetValue(slot.Shape.Name, out var claimed))
+                    {
+                        claimed = new HashSet<int>();
+                        claims[slot.Shape.Name] = claimed;
+                    }
+
+                    // Find the overlap subset (ascending for deterministic message).
+                    var overlap = slot.Shape.Indices.Where(i => claimed.Contains(i)).OrderBy(i => i).ToArray();
+                    if (overlap.Length > 0)
+                    {
+                        errors.Add(BuildBatchTransformError(
+                            slot.RawName,
+                            slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                            "overlapping_indices",
+                            $"Indices {string.Join(", ", overlap)} already claimed by an earlier item for block '{slot.Shape.Name}'"));
+                        skipped++;
+                        continue;
+                    }
+                    // Claim the item's indices for future overlap detection.
+                    foreach (int i in slot.Shape.Indices) claimed.Add(i);
+                    survivors.Add(slot);
+                }
+
+                // ==== Phase 3: Grouping and resolution (per-group fixed snapshot) ====
+                // Preserve in-group order from survivors.
+                var groupOrder = new List<string>();
+                var groupItems = new Dictionary<string, List<TransformSlot>>(StringComparer.Ordinal);
+                foreach (var slot in survivors)
+                {
+                    if (!groupItems.ContainsKey(slot.Shape.Name))
+                    {
+                        groupOrder.Add(slot.Shape.Name);
+                        groupItems[slot.Shape.Name] = new List<TransformSlot>();
+                    }
+                    groupItems[slot.Shape.Name].Add(slot);
+                }
+
+                var resolvedGroups = new List<(InstanceDefinition idef, RhinoObject[] snapshot, List<TransformSlot> items)>();
+                foreach (var name in groupOrder)
+                {
+                    var idef = doc.InstanceDefinitions.Find(name);
+                    if (idef == null)
+                    {
+                        foreach (var slot in groupItems[name])
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "block_not_found",
+                                $"Block definition '{name}' not found"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    // Fixed snapshot read once per group.
+                    var existingObjects = idef.GetObjects();
+                    var resolvedItems = new List<TransformSlot>();
+                    foreach (var slot in groupItems[name])
+                    {
+                        if (!TryValidateItemIndicesAgainstSnapshot(existingObjects, slot.Shape.Indices, out int _, out string? resMsg))
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "index_out_of_range",
+                                resMsg));
+                            skipped++;
+                            continue;
+                        }
+                        resolvedItems.Add(slot);
+                    }
+
+                    if (resolvedItems.Count > 0)
+                        resolvedGroups.Add((idef, existingObjects, resolvedItems));
+                }
+
+                // ==== Phase 4: Per-group rebuild (try-then-commit per item) ====
+                foreach (var (idef, snapshot, items) in resolvedGroups)
+                {
+                    // Attribute preservation invariant (inherited from PR #21): allAttributes
+                    // is untouched across ALL slots; allGeometry starts as snapshot clones and is
+                    // overwritten only at indices of successfully-transformed items.
+                    var allGeometry = new List<GeometryBase>(snapshot.Length);
+                    var allAttributes = new List<ObjectAttributes>(snapshot.Length);
+                    for (int i = 0; i < snapshot.Length; i++)
+                    {
+                        allGeometry.Add(snapshot[i].Geometry.Duplicate());
+                        allAttributes.Add(snapshot[i].Attributes.Duplicate());
+                    }
+
+                    // Track which items committed so we can mark group_modify_failed correctly.
+                    var committedItems = new List<TransformSlot>();
+
+                    foreach (var slot in items)
+                    {
+                        // Try-then-commit: transform a duplicated copy at each target index. If any
+                        // index's geom.Transform returns false, discard the proposals and skip the
+                        // whole item (item_transform_failed). Siblings in the same group continue.
+                        var proposed = new Dictionary<int, GeometryBase>();
+                        var failed = new List<int>();
+                        foreach (int idx in slot.Shape.Indices)
+                        {
+                            var candidate = snapshot[idx].Geometry.Duplicate();
+                            if (!candidate.Transform(slot.Shape.Xform))
+                            {
+                                failed.Add(idx);
+                            }
+                            else
+                            {
+                                proposed[idx] = candidate;
+                            }
+                        }
+
+                        if (failed.Count > 0)
+                        {
+                            var failedAsc = failed.OrderBy(i => i).ToArray();
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "item_transform_failed",
+                                $"geom.Transform returned false for index(es) {string.Join(", ", failedAsc)}"));
+                            skipped++;
+                            continue;
+                        }
+
+                        // All proposals succeeded; commit into the group's image.
+                        foreach (var kvp in proposed)
+                            allGeometry[kvp.Key] = kvp.Value;
+                        committedItems.Add(slot);
+                    }
+
+                    if (committedItems.Count == 0)
+                        continue;
+
+                    bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
+                    if (!modified)
+                    {
+                        foreach (var slot in committedItems)
+                        {
+                            errors.Add(BuildBatchTransformError(
+                                slot.RawName,
+                                slot.Shape.Indices.OrderBy(i => i).ToArray(),
+                                "group_modify_failed",
+                                $"Failed to modify block '{idef.Name}'"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+
+                    routed += committedItems.Count;
+                }
+
+                if (redraw)
+                    doc.Views.Redraw();
+
+                var result = new Dictionary<string, object>
+                {
+                    ["routed"] = routed,
+                    ["skipped"] = skipped,
+                    ["total"] = total,
+                    ["errors"] = errors,
+                };
+
+                return new ApiResponse { Success = true, Data = result };
+            }
+            catch (Exception ex)
+            {
+                return new ApiResponse { Success = false, Data = $"Batch transform block object failed: {ex.Message}" };
+            }
+        }
+
+        // ---- Batch-local helpers for TransformBlockObjectBatch ----
+
+        private sealed class TransformSlot
+        {
+            public int RequestIndex;
+            public JsonElement? RawName;       // raw JsonElement for verbatim name echo
+            public TransformItemShape Shape;
+        }
+
+        private static string TransformShapeErrorCode(TransformItemShapeError err) => err switch
+        {
+            TransformItemShapeError.InvalidName => "invalid_name",
+            TransformItemShapeError.InvalidIndices => "invalid_indices",
+            TransformItemShapeError.InvalidTransform => "invalid_transform",
+            TransformItemShapeError.InvalidTransformType => "invalid_transform_type",
+            TransformItemShapeError.InvalidMove => "invalid_move",
+            TransformItemShapeError.InvalidRotate => "invalid_rotate",
+            TransformItemShapeError.InvalidScale => "invalid_scale",
+            TransformItemShapeError.InvalidScale3d => "invalid_scale3d",
+            _ => "exception",
+        };
+
+        private static Dictionary<string, object?> BuildBatchTransformError(
+            JsonElement? rawName,
+            int[]? indicesAsc,
+            string errorCode,
+            string? message)
+        {
+            var entry = new Dictionary<string, object?>();
+            // rawName echoes verbatim including non-string / null / missing ("" sentinel).
+            // STJ serializes boxed JsonElement in an object? value by emitting its raw JSON.
+            entry["name"] = rawName.HasValue ? (object)rawName.Value : (object)"";
+            if (indicesAsc != null)
+                entry["indices"] = indicesAsc;
+            entry["error"] = errorCode;
+            if (!string.IsNullOrEmpty(message))
+                entry["message"] = message;
+            return entry;
+        }
+
+        /// <summary>
         /// Parse a scale JsonElement into a Transform pivoted at <paramref name="pivot"/>.
         /// Accepts a scalar or a 3-element numeric array. Zero scalar or any zero element
         /// is rejected as "invalid_scale" — composing a zero-scale transform produces
