@@ -59,15 +59,19 @@ int FindMaterialIndexSafe(CRhinoDoc* pDoc, const std::string& name)
     return -1;
 }
 
-// Validate that a JSON value is a 3-element [r,g,b] integer array with values 0-255.
-// Permissive about numeric clamping at parse time (ParseColor does its own coercion);
-// this check is strictly for pre-classification of shape errors in the batch path.
+// Validate that a JSON value is exactly a 3-element [r,g,b] integer array
+// with each component in [0, 255]. Strict: 4-element arrays, negative values,
+// out-of-range values, and non-integer types all fail. Prevents invalid
+// payloads from flowing into ParseColor(), which would otherwise wrap or
+// truncate them via implicit unsigned int conversion.
 bool IsValidRgbArray(const nlohmann::json& val)
 {
-    if (!val.is_array() || val.size() < 3) return false;
+    if (!val.is_array() || val.size() != 3) return false;
     for (size_t i = 0; i < 3; ++i)
     {
         if (!val[i].is_number_integer()) return false;
+        const int component = val[i].get<int>();
+        if (component < 0 || component > 255) return false;
     }
     return true;
 }
@@ -1182,11 +1186,14 @@ void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Respons
 
         for (const auto& item : items)
         {
-            // Normalize the echo name for error records: whatever the request
-            // sent (even if unusable), we reflect it verbatim to the caller.
-            std::string echoName;
-            if (item.is_object() && item.contains("name") && item["name"].is_string())
-                echoName = item["name"].get<std::string>();
+            // Echo the request's `name` verbatim as a raw JSON value. If the
+            // caller sent `{"name": 123}` we echo 123; if `{"name": null}`,
+            // null; if the item is not an object at all, null. This preserves
+            // the "errors[].name always echoes the request name verbatim"
+            // contract regardless of the value's type or shape.
+            nlohmann::json echoName = nullptr;
+            if (item.is_object() && item.contains("name"))
+                echoName = item["name"];
 
             try
             {
@@ -1225,7 +1232,7 @@ void HandleLayerSetPropertiesBatch(const httplib::Request& req, httplib::Respons
                 else
                 {
                     nlohmann::json entry = {
-                        {"name", itemName},
+                        {"name", echoName},
                         {"error", r.errorCode},
                     };
                     if (!r.errorMessage.empty())
