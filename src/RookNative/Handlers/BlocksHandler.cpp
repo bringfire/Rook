@@ -6,6 +6,7 @@
 #include "stdafx.h"
 #include "Handlers/BlocksHandler.h"
 #include "Handlers/GeometryHandler.h"
+#include "UserData/RookBlockBasePointUserData.h"
 #include "Infrastructure/LayerHelpers.h"
 #include "Serialization/RhinoSerializer.h"
 #include "Infrastructure/UndoScope.h"
@@ -322,6 +323,19 @@ static const wchar_t* kRookBlockBasePointKey = L"rook_block_base_point";
 
 static void StoreDefinitionBasePoint(ON_InstanceDefinition& idef, const ON_3dPoint& basePoint)
 {
+    // New-slot write. Detach-then-attach fresh via the helper, which loops
+    // until no pre-existing payload remains — guarantees the "exactly one
+    // authoritative payload" invariant from design doc §3.1. Works whether
+    // `idef` is a stack-allocated settings object (HandleBlockCreate flow
+    // before AddInstanceDefinition) or a slice-copy (UpdateDefinitionBasePoint
+    // before ModifyInstanceDefinition). The SDK carries userdata through
+    // both Add and Modify paths via ON_Object::operator= when copycount>0
+    // (we set copycount=1 in the class ctor).
+    CRookBlockBasePointUserData::Attach(idef, basePoint);
+
+    // Transition-window legacy write. Retired in follow-up #33 after the
+    // transition window — see design doc §1 non-goals. Preserves .3dm
+    // compatibility with pre-migration builds that only know the legacy key.
     wchar_t buf[128];
     swprintf_s(buf, 128, L"%.17g,%.17g,%.17g", basePoint.x, basePoint.y, basePoint.z);
     idef.SetUserString(kRookBlockBasePointKey, buf);
@@ -3742,6 +3756,13 @@ void HandleBlockDuplicate(const httplib::Request& req, httplib::Response& res)
         const CRhinoInstanceDefinition* pSrcDef = pDoc->m_instance_definition_table[srcIndex];
         if (!pSrcDef) throw std::runtime_error("Source block lookup failed");
 
+        // Read the source's basePoint so the duplicate preserves it. Rook
+        // metadata does NOT automatically transfer through the SDK's
+        // AddInstanceDefinition path for a freshly-constructed settings
+        // object — we must explicitly read + write. Per design §3.4
+        // Duplicate audit: "Do not rely on SDK duplication hooks."
+        ON_3dPoint sourceBasePoint = LookupDefinitionBasePoint(pSrcDef);
+
         // Collect geometry objects from source
         ON_SimpleArray<const CRhinoObject*> srcObjects;
         pSrcDef->GetObjects(srcObjects);
@@ -3749,6 +3770,7 @@ void HandleBlockDuplicate(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition new_idef;
         new_idef.SetName(Utf8ToWide(newName));
         new_idef.SetDescription(pSrcDef->Description());
+        StoreDefinitionBasePoint(new_idef, sourceBasePoint);
 
         int newIndex = pDoc->m_instance_definition_table.AddInstanceDefinition(
             new_idef, srcObjects, false, false);
@@ -5226,6 +5248,65 @@ void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
     {
         CRookServer::SendError(res, ex.what());
     }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Internal / test-only. NOT an MCP tool. Not exposed through the Python
+// bridge. Live-Rhino regression tests (#28 Phase B) hit this directly via
+// httpx against the native HTTP port to distinguish real new-slot writes
+// from legacy user-string fallback during the dual-write transition window.
+//
+// Public contract: none. Subject to change without notice. Product code
+// MUST NOT call this; any caller outside tests/ is an abuse.
+//
+// POST /block/_debug/basepoint-userdata
+// Body: {"name": "<block name>"}
+// Response: {"attached": bool, "basePoint": [x,y,z] | null}
+// ───────────────────────────────────────────────────────────────────────────
+void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string name = body.value("name", "");
+    if (name.empty()) { CRookServer::SendError(res, "Block name required"); return; }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, name]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        int idefIndex = FindDefByName(pDoc, name);
+        if (idefIndex < 0)
+            throw std::invalid_argument("Block definition '" + name + "' not found");
+
+        const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[idefIndex];
+        if (!pIdef) throw std::runtime_error("Block lookup failed");
+
+        WriteResult wr;
+        wr.success = true;
+
+        ON_3dPoint userDataBasePoint;
+        if (CRookBlockBasePointUserData::TryRead(*pIdef, userDataBasePoint))
+        {
+            wr.data["attached"] = true;
+            wr.data["basePoint"] = { userDataBasePoint.x, userDataBasePoint.y, userDataBasePoint.z };
+        }
+        else
+        {
+            wr.data["attached"] = false;
+            wr.data["basePoint"] = nullptr;
+        }
+
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
 }
 
 } // namespace Handlers

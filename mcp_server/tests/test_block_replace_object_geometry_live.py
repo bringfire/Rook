@@ -32,7 +32,7 @@ import pytest
 
 from rook.server import _mcp_tool_executor
 
-from .conftest import assert_bbox_x_range
+from .conftest import assert_bbox_x_range, assert_new_slot
 
 # Every test in this module needs Rhino; fixture handles graceful skip.
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
@@ -259,3 +259,35 @@ async def test_batch_per_group_basepoint_independent_normalization(fresh_documen
 
     details_b = await _block_objects_detailed("BATCH_B")
     assert_bbox_x_range(details_b["objects"][0]["bbox"], -20.3, -19.7)
+
+
+# ---------------------------------------------------------------------------
+# Phase B migration tests (#28)
+# ---------------------------------------------------------------------------
+
+
+async def test_new_slot_populated_on_block_create(fresh_document):
+    """After rhino_block_create with a non-origin basePoint, the idef has a
+    RookBlockBasePointUserData attached with the correct value.
+
+    Exercises Phase B's StoreDefinitionBasePoint dual-write path. Uses
+    the introspection helper to prove the new slot was actually written,
+    not just that the behavior read returns correct values (which could
+    be served by the legacy user-string fallback during dual-write).
+    """
+    seed = await _create_brep([4, -0.5, 0], [6, 1.5, 2], "CREATE_SEED")
+    await _block_create("CREATE_NEW_SLOT", [seed], base_point=[5, 0, 0])
+
+    # Behavior assertion: existing basePoint semantic still works.
+    # (We re-use test 1's "origin pass-through" style check — after create,
+    # the definition object[0] should be at local coords relative to the
+    # basePoint, mirroring PR #30's behavior.)
+    details = await _block_objects_detailed("CREATE_NEW_SLOT")
+    assert details["objectCount"] == 1
+    assert_bbox_x_range(details["objects"][0]["bbox"], -1, 1)
+
+    # Primary assertion: the new-slot UserData is actually attached and
+    # holds the expected basePoint. Without this check, the test could
+    # pass via legacy fallback even if Phase B's Attach call silently
+    # no-opped.
+    await assert_new_slot("CREATE_NEW_SLOT", expected_base_point=(5.0, 0.0, 0.0))

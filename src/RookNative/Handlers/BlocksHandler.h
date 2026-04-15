@@ -86,5 +86,12 @@ void HandleBlockMerge(const httplib::Request& req, httplib::Response& res);
 // Analysis
 void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res);
 
+// Internal / test-only. NOT exposed through MCP. Reads the Rook-owned
+// basePoint UserData slot on a named idef. Used exclusively by live-Rhino
+// regression tests (#28 Phase B) to distinguish real new-slot writes from
+// legacy user-string fallback during the dual-write transition window.
+// Subject to change without notice; product code MUST NOT call this.
+void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook
