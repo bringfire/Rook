@@ -1156,7 +1156,11 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Command string to execute"},
+                    "command": {
+                        "type": "string",
+                        "pattern": "^\\s*_",
+                        "description": "Command string to execute. Must start with '_' for locale-independent execution."
+                    },
                     "echo": {"type": "boolean", "description": "Echo command to command line (default false)"}
                 },
                 "required": ["command"]
@@ -1249,6 +1253,7 @@ Examples:
 - Line: {"type": "LINE", "start": [0, 0, 0], "end": [10, 0, 0]}
 - Circle: {"type": "CIRCLE", "center": [0, 0, 0], "radius": 5}
 - Box: {"type": "BOX", "origin": [0, 0, 0], "width": 10, "depth": 10, "height": 5}
+- Box (corner pair): {"type": "BOX", "corner1": [0, 0, 0], "corner2": [10, 10, 5]}
 - Sphere: {"type": "SPHERE", "center": [0, 0, 0], "radius": 5}
 
 Optional for all: "name", "layer", "color" (as [r,g,b] or {"r":255,"g":0,"b":0})""",
@@ -1266,9 +1271,15 @@ Optional for all: "name", "layer", "color" (as [r,g,b] or {"r":255,"g":0,"b":0})
                     "center": {"type": "array", "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE: center [x, y, z]"},
                     "radius": {"type": "number", "description": "For CIRCLE, ARC, SPHERE, CYLINDER, CONE"},
                     "origin": {"type": "array", "description": "For RECTANGLE, BOX: origin [x, y, z]"},
-                    "width": {"type": "number", "description": "For RECTANGLE, BOX"},
-                    "height": {"type": "number", "description": "For RECTANGLE, BOX, CYLINDER, CONE"},
-                    "depth": {"type": "number", "description": "For BOX"},
+                    "corner": {"type": "array", "description": "Alias for origin on RECTANGLE and BOX"},
+                    "corner1": {"type": "array", "description": "For BOX: first diagonal corner [x, y, z]"},
+                    "corner2": {"type": "array", "description": "For BOX: second diagonal corner [x, y, z]"},
+                    "width": {"type": "number", "description": "For RECTANGLE, BOX: width in +X"},
+                    "height": {"type": "number", "description": "For RECTANGLE, BOX, CYLINDER, CONE: height in +Z"},
+                    "depth": {"type": "number", "description": "For BOX: depth in +Y"},
+                    "x": {"type": "number", "description": "Alias for BOX width"},
+                    "y": {"type": "number", "description": "Alias for BOX depth"},
+                    "z": {"type": "number", "description": "Alias for BOX height"},
                     "startAngle": {"type": "number", "description": "For ARC: start angle in degrees"},
                     "endAngle": {"type": "number", "description": "For ARC: end angle in degrees"}
                 },
@@ -1812,24 +1823,29 @@ Examples:
         ),
         Tool(
             name="rhino_block_create",
-            description="Create a block definition from objects.",
+            description="Create a block definition from objects. Required: name, one of (ids|objectIds), one of (basePoint|point|insertionPoint). Optional: replaceWithInstance (default true; alias deleteObjects).",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "ids": {"type": "array", "items": {"type": "string"}, "description": "Object GUIDs to include in block"},
+                    "objectIds": {"type": "array", "items": {"type": "string"}, "description": "Alias for ids"},
                     "name": {"type": "string", "description": "Block name"},
                     "basePoint": {"type": "array", "description": "Block base point [x, y, z]"},
-                    "replaceWithInstance": {"type": "boolean", "description": "Replace objects with block instance (default true)"}
+                    "point": {"type": "array", "description": "Alias for basePoint"},
+                    "insertionPoint": {"type": "array", "description": "Alias for basePoint"},
+                    "replaceWithInstance": {"type": "boolean", "description": "Replace objects with a block instance after definition creation (default true)"},
+                    "deleteObjects": {"type": "boolean", "description": "Legacy alias for replaceWithInstance"}
                 },
-                "required": ["ids", "name", "basePoint"]
+                "required": ["name"]
             }
         ),
         Tool(
             name="rhino_block_insert",
-            description="""Insert a block instance at a specified point with optional scale and rotation.
+            description="""Insert a block instance at a specified point with optional scale and rotation. Required: name, one of (point|insertionPoint|basePoint).
 
 Examples:
 - Basic insert: {"name": "MyBlock", "point": [10, 10, 0]}
+- Basic insert (alias): {"name": "MyBlock", "insertionPoint": [10, 10, 0]}
 - With scale: {"name": "MyBlock", "point": [10, 10, 0], "scale": 2.0}
 - With rotation: {"name": "MyBlock", "point": [10, 10, 0], "rotation": 45}""",
             inputSchema={
@@ -1837,10 +1853,12 @@ Examples:
                 "properties": {
                     "name": {"type": "string", "description": "Block definition name to insert"},
                     "point": {"type": "array", "description": "Insertion point [x, y, z]"},
+                    "insertionPoint": {"type": "array", "description": "Alias for point"},
+                    "basePoint": {"type": "array", "description": "Alias for point"},
                     "scale": {"type": "number", "description": "Uniform scale factor (default 1.0)"},
                     "rotation": {"type": "number", "description": "Rotation angle in degrees around Z axis (default 0)"}
                 },
-                "required": ["name", "point"]
+                "required": ["name"]
             }
         ),
         Tool(
@@ -2416,14 +2434,49 @@ Examples:
         ),
         Tool(
             name="rhino_block_replace_instance",
-            description="Replace a block instance with a different block definition.",
+            description="Replace a block instance with a different block definition. Required: newBlockName, one of (instanceId|id).",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "instanceId": {"type": "string", "description": "Block instance GUID to replace"},
+                    "id": {"type": "string", "description": "Alias for instanceId"},
                     "newBlockName": {"type": "string", "description": "Name of block definition to use instead"}
                 },
-                "required": ["instanceId", "newBlockName"]
+                "required": ["newBlockName"]
+            }
+        ),
+        Tool(
+            name="rhino_block_replace_instance_batch",
+            description=(
+                "Batch replace block instances with different block definitions in one call. "
+                "Each item is {id, newBlockName}. "
+                "Best-effort semantics: malformed or unresolved items are skipped with "
+                "structured error records and the batch continues. "
+                "MCP schema validates redraw/item types up front; native guards remain for direct HTTP callers. "
+                "Uses one undo scope and returns {routed, skipped, total, errors[]} with errors always present. "
+                "If replacement creation fails, the handler attempts to restore the original instance before reporting replace_failed; "
+                "that error includes restored=true/false so callers can distinguish clean rollback from undo-required recovery. "
+                "Duplicate GUIDs are not auto-remapped: once an item replaces an instance, "
+                "later items targeting the original GUID usually hit not_found."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "Per-instance replacement requests",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Block instance GUID to replace"},
+                                "newBlockName": {"type": "string", "description": "Target block definition name"},
+                            },
+                            "required": ["id", "newBlockName"],
+                        },
+                    },
+                    "redraw": {"type": "boolean", "description": "Redraw views after the batch (default true)"},
+                },
+                "required": ["items"]
             }
         ),
         Tool(
@@ -2691,7 +2744,7 @@ Types:
         # Phase 4: Consolidated action-based tools
         Tool(
             name="rhino_document_ops",
-            description="""Perform document operations using an action parameter.
+            description="""Perform document operations using an action parameter. The operation alias is also accepted.
 
 Available actions:
 - open: Open an existing .3dm file (requires 'path' parameter). Returns document name, units, object count.
@@ -2703,6 +2756,7 @@ Available actions:
 
 Examples:
 - Open: {"action": "open", "path": "C:/path/to/file.3dm"}
+- Open (alias): {"operation": "open", "path": "C:/path/to/file.3dm"}
 - New: {"action": "new"}
 - Save: {"action": "save", "path": "/path/to/file.3dm"}
 - SaveSmall: {"action": "save", "path": "/path/to/file.3dm", "small": true}
@@ -2717,6 +2771,11 @@ Examples:
                         "enum": ["open", "new", "save", "undo", "redo", "set_units"],
                         "description": "The document operation to perform"
                     },
+                    "operation": {
+                        "type": "string",
+                        "enum": ["open", "new", "save", "undo", "redo", "set_units"],
+                        "description": "Alias for action"
+                    },
                     "path": {
                         "type": "string",
                         "description": "File path for open or save actions"
@@ -2730,7 +2789,7 @@ Examples:
                         "description": "When true with save action, saves without render meshes (SaveSmall)"
                     }
                 },
-                "required": ["action"]
+                "required": []
             }
         ),
         Tool(
@@ -3449,6 +3508,20 @@ Returns the learned patterns for a specific command or all commands, including:
 - Options and their meanings
 - Preconditions (selection requirements, etc.)
 - Common gotchas to avoid""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Specific command to query (e.g., 'Box'). Omit for all commands."
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="rhino_knowledge_query",
+            description="Alias for rhino_command_knowledge. Query consolidated Rhino command knowledge by command name or list all known commands.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -9028,6 +9101,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         case "rhino_block_replace_instance":
             result = await call_rhino("/block/replace-instance", "POST", arguments)
 
+        case "rhino_block_replace_instance_batch":
+            result = await call_rhino("/block/replace-instance-batch", "POST", arguments)
+
         case "rhino_block_reset_scale":
             result = await call_rhino("/block/reset-scale", "POST", arguments)
 
@@ -9079,7 +9155,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         # Phase 4: Consolidated action-based tools
         case "rhino_document_ops":
-            action = arguments.get("action")
+            action = arguments.get("action") or arguments.get("operation")
             if action == "open":
                 path = arguments.get("path")
                 if not path:
@@ -9648,7 +9724,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 except Exception as e:
                     result = {"success": False, "data": f"Selection failed: {str(e)}"}
 
-        case "rhino_command_knowledge":
+        case "rhino_command_knowledge" | "rhino_knowledge_query":
             command = arguments.get("command")
             try:
                 if command:

@@ -77,10 +77,12 @@ def get_all_tools() -> list[str]:
             "rhino_block_remove_objects", "rhino_block_replace_geometry",
             "rhino_block_replace_object_geometry", "rhino_block_replace_object_geometry_batch",
             "rhino_block_transform_object", "rhino_block_transform_object_batch",
-            "rhino_block_instances", "rhino_block_replace_instance", "rhino_block_reset_scale",
+            "rhino_block_transform_instance_batch",
+            "rhino_block_instances", "rhino_block_replace_instance", "rhino_block_replace_instance_batch",
+            "rhino_block_reset_scale",
             "rhino_block_link", "rhino_block_refresh", "rhino_block_unlink",
             "rhino_block_purge", "rhino_block_duplicate", "rhino_block_nested",
-            "knowledge_query", "knowledge_record",
+            "knowledge_query", "rhino_knowledge_query", "knowledge_record",
         ]
 
 
@@ -274,8 +276,10 @@ async def create_tool_executor():
             "rhino_block_replace_object_geometry_batch": ("POST", "/block/replace-object-geometry-batch"),
             "rhino_block_transform_object": ("POST", "/block/transform-object"),
             "rhino_block_transform_object_batch": ("POST", "/block/transform-object-batch"),
+            "rhino_block_transform_instance_batch": ("POST", "/block/transform-instance-batch"),
             "rhino_block_instances": ("POST", "/block/instances"),
             "rhino_block_replace_instance": ("POST", "/block/replace-instance"),
+            "rhino_block_replace_instance_batch": ("POST", "/block/replace-instance-batch"),
             "rhino_block_reset_scale": ("POST", "/block/reset-scale"),
             "rhino_block_link": ("POST", "/block/link"),
             "rhino_block_refresh": ("POST", "/block/refresh"),

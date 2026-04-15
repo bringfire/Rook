@@ -19,6 +19,8 @@
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
 
+#include <algorithm>
+
 namespace Rook {
 namespace Handlers {
 
@@ -123,6 +125,18 @@ static ON_Plane ResolvePlane(const nlohmann::json& body, const ON_3dPoint& cente
     if (IEquals(planeStr, "YZ"))
         return ON_Plane(center, ON_3dVector::YAxis, ON_3dVector::ZAxis);
     return ON_Plane(center, ON_3dVector::XAxis, ON_3dVector::YAxis);  // XY default
+}
+
+static bool TryParsePoint3dField(
+    const nlohmann::json& body,
+    const char* key,
+    ON_3dPoint& pointOut)
+{
+    if (!body.contains(key) || !body[key].is_array() || body[key].size() < 3)
+        return false;
+
+    pointOut = ParsePoint3dOrDefault(body, key, ON_3dPoint::Origin);
+    return true;
 }
 
 // ─── Type dispatch ──────────────────────────────────────────────────
@@ -252,15 +266,35 @@ static CreateResult CreateRectangle(const nlohmann::json& body, CRhinoDoc* pDoc,
 static CreateResult CreateBox(const nlohmann::json& body, CRhinoDoc* pDoc,
                                ON_3dmObjectAttributes& attrs)
 {
+    ON_3dPoint corner1;
+    ON_3dPoint corner2;
+    const bool hasCornerPair =
+        TryParsePoint3dField(body, "corner1", corner1) &&
+        TryParsePoint3dField(body, "corner2", corner2);
+
     // Accept width/depth/height or x/y/z
     double w = body.contains("width") ? body.value("width", 0.0) : body.value("x", 0.0);
     double d = body.contains("depth") ? body.value("depth", 0.0) : body.value("y", 0.0);
     double h = body.contains("height") ? body.value("height", 0.0) : body.value("z", 0.0);
-    if (w <= 0 || d <= 0 || h <= 0)
-        throw std::invalid_argument("BOX requires positive width, depth, and height");
 
     ON_3dPoint origin = ParsePoint3dOrDefault(body, "origin",
         ParsePoint3dOrDefault(body, "corner", ON_3dPoint::Origin));
+    if (hasCornerPair)
+    {
+        origin = ON_3dPoint(
+            (std::min)(corner1.x, corner2.x),
+            (std::min)(corner1.y, corner2.y),
+            (std::min)(corner1.z, corner2.z));
+        w = std::abs(corner2.x - corner1.x);
+        d = std::abs(corner2.y - corner1.y);
+        h = std::abs(corner2.z - corner1.z);
+    }
+    if (w <= 0 || d <= 0 || h <= 0)
+    {
+        throw std::invalid_argument(
+            "BOX requires either {origin|corner, width, depth, height} "
+            "(or x/y/z aliases) or {corner1, corner2} with different coordinates");
+    }
 
     // ON_BrepBox requires 8 corners in specific order
     ON_3dPoint corners[8];

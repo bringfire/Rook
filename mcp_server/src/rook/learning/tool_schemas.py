@@ -175,7 +175,7 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     ),
     "rhino_command": ToolSchema(
         name="rhino_command",
-        description="Run a Rhino command string",
+        description="Run a Rhino command string (must start with '_' for locale-independent execution)",
         params=[
             ParamSchema("command", "string", "Command string to execute", required=True),
             ParamSchema("echo", "boolean", "Echo command to command line", default=False),
@@ -214,9 +214,15 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             ParamSchema("center", "array", "For CIRCLE/ARC/SPHERE/CYLINDER/CONE: center"),
             ParamSchema("radius", "number", "For CIRCLE/ARC/SPHERE/CYLINDER/CONE: radius"),
             ParamSchema("origin", "array", "For RECTANGLE/BOX: origin"),
+            ParamSchema("corner", "array", "Alias for RECTANGLE/BOX origin"),
+            ParamSchema("corner1", "array", "For BOX: first diagonal corner"),
+            ParamSchema("corner2", "array", "For BOX: second diagonal corner"),
             ParamSchema("width", "number", "For RECTANGLE/BOX: width"),
             ParamSchema("height", "number", "For RECTANGLE/BOX/CYLINDER/CONE: height"),
             ParamSchema("depth", "number", "For BOX: depth"),
+            ParamSchema("x", "number", "Alias for BOX width"),
+            ParamSchema("y", "number", "Alias for BOX depth"),
+            ParamSchema("z", "number", "Alias for BOX height"),
             ParamSchema("startAngle", "number", "For ARC: start angle in degrees"),
             ParamSchema("endAngle", "number", "For ARC: end angle in degrees"),
         ],
@@ -551,21 +557,27 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     ),
     "rhino_block_create": ToolSchema(
         name="rhino_block_create",
-        description="Create a block definition",
+        description="Create a block definition (aliases: objectIds, point/insertionPoint, deleteObjects)",
         params=[
             ParamSchema("ids", "array", "Object GUIDs to include", required=True, items_type="string", geometry_type="ids"),
+            ParamSchema("objectIds", "array", "Alias for ids", items_type="string", geometry_type="ids"),
             ParamSchema("name", "string", "Block name", required=True),
-            ParamSchema("basePoint", "array", "Block base point [x, y, z]", required=True),
+            ParamSchema("basePoint", "array", "Block base point [x, y, z]"),
+            ParamSchema("point", "array", "Alias for basePoint"),
+            ParamSchema("insertionPoint", "array", "Alias for basePoint"),
             ParamSchema("replaceWithInstance", "boolean", "Replace objects with block instance", default=True),
+            ParamSchema("deleteObjects", "boolean", "Legacy alias for replaceWithInstance"),
         ],
         needs_geometry=["any"],
     ),
     "rhino_block_insert": ToolSchema(
         name="rhino_block_insert",
-        description="Insert a block instance",
+        description="Insert a block instance (aliases: insertionPoint, basePoint)",
         params=[
             ParamSchema("name", "string", "Block definition name", required=True),
-            ParamSchema("point", "array", "Insertion point [x, y, z]", required=True),
+            ParamSchema("point", "array", "Insertion point [x, y, z]"),
+            ParamSchema("insertionPoint", "array", "Alias for point"),
+            ParamSchema("basePoint", "array", "Alias for point"),
             ParamSchema("scale", "number", "Uniform scale factor", default=1.0),
             ParamSchema("rotation", "number", "Rotation angle in degrees", default=0),
         ],
@@ -668,9 +680,10 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     # =========================================================================
     "rhino_document_ops": ToolSchema(
         name="rhino_document_ops",
-        description="Document operations (undo, redo, save, new, set_units)",
+        description="Document operations (undo, redo, save, new, set_units). Alias: operation -> action",
         params=[
-            ParamSchema("action", "string", "The operation", required=True, enum=["undo", "redo", "save", "new", "set_units"]),
+            ParamSchema("action", "string", "The operation", enum=["undo", "redo", "save", "new", "set_units"]),
+            ParamSchema("operation", "string", "Alias for action", enum=["undo", "redo", "save", "new", "set_units"]),
             ParamSchema("path", "string", "File path for save action"),
             ParamSchema("units", "string", "Unit system for set_units", enum=["Millimeters", "Centimeters", "Meters", "Inches", "Feet"]),
         ],
@@ -1236,6 +1249,13 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
         params=[
             ParamSchema("intent", "string", "What you're trying to do"),
             ParamSchema("tool", "string", "Specific MCP tool name"),
+        ],
+    ),
+    "rhino_knowledge_query": ToolSchema(
+        name="rhino_knowledge_query",
+        description="Alias for rhino_command_knowledge",
+        params=[
+            ParamSchema("command", "string", "Specific Rhino command to query"),
         ],
     ),
     "knowledge_record": ToolSchema(

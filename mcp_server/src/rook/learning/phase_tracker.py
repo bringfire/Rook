@@ -39,7 +39,7 @@ _PHASE_PATTERNS: dict[WorkflowPhase, list[str]] = {
         "rhino_loft", "rhino_sweep",
     ],
     WorkflowPhase.EXPLORATION: [
-        "knowledge_query", "gh_knowledge_query", "gh_explore",
+        "knowledge_query", "rhino_knowledge_query", "gh_knowledge_query", "gh_explore",
         "gh_library", "gh_snapshot",
     ],
 }

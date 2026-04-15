@@ -324,6 +324,7 @@ PLANNER_TIER_0 = {
     "gh_snapshot",
     "gh_errors",
     "knowledge_query",
+    "rhino_knowledge_query",
     "gh_knowledge_query",
     "request_tools",
     "search_tools",
