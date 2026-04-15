@@ -350,10 +350,10 @@ cd mcp_server
 pytest tests -m requires_rhino
 ```
 
-To run a single live-test module:
+To run a single live-test module (still from `mcp_server/`):
 
 ```bash
-pytest mcp_server/tests/test_block_replace_object_geometry_live.py -m requires_rhino -v
+pytest tests/test_block_replace_object_geometry_live.py -m requires_rhino -v
 ```
 
 If Rhino is not reachable, each test is skipped cleanly (not failed) — the

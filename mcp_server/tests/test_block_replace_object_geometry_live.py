@@ -5,8 +5,8 @@ was run by hand against a live Rhino during the PR review; this file exists
 so those same assertions run automatically before the next change touches
 this code.
 
-Run:
-    pytest -m requires_rhino mcp_server/tests/test_block_replace_object_geometry_live.py
+Run (from `mcp_server/`):
+    pytest -m requires_rhino tests/test_block_replace_object_geometry_live.py
 
 Rhino must be running with RookNative + Rook companion loaded. Tests reset
 the document to blank on entry — run in a throwaway session.
