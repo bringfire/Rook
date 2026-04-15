@@ -32,7 +32,7 @@ import pytest
 
 from rook.server import _mcp_tool_executor
 
-from .conftest import assert_bbox_x_range, assert_new_slot
+from .conftest import assert_bbox_x_range, assert_new_slot, set_legacy_basepoint_for_test
 
 # Every test in this module needs Rhino; fixture handles graceful skip.
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
@@ -291,3 +291,64 @@ async def test_new_slot_populated_on_block_create(fresh_document):
     # pass via legacy fallback even if Phase B's Attach call silently
     # no-opped.
     await assert_new_slot("CREATE_NEW_SLOT", expected_base_point=(5.0, 0.0, 0.0))
+
+
+async def test_disagreement_new_slot_wins(fresh_document):
+    """New slot wins over legacy user-string when both are present but disagree
+    — NATIVE read path.
+
+    Scoped to native because RhinoCommon 8.0.23304's InstanceDefinition.UserData
+    does not surface plugin-defined custom UserData instances to managed
+    callers (diagnosed in #28 Phase C: Contains(UUID)=true but ud_list[i]
+    returns null, Add(managed_ud) returns false). Managed reads therefore
+    always fall through to the reflection-bridge legacy path during this
+    transition — a graceful-degrade, not a disagreement-wins test. See
+    design doc §3.3 for the native vs managed coexistence distinction.
+
+    This test exercises `rhino_block_replace_geometry` (native-backed,
+    calls LookupDefinitionBasePoint directly) instead of the companion-
+    backed `rhino_block_replace_object_geometry`. The native read path
+    does a true new-first lookup, so setting legacy to a divergent value
+    must NOT affect the result.
+
+    Setup: native dual-write on create puts new=(5,0,0), legacy=(5,0,0).
+    The test-only endpoint clobbers ONLY the legacy user-string to
+    (99,0,0), leaving the new UserData slot at (5,0,0).
+
+    Assertion: native replace-geometry normalizes using (5,0,0) — the
+    new-slot value — NOT (99,0,0). If the native read-side switch in
+    Phase C regressed, this test would fail because the replacement
+    would land at x∈[-99.5, -98.5] instead of x∈[-5.5, -4.5].
+
+    No introspection helper is needed — the disagreement itself
+    structurally isolates new-slot behavior via the observable bbox.
+    """
+    # Create block with basePoint=(5,0,0) via normal path (native dual-write).
+    seed = await _create_brep([4, -0.5, 0], [6, 1.5, 2], "DISAGREE_SEED")
+    await _block_create("DISAGREE_BLOCK", [seed], base_point=[5, 0, 0])
+
+    # Clobber legacy user-string to (99,0,0); new slot stays at (5,0,0).
+    await set_legacy_basepoint_for_test("DISAGREE_BLOCK", (99.0, 0.0, 0.0))
+
+    # Source at world origin. With new slot (5,0,0) → expected local
+    # x∈[-5.5, -4.5]. With legacy (99,0,0) → expected local x∈[-99.5,
+    # -98.5]. The native read-side switch must pick the new slot.
+    source = await _create_brep([-0.5, -0.5, 0], [0.5, 0.5, 1], "DISAGREE_SRC")
+
+    # rhino_block_replace_geometry is native-backed (HandleBlockReplaceGeometry),
+    # which calls LookupDefinitionBasePoint — the function Phase C switched
+    # to new-first.
+    replace_result = await _mcp_tool_executor(
+        "rhino_block_replace_geometry",
+        {"name": "DISAGREE_BLOCK", "ids": [source], "deleteOriginals": True},
+    )
+    assert replace_result.get("success") is not False, (
+        f"native replace-geometry failed: {replace_result!r}"
+    )
+
+    # Verify definition-local bbox: must be [-5.5, -4.5], NOT [-99.5, -98.5].
+    details = await _block_objects_detailed("DISAGREE_BLOCK")
+    assert details["objectCount"] == 1, (
+        f"expected 1 object after replace-geometry, got {details!r}"
+    )
+    assert_bbox_x_range(details["objects"][0]["bbox"], -5.5, -4.5)

@@ -206,3 +206,46 @@ async def assert_new_slot(
             f"got ({bp[0]!r}, {bp[1]!r}, {bp[2]!r}), "
             f"expected ({ex_x!r}, {ex_y!r}, {ex_z!r}), tol={tol}"
         )
+
+
+async def set_legacy_basepoint_for_test(
+    block_name: str,
+    base_point: "tuple[float, float, float]",
+) -> None:
+    """Test-only: write ONLY the legacy `rook_block_base_point` user-string
+    on a named idef, leaving the new UserData slot untouched.
+
+    Used by the Phase C disagreement test to simulate a state production
+    code cannot produce: new slot and legacy hold different values.
+
+    Hits `POST /block/_debug/set-legacy-basepoint` directly via httpx. Not
+    an MCP tool; see native handler comment for the contract.
+    """
+    import httpx
+    from rook.bridge import get_rhino_host
+
+    base_url = get_rhino_host()
+    if base_url is None:
+        pytest.fail("Native plugin not discoverable; cannot set legacy basePoint")
+
+    url = f"{base_url}/block/_debug/set-legacy-basepoint"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                url,
+                json={"name": block_name, "basePoint": list(base_point)},
+            )
+    except Exception as ex:
+        pytest.fail(f"POST {url} failed: {ex!r}")
+
+    if resp.status_code == 404:
+        pytest.fail(
+            f"{url} returned 404 — older RookNative build loaded; "
+            f"rebuild + redeploy native to pick up Phase C internal routes."
+        )
+    if resp.status_code != 200:
+        pytest.fail(f"{url} returned {resp.status_code}: {resp.text}")
+
+    body = resp.json()
+    if body.get("success") is False:
+        pytest.fail(f"{url} reported error: {body.get('data')!r}")

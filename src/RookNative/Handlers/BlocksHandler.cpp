@@ -368,6 +368,20 @@ static bool UpdateDefinitionBasePoint(
 static ON_3dPoint LookupDefinitionBasePoint(const CRhinoInstanceDefinition* pDef)
 {
     if (!pDef) return ON_3dPoint::Origin;
+
+    // New-slot first: once a valid Rook-owned UserData payload is present,
+    // the legacy user-string is never consulted. See design doc §3.3.
+    ON_3dPoint fromUserData;
+    if (CRookBlockBasePointUserData::TryRead(*pDef, fromUserData))
+        return fromUserData;
+
+    // Fallback to legacy user-string. Covers:
+    //   - pre-migration .3dm files (no UserData slot ever written)
+    //   - definitions whose new-slot Read failed on unknown major version
+    //     (forward-compat, per §4.1)
+    //   - definitions whose new-slot Read failed on malformed payload
+    // In all three cases, "return origin on any further parse failure"
+    // preserves the existing pre-#28 semantic.
     ON_wString value;
     if (!pDef->GetUserString(kRookBlockBasePointKey, value))
         return ON_3dPoint::Origin;
@@ -5297,6 +5311,79 @@ void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib:
             wr.data["basePoint"] = nullptr;
         }
 
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Internal / test-only. NOT an MCP tool.
+//
+// POST /block/_debug/set-legacy-basepoint
+// Body: {"name": "<block name>", "basePoint": [x, y, z]}
+// Response: {"success": true, "data": {"name": ..., "basePoint": [...]}}
+//
+// Writes ONLY the legacy `rook_block_base_point` user-string on the named
+// idef via the standard ON_Object::SetUserString path. Does NOT touch the
+// new CRookBlockBasePointUserData slot.
+//
+// Exists so Phase C's disagreement test can produce a state the production
+// write path cannot: new slot and legacy user-string holding DIFFERENT
+// values. Any caller outside tests/ is an abuse.
+// ───────────────────────────────────────────────────────────────────────────
+void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string name = body.value("name", "");
+    if (name.empty()) { CRookServer::SendError(res, "Block name required"); return; }
+
+    if (!body.contains("basePoint") || !body["basePoint"].is_array() || body["basePoint"].size() != 3)
+    {
+        CRookServer::SendError(res, "basePoint [x,y,z] required");
+        return;
+    }
+    double bx = body["basePoint"][0].get<double>();
+    double by = body["basePoint"][1].get<double>();
+    double bz = body["basePoint"][2].get<double>();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, name, bx, by, bz]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Test-only: set legacy basePoint user-string");
+
+        int idefIndex = FindDefByName(pDoc, name);
+        if (idefIndex < 0)
+            throw std::invalid_argument("Block definition '" + name + "' not found");
+
+        const CRhinoInstanceDefinition* pDef = pDoc->m_instance_definition_table[idefIndex];
+        if (!pDef) throw std::runtime_error("Block lookup failed");
+
+        // Slice-copy + ModifyInstanceDefinition with userdata mask — same
+        // pattern UpdateDefinitionBasePoint uses for the legacy string.
+        // The new UserData slot is untouched because we don't call Attach.
+        ON_InstanceDefinition idef_settings = *pDef;
+        wchar_t buf[128];
+        swprintf_s(buf, 128, L"%.17g,%.17g,%.17g", bx, by, bz);
+        idef_settings.SetUserString(kRookBlockBasePointKey, buf);
+
+        if (!pDoc->m_instance_definition_table.ModifyInstanceDefinition(
+                idef_settings, idefIndex,
+                ON_InstanceDefinition::idef_userdata_setting, false))
+            throw std::runtime_error("ModifyInstanceDefinition failed");
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["name"] = name;
+        wr.data["basePoint"] = { bx, by, bz };
         return wr;
     });
 

@@ -1140,6 +1140,13 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/block/_debug/basepoint-userdata", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleBlockTestDebugBasePointUserData(req, res);
     });
+    // INTERNAL / TEST-ONLY. Not an MCP tool. Used by #28 Phase C's
+    // disagreement test to simulate "new slot and legacy user-string hold
+    // different values" — a state production code cannot produce.
+    // Product code MUST NOT call this; public contract is explicitly none.
+    m_server->Post("/block/_debug/set-legacy-basepoint", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleBlockTestDebugSetLegacyBasePoint(req, res);
+    });
     m_server->Post("/block/add-objects", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockAddObjects(req, res);
     });

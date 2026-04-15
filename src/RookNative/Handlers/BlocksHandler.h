@@ -93,5 +93,13 @@ void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
 // Subject to change without notice; product code MUST NOT call this.
 void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib::Response& res);
 
+// Internal / test-only. NOT exposed through MCP. Writes ONLY the legacy
+// rook_block_base_point user-string on a named idef (does NOT touch the
+// new UserData slot). Lets tests simulate states that the production
+// write path cannot produce — specifically, the "new + legacy disagree"
+// state needed by Phase C's disagreement test. Subject to change without
+// notice; product code MUST NOT call this.
+void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook
