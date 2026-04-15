@@ -129,6 +129,7 @@
     <ClCompile Include="Handlers\MeshHandler.cpp" />
     <ClCompile Include="Handlers\SubDHandler.cpp" />
     <ClCompile Include="Handlers\BlocksHandler.cpp" />
+    <ClCompile Include="UserData\RookBlockBasePointUserData.cpp" />
     <ClCompile Include="Handlers\TextureMappingHandler.cpp" />
     <ClCompile Include="Handlers\GameExportHandler.cpp" />
     <ClCompile Include="SceneGraph\SceneGraph.cpp" />
@@ -191,6 +192,7 @@
     <ClInclude Include="Handlers\MeshHandler.h" />
     <ClInclude Include="Handlers\SubDHandler.h" />
     <ClInclude Include="Handlers\BlocksHandler.h" />
+    <ClInclude Include="UserData\RookBlockBasePointUserData.h" />
     <ClInclude Include="Handlers\TextureMappingHandler.h" />
     <ClInclude Include="Handlers\GameExportHandler.h" />
     <ClInclude Include="SceneGraph\SceneGraphModels.h" />
