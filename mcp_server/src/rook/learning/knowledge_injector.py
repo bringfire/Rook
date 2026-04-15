@@ -82,7 +82,7 @@ _WRAPPED_TOOLS = frozenset({
 
 # Meta-tools that should never get injection (they ARE the knowledge).
 _SKIP_TOOLS = frozenset({
-    "knowledge_query", "gh_knowledge_query", "knowledge_record",
+    "knowledge_query", "rhino_knowledge_query", "gh_knowledge_query", "knowledge_record",
     "gh_knowledge_reload", "gh_record_learning",
     "rhino_command_knowledge", "rhino_command_knowledge_reload",
     "rhino_command_observations",

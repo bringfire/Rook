@@ -93,6 +93,7 @@ PHASE_SIGNALS: Dict[str, str] = {
     "gh_explore_": "exploring",
     # Knowledge
     "knowledge_query": "researching",
+    "rhino_knowledge_query": "researching",
     "gh_knowledge_query": "researching",
 }
 

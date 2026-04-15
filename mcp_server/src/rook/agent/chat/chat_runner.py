@@ -146,7 +146,8 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "gh_set_script": "Set the script content of a C#/Python script component",
     "gh_inspect_output": "Inspect the output data of a component",
     # Knowledge
-    "knowledge_query": "Query the Rhino command knowledge store",
+    "knowledge_query": "Query the Rhino knowledge graph for tool patterns",
+    "rhino_knowledge_query": "Alias for Rhino command knowledge lookup",
     "gh_knowledge_query": "Query the Grasshopper knowledge store for components, recipes, patterns",
     "gh_constraints": "Get wiring constraints and warnings for components",
     # Scene graph

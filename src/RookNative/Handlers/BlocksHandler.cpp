@@ -22,7 +22,9 @@
 #include <cmath>
 #include <ctime>
 #include <functional>
+#include <initializer_list>
 #include <memory>
+#include <unordered_map>
 
 namespace Rook {
 namespace Handlers {
@@ -76,6 +78,79 @@ static std::vector<ON_UUID> ParseInstanceIds(const nlohmann::json& body)
             ids.push_back(id);
     }
     return ids;
+}
+
+static std::vector<ON_UUID> ParseUuidsFromAliases(
+    const nlohmann::json& body,
+    std::initializer_list<const char*> keys)
+{
+    for (const char* key : keys)
+    {
+        try
+        {
+            auto ids = ParseUuids(body, key);
+            if (!ids.empty())
+                return ids;
+        }
+        catch (...) {}
+    }
+    return {};
+}
+
+static bool TryParseUuidFromAliases(
+    const nlohmann::json& body,
+    std::initializer_list<const char*> keys,
+    ON_UUID& uuidOut,
+    std::string* errorOut = nullptr)
+{
+    for (const char* key : keys)
+    {
+        if (!body.contains(key))
+            continue;
+
+        try
+        {
+            uuidOut = ParseUuid(body, key);
+            return true;
+        }
+        catch (const std::invalid_argument& ex)
+        {
+            if (errorOut)
+                *errorOut = ex.what();
+            return false;
+        }
+    }
+
+    if (errorOut)
+        *errorOut = "Missing required parameter";
+    return false;
+}
+
+static ON_3dPoint ParsePoint3dFromAliases(
+    const nlohmann::json& body,
+    std::initializer_list<const char*> keys,
+    const ON_3dPoint& defaultValue)
+{
+    for (const char* key : keys)
+    {
+        if (!body.contains(key))
+            continue;
+        return ParsePoint3dOrDefault(body, key, defaultValue);
+    }
+    return defaultValue;
+}
+
+static bool ParseBoolFromAliases(
+    const nlohmann::json& body,
+    std::initializer_list<const char*> keys,
+    bool defaultValue)
+{
+    for (const char* key : keys)
+    {
+        if (body.contains(key) && body[key].is_boolean())
+            return body[key].get<bool>();
+    }
+    return defaultValue;
 }
 
 static bool TryParseRgb(const nlohmann::json& value, ON_Color& colorOut)
@@ -703,9 +778,7 @@ void HandleBlockCreate(const httplib::Request& req, httplib::Response& res)
 {
     auto [docSn, body] = ParseBodyAndDocSn(req);
 
-    std::vector<ON_UUID> objectIds;
-    try { objectIds = ParseUuids(body, "ids"); }
-    catch (...) { }
+    std::vector<ON_UUID> objectIds = ParseUuidsFromAliases(body, { "ids", "objectIds" });
     if (objectIds.empty()) { CRookServer::SendError(res, "No valid object IDs provided"); return; }
 
     std::string name = body.value("name", "");
@@ -719,11 +792,13 @@ void HandleBlockCreate(const httplib::Request& req, httplib::Response& res)
         name = buf;
     }
 
-    ON_3dPoint basePoint = ParsePoint3dOrDefault(body, "basePoint", ON_3dPoint::Origin);
-    bool deleteObjects = body.value("deleteObjects", true);
+    ON_3dPoint basePoint = ParsePoint3dFromAliases(
+        body, { "basePoint", "point", "insertionPoint" }, ON_3dPoint::Origin);
+    bool replaceWithInstance = ParseBoolFromAliases(
+        body, { "replaceWithInstance", "deleteObjects" }, true);
 
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, objectIds, name, basePoint, deleteObjects]() -> WriteResult
+        [docSn, objectIds, name, basePoint, replaceWithInstance]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Create block");
@@ -760,8 +835,9 @@ void HandleBlockCreate(const httplib::Request& req, httplib::Response& res)
         wr.data["name"] = name;
         wr.data["objectCount"] = srcObjects.Count();
         wr.data["basePoint"] = { basePoint.x, basePoint.y, basePoint.z };
+        wr.data["replaceWithInstance"] = replaceWithInstance;
 
-        if (deleteObjects)
+        if (replaceWithInstance)
         {
             for (const auto& id : objectIds)
             {
@@ -800,7 +876,8 @@ void HandleBlockInsert(const httplib::Request& req, httplib::Response& res)
     std::string name = body.value("name", "");
     if (name.empty()) { CRookServer::SendError(res, "Block name required"); return; }
 
-    ON_3dPoint insertPoint = ParsePoint3dOrDefault(body, "point", ON_3dPoint::Origin);
+    ON_3dPoint insertPoint = ParsePoint3dFromAliases(
+        body, { "point", "insertionPoint", "basePoint" }, ON_3dPoint::Origin);
     double scale = body.value("scale", 1.0);
     if (scale == 0.0 || !std::isfinite(scale))
     { CRookServer::SendError(res, "scale must be a finite non-zero value"); return; }
@@ -849,6 +926,7 @@ void HandleBlockInsert(const httplib::Request& req, httplib::Response& res)
         wr.data["instanceId"] = UuidToString(pInstObj->Attributes().m_uuid);
         wr.data["blockName"] = name;
         wr.data["point"] = { insertPoint.x, insertPoint.y, insertPoint.z };
+        wr.data["insertionPoint"] = { insertPoint.x, insertPoint.y, insertPoint.z };
         wr.data["scale"] = scale;
         wr.data["rotation"] = rotation;
 
@@ -1475,6 +1553,7 @@ void HandleBlockInstances(const httplib::Request& req, httplib::Response& res)
             nlohmann::json ji;
             ji["id"] = UuidToString(inst->Attributes().m_uuid);
             ji["insertionPoint"] = insertPt;
+            ji["point"] = insertPt;
             ji["scale"] = { sx, sy, sz };
             ji["layer"] = GetLayerFullPath(pDoc, inst->Attributes().m_layer_index);
             ji["name"] = WideToUtf8(inst->Attributes().m_name);
@@ -1507,8 +1586,14 @@ void HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& 
     auto [docSn, body] = ParseBodyAndDocSn(req);
 
     ON_UUID instanceId;
-    try { instanceId = ParseUuid(body, "instanceId"); }
-    catch (const std::invalid_argument& ex) { CRookServer::SendError(res, ex.what()); return; }
+    std::string instanceIdError;
+    if (!TryParseUuidFromAliases(body, { "instanceId", "id" }, instanceId, &instanceIdError))
+    {
+        if (instanceIdError == "Missing required parameter")
+            instanceIdError = "Missing required parameter ('instanceId' or 'id')";
+        CRookServer::SendError(res, instanceIdError);
+        return;
+    }
 
     std::string newBlockName = body.value("newBlockName", "");
     if (newBlockName.empty()) { CRookServer::SendError(res, "New block name required"); return; }
@@ -1552,6 +1637,196 @@ void HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& 
         wr.data["newBlockName"] = newBlockName;
 
         pDoc->Redraw();
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
+}
+
+// POST /block/replace-instance-batch
+void HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    if (body.is_null())
+    {
+        CRookServer::SendError(res, "Request body required");
+        return;
+    }
+    if (!body.contains("items") || !body["items"].is_array())
+    {
+        CRookServer::SendError(res, "'items' array required");
+        return;
+    }
+    if (body.contains("redraw") && !body["redraw"].is_boolean())
+    {
+        CRookServer::SendError(res, "'redraw' must be a boolean");
+        return;
+    }
+
+    const bool redraw = !body.contains("redraw") || body["redraw"].get<bool>();
+    const nlohmann::json items = body["items"];
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, items, redraw]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Batch Replace Block Instances");
+
+        int routed = 0;
+        int skipped = 0;
+        nlohmann::json errors = nlohmann::json::array();
+        std::unordered_map<std::string, int> targetDefCache;
+
+        for (const auto& item : items)
+        {
+            nlohmann::json echoId = nullptr;
+            if (item.is_object() && item.contains("id"))
+                echoId = item["id"];
+
+            try
+            {
+                if (!item.is_object())
+                {
+                    errors.push_back({{"id", echoId}, {"error", "invalid_item"},
+                                      {"message", "item must be an object"}});
+                    ++skipped;
+                    continue;
+                }
+
+                if (!item.contains("id") || !item["id"].is_string())
+                {
+                    errors.push_back({{"id", echoId}, {"error", "invalid_id"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const std::string idStr = item["id"].get<std::string>();
+                ON_UUID instanceId = ON_UuidFromString(Utf8ToWide(idStr));
+                if (ON_UuidIsNil(instanceId))
+                {
+                    errors.push_back({{"id", echoId}, {"error", "invalid_id"}});
+                    ++skipped;
+                    continue;
+                }
+
+                if (!item.contains("newBlockName") || !item["newBlockName"].is_string() ||
+                    item["newBlockName"].get<std::string>().empty())
+                {
+                    errors.push_back({{"id", echoId}, {"error", "missing_new_block_name"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const std::string newBlockName = item["newBlockName"].get<std::string>();
+
+                const CRhinoObject* obj = pDoc->LookupObject(instanceId);
+                if (!obj)
+                {
+                    errors.push_back({{"id", echoId}, {"error", "not_found"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const CRhinoInstanceObject* pInstObj = CRhinoInstanceObject::Cast(obj);
+                if (!pInstObj)
+                {
+                    errors.push_back({{"id", echoId}, {"error", "not_instance"}});
+                    ++skipped;
+                    continue;
+                }
+
+                int newDefIndex = -1;
+                const auto cached = targetDefCache.find(newBlockName);
+                if (cached != targetDefCache.end())
+                {
+                    newDefIndex = cached->second;
+                }
+                else
+                {
+                    newDefIndex = FindDefByName(pDoc, newBlockName);
+                    targetDefCache.emplace(newBlockName, newDefIndex);
+                }
+
+                if (newDefIndex < 0)
+                {
+                    errors.push_back({{"id", echoId}, {"error", "block_not_found"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const CRhinoInstanceDefinition* pOldDef = pInstObj->InstanceDefinition();
+                if (!pOldDef)
+                {
+                    errors.push_back({{"id", echoId}, {"error", "replace_failed"},
+                                      {"message", "Could not resolve instance definition"}});
+                    ++skipped;
+                    continue;
+                }
+
+                if (pOldDef->Index() == newDefIndex)
+                {
+                    errors.push_back({{"id", echoId}, {"error", "already_target"}});
+                    ++skipped;
+                    continue;
+                }
+
+                const int oldDefIndex = pOldDef->Index();
+                ON_Xform oldXform = pInstObj->InstanceXform();
+                ON_3dmObjectAttributes oldAttrs = pInstObj->Attributes();
+
+                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+
+                CRhinoInstanceObject* pNewInst =
+                    pDoc->m_instance_definition_table.CreateInstanceObject(
+                        newDefIndex, oldXform, &oldAttrs, nullptr, false, false, true);
+
+                if (!pNewInst)
+                {
+                    CRhinoInstanceObject* pRestoredInst =
+                        pDoc->m_instance_definition_table.CreateInstanceObject(
+                            oldDefIndex, oldXform, &oldAttrs, nullptr, false, false, true);
+
+                    nlohmann::json entry = {
+                        {"id", echoId},
+                        {"error", "replace_failed"},
+                        {"restored", pRestoredInst != nullptr}
+                    };
+                    if (!pRestoredInst)
+                    {
+                        entry["message"] =
+                            "Failed to create replacement instance; original instance could not be restored. Use Undo to recover.";
+                    }
+                    errors.push_back(std::move(entry));
+                    ++skipped;
+                    continue;
+                }
+
+                ++routed;
+            }
+            catch (const std::exception& ex)
+            {
+                errors.push_back({{"id", echoId}, {"error", "exception"},
+                                  {"message", ex.what()}});
+                ++skipped;
+            }
+        }
+
+        if (redraw)
+            pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["routed"] = routed;
+        wr.data["skipped"] = skipped;
+        wr.data["total"] = static_cast<int>(items.size());
+        wr.data["errors"] = std::move(errors);
         return wr;
     });
 
@@ -2129,6 +2404,7 @@ void HandleBlockFindInstances(const httplib::Request& req, httplib::Response& re
                 item["id"] = UuidToString(inst->Attributes().m_uuid);
                 item["blockName"] = WideToUtf8(def->Name());
                 item["insertionPoint"] = { xf.m_xform[0][3], xf.m_xform[1][3], xf.m_xform[2][3] };
+                item["point"] = item["insertionPoint"];
                 item["layer"] = GetLayerFullPath(pDoc, inst->Attributes().m_layer_index);
                 item["name"] = instanceName;
                 matches.push_back(std::move(item));

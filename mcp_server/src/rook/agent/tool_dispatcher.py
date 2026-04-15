@@ -182,6 +182,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_set_materials": ("/block/set-materials", "POST"),
     "rhino_block_set_materials_batch": ("/block/set-materials-batch", "POST"),
     "rhino_block_replace_instance": ("/block/replace-instance", "POST"),
+    "rhino_block_replace_instance_batch": ("/block/replace-instance-batch", "POST"),
     "rhino_block_reset_scale":  ("/block/reset-scale", "POST"),
     "rhino_block_link":         ("/block/link", "POST"),
     "rhino_block_refresh":      ("/block/refresh", "POST"),
@@ -484,7 +485,7 @@ def _transform_trim_brep(args: dict) -> Tuple[str, str, dict]:
 
 
 def _transform_document_ops(args: dict) -> Tuple[str, str, dict]:
-    action = args.get("action")
+    action = args.get("action") or args.get("operation")
     if action == "undo":
         return "/undo", "POST", {}
     elif action == "redo":
@@ -819,6 +820,39 @@ def build_local_tools() -> Dict[str, Any]:
         tools["knowledge_query"] = _knowledge_query
     except ImportError:
         logger.debug("knowledge_query local tool unavailable (import failed)")
+
+    # --- rhino_command_knowledge / rhino_knowledge_query ---
+    try:
+        from ..learning.command_knowledge_store import get_command_knowledge_store
+
+        async def _rhino_command_knowledge(command: str = None, **kwargs) -> dict:
+            store = get_command_knowledge_store()
+            if command:
+                pattern = store.get(command)
+                if pattern:
+                    return {"success": True, "data": pattern.to_dict()}
+                return {"success": False, "data": f"No knowledge found for {command}"}
+
+            all_patterns = store.get_all()
+            return {
+                "success": True,
+                "data": {
+                    "total_commands": len(all_patterns),
+                    "commands": {
+                        name: {
+                            "description": p.description,
+                            "modes": list(p.modes.keys()),
+                            "observations_count": p.observations_count,
+                        }
+                        for name, p in all_patterns.items()
+                    },
+                },
+            }
+
+        tools["rhino_command_knowledge"] = _rhino_command_knowledge
+        tools["rhino_knowledge_query"] = _rhino_command_knowledge
+    except ImportError:
+        logger.debug("rhino_command_knowledge local tool unavailable (import failed)")
 
     # --- gh_knowledge_query ---
     try:

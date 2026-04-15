@@ -26,6 +26,7 @@ TIER_0: Set[str] = {
     "gh_execute_intent",
     # Knowledge
     "knowledge_query",
+    "rhino_knowledge_query",
     "gh_knowledge_query",
     # Inspection
     "rhino_objects",
@@ -60,6 +61,7 @@ READONLY_TIER_0: Set[str] = {
     "gh_snapshot",
     "gh_errors",
     "knowledge_query",
+    "rhino_knowledge_query",
     "gh_knowledge_query",
     "request_tools",
     "search_tools",
@@ -141,7 +143,8 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_block_replace_geometry", "rhino_block_replace_object_geometry",
         "rhino_block_replace_object_geometry_batch",
         "rhino_block_transform_object", "rhino_block_transform_object_batch",
-        "rhino_block_replace_instance",
+        "rhino_block_transform_instance_batch",
+        "rhino_block_replace_instance", "rhino_block_replace_instance_batch",
         "rhino_block_reset_scale", "rhino_block_nested",
         "rhino_block_link", "rhino_block_unlink", "rhino_block_refresh",
         "rhino_block_rebase",
@@ -349,7 +352,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- Rhino Command Learning ---
     "command_learning": [
-        "rhino_command_knowledge", "rhino_command_knowledge_reload",
+        "rhino_command_knowledge", "rhino_knowledge_query", "rhino_command_knowledge_reload",
         "rhino_command_observations",
         "rhino_command_consolidate", "rhino_command_experiment",
         "rhino_learn_interactive", "rhino_learn_next",
@@ -359,7 +362,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
 
     # --- Knowledge & Metrics ---
     "knowledge_meta": [
-        "knowledge_query", "knowledge_record",
+        "knowledge_query", "rhino_knowledge_query", "knowledge_record",
         "metrics_dashboard", "metrics_summary",
         "parse_command", "rhino_analyze_prompt",
     ],

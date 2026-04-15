@@ -140,6 +140,7 @@ class ToolRegistry:
         "rhino_block_set_object_names_batch": CATEGORY_MODIFICATION,
         "rhino_block_instances": CATEGORY_MODIFICATION,
         "rhino_block_replace_instance": CATEGORY_MODIFICATION,
+        "rhino_block_replace_instance_batch": CATEGORY_MODIFICATION,
         "rhino_block_reset_scale": CATEGORY_MODIFICATION,
         "rhino_block_link": CATEGORY_MODIFICATION,
         "rhino_block_refresh": CATEGORY_MODIFICATION,
@@ -183,6 +184,7 @@ class ToolRegistry:
 
         # Knowledge tools (skip these in exploration)
         "knowledge_query": CATEGORY_KNOWLEDGE,
+        "rhino_knowledge_query": CATEGORY_KNOWLEDGE,
         "knowledge_record": CATEGORY_KNOWLEDGE,
     }
 

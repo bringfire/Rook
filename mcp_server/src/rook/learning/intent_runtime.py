@@ -805,6 +805,12 @@ def _build_route_table() -> dict[str, RouteSpec]:
         required_params=("instanceId", "newBlockName"),
         description="Swap a block instance's definition (e.g., RAILING WEST 2 → RAILING WEST)",
     )
+    routes["replace_block_instance_batch"] = RouteSpec(
+        endpoint="/block/replace-instance-batch",
+        required_params=("items",),
+        optional_params=("redraw",),
+        description="Batch swap block instances to different definitions; per-item {id, newBlockName}",
+    )
     routes["reset_block_instance_scale"] = RouteSpec(
         endpoint="/block/reset-scale",
         required_params=("id",),
@@ -1021,7 +1027,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "purge_blocks",
         "replace_block_geometry", "replace_block_object_geometry",
         "transform_block_object",
-        "replace_block_instance", "reset_block_instance_scale",
+        "replace_block_instance", "replace_block_instance_batch", "reset_block_instance_scale",
         "link_block", "unlink_block", "refresh_block",
         "find_block_instances", "block_objects_detailed",
         "set_block_instance_visibility",

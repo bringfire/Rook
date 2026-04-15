@@ -1,6 +1,6 @@
 // BlocksHandler.h
 //
-// Block definition and instance operations (23 routes, 20 unique handlers).
+// Block definition and instance operations (24 routes, 21 unique handlers).
 // GET  /blocks                  — List all block definitions
 // POST /block/create            — Create block from objects
 // POST /block/insert            — Insert block instance
@@ -14,6 +14,7 @@
 // POST /block/replace-geometry  — Replace block geometry
 // GET+POST /block/instances     — List instances with transforms
 // POST /block/replace-instance  — Swap to different block
+// POST /block/replace-instance-batch — Best-effort batch swap to different block
 // POST /block/reset-scale       — Normalize instance scale
 // POST /block/link              — Link to external file
 // POST /block/refresh           — Refresh linked block
@@ -51,6 +52,7 @@ void HandleBlockReplaceGeometry(const httplib::Request& req, httplib::Response& 
 // Instance operations
 void HandleBlockInstances(const httplib::Request& req, httplib::Response& res);
 void HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& res);
+void HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Response& res);
 void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res);
 void HandleBlockSetInstanceProperties(const httplib::Request& req, httplib::Response& res);
 void HandleBlockSetInstanceVisibility(const httplib::Request& req, httplib::Response& res);

@@ -1151,6 +1151,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/block/replace-instance", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockReplaceInstance(req, res);
     });
+    m_server->Post("/block/replace-instance-batch", [this](const httplib::Request& req, httplib::Response& res) {
+        HandleBlockReplaceInstanceBatch(req, res);
+    });
     m_server->Post("/block/reset-scale", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockResetScale(req, res);
     });
@@ -2426,6 +2429,11 @@ void CRookServer::HandleBlockInstances(const httplib::Request& req, httplib::Res
 void CRookServer::HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& res)
 {
     Rook::Handlers::HandleBlockReplaceInstance(req, res);
+}
+
+void CRookServer::HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Response& res)
+{
+    Rook::Handlers::HandleBlockReplaceInstanceBatch(req, res);
 }
 
 void CRookServer::HandleBlockResetScale(const httplib::Request& req, httplib::Response& res)
