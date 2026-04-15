@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using Rhino;
 using Rhino.DocObjects;
@@ -4526,6 +4528,132 @@ namespace Rook.Handlers
             }
         }
 
+        // Reserved user-string key mirroring the native side (see
+        // src/RookNative/Handlers/BlocksHandler.cpp kRookBlockBasePointKey).
+        // Value format: "x,y,z" written by native with %.17g — culture-invariant,
+        // parses cleanly with InvariantCulture. Missing or malformed → treat as
+        // origin (no normalization needed, matches native fallback).
+        private const string RookBlockBasePointKey = "rook_block_base_point";
+
+        // Interim compatibility bridge to native PR #25 storage.
+        //
+        // Native writes rook_block_base_point via ON_Object::SetUserString on
+        // the ON_InstanceDefinition. RhinoCommon 8.0.23304 does NOT publicly
+        // surface GetUserString/SetUserString on managed InstanceDefinition
+        // (Layer exposes them; InstanceDefinition intentionally does not —
+        // verified via reflection and across the ModelComponent hierarchy).
+        // The non-public P/Invoke bridge `_GetUserString` does exist and is
+        // the same bridge Layer.GetUserString wraps.
+        //
+        // Resolved once at type-init. Null here = the non-public bridge is
+        // absent in this RhinoCommon version → callers MUST fail loud
+        // (silent origin fallback would invisibly reproduce #24/#27).
+        //
+        // Follow-up: the real fix is to migrate the storage slot so both
+        // native and managed can read via stable public APIs (proposed:
+        // InstanceDefinition.UserDictionary with a dual-read/dual-write
+        // transition window). That's tracked as a separate issue.
+        private static readonly MethodInfo? _idefGetUserStringReflected =
+            typeof(InstanceDefinition).GetMethod(
+                "_GetUserString",
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(string) },
+                modifiers: null);
+
+        // Three-state result from reading the native-written basePoint metadata.
+        // Found: key present and parsed — normalization needed.
+        // Origin: key genuinely absent or malformed → treat as origin (matches
+        //   native LookupDefinitionBasePoint's swscanf_s fallback).
+        // BridgeFailure: reflection bridge missing OR invocation threw — callers
+        //   MUST fail the route so the drift never reappears silently.
+        private enum BasePointReadState { Origin, Found, BridgeFailure }
+
+        // Read the stored basePoint from a definition's native-written user
+        // string (see RookBlockBasePointKey comment for the asymmetry story).
+        // On success, basePoint is the definition's world-coord origin as
+        // recorded by HandleBlockCreate. Used to normalize incoming world-coord
+        // geometry into definition-local coords before ModifyGeometry.
+        private static BasePointReadState TryReadDefinitionBasePoint(
+            InstanceDefinition idef,
+            out Vector3d basePoint,
+            out string? bridgeError)
+        {
+            basePoint = Vector3d.Zero;
+            bridgeError = null;
+            if (idef == null) return BasePointReadState.Origin;
+
+            if (_idefGetUserStringReflected == null)
+            {
+                bridgeError = "RhinoCommon does not expose InstanceDefinition._GetUserString "
+                    + "in this build; cannot read native-written rook_block_base_point metadata";
+                return BasePointReadState.BridgeFailure;
+            }
+
+            string? value;
+            try
+            {
+                value = (string?)_idefGetUserStringReflected.Invoke(idef, new object[] { RookBlockBasePointKey });
+            }
+            catch (Exception ex)
+            {
+                bridgeError = "InstanceDefinition._GetUserString reflection invocation failed: "
+                    + ex.GetBaseException().Message;
+                return BasePointReadState.BridgeFailure;
+            }
+
+            // Key absent → native's LookupDefinitionBasePoint returns origin; match.
+            if (string.IsNullOrEmpty(value))
+                return BasePointReadState.Origin;
+
+            // Malformed → native's swscanf_s returns != 3 → origin; match.
+            var parts = value.Split(',');
+            if (parts.Length != 3
+                || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double x)
+                || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double y)
+                || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double z))
+            {
+                return BasePointReadState.Origin;
+            }
+
+            basePoint = new Vector3d(x, y, z);
+            return BasePointReadState.Found;
+        }
+
+        // Duplicate a source object's geometry and, if the target definition
+        // has a non-origin basePoint stored, transform it from world coords
+        // into definition-local coords. Returns null and sets errorMessage on
+        // any failure (null Duplicate result OR failed Transform) — callers
+        // fail loud rather than silently inserting untransformed world-coord
+        // geometry into the definition (which would reproduce the Issue #24 /
+        // #27 drift).
+        //
+        // Guards Duplicate() returning null: matches the native reference
+        // MaterializeTransformedSource which explicitly checks
+        // `if (!dupGeom) return nullptr;` before Transform. Without this guard,
+        // an unduplicatable source type would crash the whole route (single)
+        // or abort the batch (batch) instead of emitting a per-item error.
+        private static GeometryBase? DuplicateAndNormalizeSourceGeometry(
+            RhinoObject sourceObj,
+            Transform worldToLocal,
+            bool needsTransform,
+            out string? errorMessage)
+        {
+            errorMessage = null;
+            var dup = sourceObj.Geometry?.Duplicate();
+            if (dup == null)
+            {
+                errorMessage = "Source geometry could not be duplicated";
+                return null;
+            }
+            if (needsTransform && !dup.Transform(worldToLocal))
+            {
+                errorMessage = "Failed to transform source geometry to definition-local coords";
+                return null;
+            }
+            return dup;
+        }
+
         // Shape validation for one replace-object-geometry item.
         // strictDeleteFlag=false matches single-target behavior: any non-boolean deleteOriginal silently defaults to true.
         // strictDeleteFlag=true is the batch semantic: non-boolean deleteOriginal is InvalidDeleteFlag.
@@ -4682,6 +4810,36 @@ namespace Rook.Handlers
                 var sourceObj = resolution.SourceObject;
                 int targetIndex = resolution.TargetIndex;
 
+                // Normalize world-coord source into definition-local coords
+                // when the definition has a non-origin basePoint stored (see
+                // Issue #27 / PR #25 native equivalent). Missing/origin key →
+                // identity transform → existing behavior preserved. Bridge
+                // failure → fail loud (policy: never silently fall back to
+                // origin, which would invisibly reproduce the drift).
+                Transform worldToLocal = Transform.Identity;
+                bool needsTransform = false;
+                var bpState = TryReadDefinitionBasePoint(idef, out Vector3d basePoint, out string? bridgeErr);
+                if (bpState == BasePointReadState.BridgeFailure)
+                {
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = $"Cannot replace object in block '{shape.Name}': {bridgeErr ?? "basePoint metadata unreadable"}"
+                    };
+                }
+                if (bpState == BasePointReadState.Found)
+                {
+                    worldToLocal = Transform.Translation(-basePoint);
+                    needsTransform = !basePoint.IsTiny(1e-12);
+                }
+
+                var normalizedReplacement = DuplicateAndNormalizeSourceGeometry(
+                    sourceObj, worldToLocal, needsTransform, out string? transformErr);
+                if (normalizedReplacement == null)
+                {
+                    return new ApiResponse { Success = false, Data = transformErr ?? "Failed to transform source geometry" };
+                }
+
                 var allGeometry = new List<GeometryBase>();
                 var allAttributes = new List<ObjectAttributes>();
 
@@ -4689,8 +4847,7 @@ namespace Rook.Handlers
                 {
                     if (i == targetIndex)
                     {
-                        // Replace geometry at target index with source object's geometry
-                        allGeometry.Add(sourceObj.Geometry.Duplicate());
+                        allGeometry.Add(normalizedReplacement);
                     }
                     else
                     {
@@ -4898,22 +5055,73 @@ namespace Rook.Handlers
 
                 foreach (var (idef, snapshot, resolvedList) in resolvedGroups)
                 {
+                    // Per-group basePoint lookup (Issue #27). Missing/origin key
+                    // → identity transform → origin fast path, matches existing
+                    // behavior pre-fix. Bridge failure → every slot in THIS
+                    // group gets basepoint_bridge_unavailable; sibling groups
+                    // still proceed. Never silently fall back to origin — that
+                    // would invisibly reproduce the #24/#27 drift.
+                    Transform worldToLocal = Transform.Identity;
+                    bool needsTransform = false;
+                    var bpState = TryReadDefinitionBasePoint(idef, out Vector3d basePoint, out string? bridgeErr);
+                    if (bpState == BasePointReadState.BridgeFailure)
+                    {
+                        foreach (var (slot, _) in resolvedList)
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "basepoint_bridge_unavailable",
+                                $"Cannot read basePoint metadata for block '{idef.Name}': {bridgeErr ?? "reflection bridge unavailable"}"));
+                            skipped++;
+                        }
+                        continue;
+                    }
+                    if (bpState == BasePointReadState.Found)
+                    {
+                        worldToLocal = Transform.Translation(-basePoint);
+                        needsTransform = !basePoint.IsTiny(1e-12);
+                    }
+
+                    // Pre-transform replacements eagerly so a failed transform
+                    // becomes a per-item error instead of silently injecting
+                    // world-coord geometry (the #24/#27 drift). Each target
+                    // index is unique within a group (relational validation
+                    // Phase 2), so one duplicate per replacement, same as before.
+                    var replacementByIndex = new Dictionary<int, GeometryBase>();
+                    var successfulSlots = new List<(Slot slot, ReplaceItemResolution res)>();
+                    foreach (var (slot, res) in resolvedList)
+                    {
+                        // Batch has richer context than the helper's generic
+                        // message (knows the idef and the raw sourceId), so the
+                        // helper's errorMessage is discarded — the batch message
+                        // is always the same rich form.
+                        var normalized = DuplicateAndNormalizeSourceGeometry(
+                            res.SourceObject, worldToLocal, needsTransform, out _);
+                        if (normalized == null)
+                        {
+                            errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "transform_failed",
+                                $"Failed to transform source '{slot.Shape.SourceIdRaw}' to definition-local coords for block '{idef.Name}'"));
+                            skipped++;
+                            continue;
+                        }
+                        replacementByIndex[res.TargetIndex] = normalized;
+                        successfulSlots.Add((slot, res));
+                    }
+
+                    // If every item in the group transform-failed, skip the SDK
+                    // call entirely — no replacements to make, no group error.
+                    if (successfulSlots.Count == 0)
+                        continue;
+
                     // Build allGeometry / allAttributes from the fixed snapshot.
                     var allGeometry = new List<GeometryBase>(snapshot.Length);
                     var allAttributes = new List<ObjectAttributes>(snapshot.Length);
-
-                    // Map target index → replacement source for this group.
-                    var replacementByIndex = new Dictionary<int, RhinoObject>();
-                    foreach (var (_, res) in resolvedList)
-                        replacementByIndex[res.TargetIndex] = res.SourceObject;
 
                     for (int i = 0; i < snapshot.Length; i++)
                     {
                         // Attributes preserved unchanged across all slots — the key parity invariant.
                         allAttributes.Add(snapshot[i].Attributes.Duplicate());
 
-                        if (replacementByIndex.TryGetValue(i, out var sourceObj))
-                            allGeometry.Add(sourceObj.Geometry.Duplicate());
+                        if (replacementByIndex.TryGetValue(i, out var replGeom))
+                            allGeometry.Add(replGeom);
                         else
                             allGeometry.Add(snapshot[i].Geometry.Duplicate());
                     }
@@ -4921,7 +5129,10 @@ namespace Rook.Handlers
                     bool modified = doc.InstanceDefinitions.ModifyGeometry(idef.Index, allGeometry, allAttributes);
                     if (!modified)
                     {
-                        foreach (var (slot, _) in resolvedList)
+                        // SDK-level group failure cements group_modify_failed for
+                        // the successful-so-far slots; transform-failed slots are
+                        // already in the errors list above.
+                        foreach (var (slot, _) in successfulSlots)
                         {
                             errors.Add(BuildBatchError(slot.RawName, slot.Shape.Index, "group_modify_failed",
                                 $"Failed to modify block '{idef.Name}'"));
@@ -4930,8 +5141,10 @@ namespace Rook.Handlers
                         continue;
                     }
 
-                    // Group succeeded — cement routed status and queue deletions for effective-true sources.
-                    foreach (var (slot, _) in resolvedList)
+                    // Group succeeded — cement routed status and queue deletions
+                    // for effective-true sources (only for slots whose transform
+                    // actually succeeded; transform-failed slots stay skipped).
+                    foreach (var (slot, _) in successfulSlots)
                     {
                         routed++;
                         if (slot.Shape.DeleteOriginal && deletionSet.Add(slot.Shape.SourceGuid))
