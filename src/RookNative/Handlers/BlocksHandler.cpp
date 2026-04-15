@@ -307,6 +307,149 @@ static const CRhinoObject* AddGeometryToDoc(CRhinoDoc* pDoc,
     return nullptr;
 }
 
+// Forward declarations: the type-classification helpers live further down in
+// the file (near the rebase helpers) but are referenced by the source-set
+// materialization helpers below.
+static bool CanMaterializeGeometry(const ON_Geometry* geom);
+static std::string GeometryTypeName(const ON_Geometry* geom);
+
+// Rook-reserved user-string key for the block definition's base point.
+// Stored as "x,y,z" on the ON_InstanceDefinition so add-objects and
+// replace-geometry handlers can preserve the implicit local-coord contract
+// established at definition-create time. Legacy/imported definitions with
+// no key are treated as origin-based.
+static const wchar_t* kRookBlockBasePointKey = L"rook_block_base_point";
+
+static void StoreDefinitionBasePoint(ON_InstanceDefinition& idef, const ON_3dPoint& basePoint)
+{
+    wchar_t buf[128];
+    swprintf_s(buf, 128, L"%.17g,%.17g,%.17g", basePoint.x, basePoint.y, basePoint.z);
+    idef.SetUserString(kRookBlockBasePointKey, buf);
+}
+
+// Rewrite the basePoint metadata on an existing definition. Used by rebase
+// paths that shift a definition's local frame — the old stored basePoint
+// becomes stale and must be adjusted by the inverse of the local-space
+// translation, or future add-objects / replace-geometry calls will
+// normalize against the wrong origin.
+//
+// Uses ModifyInstanceDefinition with the userdata-only mask so the rest of
+// the definition's settings (name, description, etc.) are preserved.
+static bool UpdateDefinitionBasePoint(
+    CRhinoDoc* pDoc, int idefIndex, const ON_3dPoint& newBasePoint)
+{
+    if (!pDoc) return false;
+    const CRhinoInstanceDefinition* pDef = pDoc->m_instance_definition_table[idefIndex];
+    if (!pDef) return false;
+
+    // Slice-copy: ON_Object copy ctor carries user data (our user string).
+    ON_InstanceDefinition idef_settings = *pDef;
+    StoreDefinitionBasePoint(idef_settings, newBasePoint);
+
+    return pDoc->m_instance_definition_table.ModifyInstanceDefinition(
+        idef_settings, idefIndex,
+        ON_InstanceDefinition::idef_userdata_setting, false);
+}
+
+static ON_3dPoint LookupDefinitionBasePoint(const CRhinoInstanceDefinition* pDef)
+{
+    if (!pDef) return ON_3dPoint::Origin;
+    ON_wString value;
+    if (!pDef->GetUserString(kRookBlockBasePointKey, value))
+        return ON_3dPoint::Origin;
+    double x = 0.0, y = 0.0, z = 0.0;
+    if (swscanf_s(value, L"%lf,%lf,%lf", &x, &y, &z) != 3)
+        return ON_3dPoint::Origin;
+    return ON_3dPoint(x, y, z);
+}
+
+// Materialize a transformed duplicate of a source doc object as a new temp
+// doc object. Handles:
+//   - CRhinoInstanceObject (nested block): re-instance with (xform * oldRefXform)
+//     using CreateInstanceObject, mirroring MaterializeDefinitionObjects leaf mode.
+//   - Plain geometry: duplicate -> Transform -> AddGeometryToDoc.
+//
+// The temp's attribute GUID is reset so the doc assigns a fresh id (the
+// original's GUID is preserved on the caller's object). Returns nullptr on
+// any failure; callers pair this with RequireMaterializableSources to turn
+// unsupported types into a loud error instead of a silent skip.
+static const CRhinoObject* MaterializeTransformedSource(
+    CRhinoDoc* pDoc, const CRhinoObject* src, const ON_Xform& xform)
+{
+    if (!pDoc || !src) return nullptr;
+
+    if (const CRhinoInstanceObject* instObj = CRhinoInstanceObject::Cast(src))
+    {
+        const CRhinoInstanceDefinition* referencedDef = instObj->InstanceDefinition();
+        if (!referencedDef) return nullptr;
+
+        // Post-multiply: the nested ref's xform lives in world coords, and
+        // we want (xform-in-world) * (ref-to-world) = new-ref-to-world.
+        ON_Xform composed = xform * instObj->InstanceXform();
+        ON_3dmObjectAttributes attrs = instObj->Attributes();
+        attrs.m_uuid = ON_nil_uuid;
+        return pDoc->m_instance_definition_table.CreateInstanceObject(
+            referencedDef->Index(), composed, &attrs, nullptr, false, false, true);
+    }
+
+    const ON_Geometry* srcGeom = src->Geometry();
+    if (!srcGeom) return nullptr;
+    ON_Geometry* dupGeom = srcGeom->Duplicate();
+    if (!dupGeom) return nullptr;
+    if (!dupGeom->Transform(xform))
+    {
+        delete dupGeom;
+        return nullptr;
+    }
+    ON_3dmObjectAttributes attrs = src->Attributes();
+    attrs.m_uuid = ON_nil_uuid;
+    const CRhinoObject* tempObj = AddGeometryToDoc(pDoc, dupGeom, &attrs);
+    delete dupGeom;
+    return tempObj;
+}
+
+// Pre-flight: throws std::invalid_argument listing any types the
+// materialization path cannot handle. InstanceRef is supported (via
+// CreateInstanceObject); plain geometry is accepted only if
+// CanMaterializeGeometry says so. This replaces the silent-skip behavior
+// of the earlier AddTransformedDuplicate path.
+static void RequireMaterializableSources(
+    const std::vector<const CRhinoObject*>& sources,
+    const char* operation)
+{
+    std::set<std::string> unsupported;
+    for (const CRhinoObject* src : sources)
+    {
+        if (!src)
+        {
+            unsupported.insert("null");
+            continue;
+        }
+        if (CRhinoInstanceObject::Cast(src))
+            continue;
+        const ON_Geometry* geom = src->Geometry();
+        if (!geom)
+        {
+            unsupported.insert("no-geometry");
+            continue;
+        }
+        if (!CanMaterializeGeometry(geom))
+            unsupported.insert(GeometryTypeName(geom));
+    }
+    if (unsupported.empty()) return;
+
+    std::string msg = std::string(operation ? operation : "operation") +
+        " contains unsupported object types: ";
+    bool first = true;
+    for (const auto& t : unsupported)
+    {
+        if (!first) msg += ", ";
+        msg += t;
+        first = false;
+    }
+    throw std::invalid_argument(msg);
+}
+
 static nlohmann::json SerializeAttributeUserStrings(const ON_3dmObjectAttributes& attrs)
 {
     nlohmann::json userStrings = nlohmann::json::object();
@@ -806,34 +949,86 @@ void HandleBlockCreate(const httplib::Request& req, httplib::Response& res)
         if (FindDefByName(pDoc, name) >= 0)
             throw std::invalid_argument("Block definition '" + name + "' already exists");
 
-        // Collect source objects
-        ON_SimpleArray<const CRhinoObject*> srcObjects;
+        // Resolve source objects in their current world coordinates.
+        std::vector<const CRhinoObject*> resolvedSources;
         for (const auto& id : objectIds)
         {
             const CRhinoObject* obj = pDoc->LookupObject(id);
             if (obj && obj->Geometry())
-                srcObjects.Append(obj);
+                resolvedSources.push_back(obj);
         }
 
-        if (srcObjects.Count() == 0)
+        if (resolvedSources.empty())
             throw std::invalid_argument("No valid objects found");
 
-        // Set up instance definition settings
+        // Two paths:
+        //  - basePoint at origin: no coord transform is needed, so pass the
+        //    original doc objects straight through (preserves full
+        //    backward compatibility with the pre-fix handler's accepted type
+        //    set — whatever AddInstanceDefinition accepted still works).
+        //  - basePoint off origin: materialize each source into the doc as a
+        //    local-coord temp via MaterializeTransformedSource. This path
+        //    rejects types that can't be safely transformed-and-re-added
+        //    (SubD, annotations, etc.) via RequireMaterializableSources —
+        //    the old code was silently wrong for those cases anyway.
+        ON_Xform worldToLocal = ON_Xform::TranslationTransformation(
+            ON_3dVector(-basePoint.x, -basePoint.y, -basePoint.z));
+        const bool needsTransform = !worldToLocal.IsIdentity(1e-12);
+
+        ON_SimpleArray<const CRhinoObject*> tempObjects;
+        std::vector<ON_UUID> tempIds;
+
+        if (needsTransform)
+        {
+            RequireMaterializableSources(resolvedSources, "Block create source set");
+            tempIds.reserve(resolvedSources.size());
+            for (const CRhinoObject* src : resolvedSources)
+            {
+                const CRhinoObject* tempObj = MaterializeTransformedSource(pDoc, src, worldToLocal);
+                if (!tempObj)
+                {
+                    for (const ON_UUID& tid : tempIds)
+                        pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
+                    throw std::runtime_error("Failed to materialize source object into local coords");
+                }
+                tempObjects.Append(tempObj);
+                tempIds.push_back(tempObj->Attributes().m_uuid);
+            }
+        }
+        else
+        {
+            for (const CRhinoObject* src : resolvedSources)
+                tempObjects.Append(src);
+        }
+
+        // Set up instance definition settings and record basePoint metadata
+        // so add-objects / replace-geometry handlers can preserve local coords.
         ON_InstanceDefinition idef_settings;
         idef_settings.SetName(Utf8ToWide(name));
         idef_settings.SetDescription(L"");
+        StoreDefinitionBasePoint(idef_settings, basePoint);
 
         int idefIndex = pDoc->m_instance_definition_table.AddInstanceDefinition(
-            idef_settings, srcObjects, false, false);
+            idef_settings, tempObjects, false, false);
 
         if (idefIndex < 0)
+        {
+            for (const ON_UUID& tid : tempIds)
+                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
             throw std::runtime_error("Failed to create block definition");
+        }
+
+        // Soft-delete temps now that the definition owns the geometry.
+        // The undo buffer keeps their bytes alive so the definition's
+        // references remain valid.
+        for (const ON_UUID& tid : tempIds)
+            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
 
         WriteResult wr;
         wr.success = true;
         wr.data["definitionIndex"] = idefIndex;
         wr.data["name"] = name;
-        wr.data["objectCount"] = srcObjects.Count();
+        wr.data["objectCount"] = tempObjects.Count();
         wr.data["basePoint"] = { basePoint.x, basePoint.y, basePoint.z };
         wr.data["replaceWithInstance"] = replaceWithInstance;
 
@@ -845,9 +1040,11 @@ void HandleBlockCreate(const httplib::Request& req, httplib::Response& res)
                 if (obj) pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), id));
             }
 
-            // Insert instance at identity — geometry is already at world coords
-            // (C++ SDK has no SetBasePoint; block origin is at world origin)
-            ON_Xform xform = ON_Xform::IdentityTransformation;
+            // Definition geometry is stored in local coords; instance transform
+            // must translate by basePoint so the visible instance matches the
+            // original source world position.
+            ON_Xform xform = ON_Xform::TranslationTransformation(
+                ON_3dVector(basePoint.x, basePoint.y, basePoint.z));
             CRhinoInstanceObject* pInstObj =
                 pDoc->m_instance_definition_table.CreateInstanceObject(
                     idefIndex, xform, nullptr, nullptr, false, false, true);
@@ -1301,7 +1498,30 @@ void HandleBlockAddObjects(const httplib::Request& req, httplib::Response& res)
         const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[idefIndex];
         if (!pIdef) throw std::runtime_error("Block lookup failed");
 
-        // Collect existing + new objects
+        // Resolve incoming world-coord sources. Filter out null/geometryless
+        // objects up front — the old handler did this before appending, and
+        // the fast path passes originals straight through to the SDK, so the
+        // invariant has to be preserved here as well.
+        std::vector<const CRhinoObject*> resolvedSources;
+        for (const auto& id : objectIds)
+        {
+            const CRhinoObject* src = pDoc->LookupObject(id);
+            if (src && src->Geometry()) resolvedSources.push_back(src);
+        }
+        if (resolvedSources.empty())
+            throw std::invalid_argument("No valid objects found to add");
+
+        // Existing definition objects are already in local coords. Incoming
+        // objects are in world coords and must be normalized via basePoint
+        // metadata before joining the definition. Missing metadata (legacy /
+        // imported definitions) implies origin — and a zero translation means
+        // no materialization is needed, so we pass the originals through and
+        // preserve the old handler's full accepted type set.
+        ON_3dPoint basePoint = LookupDefinitionBasePoint(pIdef);
+        ON_Xform worldToLocal = ON_Xform::TranslationTransformation(
+            ON_3dVector(-basePoint.x, -basePoint.y, -basePoint.z));
+        const bool needsTransform = !worldToLocal.IsIdentity(1e-12);
+
         ON_SimpleArray<const CRhinoObject*> allObjects;
 
         for (int i = 0; i < pIdef->ObjectCount(); ++i)
@@ -1310,25 +1530,48 @@ void HandleBlockAddObjects(const httplib::Request& req, httplib::Response& res)
             if (obj) allObjects.Append(obj);
         }
 
-        int addedCount = 0;
-        for (const auto& id : objectIds)
+        std::vector<ON_UUID> tempIds;
+
+        if (needsTransform)
         {
-            const CRhinoObject* obj = pDoc->LookupObject(id);
-            if (obj && obj->Geometry())
+            RequireMaterializableSources(resolvedSources, "Block add-objects source set");
+            tempIds.reserve(resolvedSources.size());
+            for (const CRhinoObject* src : resolvedSources)
             {
-                allObjects.Append(obj);
-                ++addedCount;
+                const CRhinoObject* tempObj = MaterializeTransformedSource(pDoc, src, worldToLocal);
+                if (!tempObj)
+                {
+                    for (const ON_UUID& tid : tempIds)
+                        pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
+                    throw std::runtime_error("Failed to materialize source object into local coords");
+                }
+                allObjects.Append(tempObj);
+                tempIds.push_back(tempObj->Attributes().m_uuid);
             }
         }
-
-        if (addedCount == 0)
-            throw std::invalid_argument("No valid objects found to add");
+        else
+        {
+            for (const CRhinoObject* src : resolvedSources)
+                allObjects.Append(src);
+        }
 
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
             idefIndex, allObjects, false);
 
         if (!ok)
+        {
+            for (const ON_UUID& tid : tempIds)
+                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
             throw std::runtime_error("Failed to add objects to block '" + name + "'");
+        }
+
+        // Soft-delete temps now that the definition owns the geometry
+        // (ModifyInstanceDefinitionGeometry references, doesn't consume).
+        // Empty in the origin fast-path — nothing to clean up there.
+        for (const ON_UUID& tid : tempIds)
+            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
+
+        int addedCount = static_cast<int>(resolvedSources.size());
 
         if (deleteOriginals)
         {
@@ -1460,22 +1703,65 @@ void HandleBlockReplaceGeometry(const httplib::Request& req, httplib::Response& 
         const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[idefIndex];
         int oldCount = pIdef ? pIdef->ObjectCount() : 0;
 
-        ON_SimpleArray<const CRhinoObject*> newObjects;
+        // Resolve sources. Filter null/geometryless up front — the fast path
+        // hands originals straight to the SDK, so the old pre-append guard
+        // has to be preserved here too.
+        std::vector<const CRhinoObject*> resolvedSources;
         for (const auto& id : objectIds)
         {
-            const CRhinoObject* obj = pDoc->LookupObject(id);
-            if (obj && obj->Geometry())
-                newObjects.Append(obj);
+            const CRhinoObject* src = pDoc->LookupObject(id);
+            if (src && src->Geometry()) resolvedSources.push_back(src);
         }
-
-        if (newObjects.Count() == 0)
+        if (resolvedSources.empty())
             throw std::invalid_argument("No valid objects found for replacement");
+
+        // Incoming objects are in world coords. Transform to local coords
+        // when the definition's basePoint is non-origin; otherwise pass the
+        // originals straight through to preserve the full accepted type set.
+        ON_3dPoint basePoint = LookupDefinitionBasePoint(pIdef);
+        ON_Xform worldToLocal = ON_Xform::TranslationTransformation(
+            ON_3dVector(-basePoint.x, -basePoint.y, -basePoint.z));
+        const bool needsTransform = !worldToLocal.IsIdentity(1e-12);
+
+        ON_SimpleArray<const CRhinoObject*> newObjects;
+        std::vector<ON_UUID> tempIds;
+
+        if (needsTransform)
+        {
+            RequireMaterializableSources(resolvedSources, "Block replace-geometry source set");
+            tempIds.reserve(resolvedSources.size());
+            for (const CRhinoObject* src : resolvedSources)
+            {
+                const CRhinoObject* tempObj = MaterializeTransformedSource(pDoc, src, worldToLocal);
+                if (!tempObj)
+                {
+                    for (const ON_UUID& tid : tempIds)
+                        pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
+                    throw std::runtime_error("Failed to materialize source object into local coords");
+                }
+                newObjects.Append(tempObj);
+                tempIds.push_back(tempObj->Attributes().m_uuid);
+            }
+        }
+        else
+        {
+            for (const CRhinoObject* src : resolvedSources)
+                newObjects.Append(src);
+        }
 
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
             idefIndex, newObjects, false);
 
         if (!ok)
+        {
+            for (const ON_UUID& tid : tempIds)
+                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
             throw std::runtime_error("Failed to replace geometry in block '" + name + "'");
+        }
+
+        // Soft-delete temps now that the definition owns the geometry.
+        for (const ON_UUID& tid : tempIds)
+            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
 
         if (deleteOriginals)
         {
@@ -3676,6 +3962,29 @@ void HandleBlockRebase(const httplib::Request& req, httplib::Response& res)
         if (!pUpdatedDef)
             throw std::runtime_error("Updated block definition lookup failed after rebase");
 
+        // Sync basePoint metadata with the new local frame. The definition's
+        // geometry just shifted by +definitionDelta in local space, so the
+        // world-origin of the canonical "instance at basePoint" pose moves
+        // by -definitionDelta. Without this update, later add-objects /
+        // replace-geometry calls would normalize against the pre-rebase
+        // basePoint and land off by definitionDelta. Failure here is a hard
+        // error: the geometry rebase is already committed, so reporting
+        // success with stale metadata would silently reintroduce the very
+        // drift this patch prevents. Throwing propagates through the outer
+        // handler's catch so the UndoScope lets the user Ctrl-Z back to the
+        // pre-rebase state.
+        {
+            const ON_3dPoint oldBase = LookupDefinitionBasePoint(pUpdatedDef);
+            const ON_3dPoint newBase(
+                oldBase.x - definitionDelta.x,
+                oldBase.y - definitionDelta.y,
+                oldBase.z - definitionDelta.z);
+            if (!UpdateDefinitionBasePoint(pDoc, idefIndex, newBase))
+                throw std::runtime_error(
+                    "Rebase succeeded but basePoint metadata update failed for block '" +
+                    name + "' — undo to restore consistent state");
+        }
+
         const ON_Xform instanceCompensationXform = ON_Xform::TranslationTransformation(instanceCompensation);
         nlohmann::json recreatedInstances = nlohmann::json::array();
 
@@ -4154,6 +4463,29 @@ void HandleBlockRebaseRecursive(const httplib::Request& req, httplib::Response& 
             }
 
             cleanupTemps(leafTempIds);
+
+            // Only the leaf's local frame shifted; parent defs run with an
+            // identity geometry xform in Step 3b, so their basePoint metadata
+            // remains valid. Sync the leaf's metadata so future add-objects /
+            // replace-geometry calls on the leaf normalize correctly. Failure
+            // here is hard — the leaf's geometry is already committed; stale
+            // metadata would silently break future normalization. Throw so
+            // the UndoScope gives the user a rollback path.
+            const CRhinoInstanceDefinition* pLeafUpdated =
+                pDoc->m_instance_definition_table[leafDefIndex];
+            if (!pLeafUpdated)
+                throw std::runtime_error(
+                    "Leaf definition '" + name + "' lookup failed after rebase");
+
+            const ON_3dPoint oldBase = LookupDefinitionBasePoint(pLeafUpdated);
+            const ON_3dPoint newBase(
+                oldBase.x - plan.definitionTranslation.x,
+                oldBase.y - plan.definitionTranslation.y,
+                oldBase.z - plan.definitionTranslation.z);
+            if (!UpdateDefinitionBasePoint(pDoc, leafDefIndex, newBase))
+                throw std::runtime_error(
+                    "Leaf rebase succeeded but basePoint metadata update failed for block '" +
+                    name + "' — undo to restore consistent state");
         }
 
         // ─── Step 3b: Rewrite each parent definition ────────────
