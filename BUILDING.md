@@ -318,6 +318,49 @@ The `install.ps1` script does this automatically.
 
 ---
 
+## Running Tests
+
+The test suite is split into two tiers by pytest marker. CI runs only the unit
+tier; the live tier is local-only because it requires a running Rhino instance
+with the Rook plugins loaded.
+
+### Unit tests (no Rhino required)
+
+```bash
+cd mcp_server
+pytest tests -m "not requires_rhino"
+```
+
+This is what CI runs and what `CONTRIBUTING.md` expects before every PR.
+
+### Live integration tests (Rhino required)
+
+These tests call MCP tools against a live Rhino and assert on real geometry
+results. They codify the regression matrix from PR #30 (Issue #27 fix).
+
+**Preconditions:**
+1. Rhino 8 running with RookNative + Rook companion loaded (see deploy steps
+   above).
+2. The Rhino document is **throwaway** — the fixture enumerates all block
+   definitions and deletes them before each test, then creates test-specific
+   objects. Any work in the current document will be lost.
+
+```bash
+cd mcp_server
+pytest tests -m requires_rhino
+```
+
+To run a single live-test module:
+
+```bash
+pytest mcp_server/tests/test_block_replace_object_geometry_live.py -m requires_rhino -v
+```
+
+If Rhino is not reachable, each test is skipped cleanly (not failed) — the
+`requires_rhino` marker is a capability hint, not a hard gate.
+
+---
+
 ## Rhino Must Be Closed During Build
 
 **Rhino locks plugin DLLs while running.** If Rhino is open, the build or deploy
