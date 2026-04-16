@@ -453,7 +453,318 @@ async def _record_gh_to_session(
         return None
 
 
-def _build_gh_python_preamble(pins_in: list[str]) -> str:
+_GH_SCRIPT_PIN_OBJECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Pin name"},
+        "type": {
+            "type": "string",
+            "description": "Optional GH/Rhino type hint used for script wrappers and Chirp generation",
+        },
+        "nick": {"type": "string", "description": "Optional pin nickname override"},
+        "access": {
+            "type": "string",
+            "enum": ["item", "list", "tree"],
+            "description": "Grasshopper access mode",
+        },
+        "optional": {
+            "type": "boolean",
+            "description": "Whether an input pin is optional",
+        },
+        "description": {"type": "string", "description": "Pin description"},
+        "hidden": {
+            "type": "boolean",
+            "description": "Hide the pin on the component UI",
+        },
+    },
+    "required": ["name"],
+}
+
+_GH_SCRIPT_PIN_ARRAY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "oneOf": [
+            {"type": "string"},
+            _GH_SCRIPT_PIN_OBJECT_SCHEMA,
+        ]
+    },
+}
+
+_GH_SCRIPT_PIN_UPDATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "index": {"type": "integer", "minimum": 0, "description": "Zero-based pin index"},
+        "current_name": {
+            "type": "string",
+            "description": "Match an existing pin by its current name or nickname",
+        },
+        "name": {"type": "string", "description": "New pin name"},
+        "type": {
+            "type": "string",
+            "description": "Optional GH/Rhino type hint metadata to retain alongside the pin",
+        },
+        "nick": {"type": "string", "description": "New pin nickname"},
+        "access": {
+            "type": "string",
+            "enum": ["item", "list", "tree"],
+            "description": "Grasshopper access mode",
+        },
+        "optional": {"type": "boolean", "description": "Whether the input pin is optional"},
+        "description": {"type": "string", "description": "Pin description"},
+        "hidden": {"type": "boolean", "description": "Hide the pin on the component UI"},
+    },
+}
+
+_GH_SCRIPT_PIN_ACCESS_ALIASES = {
+    "item": "item",
+    "single": "item",
+    "list": "list",
+    "tree": "tree",
+}
+
+
+def _normalize_gh_script_pin_access(value: Any) -> str:
+    access = str(value or "").strip().lower()
+    normalized = _GH_SCRIPT_PIN_ACCESS_ALIASES.get(access)
+    if not normalized:
+        raise ValueError(f"Invalid pin access '{value}'. Expected one of item, list, tree.")
+    return normalized
+
+
+def _normalize_gh_script_pin(
+    pin: Any,
+    *,
+    default_optional: bool | None = None,
+) -> dict[str, Any]:
+    if isinstance(pin, str):
+        parts = pin.split(":", 1)
+        raw: dict[str, Any] = {
+            "name": parts[0].strip(),
+            "type": parts[1].strip() if len(parts) > 1 and parts[1].strip() else "string",
+        }
+    elif isinstance(pin, dict):
+        raw = dict(pin)
+    else:
+        raise ValueError(f"Unsupported pin definition type: {type(pin).__name__}")
+
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        raise ValueError("Pin definition is missing a non-empty 'name'")
+
+    normalized: dict[str, Any] = {"name": name}
+
+    pin_type = raw.get("type")
+    if pin_type is not None and str(pin_type).strip():
+        normalized["type"] = str(pin_type).strip()
+
+    nick = raw.get("nick")
+    if nick is not None and str(nick).strip():
+        normalized["nick"] = str(nick).strip()
+
+    if "access" in raw and raw.get("access") is not None:
+        normalized["access"] = _normalize_gh_script_pin_access(raw["access"])
+
+    if "optional" in raw and raw.get("optional") is not None:
+        normalized["optional"] = bool(raw["optional"])
+    elif default_optional is not None:
+        normalized["optional"] = default_optional
+
+    description = raw.get("description")
+    if description is not None and str(description).strip():
+        normalized["description"] = str(description).strip()
+
+    if "hidden" in raw and raw.get("hidden") is not None:
+        normalized["hidden"] = bool(raw["hidden"])
+
+    return normalized
+
+
+def _normalize_gh_script_pins(
+    pins: Any,
+    *,
+    default_optional: bool | None = None,
+) -> list[dict[str, Any]]:
+    if pins is None:
+        return []
+    if not isinstance(pins, list):
+        raise ValueError("Pins must be provided as an array")
+    return [
+        _normalize_gh_script_pin(pin, default_optional=default_optional)
+        for pin in pins
+    ]
+
+
+def _gh_script_pin_defs_to_payload(pin_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for pin in pin_defs:
+        entry = {"name": pin["name"]}
+        for key in ("current_name", "nick", "access", "optional", "description", "hidden"):
+            if key in pin:
+                entry[key] = pin[key]
+        payload.append(entry)
+    return payload
+
+
+def _gh_script_pin_defs_to_signature_strings(pin_defs: list[dict[str, Any]]) -> list[str]:
+    result: list[str] = []
+    for pin in pin_defs:
+        pin_type = str(pin.get("type") or "string").strip() or "string"
+        result.append(f"{pin['name']}:{pin_type}")
+    return result
+
+
+def _gh_component_params_to_script_pin_defs(
+    params: dict[str, Any] | None,
+    *,
+    include_print_output: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not isinstance(params, dict):
+        return [], []
+
+    def _convert(items: Any) -> list[dict[str, Any]]:
+        converted: list[dict[str, Any]] = []
+        if not isinstance(items, list):
+            return converted
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("Name") or item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            entry: dict[str, Any] = {"name": name.strip()}
+            pin_type = item.get("TypeName") or item.get("typeName") or item.get("type")
+            if isinstance(pin_type, str) and pin_type.strip():
+                entry["type"] = pin_type.strip()
+            nick = item.get("NickName") or item.get("nickName") or item.get("nick")
+            if isinstance(nick, str) and nick.strip() and nick.strip() != entry["name"]:
+                entry["nick"] = nick.strip()
+            access = item.get("Access") or item.get("access")
+            if isinstance(access, str) and access.strip():
+                entry["access"] = access.strip().lower()
+            optional = item.get("Optional")
+            if optional is None:
+                optional = item.get("optional")
+            if isinstance(optional, bool):
+                entry["optional"] = optional
+            description = item.get("Description") or item.get("description")
+            if isinstance(description, str) and description.strip():
+                entry["description"] = description.strip()
+            hidden = item.get("Hidden")
+            if hidden is None:
+                hidden = item.get("hidden")
+            if isinstance(hidden, bool):
+                entry["hidden"] = hidden
+            converted.append(entry)
+        return converted
+
+    inputs = _convert(params.get("Inputs") or params.get("inputs"))
+    outputs = _convert(params.get("Outputs") or params.get("outputs"))
+    if not include_print_output and outputs:
+        outputs = outputs[1:]
+    return inputs, outputs
+
+
+def _merge_gh_script_pin_metadata(
+    generated: list[dict[str, Any]],
+    requested: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not generated or not requested:
+        return generated
+
+    merged = [dict(pin) for pin in generated]
+    by_name = {
+        str(pin.get("name") or "").strip().lower(): pin
+        for pin in requested
+        if str(pin.get("name") or "").strip()
+    }
+
+    for idx, pin in enumerate(merged):
+        requested_pin = by_name.get(str(pin.get("name") or "").strip().lower())
+        if requested_pin is None and idx < len(requested):
+            requested_pin = requested[idx]
+        if requested_pin is None:
+            continue
+
+        for key in ("type", "nick", "access", "optional", "description", "hidden"):
+            if key in requested_pin:
+                pin[key] = requested_pin[key]
+
+        merged[idx] = pin
+
+    return merged
+
+
+def _apply_gh_script_pin_updates(
+    pins: list[dict[str, Any]],
+    updates: Any,
+    *,
+    direction: str,
+) -> list[dict[str, Any]]:
+    if updates is None:
+        return pins
+    if not isinstance(updates, list):
+        raise ValueError(f"{direction} pin updates must be provided as an array")
+
+    updated = [dict(pin) for pin in pins]
+    for idx, raw_update in enumerate(updates):
+        if not isinstance(raw_update, dict):
+            raise ValueError(f"{direction} update at index {idx} must be an object")
+
+        target_index = raw_update.get("index")
+        current_name = raw_update.get("current_name")
+        resolved_index: int | None = None
+
+        if isinstance(target_index, int):
+            if target_index < 0 or target_index >= len(updated):
+                raise ValueError(
+                    f"{direction} update at index {idx} targets missing pin index {target_index}"
+                )
+            resolved_index = target_index
+        elif isinstance(current_name, str) and current_name.strip():
+            current_name_lower = current_name.strip().lower()
+            for pin_index, pin in enumerate(updated):
+                pin_names = [str(pin.get("name") or "").lower()]
+                if "nick" in pin:
+                    pin_names.append(str(pin["nick"]).lower())
+                if current_name_lower in pin_names:
+                    resolved_index = pin_index
+                    break
+            if resolved_index is None:
+                raise ValueError(
+                    f"{direction} update at index {idx} targets missing pin '{current_name}'"
+                )
+        else:
+            raise ValueError(
+                f"{direction} update at index {idx} must provide either 'index' or 'current_name'"
+            )
+
+        pin = dict(updated[resolved_index])
+        original_name = str(pin.get("name") or "").strip()
+        if original_name and "current_name" not in pin:
+            pin["current_name"] = original_name
+        for key in ("name", "type", "nick", "description"):
+            if key in raw_update and raw_update[key] is not None:
+                value = str(raw_update[key]).strip()
+                if not value and key == "name":
+                    raise ValueError(f"{direction} update at index {idx} has an empty new name")
+                if value:
+                    pin[key] = value
+                elif key in pin:
+                    del pin[key]
+
+        if "access" in raw_update and raw_update["access"] is not None:
+            pin["access"] = _normalize_gh_script_pin_access(raw_update["access"])
+        if "optional" in raw_update and raw_update["optional"] is not None:
+            pin["optional"] = bool(raw_update["optional"])
+        if "hidden" in raw_update and raw_update["hidden"] is not None:
+            pin["hidden"] = bool(raw_update["hidden"])
+
+        updated[resolved_index] = pin
+
+    return updated
+
+
+def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
     """Generate a Python preamble that coerces GH Generic Data inputs to declared types.
 
     GH Python 3 Script components use Generic Data pins. Data arrives in three
@@ -494,10 +805,9 @@ def _build_gh_python_preamble(pins_in: list[str]) -> str:
     value_pins = []  # var_name
     num_pins = []    # (var_name, python_cast)
 
-    for pin_str in pins_in:
-        parts = pin_str.split(":", 1)
-        name = parts[0].strip()
-        ptype = parts[1].strip() if len(parts) > 1 else "string"
+    for pin in pins_in:
+        name = pin["name"]
+        ptype = str(pin.get("type") or "string").strip() or "string"
 
         if ptype in _DOC_GEOMETRY:
             doc_pins.append((name, _DOC_GEOMETRY[ptype]))
@@ -553,7 +863,11 @@ def _build_gh_python_preamble(pins_in: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_gh_csharp_wrapper(code: str, pins_in: list[str], pins_out: list[str]) -> str:
+def _build_gh_csharp_wrapper(
+    code: str,
+    pins_in: list[dict[str, Any]],
+    pins_out: list[dict[str, Any]],
+) -> str:
     """Wrap user C# code in the GH_ScriptInstance boilerplate required by RhinoCode C# Script.
 
     If the user already provides a full class (contains 'class Script_Instance' or
@@ -570,13 +884,9 @@ def _build_gh_csharp_wrapper(code: str, pins_in: list[str], pins_out: list[str])
     if "class Script_Instance" in code or "void RunScript" in code:
         return code
 
-    def _parse_cs_pin(pin_str: str) -> str:
-        parts = pin_str.split(":", 1)
-        return parts[0].strip()
-
     # Build RunScript parameter list — all object, matching RhinoCode's enforced signature
-    in_names = [_parse_cs_pin(p) for p in pins_in]
-    out_names = [_parse_cs_pin(p) for p in pins_out]
+    in_names = [pin["name"] for pin in pins_in]
+    out_names = [pin["name"] for pin in pins_out]
 
     params = []
     for name in in_names:
@@ -625,6 +935,63 @@ def _normalize_gh_guid_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, str) and item]
     return []
+
+
+async def _execute_gh_set_script_pins(arguments: dict[str, Any], port: int) -> dict[str, Any]:
+    guid = arguments.get("guid")
+    if not guid:
+        return {"success": False, "data": "Missing required parameter: guid"}
+
+    has_changes = any(
+        key in arguments
+        for key in ("pins_in", "pins_out", "input_updates", "output_updates", "name", "description")
+    )
+    if not has_changes:
+        return {
+            "success": False,
+            "data": "Nothing to update. Provide pins_in/pins_out, input_updates/output_updates, name, or description.",
+        }
+
+    try:
+        component_result = await call_rhino("/gh/component", "GET", {"guid": guid}, port=port)
+        if not component_result.get("success"):
+            return component_result
+
+        component_data = component_result.get("data", {})
+        params = None
+        if isinstance(component_data, dict):
+            params = component_data.get("Params") or component_data.get("params")
+        inputs, outputs = _gh_component_params_to_script_pin_defs(params)
+
+        if "pins_in" in arguments:
+            inputs = _normalize_gh_script_pins(arguments.get("pins_in"), default_optional=True)
+        if "pins_out" in arguments:
+            outputs = _normalize_gh_script_pins(arguments.get("pins_out"))
+
+        inputs = _apply_gh_script_pin_updates(inputs, arguments.get("input_updates"), direction="input")
+        outputs = _apply_gh_script_pin_updates(outputs, arguments.get("output_updates"), direction="output")
+
+        payload: dict[str, Any] = {
+            "guid": guid,
+            "inputs": _gh_script_pin_defs_to_payload(inputs),
+            "outputs": _gh_script_pin_defs_to_payload(outputs),
+        }
+        if "name" in arguments and arguments.get("name"):
+            payload["nick"] = arguments["name"]
+        if "description" in arguments:
+            payload["description"] = arguments.get("description")
+
+        result = await call_rhino("/gh/script-params", "POST", payload, port=port)
+        if result.get("success") and isinstance(result.get("data"), dict):
+            result["data"]["pins_in"] = inputs
+            result["data"]["pins_out"] = outputs
+            if payload.get("nick"):
+                result["data"]["name"] = payload["nick"]
+            if "description" in payload:
+                result["data"]["description"] = payload.get("description")
+        return result
+    except Exception as exc:
+        return {"success": False, "data": f"gh_set_script_pins failed: {exc}"}
 
 
 # =============================================================================
@@ -4839,7 +5206,9 @@ Prefer this over rhino_execute workarounds for script components.""",
 Single-shot tool: creates the component, configures input/output pins, writes the script,
 and triggers recompilation — all in one call.
 
-Pin format: "Name:Type" where Type is a GH/Rhino type hint (used in the script).
+Pins may be provided either as legacy "Name:Type" strings or rich pin objects
+with access/optional/description metadata. Type hints are used by the generated
+Python coercion preamble.
 Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surface, Brep, Mesh, Line, Plane, Circle, Box.
 
 The script receives inputs as variables matching pin names, and must assign outputs
@@ -4857,14 +5226,12 @@ Example:
                 "properties": {
                     "code": {"type": "string", "description": "Python 3 source code for the script component"},
                     "pins_in": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": 'Input pin definitions as "Name:Type" strings, e.g. ["x:float", "y:float"]',
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Input pin definitions as "Name:Type" strings or pin objects, e.g. ["x:float", {"name": "pts", "type": "Point3d", "access": "list"}]',
                     },
                     "pins_out": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": 'Output pin definitions as "Name:Type" strings, e.g. ["a:Point3d"]',
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: 'Python 3 Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
@@ -4880,7 +5247,9 @@ Example:
 Single-shot tool: creates the component, configures input/output pins, writes the script,
 and triggers recompilation — all in one call.
 
-Pin format: "Name:Type" where Type is for documentation only.
+Pins may be provided either as legacy "Name:Type" strings or rich pin objects
+with access/optional/description metadata. The `type` field is used for wrapper
+generation and documentation only.
 Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surface, Brep, Mesh, Line, Plane, Circle, Box.
 
 IMPORTANT: RhinoCode enforces that ALL RunScript input parameters are typed as `object`.
@@ -4907,20 +5276,76 @@ Example (body code):
                 "properties": {
                     "code": {"type": "string", "description": "C# source code — either RunScript body or full Script_Instance class"},
                     "pins_in": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": 'Input pin definitions as "Name:Type" strings, e.g. ["x:double", "y:double"]',
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Input pin definitions as "Name:Type" strings or pin objects, e.g. ["x:double", {"name": "Pts", "type": "Point3d", "access": "list"}]',
                     },
                     "pins_out": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": 'Output pin definitions as "Name:Type" strings, e.g. ["a:Point3d"]',
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
                     },
                     "name": {"type": "string", "description": "Display name for the component (default: 'C# Script')"},
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
                     "y": {"type": "number", "description": "Canvas Y position (default: 200)"},
                 },
                 "required": ["code", "pins_in", "pins_out"],
+            }
+        ),
+        Tool(
+            name="gh_set_script_pins",
+            description="""Edit the pin configuration of an existing Python or C# script component.
+
+Supports either full replacement (`pins_in` / `pins_out`) or targeted patch updates
+(`input_updates` / `output_updates`) matched by zero-based index or current pin name.
+This can change pin access mode, optional state, descriptions, nicknames, hidden state,
+and names without rewriting the script source.
+
+Patch example:
+{
+  "guid": "C12",
+  "input_updates": [{"index": 0, "access": "list", "optional": false, "description": "All input curves"}]
+}
+
+Full replacement example:
+{
+  "guid": "C12",
+  "pins_in": [{"name": "Curves", "type": "Curve", "access": "list"}],
+  "pins_out": [{"name": "Result", "type": "Brep"}]
+}""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "guid": {
+                        "type": "string",
+                        "description": "Component instance GUID or short ID (C1, C2...) from gh_snapshot",
+                    },
+                    "pins_in": {
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": "Optional full replacement input pin list",
+                    },
+                    "pins_out": {
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": "Optional full replacement output pin list",
+                    },
+                    "input_updates": {
+                        "type": "array",
+                        "items": _GH_SCRIPT_PIN_UPDATE_SCHEMA,
+                        "description": "Targeted updates for existing input pins",
+                    },
+                    "output_updates": {
+                        "type": "array",
+                        "items": _GH_SCRIPT_PIN_UPDATE_SCHEMA,
+                        "description": "Targeted updates for existing output pins",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Optional new component display name / nickname",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional component description",
+                    },
+                },
+                "required": ["guid"],
             }
         ),
         Tool(
@@ -4953,14 +5378,12 @@ Requires: Chirp adapter running (`python -m chirp` from the Chirp repo).""",
                 "type": "object",
                 "properties": {
                     "pins_in": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Input pin definitions (do NOT include Correction — auto-added), e.g. [\"Brief:string\"]"
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": "Input pin definitions (do NOT include Correction — auto-added), as strings or pin objects"
                     },
                     "pins_out": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Output pin definitions (do NOT include Reasoning — auto-added), e.g. [\"Span:float\", \"Material:string\"]"
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": "Output pin definitions (do NOT include Reasoning — auto-added), as strings or pin objects"
                     },
                     "signature": {
                         "type": "string",
@@ -10081,10 +10504,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 components_affected=[guid] if guid else [],
             )
 
+        case "gh_set_script_pins":
+            guid = arguments.get("guid")
+            result = await _execute_gh_set_script_pins(arguments, port)
+            await _record_gh_to_session(
+                action="gh_set_script_pins",
+                params=arguments,
+                result=result,
+                port=port,
+                components_affected=[guid] if guid else [],
+            )
+
         case "gh_create_python_script":
             py_code = arguments.get("code")
-            py_pins_in = arguments.get("pins_in", [])
-            py_pins_out = arguments.get("pins_out", [])
             py_name = arguments.get("name")
             py_x = arguments.get("x", 200)
             py_y = arguments.get("y", 200)
@@ -10092,10 +10524,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
             if not py_code:
                 result = {"success": False, "data": "Missing required parameter: code"}
-            elif not py_pins_in and not py_pins_out:
-                result = {"success": False, "data": "Must provide at least pins_in or pins_out"}
             else:
                 try:
+                    py_pin_defs_in = _normalize_gh_script_pins(
+                        arguments.get("pins_in", []),
+                        default_optional=True,
+                    )
+                    py_pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
+                    if not py_pin_defs_in and not py_pin_defs_out:
+                        raise ValueError("Must provide at least pins_in or pins_out")
+
                     # Python 3 Script component GUID (RhinoCode)
                     PY3_GUID = "719467e6-7cf5-4848-99b0-c5dd57e5442c"
 
@@ -10104,7 +10542,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     # arrive as System.Guid references; numbers may be GH
                     # wrappers. This preamble converts every input to its
                     # declared native type so the user's code just works.
-                    preamble = _build_gh_python_preamble(py_pins_in)
+                    preamble = _build_gh_python_preamble(py_pin_defs_in)
                     full_script = preamble + py_code
 
                     # Step 1: Create the Python 3 Script component
@@ -10122,16 +10560,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                         cdata = create_result["data"]
                         component_guid = str(cdata.get("guid") or cdata.get("Guid"))
 
-                        # Step 2: Configure pins (must happen before script so bindings match)
-                        def _parse_pin(pin_str: str) -> dict:
-                            """Parse 'Name:Type' into {'name': 'Name'}."""
-                            parts = pin_str.split(":", 1)
-                            return {"name": parts[0].strip()}
-
                         params_payload: dict = {
                             "guid": component_guid,
-                            "inputs": [_parse_pin(p) for p in py_pins_in],
-                            "outputs": [_parse_pin(p) for p in py_pins_out],
+                            "inputs": _gh_script_pin_defs_to_payload(py_pin_defs_in),
+                            "outputs": _gh_script_pin_defs_to_payload(py_pin_defs_out),
                         }
                         if py_name:
                             params_payload["nick"] = py_name
@@ -10176,8 +10608,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                                     "success": True,
                                     "data": {
                                         "component_guid": component_guid,
-                                        "pins_in": py_pins_in,
-                                        "pins_out": py_pins_out,
+                                        "pins_in": py_pin_defs_in,
+                                        "pins_out": py_pin_defs_out,
                                         "position": {"x": py_x, "y": py_y},
                                         "name": py_name or "Python 3 Script",
                                         "code_length": len(full_script),
@@ -10200,8 +10632,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "gh_create_csharp_script":
             cs_code = arguments.get("code")
-            cs_pins_in = arguments.get("pins_in", [])
-            cs_pins_out = arguments.get("pins_out", [])
             cs_name = arguments.get("name")
             cs_x = arguments.get("x", 200)
             cs_y = arguments.get("y", 200)
@@ -10209,15 +10639,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
             if not cs_code:
                 result = {"success": False, "data": "Missing required parameter: code"}
-            elif not cs_pins_in and not cs_pins_out:
-                result = {"success": False, "data": "Must provide at least pins_in or pins_out"}
             else:
                 try:
+                    cs_pin_defs_in = _normalize_gh_script_pins(
+                        arguments.get("pins_in", []),
+                        default_optional=True,
+                    )
+                    cs_pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
+                    if not cs_pin_defs_in and not cs_pin_defs_out:
+                        raise ValueError("Must provide at least pins_in or pins_out")
+
                     # RhinoCode C# Script component GUID
                     CS3_GUID = "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7"
 
                     # Wrap user code in Script_Instance boilerplate if needed
-                    full_script = _build_gh_csharp_wrapper(cs_code, cs_pins_in, cs_pins_out)
+                    full_script = _build_gh_csharp_wrapper(cs_code, cs_pin_defs_in, cs_pin_defs_out)
 
                     # Step 1: Create the C# Script component
                     create_result = await call_rhino(
@@ -10234,16 +10670,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                         cdata = create_result["data"]
                         component_guid = str(cdata.get("guid") or cdata.get("Guid"))
 
-                        # Step 2: Configure pins (must happen before script so bindings match)
-                        def _parse_pin(pin_str: str) -> dict:
-                            """Parse 'Name:Type' into {'name': 'Name'}."""
-                            parts = pin_str.split(":", 1)
-                            return {"name": parts[0].strip()}
-
                         params_payload: dict = {
                             "guid": component_guid,
-                            "inputs": [_parse_pin(p) for p in cs_pins_in],
-                            "outputs": [_parse_pin(p) for p in cs_pins_out],
+                            "inputs": _gh_script_pin_defs_to_payload(cs_pin_defs_in),
+                            "outputs": _gh_script_pin_defs_to_payload(cs_pin_defs_out),
                         }
                         if cs_name:
                             params_payload["nick"] = cs_name
@@ -10288,8 +10718,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                                     "success": True,
                                     "data": {
                                         "component_guid": component_guid,
-                                        "pins_in": cs_pins_in,
-                                        "pins_out": cs_pins_out,
+                                        "pins_in": cs_pin_defs_in,
+                                        "pins_out": cs_pin_defs_out,
                                         "position": {"x": cs_x, "y": cs_y},
                                         "name": cs_name or "C# Script",
                                         "code_length": len(full_script),
@@ -10311,8 +10741,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )
 
         case "chirp_create":
-            pins_in = arguments.get("pins_in")
-            pins_out = arguments.get("pins_out")
             signature = arguments.get("signature")
             category = arguments.get("category")
             chirp_name = arguments.get("name")
@@ -10320,7 +10748,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             cx = arguments.get("x", 200)
             cy = arguments.get("y", 200)
 
-            if not pins_in or not pins_out or not signature:
+            if not arguments.get("pins_in") or not arguments.get("pins_out") or not signature:
                 result = {"success": False, "data": "Missing required parameters: pins_in, pins_out, signature"}
             elif not category:
                 result = {"success": False, "data": "Missing required parameter: category. Must be one of: planner, interpreter, critic, narrator, classifier, gate, editor"}
@@ -10334,10 +10762,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     chirp_host = chirp_status.get("host", "127.0.0.1")
                     chirp_port = chirp_status["port"]
                     try:
+                        pin_defs_in = _normalize_gh_script_pins(
+                            arguments.get("pins_in", []),
+                            default_optional=True,
+                        )
+                        pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
+
                         # Step 1: Call Chirp adapter to generate the C# script
                         chirp_payload = {
-                            "pins_in": pins_in,
-                            "pins_out": pins_out,
+                            "pins_in": _gh_script_pin_defs_to_signature_strings(pin_defs_in),
+                            "pins_out": _gh_script_pin_defs_to_signature_strings(pin_defs_out),
                             "signature": signature,
                             "category": category,
                             "port": chirp_port,
@@ -10361,6 +10795,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                             else:
                                 chirp_result = chirp_resp.json()
                                 script = chirp_result["script"]
+                                chirp_pin_defs_in = _normalize_gh_script_pins(
+                                    chirp_result.get("pins_in", []),
+                                    default_optional=True,
+                                )
+                                chirp_pin_defs_out = _normalize_gh_script_pins(
+                                    chirp_result.get("pins_out", [])
+                                )
+                                chirp_pin_defs_in = _merge_gh_script_pin_metadata(
+                                    chirp_pin_defs_in,
+                                    pin_defs_in,
+                                )
+                                chirp_pin_defs_out = _merge_gh_script_pin_metadata(
+                                    chirp_pin_defs_out,
+                                    pin_defs_out,
+                                )
 
                                 # Step 2: Create a RhinoCode C# Script component (not the legacy GH1 one).
                                 # Using GUID directly — name "C# Script" can resolve to the legacy component.
@@ -10384,8 +10833,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                                     display_name = chirp_result.get("name") or chirp_name
                                     params_payload = {
                                         "guid": str(component_guid),
-                                        "inputs": chirp_result["pins_in"],
-                                        "outputs": chirp_result["pins_out"],
+                                        "inputs": _gh_script_pin_defs_to_payload(chirp_pin_defs_in),
+                                        "outputs": _gh_script_pin_defs_to_payload(chirp_pin_defs_out),
                                     }
                                     if display_name:
                                         params_payload["nick"] = display_name
@@ -10430,8 +10879,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                                                 "success": True,
                                                 "data": {
                                                     "component_guid": str(component_guid),
-                                                    "pins_in": chirp_result["pins_in"],
-                                                    "pins_out": chirp_result["pins_out"],
+                                                    "pins_in": chirp_pin_defs_in,
+                                                    "pins_out": chirp_pin_defs_out,
                                                     "position": {"x": cx, "y": cy},
                                                     "signature": signature,
                                                     "category": chirp_result.get("category", category),

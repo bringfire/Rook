@@ -205,3 +205,328 @@ async def test_gh_record_investigation_records_grounded_success(monkeypatch, pat
     assert saved_tiered["components"]["guid-1"]["working_configs"][0]["config"] == {"E": 0}
     assert saved_tiered["components"]["guid-1"]["gotchas"][0]["text"] == "E must be 0 for open pipe"
     assert saved_obs["observations"]["obs-success"]["learned"] == "E must be 0 for open pipe"
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_accepts_rich_pin_objects(monkeypatch, patched_server):
+    recorded_calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_calls.append((route, method, payload))
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "script-guid"}}
+        if route == "/gh/script-params":
+            assert payload == {
+                "guid": "script-guid",
+                "inputs": [{
+                    "name": "Values",
+                    "access": "list",
+                    "optional": False,
+                    "description": "All values",
+                }],
+                "outputs": [{
+                    "name": "Sum",
+                    "description": "Summed output",
+                }],
+                "nick": "Accumulator",
+            }
+            return {"success": True, "data": {"Guid": "script-guid", "Inputs": 1, "Outputs": 2}}
+        if route == "/gh/script":
+            assert "private void RunScript(object Values, ref object Sum)" in payload["script"]
+            return {"success": True, "data": {"Guid": "script-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {
+            "code": "Sum = Values;",
+            "pins_in": [{
+                "name": "Values",
+                "type": "double",
+                "access": "list",
+                "optional": False,
+                "description": "All values",
+            }],
+            "pins_out": [{
+                "name": "Sum",
+                "type": "double",
+                "description": "Summed output",
+            }],
+            "name": "Accumulator",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["pins_in"][0]["access"] == "list"
+    assert payload["data"]["pins_in"][0]["optional"] is False
+    assert payload["data"]["pins_out"][0]["description"] == "Summed output"
+    assert any(route == "/gh/script-params" for route, _, _ in recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_gh_create_python_script_accepts_rich_pin_objects(monkeypatch, patched_server):
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "py-script-guid"}}
+        if route == "/gh/script-params":
+            assert payload == {
+                "guid": "py-script-guid",
+                "inputs": [{
+                    "name": "Pts",
+                    "access": "list",
+                    "optional": False,
+                    "description": "Input points",
+                }],
+                "outputs": [{
+                    "name": "Result",
+                    "description": "Computed result",
+                }],
+                "nick": "Py Accumulator",
+            }
+            return {"success": True, "data": {"Guid": "py-script-guid", "Inputs": 1, "Outputs": 2}}
+        if route == "/gh/script":
+            assert "# ── Auto-generated GH input coercion" in payload["script"]
+            return {"success": True, "data": {"Guid": "py-script-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_python_script",
+        {
+            "code": "Result = Pts",
+            "pins_in": [{
+                "name": "Pts",
+                "type": "Point3d",
+                "access": "list",
+                "optional": False,
+                "description": "Input points",
+            }],
+            "pins_out": [{
+                "name": "Result",
+                "type": "Point3d",
+                "description": "Computed result",
+            }],
+            "name": "Py Accumulator",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["pins_in"][0]["access"] == "list"
+    assert payload["data"]["pins_in"][0]["optional"] is False
+    assert payload["data"]["pins_out"][0]["description"] == "Computed result"
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_merges_existing_component_params(monkeypatch, patched_server):
+    script_params_payloads = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "guid": "script-guid",
+                    "nickName": "Old Script",
+                    "params": {
+                        "inputs": [
+                            {
+                                "index": 0,
+                                "name": "Curves",
+                                "nickName": "Crv",
+                                "access": "item",
+                                "optional": True,
+                                "description": "",
+                                "hidden": False,
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "index": 0,
+                                "name": "out",
+                                "nickName": "out",
+                                "access": "item",
+                                "description": "",
+                                "hidden": False,
+                            },
+                            {
+                                "index": 1,
+                                "name": "Result",
+                                "nickName": "Res",
+                                "access": "item",
+                                "description": "",
+                                "hidden": False,
+                            },
+                        ],
+                    },
+                },
+            }
+        if route == "/gh/script-params":
+            script_params_payloads.append(payload)
+            return {"success": True, "data": {"Guid": "script-guid", "Inputs": 1, "Outputs": 2}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "C12",
+            "input_updates": [{
+                "index": 0,
+                "access": "list",
+                "optional": False,
+                "description": "All input curves",
+            }],
+            "output_updates": [{
+                "current_name": "Result",
+                "name": "JoinedResult",
+                "description": "Joined result",
+            }],
+            "name": "Joined Script",
+            "description": "Updated script component",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert len(script_params_payloads) == 1
+    assert script_params_payloads[0] == {
+        "guid": "C12",
+        "inputs": [{
+            "name": "Curves",
+            "current_name": "Curves",
+            "nick": "Crv",
+            "access": "list",
+            "optional": False,
+            "description": "All input curves",
+            "hidden": False,
+        }],
+        "outputs": [{
+            "name": "JoinedResult",
+            "current_name": "Result",
+            "nick": "Res",
+            "access": "item",
+            "description": "Joined result",
+            "hidden": False,
+        }],
+        "nick": "Joined Script",
+        "description": "Updated script component",
+    }
+    assert payload["data"]["pins_in"][0]["access"] == "list"
+    assert payload["data"]["pins_out"][0]["name"] == "JoinedResult"
+    assert payload["data"]["pins_out"][0]["description"] == "Joined result"
+
+
+@pytest.mark.asyncio
+async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_server):
+    class _FakeChirpResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "script": "generated script",
+                "name": "Chirp Script",
+                "category": "planner",
+                "pins_in": ["Brief:string"],
+                "pins_out": ["Span:float"],
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json):
+            assert json["pins_in"] == ["Brief:string"]
+            assert json["pins_out"] == ["Span:float"]
+            return _FakeChirpResponse()
+
+    async def fake_ensure_chirp_running():
+        return {"running": True, "host": "127.0.0.1", "port": 9123}
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "TestDoc"}}
+        if route == "/gh/create-component":
+            return {"success": True, "data": {"guid": "chirp-guid"}}
+        if route == "/gh/script-params":
+            assert payload == {
+                "guid": "chirp-guid",
+                "inputs": [{
+                    "name": "Brief",
+                    "access": "tree",
+                    "optional": False,
+                    "description": "Tree of brief fragments",
+                }],
+                "outputs": [{
+                    "name": "Span",
+                    "access": "list",
+                    "description": "Candidate spans",
+                }],
+                "nick": "Chirp Script",
+            }
+            return {"success": True, "data": {"Guid": "chirp-guid", "Inputs": 1, "Outputs": 2}}
+        if route == "/gh/script":
+            return {"success": True, "data": {"Guid": "chirp-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("rook.chirp_manager.ensure_chirp_running", fake_ensure_chirp_running)
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "chirp_create",
+        {
+            "pins_in": [{
+                "name": "Brief",
+                "type": "string",
+                "access": "tree",
+                "optional": False,
+                "description": "Tree of brief fragments",
+            }],
+            "pins_out": [{
+                "name": "Span",
+                "type": "float",
+                "access": "list",
+                "description": "Candidate spans",
+            }],
+            "signature": "brief -> span",
+            "category": "planner",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["pins_in"] == [{
+        "name": "Brief",
+        "type": "string",
+        "access": "tree",
+        "optional": False,
+        "description": "Tree of brief fragments",
+    }]
+    assert payload["data"]["pins_out"] == [{
+        "name": "Span",
+        "type": "float",
+        "access": "list",
+        "description": "Candidate spans",
+    }]
+    assert payload["data"]["pins_in"][0]["access"] == "tree"
+    assert payload["data"]["pins_in"][0]["optional"] is False
+    assert payload["data"]["pins_out"][0]["access"] == "list"
+    assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"

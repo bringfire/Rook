@@ -720,9 +720,247 @@ namespace Rook.Handlers
             }
         }
 
+        private static string? GetParamAccessString(object param)
+        {
+            var access = param.GetType().GetProperty("Access")?.GetValue(param);
+            var raw = access?.ToString();
+            return string.IsNullOrWhiteSpace(raw) ? null : raw.ToLowerInvariant();
+        }
+
+        private static bool? GetParamOptionalFlag(object param)
+        {
+            var optional = param.GetType().GetProperty("Optional")?.GetValue(param);
+            return optional is bool value ? value : null;
+        }
+
+        private static Dictionary<string, Queue<List<object>>> CaptureNamedParamLinks(
+            object? paramCollection,
+            string linkPropertyName,
+            int startIndex = 0)
+        {
+            var captured = new Dictionary<string, Queue<List<object>>>(StringComparer.OrdinalIgnoreCase);
+            if (paramCollection == null)
+                return captured;
+
+            var collectionType = paramCollection.GetType();
+            var count = (int)(collectionType.GetProperty("Count")?.GetValue(paramCollection) ?? 0);
+            var indexer = collectionType.GetProperty("Item");
+            for (int i = startIndex; i < count; i++)
+            {
+                var param = indexer?.GetValue(paramCollection, new object[] { i });
+                if (param == null)
+                    continue;
+
+                var name = param.GetType().GetProperty("Name")?.GetValue(param) as string;
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                var links = param.GetType().GetProperty(linkPropertyName)?.GetValue(param)
+                    as System.Collections.IEnumerable;
+                if (links == null)
+                    continue;
+
+                var linkList = links.Cast<object>().ToList();
+                if (linkList.Count == 0)
+                    continue;
+
+                var key = name.Trim();
+                if (!captured.TryGetValue(key, out var queue))
+                {
+                    queue = new Queue<List<object>>();
+                    captured[key] = queue;
+                }
+
+                queue.Enqueue(linkList);
+            }
+
+            return captured;
+        }
+
+        private static List<object>? TakeCapturedParamLinks(
+            Dictionary<string, Queue<List<object>>> capturedLinks,
+            string paramName)
+        {
+            if (!capturedLinks.TryGetValue(paramName, out var queue) || queue.Count == 0)
+                return null;
+
+            var links = queue.Dequeue();
+            if (queue.Count == 0)
+                capturedLinks.Remove(paramName);
+
+            return links;
+        }
+
+        private static void ReattachInputSources(
+            object inputParam,
+            string paramName,
+            Dictionary<string, Queue<List<object>>> capturedSources,
+            Type ighParamType,
+            List<string> warnings,
+            out int restoredCount,
+            out int droppedCount)
+        {
+            restoredCount = 0;
+            droppedCount = 0;
+            var savedSources = TakeCapturedParamLinks(capturedSources, paramName);
+            if (savedSources == null || savedSources.Count == 0)
+                return;
+
+            var addSourceMethod = inputParam.GetType().GetMethod("AddSource", new[] { ighParamType });
+            if (addSourceMethod == null)
+            {
+                droppedCount = savedSources.Count;
+                warnings.Add($"Failed to restore {savedSources.Count} source connection(s) for input '{paramName}': AddSource not found");
+                return;
+            }
+
+            foreach (var source in savedSources)
+            {
+                try
+                {
+                    addSourceMethod.Invoke(inputParam, new[] { source });
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    droppedCount++;
+                    var message = ex.InnerException?.Message ?? ex.Message;
+                    warnings.Add($"Failed to restore source connection for input '{paramName}': {message}");
+                }
+            }
+        }
+
+        private static void ReattachOutputRecipients(
+            object outputParam,
+            string paramName,
+            Dictionary<string, Queue<List<object>>> capturedRecipients,
+            Type ighParamType,
+            List<string> warnings,
+            out int restoredCount,
+            out int droppedCount)
+        {
+            restoredCount = 0;
+            droppedCount = 0;
+            var savedRecipients = TakeCapturedParamLinks(capturedRecipients, paramName);
+            if (savedRecipients == null || savedRecipients.Count == 0)
+                return;
+
+            foreach (var recipient in savedRecipients)
+            {
+                var addSourceMethod = recipient.GetType().GetMethod("AddSource", new[] { ighParamType });
+                if (addSourceMethod == null)
+                {
+                    droppedCount++;
+                    warnings.Add($"Failed to restore recipient connection for output '{paramName}': AddSource not found");
+                    continue;
+                }
+
+                try
+                {
+                    addSourceMethod.Invoke(recipient, new[] { outputParam });
+                    restoredCount++;
+                }
+                catch (Exception ex)
+                {
+                    droppedCount++;
+                    var message = ex.InnerException?.Message ?? ex.Message;
+                    warnings.Add($"Failed to restore recipient connection for output '{paramName}': {message}");
+                }
+            }
+        }
+
+        private static bool TryApplyScriptPinDefinition(
+            object param,
+            JsonElement pinDef,
+            bool isInput,
+            out string error)
+        {
+            error = string.Empty;
+
+            if (!pinDef.TryGetProperty("name", out var nameEl))
+            {
+                error = "Pin definition is missing 'name'";
+                return false;
+            }
+
+            var name = nameEl.GetString();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                error = "Pin definition has an empty 'name'";
+                return false;
+            }
+
+            var paramType = param.GetType();
+            var nick = pinDef.TryGetProperty("nick", out var nickEl)
+                ? nickEl.GetString()
+                : name;
+
+            paramType.GetProperty("Name")?.SetValue(param, name);
+            paramType.GetProperty("NickName")?.SetValue(param, string.IsNullOrWhiteSpace(nick) ? name : nick);
+
+            if (pinDef.TryGetProperty("access", out var accessEl))
+            {
+                var accessText = accessEl.GetString()?.Trim().ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(accessText))
+                {
+                    var accessProp = paramType.GetProperty("Access");
+                    if (accessProp?.CanWrite == true)
+                    {
+                        object? accessValue = accessText switch
+                        {
+                            "item" or "single" => Enum.ToObject(accessProp.PropertyType, 0),
+                            "list" => Enum.ToObject(accessProp.PropertyType, 1),
+                            "tree" => Enum.ToObject(accessProp.PropertyType, 2),
+                            _ => null
+                        };
+
+                        if (accessValue == null)
+                        {
+                            error = $"Invalid access '{accessText}' for pin '{name}'";
+                            return false;
+                        }
+
+                        accessProp.SetValue(param, accessValue);
+                    }
+                }
+            }
+
+            if (pinDef.TryGetProperty("optional", out var optionalEl) &&
+                optionalEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                var optionalProp = paramType.GetProperty("Optional");
+                if (optionalProp?.CanWrite == true)
+                    optionalProp.SetValue(param, optionalEl.GetBoolean());
+            }
+            else if (isInput)
+            {
+                var optionalProp = paramType.GetProperty("Optional");
+                if (optionalProp?.CanWrite == true)
+                    optionalProp.SetValue(param, true);
+            }
+
+            if (pinDef.TryGetProperty("description", out var descriptionEl))
+            {
+                var description = descriptionEl.GetString();
+                var descriptionProp = paramType.GetProperty("Description");
+                if (descriptionProp?.CanWrite == true)
+                    descriptionProp.SetValue(param, description ?? string.Empty);
+            }
+
+            if (pinDef.TryGetProperty("hidden", out var hiddenEl) &&
+                hiddenEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                var hiddenProp = paramType.GetProperty("Hidden");
+                if (hiddenProp?.CanWrite == true)
+                    hiddenProp.SetValue(param, hiddenEl.GetBoolean());
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// POST /gh/script-params - Configure input/output parameters on a script component.
-        /// Body: { guid: string, inputs: [{name, type?}], outputs: [{name, type?}] }
+        /// Body: { guid: string, inputs: [{name, nick?, access?, optional?, description?, hidden?}], outputs: [...] }
         /// Replaces all variable inputs and outputs (keeps 'out' print stream).
         /// </summary>
         internal ApiResponse ScriptParams(string? body)
@@ -772,6 +1010,10 @@ namespace Rook.Handlers
                 if (inputProp == null || outputProp == null)
                     return new ApiResponse { Success = false, Data = $"Cannot access Input/Output params: {typeName}" };
 
+                var ighParamType = gh.Assembly!.GetType("Grasshopper.Kernel.IGH_Param");
+                if (ighParamType == null)
+                    return new ApiResponse { Success = false, Data = "Grasshopper.Kernel.IGH_Param type not found" };
+
                 var paramElementType = inputProp.PropertyType.IsGenericType
                     ? inputProp.PropertyType.GetGenericArguments()[0]
                     : typeof(object);
@@ -819,9 +1061,15 @@ namespace Rook.Handlers
 
                 var sideInput = Enum.ToObject(paramSideType, 0);   // GH_ParameterSide.Input
                 var sideOutput = Enum.ToObject(paramSideType, 1);  // GH_ParameterSide.Output
+                var restoreWarnings = new List<string>();
+                int restoredInputSourceCount = 0;
+                int droppedInputSourceCount = 0;
+                int restoredOutputRecipientCount = 0;
+                int droppedOutputRecipientCount = 0;
 
                 // Remove all existing inputs (iterate backwards)
                 var inputs = inputProp.GetValue(paramsObj);
+                var capturedInputSources = CaptureNamedParamLinks(inputs, "Sources");
                 var inputCount = (int)(inputs?.GetType().GetProperty("Count")?.GetValue(inputs) ?? 0);
                 var inputIndexer = inputs?.GetType().GetProperty("Item");
                 for (int i = inputCount - 1; i >= 0; i--)
@@ -833,6 +1081,7 @@ namespace Rook.Handlers
 
                 // Remove all existing outputs except index 0 ('out' — print stream)
                 var outputs = outputProp.GetValue(paramsObj);
+                var capturedOutputRecipients = CaptureNamedParamLinks(outputs, "Recipients", startIndex: 1);
                 var outputCount = (int)(outputs?.GetType().GetProperty("Count")?.GetValue(outputs) ?? 0);
                 var outputIndexer = outputs?.GetType().GetProperty("Item");
                 for (int i = outputCount - 1; i >= 1; i--)
@@ -848,15 +1097,29 @@ namespace Rook.Handlers
                     int idx = 0;
                     foreach (var inputDef in inputsEl.EnumerateArray())
                     {
-                        var name = inputDef.GetProperty("name").GetString()!;
+                        var name = inputDef.TryGetProperty("name", out var nameEl)
+                            ? nameEl.GetString() ?? $"Input{idx}"
+                            : $"Input{idx}";
+                        var lookupName = inputDef.TryGetProperty("current_name", out var currentNameEl) &&
+                                         !string.IsNullOrWhiteSpace(currentNameEl.GetString())
+                            ? currentNameEl.GetString()!
+                            : name;
                         var newParam = createParamMethod.Invoke(obj, new[] { sideInput, idx });
                         if (newParam == null)
                             return new ApiResponse { Success = false, Data = $"CreateParameter returned null for input '{name}'" };
-                        var newParamType = newParam.GetType();
-                        newParamType.GetProperty("NickName")?.SetValue(newParam, name);
-                        newParamType.GetProperty("Name")?.SetValue(newParam, name);
-                        newParamType.GetProperty("Optional")?.SetValue(newParam, true);
+                        if (!TryApplyScriptPinDefinition(newParam, inputDef, isInput: true, out var error))
+                            return new ApiResponse { Success = false, Data = error };
                         regInput.Invoke(paramsObj, new[] { newParam });
+                        ReattachInputSources(
+                            newParam,
+                            lookupName,
+                            capturedInputSources,
+                            ighParamType,
+                            restoreWarnings,
+                            out var restoredCount,
+                            out var droppedCount);
+                        restoredInputSourceCount += restoredCount;
+                        droppedInputSourceCount += droppedCount;
                         idx++;
                     }
                 }
@@ -867,14 +1130,29 @@ namespace Rook.Handlers
                     int idx = 1; // index 0 is the 'out' print stream
                     foreach (var outputDef in outputsEl.EnumerateArray())
                     {
-                        var name = outputDef.GetProperty("name").GetString()!;
+                        var name = outputDef.TryGetProperty("name", out var nameEl)
+                            ? nameEl.GetString() ?? $"Output{idx}"
+                            : $"Output{idx}";
+                        var lookupName = outputDef.TryGetProperty("current_name", out var currentNameEl) &&
+                                         !string.IsNullOrWhiteSpace(currentNameEl.GetString())
+                            ? currentNameEl.GetString()!
+                            : name;
                         var newParam = createParamMethod.Invoke(obj, new[] { sideOutput, idx });
                         if (newParam == null)
                             return new ApiResponse { Success = false, Data = $"CreateParameter returned null for output '{name}'" };
-                        var newParamType = newParam.GetType();
-                        newParamType.GetProperty("NickName")?.SetValue(newParam, name);
-                        newParamType.GetProperty("Name")?.SetValue(newParam, name);
+                        if (!TryApplyScriptPinDefinition(newParam, outputDef, isInput: false, out var error))
+                            return new ApiResponse { Success = false, Data = error };
                         regOutput.Invoke(paramsObj, new[] { newParam });
+                        ReattachOutputRecipients(
+                            newParam,
+                            lookupName,
+                            capturedOutputRecipients,
+                            ighParamType,
+                            restoreWarnings,
+                            out var restoredCount,
+                            out var droppedCount);
+                        restoredOutputRecipientCount += restoredCount;
+                        droppedOutputRecipientCount += droppedCount;
                         idx++;
                     }
                 }
@@ -885,6 +1163,14 @@ namespace Rook.Handlers
                     var nickVal = nickEl.GetString();
                     if (nickVal != null)
                         objType.GetProperty("NickName")?.SetValue(obj, nickVal);
+                }
+
+                if (root.TryGetProperty("description", out var descriptionEl))
+                {
+                    var descriptionVal = descriptionEl.GetString();
+                    var descriptionProp = objType.GetProperty("Description");
+                    if (descriptionProp?.CanWrite == true)
+                        descriptionProp.SetValue(obj, descriptionVal ?? string.Empty);
                 }
 
                 // Finalize
@@ -924,7 +1210,12 @@ namespace Rook.Handlers
                     {
                         Guid = guid,
                         Inputs = finalInputCount,
-                        Outputs = finalOutputCount
+                        Outputs = finalOutputCount,
+                        RestoredInputSources = restoredInputSourceCount,
+                        DroppedInputSources = droppedInputSourceCount,
+                        RestoredOutputRecipients = restoredOutputRecipientCount,
+                        DroppedOutputRecipients = droppedOutputRecipientCount,
+                        Warnings = restoreWarnings
                     }
                 };
             }
@@ -3840,6 +4131,7 @@ namespace Rook.Handlers
                         Type = target.GetType().Name,
                         Name = target.GetType().GetProperty("Name")?.GetValue(target)?.ToString(),
                         NickName = target.GetType().GetProperty("NickName")?.GetValue(target)?.ToString(),
+                        Description = target.GetType().GetProperty("Description")?.GetValue(target)?.ToString(),
                         Category = category ?? "",
                         SubCategory = subCategory ?? "",
                         Guid = guid,
@@ -5007,6 +5299,10 @@ namespace Rook.Handlers
                             Name = input.GetType().GetProperty("Name")?.GetValue(input)?.ToString(),
                             NickName = input.GetType().GetProperty("NickName")?.GetValue(input)?.ToString(),
                             TypeName = input.GetType().GetProperty("TypeName")?.GetValue(input)?.ToString(),
+                            Access = GetParamAccessString(input),
+                            Optional = GetParamOptionalFlag(input),
+                            Description = input.GetType().GetProperty("Description")?.GetValue(input)?.ToString(),
+                            Hidden = input.GetType().GetProperty("Hidden")?.GetValue(input) is bool hidden && hidden,
                             SourceCount = (input.GetType().GetProperty("SourceCount")?.GetValue(input) as int?) ?? 0
                         });
                     }
@@ -5023,6 +5319,10 @@ namespace Rook.Handlers
                             Name = output.GetType().GetProperty("Name")?.GetValue(output)?.ToString(),
                             NickName = output.GetType().GetProperty("NickName")?.GetValue(output)?.ToString(),
                             TypeName = output.GetType().GetProperty("TypeName")?.GetValue(output)?.ToString(),
+                            Access = GetParamAccessString(output),
+                            Optional = GetParamOptionalFlag(output),
+                            Description = output.GetType().GetProperty("Description")?.GetValue(output)?.ToString(),
+                            Hidden = output.GetType().GetProperty("Hidden")?.GetValue(output) is bool hidden && hidden,
                             RecipientCount = (output.GetType().GetProperty("Recipients")?.GetValue(output) as System.Collections.IEnumerable)?.Cast<object>().Count() ?? 0
                         });
                     }
@@ -5786,6 +6086,7 @@ namespace Rook.Handlers
             var nick = obj.GetType().GetProperty("NickName")?.GetValue(obj)?.ToString();
             var category = obj.GetType().GetProperty("Category")?.GetValue(obj)?.ToString();
             var subCategory = obj.GetType().GetProperty("SubCategory")?.GetValue(obj)?.ToString();
+            var description = obj.GetType().GetProperty("Description")?.GetValue(obj)?.ToString();
 
             // Extract component TYPE GUID (stable across installs, identifies the component kind)
             var componentGuid = obj.GetType().GetProperty("ComponentGuid")?.GetValue(obj)?.ToString();
@@ -5812,6 +6113,9 @@ namespace Rook.Handlers
 
             if (!string.IsNullOrEmpty(subCategory))
                 entry["subCategory"] = subCategory;
+
+            if (!string.IsNullOrWhiteSpace(description))
+                entry["description"] = description;
 
             if (pos != null)
                 entry["pos"] = pos;
@@ -5867,6 +6171,21 @@ namespace Rook.Handlers
                         entry["nick"] = pNick;
                     if (pType != null)
                         entry["type"] = pType;
+
+                    var access = GetParamAccessString(param);
+                    if (access != null)
+                        entry["access"] = access;
+
+                    var optional = GetParamOptionalFlag(param);
+                    if (optional.HasValue)
+                        entry["optional"] = optional.Value;
+
+                    var description = param.GetType().GetProperty("Description")?.GetValue(param)?.ToString();
+                    if (!string.IsNullOrWhiteSpace(description))
+                        entry["description"] = description;
+
+                    if (param.GetType().GetProperty("Hidden")?.GetValue(param) is bool hidden)
+                        entry["hidden"] = hidden;
 
                     if (isInput)
                     {
