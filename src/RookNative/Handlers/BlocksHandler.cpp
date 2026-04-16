@@ -27,6 +27,7 @@
 #include <initializer_list>
 #include <memory>
 #include <unordered_map>
+#include <variant>
 
 namespace Rook {
 namespace Handlers {
@@ -390,6 +391,252 @@ static ON_3dPoint LookupDefinitionBasePoint(const CRhinoInstanceDefinition* pDef
     if (swscanf_s(value, L"%lf,%lf,%lf", &x, &y, &z) != 3)
         return ON_3dPoint::Origin;
     return ON_3dPoint(x, y, z);
+}
+
+// ─── Local-frame mutation helpers (#26) ─────────────────────────────
+//
+// Two-layer extraction so any definition-rewriting handler can reach for
+// the right primitive. See docs/plans/2026-04-16-block-local-frame-helper-design.md.
+//
+//   RewriteDefinitionGeometry  — inner primitive. Materialize →
+//     ModifyInstanceDefinitionGeometry → temp cleanup. Two modes via
+//     RewriteSpec variant, matching the two existing modes of
+//     MaterializeDefinitionObjects.
+//
+//   MutateDefinitionLocalFrame — outer helper. Owns the full three-part
+//     frame-shift invariant: snapshot instances → rewrite geometry →
+//     sync basePoint metadata → recreate instances with -delta
+//     compensation. Caller's UndoScope is the rollback envelope;
+//     the helper throws on any step failure.
+
+// Forward declaration — MaterializeDefinitionObjects is defined further
+// down in the file (near the rebase helpers) but referenced by
+// RewriteDefinitionGeometry below. Keeps the helper pair co-located with
+// the other basePoint plumbing without reordering the file.
+static bool MaterializeDefinitionObjects(
+    CRhinoDoc*                           pDoc,
+    const CRhinoInstanceDefinition*      pDef,
+    const ON_Xform&                      geometryXform,
+    int                                  targetDefIndex,
+    const ON_Xform&                      refCompensationXform,
+    ON_SimpleArray<const CRhinoObject*>& docObjects,
+    std::vector<ON_UUID>&                tempIds);
+
+namespace {
+
+struct TranslateAllSpec
+{
+    ON_Xform geometryXform;
+};
+
+struct CompensateNestedRefsSpec
+{
+    int      targetChildDefIndex = -1;
+    ON_Xform refCompensationXform;
+};
+
+using RewriteSpec = std::variant<TranslateAllSpec, CompensateNestedRefsSpec>;
+
+struct InstanceSnapshot
+{
+    ON_UUID                oldId    = ON_nil_uuid;
+    ON_Xform               oldXform = ON_Xform::IdentityTransformation;
+    ON_3dmObjectAttributes attrs;
+};
+
+struct RecreatedInstanceIds
+{
+    ON_UUID oldId = ON_nil_uuid;
+    ON_UUID newId = ON_nil_uuid;
+};
+
+struct FrameShiftResult
+{
+    ON_3dPoint oldBasePoint;
+    ON_3dPoint newBasePoint;
+    int        directInstancesCompensated = 0;
+};
+
+} // namespace
+
+// Owns materialize → ModifyInstanceDefinitionGeometry → temp cleanup for
+// a single definition rewrite. Two modes via the RewriteSpec variant.
+// Throws std::runtime_error on any failure after cleaning up any temp
+// objects it created. Caller never sees temp IDs.
+static void RewriteDefinitionGeometry(
+    CRhinoDoc*         pDoc,
+    int                idefIndex,
+    const RewriteSpec& spec)
+{
+    if (!pDoc)
+        throw std::runtime_error("RewriteDefinitionGeometry: null doc");
+
+    const CRhinoInstanceDefinition* pDef =
+        pDoc->m_instance_definition_table[idefIndex];
+    if (!pDef)
+        throw std::runtime_error(
+            "RewriteDefinitionGeometry: definition lookup failed");
+
+    ON_SimpleArray<const CRhinoObject*> docObjects;
+    std::vector<ON_UUID> tempIds;
+
+    auto cleanupTemps = [&]() {
+        for (const auto& tid : tempIds)
+            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tid));
+    };
+
+    // Dispatch spec variant to the matching MaterializeDefinitionObjects
+    // call. Both modes already exist in the lower-level helper; we just
+    // route spec fields into the right parameter slots.
+    bool ok = false;
+    if (auto* t = std::get_if<TranslateAllSpec>(&spec))
+    {
+        ok = MaterializeDefinitionObjects(
+            pDoc, pDef, t->geometryXform,
+            /*targetDefIndex*/ -1,
+            /*refCompensationXform*/ ON_Xform::IdentityTransformation,
+            docObjects, tempIds);
+    }
+    else if (auto* c = std::get_if<CompensateNestedRefsSpec>(&spec))
+    {
+        ok = MaterializeDefinitionObjects(
+            pDoc, pDef, ON_Xform::IdentityTransformation,
+            c->targetChildDefIndex,
+            c->refCompensationXform,
+            docObjects, tempIds);
+    }
+
+    if (!ok)
+    {
+        cleanupTemps();
+        throw std::runtime_error(
+            "RewriteDefinitionGeometry: failed to materialize definition objects");
+    }
+
+    if (!pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
+            idefIndex, docObjects, false))
+    {
+        cleanupTemps();
+        throw std::runtime_error(
+            "RewriteDefinitionGeometry: ModifyInstanceDefinitionGeometry failed");
+    }
+
+    // Success path also cleans up temps. Best-effort: temps may already
+    // be implicitly soft-deleted by the SDK call, so ignored DeleteObject
+    // returns here match the existing pattern at HandleBlockRebase pre-
+    // extraction.
+    cleanupTemps();
+}
+
+// Owns the full three-part invariant for a definition local-frame shift:
+// (1) snapshot direct doc instances before any mutation, (2) rewrite
+// geometry via the inner primitive, (3) sync basePoint metadata by
+// -delta, (4) delete + recreate snapshotted instances with -delta
+// compensation on the xform.
+//
+// Throws std::runtime_error on any step failure. Caller's UndoScope is
+// the rollback envelope; the helper does not own it. If outRecreatedIds
+// is non-null, it receives one entry per compensated instance.
+static FrameShiftResult MutateDefinitionLocalFrame(
+    CRhinoDoc*                         pDoc,
+    int                                idefIndex,
+    const ON_3dVector&                 definitionDelta,
+    std::vector<RecreatedInstanceIds>* outRecreatedIds)
+{
+    if (!pDoc)
+        throw std::runtime_error("MutateDefinitionLocalFrame: null doc");
+
+    const CRhinoInstanceDefinition* pDef =
+        pDoc->m_instance_definition_table[idefIndex];
+    if (!pDef)
+        throw std::runtime_error(
+            "MutateDefinitionLocalFrame: definition lookup failed");
+
+    // ── Step 1: snapshot direct doc instances BEFORE any mutation ───
+    std::vector<InstanceSnapshot> snapshots;
+    {
+        ON_SimpleArray<const CRhinoInstanceObject*> refs;
+        pDef->GetReferences(refs);
+        snapshots.reserve(refs.Count());
+        for (int i = 0; i < refs.Count(); ++i)
+        {
+            const CRhinoInstanceObject* inst = refs[i];
+            if (!inst) continue;
+            InstanceSnapshot s;
+            s.oldId = inst->Attributes().m_uuid;
+            s.oldXform = inst->InstanceXform();
+            s.attrs = inst->Attributes();
+            snapshots.push_back(std::move(s));
+        }
+    }
+
+    // ── Step 2: rewrite geometry in translate-all mode ──────────────
+    const ON_Xform translationXform =
+        ON_Xform::TranslationTransformation(definitionDelta);
+    RewriteDefinitionGeometry(pDoc, idefIndex,
+        TranslateAllSpec{ translationXform });
+
+    // ── Step 3: sync basePoint metadata ─────────────────────────────
+    // Re-fetch the updated definition. Failure here is hard — the
+    // geometry rewrite is already committed, so stale metadata would
+    // silently reintroduce the Issue #24 drift.
+    const CRhinoInstanceDefinition* pUpdatedDef =
+        pDoc->m_instance_definition_table[idefIndex];
+    if (!pUpdatedDef)
+        throw std::runtime_error(
+            "MutateDefinitionLocalFrame: lookup failed after rewrite");
+
+    const ON_3dPoint oldBase = LookupDefinitionBasePoint(pUpdatedDef);
+    const ON_3dPoint newBase(
+        oldBase.x - definitionDelta.x,
+        oldBase.y - definitionDelta.y,
+        oldBase.z - definitionDelta.z);
+    if (!UpdateDefinitionBasePoint(pDoc, idefIndex, newBase))
+        throw std::runtime_error(
+            "MutateDefinitionLocalFrame: basePoint metadata update failed");
+
+    // ── Step 4: recreate instances with -delta compensation ─────────
+    // Post-multiply because the compensation lives in the definition's
+    // local coordinates, matching the established pattern at the pre-
+    // extraction HandleBlockRebase site (line ~3392 in prior history).
+    // DeleteObject result is checked per design §3.4 — previously
+    // unchecked at the call sites we're replacing.
+    const ON_Xform compensationXform =
+        ON_Xform::TranslationTransformation(-definitionDelta);
+
+    int compensated = 0;
+    for (const auto& s : snapshots)
+    {
+        const bool deleted = pDoc->DeleteObject(
+            CRhinoObjRef(pDoc->RuntimeSerialNumber(), s.oldId));
+        if (!deleted)
+            throw std::runtime_error(
+                "MutateDefinitionLocalFrame: failed to delete old instance");
+
+        const ON_Xform newXform = s.oldXform * compensationXform;
+        CRhinoInstanceObject* pNewInst =
+            pDoc->m_instance_definition_table.CreateInstanceObject(
+                idefIndex, newXform, &s.attrs, nullptr,
+                false, false, true);
+        if (!pNewInst)
+            throw std::runtime_error(
+                "MutateDefinitionLocalFrame: failed to recreate compensated instance");
+
+        ++compensated;
+        if (outRecreatedIds)
+        {
+            RecreatedInstanceIds ids;
+            ids.oldId = s.oldId;
+            ids.newId = pNewInst->Attributes().m_uuid;
+            outRecreatedIds->push_back(ids);
+        }
+    }
+
+    FrameShiftResult result;
+    result.oldBasePoint = oldBase;
+    result.newBasePoint = newBase;
+    result.directInstancesCompensated = compensated;
+    return result;
 }
 
 // Materialize a transformed duplicate of a source doc object as a new temp
@@ -4126,132 +4373,42 @@ void HandleBlockRebase(const httplib::Request& req, httplib::Response& res)
         if (dryRun)
             return wr;
 
-        struct InstanceData
-        {
-            ON_UUID oldId = ON_nil_uuid;
-            ON_Xform oldXform = ON_Xform::IdentityTransformation;
-            ON_3dmObjectAttributes attrs;
-        };
-
-        std::vector<InstanceData> instanceData;
-        instanceData.reserve(refs.Count());
-        for (int i = 0; i < refs.Count(); ++i)
-        {
-            const CRhinoInstanceObject* inst = refs[i];
-            if (!inst)
-                continue;
-
-            InstanceData data;
-            data.oldId = inst->Attributes().m_uuid;
-            data.oldXform = inst->InstanceXform();
-            data.attrs = inst->Attributes();
-            instanceData.push_back(data);
-        }
-
         // Pre-flight: reject definitions containing geometry types we can't
         // safely materialize into the document (ON_InstanceRef, SubD, text, etc.)
         const std::string materializeCheck = CheckDefinitionMaterializability(pDef);
         if (!materializeCheck.empty())
             throw std::invalid_argument(materializeCheck);
 
-        const ON_Xform definitionTranslationXform = ON_Xform::TranslationTransformation(definitionDelta);
-
         // Everything from here is wrapped in a single undo record so that
-        // temp-object creation, definition rewrite, temp cleanup, and instance
-        // compensation are all covered by one Ctrl+Z.
+        // all of the helper's mutations — geometry rewrite, basePoint
+        // metadata sync, and direct-instance compensation — are covered
+        // by one Ctrl+Z. Helper throws on any step failure; the outer
+        // try/catch below surfaces the message.
         UndoScope undo(pDoc, L"Rebase block");
 
-        // Materialize transformed objects into the document as temporary residents.
-        // ModifyInstanceDefinitionGeometry retains references to these objects' geometry,
-        // so they must be document-resident (soft-deletable) rather than heap-owned
-        // (hard-freed). See HandleBlockReplaceGeometry for the proven pattern.
-        ON_SimpleArray<const CRhinoObject*> docResidentObjects;
-        std::vector<ON_UUID> tempObjectIds;
-        if (!MaterializeTransformedBlockObjects(pDoc, pDef, definitionTranslationXform,
-                docResidentObjects, tempObjectIds))
+        std::vector<RecreatedInstanceIds> recreated;
+        FrameShiftResult shift = MutateDefinitionLocalFrame(
+            pDoc, idefIndex, definitionDelta,
+            verbose ? &recreated : nullptr);
+
+        const CRhinoInstanceDefinition* pUpdatedDef =
+            pDoc->m_instance_definition_table[idefIndex];
+        wr.data["recreatedInstanceCount"] = shift.directInstancesCompensated;
+        wr.data["bboxAfter"] = BoundingBoxToJsonRounded(
+            GetBlockDefinitionBoundingBox(pUpdatedDef));
+
+        if (verbose)
         {
-            // Clean up any temp objects added before the failure
-            for (const auto& tmpId : tempObjectIds)
-                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tmpId));
-            throw std::runtime_error("Failed to materialize translated block geometry");
-        }
-
-        if (!pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
-                idefIndex, docResidentObjects, false))
-        {
-            for (const auto& tmpId : tempObjectIds)
-                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tmpId));
-            throw std::runtime_error("Failed to update rebased geometry for block '" + name + "'");
-        }
-
-        // Soft-delete the temporary document objects. Their geometry data persists
-        // in Rhino's undo buffer, keeping the definition's references valid.
-        for (const auto& tmpId : tempObjectIds)
-            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tmpId));
-
-        const CRhinoInstanceDefinition* pUpdatedDef = pDoc->m_instance_definition_table[idefIndex];
-        if (!pUpdatedDef)
-            throw std::runtime_error("Updated block definition lookup failed after rebase");
-
-        // Sync basePoint metadata with the new local frame. The definition's
-        // geometry just shifted by +definitionDelta in local space, so the
-        // world-origin of the canonical "instance at basePoint" pose moves
-        // by -definitionDelta. Without this update, later add-objects /
-        // replace-geometry calls would normalize against the pre-rebase
-        // basePoint and land off by definitionDelta. Failure here is a hard
-        // error: the geometry rebase is already committed, so reporting
-        // success with stale metadata would silently reintroduce the very
-        // drift this patch prevents. Throwing propagates through the outer
-        // handler's catch so the UndoScope lets the user Ctrl-Z back to the
-        // pre-rebase state.
-        {
-            const ON_3dPoint oldBase = LookupDefinitionBasePoint(pUpdatedDef);
-            const ON_3dPoint newBase(
-                oldBase.x - definitionDelta.x,
-                oldBase.y - definitionDelta.y,
-                oldBase.z - definitionDelta.z);
-            if (!UpdateDefinitionBasePoint(pDoc, idefIndex, newBase))
-                throw std::runtime_error(
-                    "Rebase succeeded but basePoint metadata update failed for block '" +
-                    name + "' — undo to restore consistent state");
-        }
-
-        const ON_Xform instanceCompensationXform = ON_Xform::TranslationTransformation(instanceCompensation);
-        nlohmann::json recreatedInstances = nlohmann::json::array();
-
-        for (const auto& instance : instanceData)
-        {
-            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instance.oldId));
-
-            // The compensation is post-multiplied because it lives in the
-            // block definition's local coordinates, not world coordinates.
-            const ON_Xform newXform = instance.oldXform * instanceCompensationXform;
-            CRhinoInstanceObject* pNewInst =
-                pDoc->m_instance_definition_table.CreateInstanceObject(
-                    idefIndex, newXform, &instance.attrs, nullptr, false, false, true);
-
-            if (!pNewInst)
+            nlohmann::json recreatedJson = nlohmann::json::array();
+            for (const auto& r : recreated)
             {
-                wr.success = false;
-                wr.error = "Failed to recreate compensated instance for block '" + name + "'";
-                wr.data["partialRebase"] = true;
-                wr.data["error"] = wr.error;
-                return wr;
-            }
-
-            if (verbose)
-            {
-                recreatedInstances.push_back({
-                    {"oldId", UuidToString(instance.oldId)},
-                    {"newId", UuidToString(pNewInst->Attributes().m_uuid)}
+                recreatedJson.push_back({
+                    {"oldId", UuidToString(r.oldId)},
+                    {"newId", UuidToString(r.newId)},
                 });
             }
+            wr.data["recreatedInstances"] = std::move(recreatedJson);
         }
-
-        wr.data["recreatedInstanceCount"] = static_cast<int>(instanceData.size());
-        wr.data["bboxAfter"] = BoundingBoxToJsonRounded(GetBlockDefinitionBoundingBox(pUpdatedDef));
-        if (verbose)
-            wr.data["recreatedInstances"] = std::move(recreatedInstances);
 
         pDoc->Redraw();
         return wr;
@@ -4665,61 +4822,29 @@ void HandleBlockRebaseRecursive(const httplib::Request& req, httplib::Response& 
 
         UndoScope undo(pDoc, L"Recursive block rebase");
 
-        const ON_Xform leafTranslationXform = ON_Xform::TranslationTransformation(plan.definitionTranslation);
-        const ON_Xform compensationXform = ON_Xform::TranslationTransformation(plan.instanceCompensation);
+        const ON_Xform compensationXform =
+            ON_Xform::TranslationTransformation(plan.instanceCompensation);
 
-        // Helper lambda: clean up temp objects on failure
-        auto cleanupTemps = [&](const std::vector<ON_UUID>& ids) {
-            for (const auto& id : ids)
-                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), id));
-        };
-
-        // ─── Step 3a: Rebase the leaf definition ────────────────
+        // ─── Step 3a + 3c fused: leaf frame shift + direct doc instance compensation ───
+        // Reordered from the original 3a→3b→3c sequence to (3a+3c)→3b.
+        // Semantically equivalent — parent rewrites (3b) never observe
+        // direct leaf doc instances, and direct-instance compensation
+        // never touches definition geometry. See design §4.3 for the
+        // full reordering-safety argument.
+        int directInstancesCompensated = 0;
         {
-            ON_SimpleArray<const CRhinoObject*> leafDocObjects;
-            std::vector<ON_UUID> leafTempIds;
-            // Leaf mode: apply geometry translation to all objects (plain + instance refs)
-            if (!MaterializeDefinitionObjects(pDoc, pLeafDef, leafTranslationXform,
-                    -1, ON_Xform::IdentityTransformation, leafDocObjects, leafTempIds))
-            {
-                cleanupTemps(leafTempIds);
-                throw std::runtime_error("Failed to materialize leaf definition geometry");
-            }
-
-            if (!pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
-                    leafDefIndex, leafDocObjects, false))
-            {
-                cleanupTemps(leafTempIds);
-                throw std::runtime_error("Failed to update leaf definition geometry");
-            }
-
-            cleanupTemps(leafTempIds);
-
-            // Only the leaf's local frame shifted; parent defs run with an
-            // identity geometry xform in Step 3b, so their basePoint metadata
-            // remains valid. Sync the leaf's metadata so future add-objects /
-            // replace-geometry calls on the leaf normalize correctly. Failure
-            // here is hard — the leaf's geometry is already committed; stale
-            // metadata would silently break future normalization. Throw so
-            // the UndoScope gives the user a rollback path.
-            const CRhinoInstanceDefinition* pLeafUpdated =
-                pDoc->m_instance_definition_table[leafDefIndex];
-            if (!pLeafUpdated)
-                throw std::runtime_error(
-                    "Leaf definition '" + name + "' lookup failed after rebase");
-
-            const ON_3dPoint oldBase = LookupDefinitionBasePoint(pLeafUpdated);
-            const ON_3dPoint newBase(
-                oldBase.x - plan.definitionTranslation.x,
-                oldBase.y - plan.definitionTranslation.y,
-                oldBase.z - plan.definitionTranslation.z);
-            if (!UpdateDefinitionBasePoint(pDoc, leafDefIndex, newBase))
-                throw std::runtime_error(
-                    "Leaf rebase succeeded but basePoint metadata update failed for block '" +
-                    name + "' — undo to restore consistent state");
+            FrameShiftResult leafShift = MutateDefinitionLocalFrame(
+                pDoc, leafDefIndex, plan.definitionTranslation,
+                /*outRecreatedIds*/ nullptr);
+            directInstancesCompensated = leafShift.directInstancesCompensated;
         }
 
         // ─── Step 3b: Rewrite each parent definition ────────────
+        // Parent defs run with an identity geometry xform + per-ref
+        // compensation for refs to the leaf — pure geometry rewrite,
+        // no frame shift, so the inner primitive covers it directly.
+        // Parent basePoint metadata is intentionally untouched (test 12
+        // pins this invariant).
         int totalNestedRefsCompensated = 0;
         for (const auto& parentEntry : plan.parentDefinitions)
         {
@@ -4729,67 +4854,12 @@ void HandleBlockRebaseRecursive(const httplib::Request& req, httplib::Response& 
                 throw std::runtime_error("Parent definition '" + parentEntry.parentDefName +
                     "' disappeared during execute");
 
-            ON_SimpleArray<const CRhinoObject*> parentDocObjects;
-            std::vector<ON_UUID> parentTempIds;
-            // Parent mode: identity geometry xform, compensate only refs to the leaf
-            if (!MaterializeDefinitionObjects(pDoc, pParentDef, ON_Xform::IdentityTransformation,
-                    leafDefIndex, compensationXform, parentDocObjects, parentTempIds))
-            {
-                cleanupTemps(parentTempIds);
-                throw std::runtime_error("Failed to materialize parent definition '" +
-                    parentEntry.parentDefName + "'");
-            }
-
-            if (!pDoc->m_instance_definition_table.ModifyInstanceDefinitionGeometry(
-                    parentEntry.parentDefIndex, parentDocObjects, false))
-            {
-                cleanupTemps(parentTempIds);
-                throw std::runtime_error("Failed to update parent definition '" +
-                    parentEntry.parentDefName + "'");
-            }
-
-            cleanupTemps(parentTempIds);
+            RewriteDefinitionGeometry(pDoc, parentEntry.parentDefIndex,
+                CompensateNestedRefsSpec{
+                    /*targetChildDefIndex*/   leafDefIndex,
+                    /*refCompensationXform*/  compensationXform,
+                });
             totalNestedRefsCompensated += parentEntry.nestedRefsToLeaf;
-        }
-
-        // ─── Step 3c: Compensate direct document instances of the leaf ───
-        int directInstancesCompensated = 0;
-        if (leafDocRefs.Count() > 0)
-        {
-            struct LeafInstanceData
-            {
-                ON_UUID oldId = ON_nil_uuid;
-                ON_Xform oldXform = ON_Xform::IdentityTransformation;
-                ON_3dmObjectAttributes attrs;
-            };
-
-            std::vector<LeafInstanceData> leafInstances;
-            leafInstances.reserve(leafDocRefs.Count());
-            for (int i = 0; i < leafDocRefs.Count(); ++i)
-            {
-                const CRhinoInstanceObject* inst = leafDocRefs[i];
-                if (!inst) continue;
-                LeafInstanceData d;
-                d.oldId = inst->Attributes().m_uuid;
-                d.oldXform = inst->InstanceXform();
-                d.attrs = inst->Attributes();
-                leafInstances.push_back(d);
-            }
-
-            for (const auto& d : leafInstances)
-            {
-                pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), d.oldId));
-
-                const ON_Xform newXform = d.oldXform * compensationXform;
-                CRhinoInstanceObject* pNewInst =
-                    pDoc->m_instance_definition_table.CreateInstanceObject(
-                        leafDefIndex, newXform, &d.attrs, nullptr, false, false, true);
-
-                if (!pNewInst)
-                    throw std::runtime_error("Failed to recreate direct document instance of leaf '" + name + "'");
-
-                directInstancesCompensated++;
-            }
         }
 
         // ─── Build execute result ────────────────────────────────
