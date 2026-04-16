@@ -657,6 +657,12 @@ def _transform_gh_set_script(args: dict) -> Tuple[str, str, dict]:
     return "/gh/script", "POST", payload
 
 
+async def _local_gh_set_script_pins(port: int | None = None, **kwargs) -> dict:
+    from ..server import _execute_gh_set_script_pins
+
+    return await _execute_gh_set_script_pins(kwargs, port)
+
+
 def _transform_gh_library(args: dict) -> Tuple[str, str, dict]:
     params = {}
     if args.get("search"):
@@ -865,6 +871,8 @@ def build_local_tools() -> Dict[str, Any]:
         tools["gh_knowledge_query"] = _gh_knowledge_query
     except ImportError:
         logger.debug("gh_knowledge_query local tool unavailable (import failed)")
+
+    tools["gh_set_script_pins"] = _local_gh_set_script_pins
 
     # --- rhino_instances ---
     try:

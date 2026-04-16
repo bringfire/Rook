@@ -144,6 +144,7 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "gh_move": "Move components on the canvas",
     "gh_library": "Search the component library by name or category",
     "gh_set_script": "Set the script content of a C#/Python script component",
+    "gh_set_script_pins": "Edit pin metadata on an existing C#/Python script component",
     "gh_inspect_output": "Inspect the output data of a component",
     # Knowledge
     "knowledge_query": "Query the Rhino knowledge graph for tool patterns",
