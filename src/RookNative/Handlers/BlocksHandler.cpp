@@ -1312,6 +1312,14 @@ void HandleBlockRename(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition idef_settings;
         idef_settings.SetName(Utf8ToWide(newName));
 
+        // #28 audit — UserData preservation:
+        // Mask is `idef_name_setting` only. Per the ON_InstanceDefinition
+        // contract, ModifyInstanceDefinition under a non-`all_idef_settings`
+        // mask rewrites only the named fields on the live entry and leaves
+        // everything else — including attached UserData — untouched. Our
+        // RookBlockBasePointUserData and the legacy user-string both live
+        // on the live entry and are not in the `settings` parameter here,
+        // so they survive this call. Covered by design doc §3.4 "rename".
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinition(
             idef_settings, idefIndex,
             ON_InstanceDefinition::idef_name_setting, true);
@@ -3551,6 +3559,19 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
 
         int newIdx = FindDefByName(pDoc, blockName);
 
+        // #28 audit — UserData behavior on link:
+        // We do NOT call StoreDefinitionBasePoint on the newly-linked
+        // idef. This is intentional (design §3.4): externally-authored
+        // linked definitions are not given a synthesized origin basePoint
+        // UserData — they may or may not carry one already (if the source
+        // .3dm was authored by a Rook build that embedded the payload),
+        // but either way the linked def inherits whatever the file says.
+        // Synthesizing an origin basePoint here would fabricate metadata
+        // that doesn't reflect actual authoring intent for externally-
+        // owned content, breaking the "exactly one authoritative payload"
+        // invariant from §3.1 if the source file later gets re-linked
+        // with a different payload.
+
         WriteResult wr;
         wr.success = (newIdx >= 0);
         wr.data["name"] = blockName;
@@ -3600,6 +3621,21 @@ void HandleBlockRefresh(const httplib::Request& req, httplib::Response& res)
         if (linkedPath.IsEmpty())
             throw std::invalid_argument("Block '" + name + "' is not a linked block");
 
+        // #28 audit — UserData behavior on refresh:
+        // UpdateLinkedInstanceDefinition reloads the linked definition's
+        // geometry and metadata from the source .3dm. If the source file
+        // has its own RookBlockBasePointUserData payload, the SDK pulls
+        // that in via the standard binary archive path (proved by test 6);
+        // if the source has none, the refreshed live entry carries no
+        // Rook UserData — matching design §3.4's "externally-authored
+        // linked defs do NOT get synthesized origin UserData". Rook does
+        // NOT add synthetic UserData to linked defs here.
+        //
+        // Intended rule (design §3.4 "refresh"): the refreshed state is
+        // whatever the source file says. No duplicate/stale payloads are
+        // created because the SDK replaces the full definition — any
+        // previously-attached UserData on the live entry is superseded
+        // by the archive-decoded state.
         bool refreshed = pDoc->m_instance_definition_table.UpdateLinkedInstanceDefinition(
             idefIndex, linkedPath, true, true);
 
@@ -3651,6 +3687,25 @@ void HandleBlockUnlink(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition idef_settings(*pIdef);
         idef_settings.SetInstanceDefinitionType(ON_InstanceDefinition::IDEF_UPDATE_TYPE::Static);
 
+        // #28 audit — UserData preservation:
+        // Unlinks a linked/embedded idef into a static one. The copy ctor
+        // above slices the full live entry (ON_Object carries UserData
+        // through operator= when m_userdata_copycount > 0; our class sets
+        // copycount=1), so any already-attached RookBlockBasePointUserData
+        // travels into `idef_settings` before ModifyInstanceDefinition
+        // rewrites the live entry under the `all_idef_settings` mask.
+        // Legacy user-string goes through the same path. Design §3.4:
+        // linked → local conversion must not drop metadata.
+        //
+        // Note: linked defs created via HandleBlockLink do NOT have
+        // synthesized RookBlockBasePointUserData to begin with (design
+        // §3.4: "externally-authored linked defs are not given origin
+        // UserData"), so typically there is nothing to preserve here. The
+        // invariant matters only if the source .3dm being linked was
+        // itself authored by Rook and thus arrives with an UserData
+        // payload embedded in the binary archive — test 6 proves that
+        // payload survives save/load, so preserving it on unlink is the
+        // right default.
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinition(
             idef_settings, idefIndex,
             ON_InstanceDefinition::all_idef_settings, true);
@@ -4812,6 +4867,17 @@ void HandleBlockMerge(const httplib::Request& req, httplib::Response& res)
         // This is single-undo recoverable, not transactional — if a replacement
         // fails mid-way, partial mutations remain but can be undone as one step
         // via Rhino's undo system.
+        //
+        // #28 audit — UserData behavior on merge (design §3.4):
+        // - Surviving TARGET idef is never modified here. Its attached
+        //   RookBlockBasePointUserData and legacy user-string are
+        //   preserved by construction — we only DeleteObject/CreateInstanceObject
+        //   on instance refs, never touch the target definition itself.
+        // - DISCARDED source idefs keep their UserData until the caller
+        //   purges them (standard Rook convention: merge leaves sources
+        //   orphaned but intact; a subsequent purge removes them along
+        //   with all their metadata). This prevents duplicate payloads
+        //   on the surviving target.
         UndoScope undo(pDoc, L"Block merge");
 
         for (auto& src : validSources)
