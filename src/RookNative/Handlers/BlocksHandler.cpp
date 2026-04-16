@@ -21,6 +21,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <initializer_list>
@@ -5339,12 +5340,39 @@ void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
 // Public contract: none. Subject to change without notice. Product code
 // MUST NOT call this; any caller outside tests/ is an abuse.
 //
+// Gated on the `ROOK_ENABLE_DEBUG_ROUTES=1` environment variable (exact
+// string "1"; other truthy-ish values are rejected to avoid accidental
+// enablement from inherited env noise). Absent or any other value → 403.
+// The env var is read at handler entry (NOT registration time) so that
+// the routes exist on every build but only respond when the operator
+// explicitly opts in — keeping test builds and prod builds binary-
+// identical while still removing the default local attack surface.
+// Per Codex review on PR #33.
+// ───────────────────────────────────────────────────────────────────────────
+
+// Returns true iff ROOK_ENABLE_DEBUG_ROUTES is set to exactly "1" in the
+// process environment. Writes a 403 "debug routes disabled" response to
+// `res` and returns false otherwise.
+static bool DebugRoutesEnabledOrRefuse(httplib::Response& res)
+{
+    const char* env = std::getenv("ROOK_ENABLE_DEBUG_ROUTES");
+    if (env != nullptr && std::string(env) == "1")
+        return true;
+
+    res.status = 403;
+    res.set_header("Content-Type", "application/json");
+    res.body = R"({"success":false,"data":"Debug routes disabled. Set ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process environment and restart Rhino to enable /block/_debug/* routes. These routes are test-only and have no stable contract."})";
+    return false;
+}
+
 // POST /block/_debug/basepoint-userdata
 // Body: {"name": "<block name>"}
 // Response: {"attached": bool, "basePoint": [x,y,z] | null}
 // ───────────────────────────────────────────────────────────────────────────
 void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib::Response& res)
 {
+    if (!DebugRoutesEnabledOrRefuse(res)) return;
+
     auto [docSn, body] = ParseBodyAndDocSn(req);
 
     std::string name = body.value("name", "");
@@ -5403,9 +5431,13 @@ void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib:
 // Exists so Phase C's disagreement test can produce a state the production
 // write path cannot: new slot and legacy user-string holding DIFFERENT
 // values. Any caller outside tests/ is an abuse.
+//
+// Gated on ROOK_ENABLE_DEBUG_ROUTES=1 — see handler above for rationale.
 // ───────────────────────────────────────────────────────────────────────────
 void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib::Response& res)
 {
+    if (!DebugRoutesEnabledOrRefuse(res)) return;
+
     auto [docSn, body] = ParseBodyAndDocSn(req);
 
     std::string name = body.value("name", "");

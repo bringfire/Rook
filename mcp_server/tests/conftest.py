@@ -169,6 +169,12 @@ async def assert_new_slot(
             f"{url} returned 404 — Rhino is running an older RookNative build "
             f"without the Phase B internal debug route. Rebuild + redeploy native."
         )
+    if resp.status_code == 403:
+        pytest.skip(
+            f"{url} returned 403 — debug routes disabled on the running "
+            f"RookNative. Set ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process "
+            f"environment and restart Rhino to enable #28 test-only routes."
+        )
     if resp.status_code != 200:
         pytest.fail(f"{url} returned {resp.status_code}: {resp.text}")
 
@@ -242,6 +248,12 @@ async def set_legacy_basepoint_for_test(
         pytest.fail(
             f"{url} returned 404 — older RookNative build loaded; "
             f"rebuild + redeploy native to pick up Phase C internal routes."
+        )
+    if resp.status_code == 403:
+        pytest.skip(
+            f"{url} returned 403 — debug routes disabled. Set "
+            f"ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process environment "
+            f"and restart Rhino to enable #28 test-only routes."
         )
     if resp.status_code != 200:
         pytest.fail(f"{url} returned {resp.status_code}: {resp.text}")

@@ -326,11 +326,12 @@ async def assert_new_slot(block_name: str, expected_base_point: tuple[float, flo
     basepoint-userdata` directly; not exposed as product MCP tool."""
 ```
 
-**Constraints (enforced by placement + naming):**
+**Constraints (enforced by placement + naming + runtime gate):**
 
 - Helper lives in test-support code only. Never imported from product modules.
-- Hits an internal native HTTP debug route that is deliberately NOT registered as an MCP tool. No stable contract; safe to remove after follow-up #33 lands legacy retirement.
-- Fails the test with a clear message (not a silent pass) if the route is absent — signals Rhino is running a pre-Phase-B native build.
+- Hits an internal native HTTP debug route that is deliberately NOT registered as an MCP tool. No stable contract; safe to remove after follow-up #34 lands legacy retirement.
+- Fails the test with a clear message (not a silent pass) if the route is absent (404) — signals Rhino is running a pre-Phase-B native build.
+- **Runtime gate: `ROOK_ENABLE_DEBUG_ROUTES=1`** (exact string match, not truthy-ish). Both `/block/_debug/basepoint-userdata` and `/block/_debug/set-legacy-basepoint` check at handler entry; absence returns 403. The test helpers translate the 403 into `pytest.skip` with a clear remediation message rather than pass-through failure. Rationale (per Codex review on PR #33): the native HTTP server is 127.0.0.1-only but that does not prevent any local process from calling these routes — registering them unconditionally would widen the local attack surface. The runtime gate keeps test builds and prod builds binary-identical while making explicit operator opt-in mandatory for the test-only routes to respond.
 
 **Disagreement test (9) justification for not needing the helper:** test 9 writes a deliberately-different legacy value, so if the read returned the legacy value the assertion would fail. That structural fact proves new-slot preference without needing direct introspection.
 
