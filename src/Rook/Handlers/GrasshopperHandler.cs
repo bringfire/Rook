@@ -662,6 +662,16 @@ namespace Rook.Handlers
                     }
                     catch { /* undo recording is best-effort */ }
 
+                    // Capture existing pin descriptions BEFORE recompile. RhinoCode's recompile
+                    // resets pin Description to the framework default ("No conversion"), so we
+                    // save them and re-apply after ExpireSolution. Name-based FIFO matching
+                    // (via ApplyPinDescriptions) is robust against duplicate pin names AND
+                    // against any pin reordering a recompile might introduce — index-based
+                    // matching would silently land descriptions on the wrong pin if the
+                    // recompile ever shuffles params.
+                    var savedInputDescriptions = CapturePinDescriptionsByName(obj, isInput: true);
+                    var savedOutputDescriptions = CapturePinDescriptionsByName(obj, isInput: false, skipFirstN: 1);
+
                     if (isRhinoCode && setSourceMethod != null)
                     {
                         setSourceMethod.Invoke(obj, new object[] { script });
@@ -701,12 +711,52 @@ namespace Rook.Handlers
                     var expireMethod = obj.GetType().GetMethod("ExpireSolution", new[] { typeof(bool) });
                     expireMethod?.Invoke(obj, new object[] { true });
 
+                    // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
+                    // or they get clobbered back to framework defaults.
+                    var restoreWarnings = new List<string>();
+                    int restoredInputDescriptions = 0, droppedInputDescriptions = 0;
+                    int restoredOutputDescriptions = 0, droppedOutputDescriptions = 0;
+
+                    var paramsProp = obj.GetType().GetProperty("Params");
+                    var paramsObjForRestore = paramsProp?.GetValue(obj);
+                    if (paramsObjForRestore != null)
+                    {
+                        var inputListProp = paramsObjForRestore.GetType().GetProperty("Input");
+                        var outputListProp = paramsObjForRestore.GetType().GetProperty("Output");
+                        ApplyPinDescriptions(
+                            inputListProp?.GetValue(paramsObjForRestore),
+                            savedInputDescriptions,
+                            "input",
+                            restoreWarnings,
+                            out restoredInputDescriptions,
+                            out droppedInputDescriptions);
+                        ApplyPinDescriptions(
+                            outputListProp?.GetValue(paramsObjForRestore),
+                            savedOutputDescriptions,
+                            "output",
+                            restoreWarnings,
+                            out restoredOutputDescriptions,
+                            out droppedOutputDescriptions,
+                            skipFirstN: 1); // skip 'out' print stream
+                    }
+
                     RefreshCanvas(gh.Canvas!);
 
                     return new ApiResponse
                     {
                         Success = true,
-                        Data = new { Guid = guid, Type = typeName, Action = "set", ScriptLength = script.Length }
+                        Data = new
+                        {
+                            Guid = guid,
+                            Type = typeName,
+                            Action = "set",
+                            ScriptLength = script.Length,
+                            RestoredInputDescriptions = restoredInputDescriptions,
+                            DroppedInputDescriptions = droppedInputDescriptions,
+                            RestoredOutputDescriptions = restoredOutputDescriptions,
+                            DroppedOutputDescriptions = droppedOutputDescriptions,
+                            Warnings = restoreWarnings
+                        }
                     };
                 }
             }
@@ -866,6 +916,108 @@ namespace Rook.Handlers
                     var message = ex.InnerException?.Message ?? ex.Message;
                     warnings.Add($"Failed to restore recipient connection for output '{paramName}': {message}");
                 }
+            }
+        }
+
+        private static Dictionary<string, Queue<string>> CapturePinDescriptionsByName(
+            object component,
+            bool isInput,
+            int skipFirstN = 0)
+        {
+            var result = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
+            var paramsProp = component.GetType().GetProperty("Params");
+            if (paramsProp == null) return result;
+            var paramsObj = paramsProp.GetValue(component);
+            if (paramsObj == null) return result;
+            var listProp = paramsObj.GetType().GetProperty(isInput ? "Input" : "Output");
+            if (listProp == null) return result;
+            if (listProp.GetValue(paramsObj) is not System.Collections.IEnumerable list) return result;
+
+            int idx = -1;
+            foreach (var param in list)
+            {
+                idx++;
+                if (idx < skipFirstN) continue;
+                if (param == null) continue;
+                var paramType = param.GetType();
+                var name = paramType.GetProperty("Name")?.GetValue(param) as string;
+                if (string.IsNullOrEmpty(name)) continue;
+                var desc = paramType.GetProperty("Description")?.GetValue(param) as string;
+                if (string.IsNullOrEmpty(desc)) continue;
+                if (!result.TryGetValue(name, out var queue))
+                {
+                    queue = new Queue<string>();
+                    result[name] = queue;
+                }
+                queue.Enqueue(desc);
+            }
+            return result;
+        }
+
+        private static void ApplyPinDescriptions(
+            object? paramsCollection,
+            Dictionary<string, Queue<string>> descriptionsByName,
+            string direction,
+            List<string> warnings,
+            out int appliedCount,
+            out int droppedCount,
+            int skipFirstN = 0)
+        {
+            appliedCount = 0;
+            droppedCount = 0;
+
+            if (descriptionsByName.Count == 0)
+                return;
+
+            if (paramsCollection is System.Collections.IEnumerable enumerable)
+            {
+                int index = -1;
+                foreach (var param in enumerable)
+                {
+                    index++;
+                    if (index < skipFirstN)
+                        continue;
+                    if (param == null)
+                        continue;
+                    var paramType = param.GetType();
+                    var nameValue = paramType.GetProperty("Name")?.GetValue(param) as string;
+                    if (nameValue == null ||
+                        !descriptionsByName.TryGetValue(nameValue, out var queue) ||
+                        queue.Count == 0)
+                        continue;
+                    var description = queue.Dequeue();
+                    try
+                    {
+                        var descriptionProp = paramType.GetProperty("Description");
+                        if (descriptionProp?.CanWrite == true)
+                        {
+                            descriptionProp.SetValue(param, description);
+                            appliedCount++;
+                        }
+                        else
+                        {
+                            droppedCount++;
+                            warnings.Add($"Could not set description on {direction} '{nameValue}': Description property not writable");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        droppedCount++;
+                        var message = ex.InnerException?.Message ?? ex.Message;
+                        warnings.Add($"Failed to set description on {direction} '{nameValue}': {message}");
+                    }
+                    if (queue.Count == 0)
+                        descriptionsByName.Remove(nameValue);
+                }
+            }
+
+            // Any descriptions left in queues had no matching param (renamed-out pin, typo).
+            foreach (var kvp in descriptionsByName)
+            {
+                if (kvp.Value.Count == 0)
+                    continue;
+                droppedCount += kvp.Value.Count;
+                warnings.Add($"Could not set description: no matching {direction} named '{kvp.Key}' (dropped {kvp.Value.Count})");
             }
         }
 
@@ -1091,6 +1243,13 @@ namespace Rook.Handlers
                         unregOutput.Invoke(paramsObj, new[] { param });
                 }
 
+                // RhinoCode's VariableParameterMaintenance and SetSource recompile both
+                // reset pin Description to the framework default ("No conversion"), so we
+                // defer description application to AFTER the recompile/maintenance chain.
+                // FIFO queue per name handles the edge case of two pins sharing a Name.
+                var pendingInputDescriptions = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
+                var pendingOutputDescriptions = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
+
                 // Add new inputs using CreateParameter (gets correct param type)
                 if (root.TryGetProperty("inputs", out var inputsEl))
                 {
@@ -1109,6 +1268,16 @@ namespace Rook.Handlers
                             return new ApiResponse { Success = false, Data = $"CreateParameter returned null for input '{name}'" };
                         if (!TryApplyScriptPinDefinition(newParam, inputDef, isInput: true, out var error))
                             return new ApiResponse { Success = false, Data = error };
+                        if (inputDef.TryGetProperty("description", out var descEl) &&
+                            descEl.ValueKind == JsonValueKind.String)
+                        {
+                            if (!pendingInputDescriptions.TryGetValue(name, out var queue))
+                            {
+                                queue = new Queue<string>();
+                                pendingInputDescriptions[name] = queue;
+                            }
+                            queue.Enqueue(descEl.GetString() ?? string.Empty);
+                        }
                         regInput.Invoke(paramsObj, new[] { newParam });
                         ReattachInputSources(
                             newParam,
@@ -1142,6 +1311,16 @@ namespace Rook.Handlers
                             return new ApiResponse { Success = false, Data = $"CreateParameter returned null for output '{name}'" };
                         if (!TryApplyScriptPinDefinition(newParam, outputDef, isInput: false, out var error))
                             return new ApiResponse { Success = false, Data = error };
+                        if (outputDef.TryGetProperty("description", out var descEl) &&
+                            descEl.ValueKind == JsonValueKind.String)
+                        {
+                            if (!pendingOutputDescriptions.TryGetValue(name, out var queue))
+                            {
+                                queue = new Queue<string>();
+                                pendingOutputDescriptions[name] = queue;
+                            }
+                            queue.Enqueue(descEl.GetString() ?? string.Empty);
+                        }
                         regOutput.Invoke(paramsObj, new[] { newParam });
                         ReattachOutputRecipients(
                             newParam,
@@ -1165,12 +1344,13 @@ namespace Rook.Handlers
                         objType.GetProperty("NickName")?.SetValue(obj, nickVal);
                 }
 
-                if (root.TryGetProperty("description", out var descriptionEl))
+                // Defer component Description until after maintenance — same reset behavior
+                // observed on pin descriptions applies to the component Description.
+                string? pendingComponentDescription = null;
+                if (root.TryGetProperty("description", out var descriptionEl) &&
+                    descriptionEl.ValueKind == JsonValueKind.String)
                 {
-                    var descriptionVal = descriptionEl.GetString();
-                    var descriptionProp = objType.GetProperty("Description");
-                    if (descriptionProp?.CanWrite == true)
-                        descriptionProp.SetValue(obj, descriptionVal ?? string.Empty);
+                    pendingComponentDescription = descriptionEl.GetString() ?? string.Empty;
                 }
 
                 // Finalize
@@ -1194,6 +1374,51 @@ namespace Rook.Handlers
 
                 objType.GetMethod("ExpireSolution", new[] { typeof(bool) })?.Invoke(obj, new object[] { true });
 
+                // Re-apply pin and component descriptions AFTER maintenance + recompile.
+                // VariableParameterMaintenance and RhinoCode SetSource both reset Description
+                // back to the framework default, so the value has to be stamped last to stick.
+                int appliedInputDescriptions = 0, droppedInputDescriptions = 0;
+                int appliedOutputDescriptions = 0, droppedOutputDescriptions = 0;
+                bool componentDescriptionApplied = false;
+
+                ApplyPinDescriptions(
+                    inputProp.GetValue(paramsObj),
+                    pendingInputDescriptions,
+                    "input",
+                    restoreWarnings,
+                    out appliedInputDescriptions,
+                    out droppedInputDescriptions);
+                ApplyPinDescriptions(
+                    outputProp.GetValue(paramsObj),
+                    pendingOutputDescriptions,
+                    "output",
+                    restoreWarnings,
+                    out appliedOutputDescriptions,
+                    out droppedOutputDescriptions,
+                    skipFirstN: 1); // skip 'out' print stream (always index 0)
+
+                if (pendingComponentDescription != null)
+                {
+                    try
+                    {
+                        var descriptionProp = objType.GetProperty("Description");
+                        if (descriptionProp?.CanWrite == true)
+                        {
+                            descriptionProp.SetValue(obj, pendingComponentDescription);
+                            componentDescriptionApplied = true;
+                        }
+                        else
+                        {
+                            restoreWarnings.Add("Could not set component description: Description property not writable");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = ex.InnerException?.Message ?? ex.Message;
+                        restoreWarnings.Add($"Failed to set component description: {message}");
+                    }
+                }
+
                 if (gh.Canvas != null)
                     RefreshCanvas(gh.Canvas);
 
@@ -1215,6 +1440,11 @@ namespace Rook.Handlers
                         DroppedInputSources = droppedInputSourceCount,
                         RestoredOutputRecipients = restoredOutputRecipientCount,
                         DroppedOutputRecipients = droppedOutputRecipientCount,
+                        AppliedInputDescriptions = appliedInputDescriptions,
+                        DroppedInputDescriptions = droppedInputDescriptions,
+                        AppliedOutputDescriptions = appliedOutputDescriptions,
+                        DroppedOutputDescriptions = droppedOutputDescriptions,
+                        ComponentDescriptionApplied = componentDescriptionApplied,
                         Warnings = restoreWarnings
                     }
                 };
