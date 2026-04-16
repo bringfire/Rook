@@ -1408,6 +1408,12 @@ namespace Rook.Handlers
                 // ephemeral random guids that don't correspond to ReferenceID). That needs a
                 // separate preamble-level workaround using ghenv.Component.Params.Input[i].VolatileData
                 // to read raw wrappers before RhinoCode's automatic guid-conversion.
+                //
+                // WARNING: Do NOT "helpfully" add a LoadGeometry() call here. Stamping ReferenceID
+                // alone is deliberate — the wrapper keeps the by-value geometry we just constructed
+                // and advertises doc identity for introspection only. LoadGeometry() would force
+                // GH to re-fetch from the active doc, which could fail if the object is deleted
+                // between set and solve.
                 try
                 {
                     var refIdProp = ghWrapper.GetType().GetProperty("ReferenceID");
