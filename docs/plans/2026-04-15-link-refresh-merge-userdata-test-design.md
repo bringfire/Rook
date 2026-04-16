@@ -61,17 +61,17 @@ The link test needs a .3dm whose block definition was NOT created through the
 Rook pipeline, so no `RookBlockBasePointUserData` is attached. Using
 `rhino_block_create` would defeat the claim because it dual-writes UserData.
 
-Implementation: `rhino_execute` a Python script that calls the verified
-`InstanceDefinitions.Add(name, description, basePoint, geometries, attributes)`
-overload — five parameters, matching the shape used throughout the repo's C#
-companion (e.g. `BlocksHandler.cs` CreateBlock at line 157, linked-file import,
-duplicate). The script creates a `Rhino.Geometry.Box`, converts to `Brep`,
-constructs a matching `ObjectAttributes`, and passes both arrays to `Add`. This
-is the raw RhinoCommon API with no Rook handler involvement, so no
-`RookBlockBasePointUserData` is attached. Then save to a temp path.
+Implementation: `rhino_execute` a Python script that adds top-level geometry
+to a blank document via `doc.Objects.AddBrep(brep)` (a box converted to Brep).
+No `InstanceDefinitions.Add` and no Rook handler involvement — the file
+contains only raw model content with no `RookBlockBasePointUserData` anywhere.
+When `HandleBlockLink` runs `_-Insert _File=... _Block`, it treats the file's
+top-level content as the linked block geometry. No internal block definition
+is needed because the link route consumes the file's model content, not its
+definition table. Then save to a temp path.
 
-This produces a genuine "pre-migration / externally-authored" .3dm file that
-has a block definition with no Rook-owned UserData attached.
+This produces a genuine "pre-migration / externally-authored" .3dm file with
+geometry but no Rook-owned metadata of any kind.
 
 ### 4.2 Rook-authored .3dm (for refresh test)
 

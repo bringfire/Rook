@@ -29,13 +29,20 @@ does NOT cover:
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
+import time
 
 import pytest
 
 from rook.server import _mcp_tool_executor
 
-from .conftest import assert_bbox_x_range, assert_new_slot, set_legacy_basepoint_for_test
+from .conftest import (
+    assert_bbox_x_range,
+    assert_new_slot,
+    assert_no_new_slot,
+    set_legacy_basepoint_for_test,
+)
 
 # Every test in this module needs Rhino; fixture handles graceful skip.
 pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
@@ -102,6 +109,75 @@ async def _replace_object_batch(items: list[dict]) -> dict:
     )
     assert "routed" in res, f"replace batch unexpected shape: {res!r}"
     return res
+
+
+# --- Fixture factories (temp .3dm files for link/refresh tests) -----------
+
+
+async def _create_slot_free_block_file(path: str) -> None:
+    """Create a .3dm with top-level geometry but no Rook metadata.
+
+    No Rook handler involvement — no RookBlockBasePointUserData anywhere
+    in the file. The file contains a single Brep (box) as top-level
+    geometry. When linked via `_-Insert _File=... _Block`, Rhino treats
+    the file's top-level content as the linked block geometry.
+
+    No InstanceDefinitions.Add is needed: HandleBlockLink consumes the
+    file's model content, not its internal block definitions.
+    """
+    script = (
+        "import scriptcontext as sc\n"
+        "import Rhino\n"
+        "box = Rhino.Geometry.Box(\n"
+        "    Rhino.Geometry.Plane.WorldXY,\n"
+        "    Rhino.Geometry.Interval(0, 1),\n"
+        "    Rhino.Geometry.Interval(0, 1),\n"
+        "    Rhino.Geometry.Interval(0, 1),\n"
+        ")\n"
+        "brep = box.ToBrep()\n"
+        "sc.doc.Objects.AddBrep(brep)\n"
+    )
+    new_res = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+    assert new_res.get("success") is not False, f"new failed: {new_res!r}"
+
+    exec_res = await _mcp_tool_executor("rhino_execute", {"code": script})
+    assert not (isinstance(exec_res, dict) and exec_res.get("success") is False), (
+        f"rhino_execute failed: {exec_res!r}"
+    )
+
+    save_res = await _mcp_tool_executor(
+        "rhino_document_ops", {"action": "save", "path": path}
+    )
+    assert save_res.get("success") is not False, f"save failed: {save_res!r}"
+
+
+async def _create_rook_block_file(
+    path: str, block_name: str, base_point: list[float]
+) -> None:
+    """Create a .3dm with a Rook-authored block (UserData attached via dual-write).
+
+    Default geometry: box [0,0,0]-[1,1,1].
+    """
+    await _create_rook_block_file_with_geometry(
+        path, block_name, base_point, [0, 0, 0], [1, 1, 1]
+    )
+
+
+async def _create_rook_block_file_with_geometry(
+    path: str, block_name: str, base_point: list[float],
+    corner1: list[float], corner2: list[float],
+) -> None:
+    """Create a .3dm with a Rook-authored block using specific geometry bounds."""
+    new_res = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+    assert new_res.get("success") is not False, f"new failed: {new_res!r}"
+
+    seed = await _create_brep(corner1, corner2, f"{block_name}_SEED")
+    await _block_create(block_name, [seed], base_point=base_point)
+
+    save_res = await _mcp_tool_executor(
+        "rhino_document_ops", {"action": "save", "path": path}
+    )
+    assert save_res.get("success") is not False, f"save failed: {save_res!r}"
 
 
 # --- Tests ---------------------------------------------------------------
@@ -548,3 +624,172 @@ async def test_preserve_sites_retain_basepoint(fresh_document):
     )
     assert rep_res.get("success") is not False, f"replace_geometry failed: {rep_res!r}"
     await assert_new_slot("PRESERVE_BLOCK", expected_base_point=(5.0, 0.0, 0.0))
+
+
+# ---------------------------------------------------------------------------
+# #35 — link/refresh/merge UserData preservation tests
+# ---------------------------------------------------------------------------
+
+
+async def test_block_link_does_not_synthesize_origin_userdata(fresh_document):
+    """HandleBlockLink does not fabricate RookBlockBasePointUserData on
+    externally-authored linked definitions.
+
+    The source .3dm is created via raw RhinoCommon InstanceDefinitions.Add
+    (no Rook handler) so no UserData is attached. After linking into the
+    target doc, the linked definition must NOT have a synthesized origin
+    basePoint — design §3.4: externally-authored linked defs inherit
+    whatever the source file says, which in this case is nothing.
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".3dm", delete=False)
+    tmp.close()
+    source_path = tmp.name
+    try:
+        await _create_slot_free_block_file(source_path)
+
+        new_res = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+        assert new_res.get("success") is not False
+
+        link_res = await _mcp_tool_executor(
+            "rhino_block_link", {"path": source_path, "name": "LINK_NOSLOT"}
+        )
+        assert link_res.get("success") is not False, f"link failed: {link_res!r}"
+
+        returned_name = link_res.get("name", "")
+        assert returned_name == "LINK_NOSLOT", (
+            f"expected linked def name 'LINK_NOSLOT', got {returned_name!r}"
+        )
+
+        await assert_no_new_slot("LINK_NOSLOT")
+    finally:
+        try:
+            os.unlink(source_path)
+        except OSError:
+            pass
+
+
+async def test_block_refresh_reloads_geometry_without_fabricating_userdata(fresh_document):
+    """HandleBlockRefresh reloads linked-definition geometry from the
+    source archive and does NOT synthesize or accumulate
+    RookBlockBasePointUserData on the live linked definition.
+
+    Linked definitions are wrappers over source-file geometry — idef-level
+    UserData from the source file's internal block definitions is NOT
+    part of the refresh contract. The two claims tested here:
+
+    1. Refresh actually reloads from disk (geometry-level change).
+    2. Refresh does not fabricate UserData on the linked def.
+
+    Two source .3dm files with the same block name but visibly different
+    geometry (v1: small box x in [0,1], v2: wide box x in [0,5]) are
+    built upfront. The copy-overwrite shape keeps the target doc stable.
+    """
+    tmp_v1 = tempfile.NamedTemporaryFile(suffix=".3dm", delete=False)
+    tmp_v1.close()
+    tmp_v2 = tempfile.NamedTemporaryFile(suffix=".3dm", delete=False)
+    tmp_v2.close()
+    tmp_linked = tempfile.NamedTemporaryFile(suffix=".3dm", delete=False)
+    tmp_linked.close()
+
+    v1_path = tmp_v1.name
+    v2_path = tmp_v2.name
+    linked_path = tmp_linked.name
+
+    try:
+        # v1: small box [0,0,0]-[1,1,1], v2: wide box [0,0,0]-[5,1,1].
+        # Different geometry, not just different basePoints, so the bbox
+        # change is unambiguous proof of reload.
+        await _create_rook_block_file(v1_path, "REFRESH_BLOCK", [0, 0, 0])
+        await _create_rook_block_file_with_geometry(
+            v2_path, "REFRESH_BLOCK", [0, 0, 0], [0, 0, 0], [5, 1, 1]
+        )
+
+        shutil.copyfile(v1_path, linked_path)
+
+        new_res = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+        assert new_res.get("success") is not False
+
+        link_res = await _mcp_tool_executor(
+            "rhino_block_link",
+            {"path": linked_path, "name": "REFRESH_BLOCK",
+             "insertionPoint": [0, 0, 0]},
+        )
+        assert link_res.get("success") is not False, f"link failed: {link_res!r}"
+        inst_id = link_res.get("instanceId")
+
+        # Claim 2 (pre-refresh): linked def has no Rook UserData.
+        await assert_no_new_slot("REFRESH_BLOCK")
+
+        # Capture pre-refresh geometry signal via instance bbox.
+        if inst_id:
+            pre_bbox = await _mcp_tool_executor("rhino_measure_bbox", {"id": inst_id})
+
+        # Overwrite with v2 bytes + bump mtime.
+        shutil.copyfile(v2_path, linked_path)
+        now = time.time()
+        os.utime(linked_path, (now, now))
+
+        refresh_res = await _mcp_tool_executor(
+            "rhino_block_refresh", {"name": "REFRESH_BLOCK"}
+        )
+        assert refresh_res.get("success") is not False, (
+            f"refresh failed: {refresh_res!r}"
+        )
+
+        # Claim 2 (post-refresh): still no fabricated UserData.
+        await assert_no_new_slot("REFRESH_BLOCK")
+
+        # Claim 1: geometry actually changed. v1 bbox max.x ≈ 1, v2 ≈ 5.
+        # Use definition-level check since instance ID may have changed.
+        details = await _block_objects_detailed("REFRESH_BLOCK")
+        assert details["objectCount"] >= 1, (
+            f"expected ≥1 object after refresh, got {details!r}"
+        )
+        refreshed_bbox = details["objects"][0]["bbox"]
+        assert refreshed_bbox["max"][0] > 3.0, (
+            f"expected refreshed bbox max.x > 3 (v2 geometry), "
+            f"got {refreshed_bbox['max'][0]!r} — refresh may not have reloaded"
+        )
+    finally:
+        for p in (v1_path, v2_path, linked_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+async def test_block_merge_target_userdata_survives(fresh_document):
+    """HandleBlockMerge never touches the target definition's metadata.
+    Only instance refs are repointed.
+
+    Target has basePoint=(5,0,0), source has basePoint=(7,0,0). After
+    merge, the target's UserData must still read (5,0,0). The merge
+    response is checked for executed=true and totalInstancesAffected > 0
+    to confirm merge was not a no-op — without this, the metadata
+    assertion could pass even if merge effectively did nothing.
+    """
+    t_seed = await _create_brep([4, -0.5, 0], [6, 1.5, 2], "MERGE_T_SEED")
+    await _block_create("MERGE_TARGET", [t_seed], base_point=[5, 0, 0])
+
+    s_seed = await _create_brep([6, -0.5, 0], [8, 1.5, 2], "MERGE_S_SEED")
+    await _block_create("MERGE_SOURCE", [s_seed], base_point=[7, 0, 0])
+
+    await _block_insert("MERGE_SOURCE", [7, 0, 0])
+
+    await assert_new_slot("MERGE_TARGET", expected_base_point=(5.0, 0.0, 0.0))
+
+    merge_res = await _mcp_tool_executor(
+        "rhino_block_merge",
+        {"target": "MERGE_TARGET", "sources": ["MERGE_SOURCE"], "dryRun": False},
+    )
+    assert merge_res.get("success") is not False, f"merge failed: {merge_res!r}"
+
+    assert merge_res.get("executed") is True, (
+        f"expected executed=true, got {merge_res!r}"
+    )
+    affected = merge_res.get("totalInstancesAffected", 0)
+    assert affected > 0, (
+        f"expected totalInstancesAffected > 0, got {affected}"
+    )
+
+    await assert_new_slot("MERGE_TARGET", expected_base_point=(5.0, 0.0, 0.0))
