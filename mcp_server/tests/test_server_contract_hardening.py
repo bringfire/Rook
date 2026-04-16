@@ -791,6 +791,28 @@ def test_runtime_bounds_guard_when_pin_index_out_of_range():
     assert ns["vals"] == []
 
 
+def test_runtime_item_skips_null_wrappers_and_returns_first_valid():
+    # Item access must NOT stop at the first null wrapper — it should skip nulls
+    # and return the first real value. Matches GH's native item-access semantics.
+    pins = [{"name": "crv", "type": "Curve", "access": "item"}]
+    vd = _MockVolatileData({
+        "p0": [_MockWrapper(None), _MockWrapper(None)],
+        "p1": [_MockWrapper("real_curve")],
+    })
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["crv"] == "real_curve"
+
+
+def test_runtime_item_returns_none_when_all_wrappers_null():
+    pins = [{"name": "crv", "type": "Curve", "access": "item"}]
+    vd = _MockVolatileData({
+        "p0": [_MockWrapper(None)],
+        "p1": [_MockWrapper(None)],
+    })
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["crv"] is None
+
+
 def test_runtime_mixed_pins_use_correct_indices():
     # Verifies pin_index == position_in_pins_in against actual execution.
     pins = [
