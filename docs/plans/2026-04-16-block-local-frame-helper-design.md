@@ -200,7 +200,7 @@ Thin wrappers over existing MCP tools, no new debug routes. Helper surfaces matc
 
 - `_block_insert(name, insertion_point, scale=1.0, rotation=0.0) -> uuid` — wraps `rhino_block_insert` ([handler at `BlocksHandler.cpp:1097`](../../src/RookNative/Handlers/BlocksHandler.cpp#L1097)). `scale` is uniform; `rotation` is degrees about Z. Returns the created instance's `id`. Tests that want to exercise the `oldXform * compensationXform` post-multiplication (see §5.3 tests 2, 8, 9) pass non-unit `scale` and/or non-zero `rotation` so the xform composition is genuinely non-trivial.
 - `_measure_world_bbox(obj_id) -> {"min": [...], "max": [...]}` — wraps `rhino_measure_bbox`. Measures the world-space bounding box of any doc object, including instance objects.
-- `_block_instances_count(name) -> int` — wraps `rhino_block_instances` and returns `len(result["instances"])`. The tool does not expose instance xforms — its output is `id`, `blockName`, `insertionPoint` (translation column only), `layer`, `name`. All instance-preservation invariants in §5.3 use `_measure_world_bbox` on the instance `id`, which does not require reading the xform back. Reduced to a count-only helper to match what the tool actually provides.
+- `_block_instances(name) -> list[dict]` — wraps `rhino_block_instances` and returns the raw `result["instances"]` list. Each entry carries `id`, `blockName`, `insertionPoint` (translation column only), `layer`, `name`. Tests use `len(await _block_instances(name))` for count assertions and index into the list for id read-back. The list shape (rather than a count-only helper) is necessary because the recursive rebase path does not expose an `oldId→newId` mapping in its response, so test 8 must re-enumerate post-rebase and read the new id from the enumeration; see plan Step 2e test 8 for the concrete use.
 
 ### 5.2 Fixtures
 
@@ -213,7 +213,7 @@ Single rebase (`rhino_block_rebase`):
 
 1. `test_rebase_shifts_basepoint_by_inverse_delta` — basePoint changes by `-delta`. Lifted and extended from [`test_block_replace_object_geometry_live.py:533`](../../mcp_server/tests/test_block_replace_object_geometry_live.py#L533).
 2. `test_rebase_preserves_world_geometry_of_direct_instances` — world bbox of seeded instance (non-identity xform) unchanged. This is the invariant the refactor most easily breaks, and the non-identity `scale`/`rotation` at insert time ensures `oldXform * translation(-delta)` composition is actually exercised.
-3. `test_rebase_preserves_instance_count` — `_block_instances_count(name)` unchanged.
+3. `test_rebase_preserves_instance_count` — `len(await _block_instances(name))` unchanged.
 4. `test_rebase_dryrun_does_not_mutate` — `dryRun:true` leaves basePoint, bbox, instance count untouched.
 5. `test_rebase_no_op_axes_returns_error` — zero-axis delta rejected at preflight.
 6. `test_rebase_linked_definition_returns_error` — linked-type rejected at preflight. The linked-definition fixture requires writing a .3dm file with a linked reference and is disproportionate effort for a single preflight assertion; marked as allowed-skip rather than required. See §5.5 acceptance.
