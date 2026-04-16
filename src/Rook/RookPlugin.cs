@@ -91,7 +91,7 @@ namespace Rook
             // user-string path — graceful-degrade, zero behavior change vs
             // PR #30. If a future SDK exposes the missing surface, managed
             // new-first reads start working without further code changes.
-            // Any deeper managed-side migration belongs in follow-up #33.
+            // Any deeper managed-side migration belongs in follow-up #34.
 
             // Register the Rook Chat panel (interactive AI chat)
             var chatPanelType = typeof(UI.Chat.RookChatPanel);

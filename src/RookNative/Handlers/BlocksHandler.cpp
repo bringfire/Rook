@@ -334,7 +334,7 @@ static void StoreDefinitionBasePoint(ON_InstanceDefinition& idef, const ON_3dPoi
     // (we set copycount=1 in the class ctor).
     CRookBlockBasePointUserData::Attach(idef, basePoint);
 
-    // Transition-window legacy write. Retired in follow-up #33 after the
+    // Transition-window legacy write. Retired in follow-up #34 after the
     // transition window — see design doc §1 non-goals. Preserves .3dm
     // compatibility with pre-migration builds that only know the legacy key.
     wchar_t buf[128];

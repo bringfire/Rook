@@ -199,7 +199,7 @@ static ON_3dPoint LookupDefinitionBasePoint(const CRhinoInstanceDefinition* pDef
 
 **Native vs managed during the transition window.** The new-first read semantic is genuinely active on the native side — `LookupDefinitionBasePoint` (native) hits the real `ON_UserData` slot directly, so whenever the slot is populated it wins over the legacy user-string. Verified by live-Rhino test 9 (`test_disagreement_new_slot_wins`) which clobbers legacy to a divergent value and observes native read return the new-slot value.
 
-On the **managed** side, RhinoCommon 8.0.23304's `InstanceDefinition.UserData` collection does not surface plugin-defined custom `ON_UserData` subclasses to managed callers — diagnosed during Phase C: `idef.UserData.Contains(uuid)` returns `true` (payload is present on native), but `idef.UserData[i]` returns `null` and `idef.UserData.Add(managedUd)` returns `false`. `UserData.RegisterType` (internal, tried via reflection) did not change this. Consequence: the managed `TryReadDefinitionBasePoint`'s new-first branch is **graceful-degrade** code — it always returns "not found" on the new-slot lookup and falls through to the reflection-bridge legacy-string path. Zero behavior change vs PR #30 on managed side during this PR. The new-first shape is retained so the day RhinoCommon exposes the missing surface, managed reads upgrade automatically without a code change. Follow-up #33 (reflection-bridge retirement + legacy-slot-write retirement) carries the "actually read the new slot on managed" requirement as a hard gate.
+On the **managed** side, RhinoCommon 8.0.23304's `InstanceDefinition.UserData` collection does not surface plugin-defined custom `ON_UserData` subclasses to managed callers — diagnosed during Phase C: `idef.UserData.Contains(uuid)` returns `true` (payload is present on native), but `idef.UserData[i]` returns `null` and `idef.UserData.Add(managedUd)` returns `false`. `UserData.RegisterType` (internal, tried via reflection) did not change this. Consequence: the managed `TryReadDefinitionBasePoint`'s new-first branch is **graceful-degrade** code — it always returns "not found" on the new-slot lookup and falls through to the reflection-bridge legacy-string path. Zero behavior change vs PR #30 on managed side during this PR. The new-first shape is retained so the day RhinoCommon exposes the missing surface, managed reads upgrade automatically without a code change. Follow-up #34 (reflection-bridge retirement + legacy-slot-write retirement) carries the "actually read the new slot on managed" requirement as a hard gate.
 
 ### 3.4 Mutation-site audit
 
@@ -241,7 +241,7 @@ This PR commits to:
 2. Rebase round-trip: `rhino_block_rebase` updates new slot; legacy string stays synchronized during transition.
 3. Duplicate round-trip: `rhino_block_duplicate` produces new idef with source's basePoint.
 4. Preserve-path survival: basePoint metadata attached to a definition survives `ModifyInstanceDefinitionGeometry` calls (add-objects, remove-objects, replace-geometry).
-5. Mixed-era reads (scoped to this PR): **legacy-only defs read correctly via fallback**, and **both-present prefers new**. **New-only read is the intended post-retirement behavior** and will be exercised as part of follow-up #33 where legacy removal is the actual goal; this PR verifies dual-write and legacy-fallback coexistence, not the standalone new-only state (which isn't a production state this PR produces).
+5. Mixed-era reads (scoped to this PR): **legacy-only defs read correctly via fallback**, and **both-present prefers new**. **New-only read is the intended post-retirement behavior** and will be exercised as part of follow-up #34 where legacy removal is the actual goal; this PR verifies dual-write and legacy-fallback coexistence, not the standalone new-only state (which isn't a production state this PR produces).
 
 ---
 
@@ -304,7 +304,7 @@ Everything verified through live Rhino pytest harness from PR #32. No in-process
 | 6 | `test_save_load_roundtrip_preserves_basepoint` | Create non-origin-basePoint def, save `.3dm`, close, reopen, verify basePoint survives via behavior read **AND** introspection helper confirms the new slot survived the archive round-trip. Proves `Archive()` + binary contract end-to-end. |
 | 7 | `test_block_duplicate_carries_basepoint` | Create basePoint=(5,0,0) def, duplicate it, verify new def's basePoint matches via behavior read **AND** introspection helper confirms the duplicate has its own attached UserData instance (not shared). Exercises `HandleBlockDuplicate`'s explicit reattach. |
 | 8 | `test_block_rebase_updates_new_slot` | Create def, rebase, verify new basePoint reflects the rebase via behavior read **AND** introspection helper confirms the UserData's `BasePoint` field now holds the updated value (proves `UpdateDefinitionBasePoint`'s strong post-condition invariant #2, not just legacy fallback). |
-| 9 | `test_disagreement_new_slot_wins` | Write new-slot basePoint=(5,0,0) via normal `rhino_block_create` (which dual-writes both slots), then clobber ONLY the legacy user-string to `"99,0,0"` via a test-only native debug route (`POST /block/_debug/set-legacy-basepoint`, off the MCP grid). Confirm the **native** read path resolves to (5,0,0) — test exercises `rhino_block_replace_geometry` (native-backed, routes through `LookupDefinitionBasePoint`) specifically because of the §3.3 managed-side SDK limitation: a companion-path test cannot prove "new slot wins" during this transition window (managed always falls through to the legacy path). Follow-up #33 adds managed-path coverage when that SDK surface is resolved. **This test does not need the introspection helper — the disagreement itself isolates new-slot behavior.** |
+| 9 | `test_disagreement_new_slot_wins` | Write new-slot basePoint=(5,0,0) via normal `rhino_block_create` (which dual-writes both slots), then clobber ONLY the legacy user-string to `"99,0,0"` via a test-only native debug route (`POST /block/_debug/set-legacy-basepoint`, off the MCP grid). Confirm the **native** read path resolves to (5,0,0) — test exercises `rhino_block_replace_geometry` (native-backed, routes through `LookupDefinitionBasePoint`) specifically because of the §3.3 managed-side SDK limitation: a companion-path test cannot prove "new slot wins" during this transition window (managed always falls through to the legacy path). Follow-up #34 adds managed-path coverage when that SDK surface is resolved. **This test does not need the introspection helper — the disagreement itself isolates new-slot behavior.** |
 | 10 | `test_preserve_sites_retain_basepoint` | Single test exercising all three native preserve paths in sequence. Create basePoint=(5,0,0) def, then: (a) `rhino_block_add_objects` → introspection assert slot still attached with value (5,0,0); (b) `rhino_block_remove_objects` → assert again; (c) `rhino_block_replace_geometry` (the native full-set replacement) → assert again. Proves `ModifyInstanceDefinitionGeometry` does not silently drop attached UserData during geometry mutations. |
 
 **Mandatory in this PR:** all six tests above.
@@ -361,11 +361,12 @@ One PR. Sequential commits, each passes the full test suite at its boundary. Squ
 4. Managed compiles clean, no new warnings.
 5. Reflection bridge reachable as fallback; not deleted in this PR.
 6. No MCP tool surface changes.
-7. Follow-up issue (`#33`) filed for reflection-bridge retirement.
+7. Follow-up issue (`#34`) filed for reflection-bridge retirement.
 
 ### 5.6 Follow-ups after this PR lands
 
-- **#33** (new) — retire reflection bridge + legacy user-string write, gated on ≥1 release window with no mismatch-warning evidence.
+- **#34** (new) — retire reflection bridge + legacy user-string write, gated on ≥1 release window with no mismatch-warning evidence.
+- **#35** (new) — live-Rhino coverage for link/refresh/merge basePoint UserData preservation semantics (currently comment-only audits). Non-blocking; filed in response to Codex review on PR #33.
 - **#29** — now trivial; managed writer uses `RookBlockBasePointUserData.Attach`.
 - **#26** — helper refactor targets the clean public API.
 
@@ -388,10 +389,10 @@ One PR. Sequential commits, each passes the full test suite at its boundary. Squ
 | 3 doubles vs DoubleArray vs string for payload? | 3 doubles + versioned chunk. Typed, no parse failures, explicit schema. |
 | Storage slot attached to what? | `ON_InstanceDefinition` only. No generic `ON_Object` overload. |
 | xformage setting? | Rhino 8's OpenNURBS SDK does not expose an `m_userdata_xformage` field or `ON_UserData::not_transformed` enum (verified via grep during Phase A). Semantic is expressed by overriding `virtual bool Transform(const ON_Xform&)` to ignore the xform and return true. Managed side inherits but never consults the equivalent property. Same net effect: basePoint is definition metadata, not model-space geometry. |
-| Managed access to plugin-defined UserData on `InstanceDefinition`? | **Unavailable in RhinoCommon 8.0.23304** (diagnosed during Phase C). `idef.UserData.Contains(uuid)=true` but `UserData[i]=null` and `UserData.Add(managedUd)=false`. Managed new-first reads are graceful-degrade code during this transition window — always fall through to the reflection-bridge legacy path. Follow-up #33 blocks on this being resolved. Test-only introspection therefore hits a native internal HTTP route instead. |
+| Managed access to plugin-defined UserData on `InstanceDefinition`? | **Unavailable in RhinoCommon 8.0.23304** (diagnosed during Phase C). `idef.UserData.Contains(uuid)=true` but `UserData[i]=null` and `UserData.Add(managedUd)=false`. Managed new-first reads are graceful-degrade code during this transition window — always fall through to the reflection-bridge legacy path. Follow-up #34 blocks on this being resolved. Test-only introspection therefore hits a native internal HTTP route instead. |
 | Coexistence disagreement rule? | New UserData wins. Debug-log the mismatch. |
 | Managed writes in this PR? | No — read-only on managed side. #29 introduces first managed writer. |
-| Reflection bridge lifetime? | Retained as fallback path. Retirement gated on follow-up #33 after ≥1 release window. |
+| Reflection bridge lifetime? | Retained as fallback path. Retirement gated on follow-up #34 after ≥1 release window. |
 | HandleBlockLink synthetic-origin write? | No. Absence = origin via fallback preserves provenance distinction. |
 | Unit tests for C++/C# classes? | Deferred. Live-Rhino coverage is higher value for this change class. |
 | Commit granularity? | Single PR, five sequential commits, squash at end. |

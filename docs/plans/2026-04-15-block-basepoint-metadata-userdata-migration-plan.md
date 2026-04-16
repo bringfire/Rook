@@ -278,7 +278,7 @@ Rules:
 
 - behavior assertions remain primary
 - introspection helper is secondary proof that the new slot is present and correct
-- do not add “new-only” testing in this PR; that belongs to legacy-retirement follow-up `#33`
+- do not add “new-only” testing in this PR; that belongs to legacy-retirement follow-up `#34`
 
 Verification:
 
@@ -302,7 +302,7 @@ Tasks:
   - why managed remains read-only
   - why the reflection bridge is still present
 - update the design doc only if implementation discoveries differ from the approved assumptions
-- make sure follow-up `#33` remains clearly gated on a release window
+- make sure follow-up `#34` remains clearly gated on a release window
 
 Verification:
 
@@ -337,7 +337,7 @@ Minimum acceptance:
 
 ## Risk Notes
 
-- The test-only introspection helper hits a native internal HTTP debug route (`POST /block/_debug/basepoint-userdata`) directly via `httpx`, not managed reflection. This shift happened because RhinoCommon 8.0.23304's `InstanceDefinition.UserData` collection does not surface plugin-defined `ON_UserData` subclasses to managed callers (see design doc §3.3). The route is internal/test-only and must not be promoted to a product MCP tool; it can be removed once follow-up #33 lands legacy retirement.
+- The test-only introspection helper hits a native internal HTTP debug route (`POST /block/_debug/basepoint-userdata`) directly via `httpx`, not managed reflection. This shift happened because RhinoCommon 8.0.23304's `InstanceDefinition.UserData` collection does not surface plugin-defined `ON_UserData` subclasses to managed callers (see design doc §3.3). The route is internal/test-only and must not be promoted to a product MCP tool; it can be removed once follow-up #34 lands legacy retirement.
 - `HandleBlockRefresh` and `HandleBlockMerge` are still the least-certain audit points; verify observed behavior rather than assuming preservation.
 - If a preserve path unexpectedly drops attached `UserData`, fix the concrete path rather than weakening the design guarantee.
 - Do not broaden the migration by opportunistically writing origin metadata to linked/external definitions.

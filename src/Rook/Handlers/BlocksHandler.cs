@@ -4572,7 +4572,7 @@ namespace Rook.Handlers
         // Read the stored basePoint. New-first: once a valid Rook-owned
         // UserData payload is present, the reflection bridge to the legacy
         // user-string is NEVER consulted. This is the load-bearing invariant
-        // that lets follow-up #33 retire the reflection bridge entirely.
+        // that lets follow-up #34 retire the reflection bridge entirely.
         //
         // Order (matches native LookupDefinitionBasePoint):
         //   1. New slot — RookBlockBasePointUserData.TryRead
