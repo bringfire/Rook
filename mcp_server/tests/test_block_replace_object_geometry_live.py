@@ -42,6 +42,10 @@ from .conftest import (
     assert_new_slot,
     assert_no_new_slot,
     set_legacy_basepoint_for_test,
+    _create_brep,
+    _block_create,
+    _block_insert,
+    _block_objects_detailed,
 )
 
 # Every test in this module needs Rhino; fixture handles graceful skip.
@@ -49,15 +53,10 @@ pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
 
 
 # --- Small helpers (async wrappers over _mcp_tool_executor) --------------
-
-
-async def _create_brep(corner1: list[float], corner2: list[float], name: str) -> str:
-    res = await _mcp_tool_executor(
-        "rhino_create",
-        {"type": "BOX", "corner1": corner1, "corner2": corner2, "name": name},
-    )
-    assert "id" in res, f"rhino_create returned no id: {res!r}"
-    return res["id"]
+#
+# _create_brep, _block_create, _block_insert, _block_objects_detailed have
+# been promoted to conftest.py for shared use with test_block_rebase_live.py.
+# _create_cone remains here as it is used only by this module.
 
 
 async def _create_cone(center: list[float], radius: float, height: float, name: str) -> str:
@@ -67,30 +66,6 @@ async def _create_cone(center: list[float], radius: float, height: float, name: 
     )
     assert "id" in res, f"rhino_create CONE returned no id: {res!r}"
     return res["id"]
-
-
-async def _block_create(name: str, ids: list[str], base_point: list[float]) -> dict:
-    res = await _mcp_tool_executor(
-        "rhino_block_create",
-        {"name": name, "ids": ids, "basePoint": base_point, "replaceWithInstance": True},
-    )
-    assert res.get("name") == name, f"rhino_block_create unexpected: {res!r}"
-    return res
-
-
-async def _block_insert(name: str, point: list[float]) -> str:
-    res = await _mcp_tool_executor(
-        "rhino_block_insert",
-        {"name": name, "point": point},
-    )
-    assert "instanceId" in res, f"rhino_block_insert returned no instanceId: {res!r}"
-    return res["instanceId"]
-
-
-async def _block_objects_detailed(name: str) -> dict:
-    res = await _mcp_tool_executor("rhino_block_objects_detailed", {"name": name})
-    assert "objects" in res, f"rhino_block_objects_detailed unexpected: {res!r}"
-    return res
 
 
 async def _replace_object(name: str, index: int, source_id: str) -> dict:
