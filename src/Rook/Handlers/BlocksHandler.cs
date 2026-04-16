@@ -4569,11 +4569,20 @@ namespace Rook.Handlers
         //   MUST fail the route so the drift never reappears silently.
         private enum BasePointReadState { Origin, Found, BridgeFailure }
 
-        // Read the stored basePoint from a definition's native-written user
-        // string (see RookBlockBasePointKey comment for the asymmetry story).
-        // On success, basePoint is the definition's world-coord origin as
-        // recorded by HandleBlockCreate. Used to normalize incoming world-coord
-        // geometry into definition-local coords before ModifyGeometry.
+        // Read the stored basePoint. New-first: once a valid Rook-owned
+        // UserData payload is present, the reflection bridge to the legacy
+        // user-string is NEVER consulted. This is the load-bearing invariant
+        // that lets follow-up #34 retire the reflection bridge entirely.
+        //
+        // Order (matches native LookupDefinitionBasePoint):
+        //   1. New slot — RookBlockBasePointUserData.TryRead
+        //   2. Legacy user-string via reflection bridge (pre-migration .3dm
+        //      compat + fallback for unknown-major / malformed new-slot reads)
+        //   3. Origin
+        //
+        // BasePointReadState.BridgeFailure is returnable ONLY from the
+        // legacy-fallback branch. Once the new slot is present, bridge
+        // status is irrelevant.
         private static BasePointReadState TryReadDefinitionBasePoint(
             InstanceDefinition idef,
             out Vector3d basePoint,
@@ -4583,10 +4592,23 @@ namespace Rook.Handlers
             bridgeError = null;
             if (idef == null) return BasePointReadState.Origin;
 
+            // New slot first. Uses the public RhinoCommon UserData API —
+            // no reflection, no bridge failure mode possible here.
+            if (Rook.UserData.RookBlockBasePointUserData.TryRead(idef, out Point3d fromUserData))
+            {
+                basePoint = new Vector3d(fromUserData.X, fromUserData.Y, fromUserData.Z);
+                return BasePointReadState.Found;
+            }
+
+            // Legacy fallback via reflection bridge. Reachable for:
+            //   - pre-migration .3dm files (no UserData ever written)
+            //   - unknown-major new-slot payloads (forward-compat, §4.1)
+            //   - malformed new-slot payloads (treated as missing, §4.1)
             if (_idefGetUserStringReflected == null)
             {
                 bridgeError = "RhinoCommon does not expose InstanceDefinition._GetUserString "
-                    + "in this build; cannot read native-written rook_block_base_point metadata";
+                    + "in this build; cannot read native-written rook_block_base_point metadata "
+                    + "and no Rook-owned UserData is attached (new-slot read returned false)";
                 return BasePointReadState.BridgeFailure;
             }
 

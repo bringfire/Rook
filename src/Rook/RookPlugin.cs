@@ -78,6 +78,21 @@ namespace Rook
                 RhinoApp.WriteLine("Rook companion loaded. HTTP server will start shortly...");
             }
 
+            // NOTE on RookBlockBasePointUserData: the class exists for native
+            // side storage/read and for cross-language binary-format contract.
+            // In RhinoCommon 8.0.23304, InstanceDefinition.UserData does NOT
+            // expose plugin-defined custom UserData instances attached on the
+            // native side — diagnosed during #28 Phase C:
+            //   * idef.UserData.Contains(UUID) returns true (slot present),
+            //   * idef.UserData[i] returns null (no managed wrapper), and
+            //   * idef.UserData.Add(managed_ud) returns false.
+            // UserData.RegisterType (internal) did not change this. So
+            // managed reads fall through to the reflection-bridge legacy
+            // user-string path — graceful-degrade, zero behavior change vs
+            // PR #30. If a future SDK exposes the missing surface, managed
+            // new-first reads start working without further code changes.
+            // Any deeper managed-side migration belongs in follow-up #34.
+
             // Register the Rook Chat panel (interactive AI chat)
             var chatPanelType = typeof(UI.Chat.RookChatPanel);
             Panels.RegisterPanel(this, chatPanelType, "Rook Chat",

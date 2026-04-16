@@ -6,6 +6,7 @@
 #include "stdafx.h"
 #include "Handlers/BlocksHandler.h"
 #include "Handlers/GeometryHandler.h"
+#include "UserData/RookBlockBasePointUserData.h"
 #include "Infrastructure/LayerHelpers.h"
 #include "Serialization/RhinoSerializer.h"
 #include "Infrastructure/UndoScope.h"
@@ -20,6 +21,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <initializer_list>
@@ -322,6 +324,19 @@ static const wchar_t* kRookBlockBasePointKey = L"rook_block_base_point";
 
 static void StoreDefinitionBasePoint(ON_InstanceDefinition& idef, const ON_3dPoint& basePoint)
 {
+    // New-slot write. Detach-then-attach fresh via the helper, which loops
+    // until no pre-existing payload remains — guarantees the "exactly one
+    // authoritative payload" invariant from design doc §3.1. Works whether
+    // `idef` is a stack-allocated settings object (HandleBlockCreate flow
+    // before AddInstanceDefinition) or a slice-copy (UpdateDefinitionBasePoint
+    // before ModifyInstanceDefinition). The SDK carries userdata through
+    // both Add and Modify paths via ON_Object::operator= when copycount>0
+    // (we set copycount=1 in the class ctor).
+    CRookBlockBasePointUserData::Attach(idef, basePoint);
+
+    // Transition-window legacy write. Retired in follow-up #34 after the
+    // transition window — see design doc §1 non-goals. Preserves .3dm
+    // compatibility with pre-migration builds that only know the legacy key.
     wchar_t buf[128];
     swprintf_s(buf, 128, L"%.17g,%.17g,%.17g", basePoint.x, basePoint.y, basePoint.z);
     idef.SetUserString(kRookBlockBasePointKey, buf);
@@ -354,6 +369,20 @@ static bool UpdateDefinitionBasePoint(
 static ON_3dPoint LookupDefinitionBasePoint(const CRhinoInstanceDefinition* pDef)
 {
     if (!pDef) return ON_3dPoint::Origin;
+
+    // New-slot first: once a valid Rook-owned UserData payload is present,
+    // the legacy user-string is never consulted. See design doc §3.3.
+    ON_3dPoint fromUserData;
+    if (CRookBlockBasePointUserData::TryRead(*pDef, fromUserData))
+        return fromUserData;
+
+    // Fallback to legacy user-string. Covers:
+    //   - pre-migration .3dm files (no UserData slot ever written)
+    //   - definitions whose new-slot Read failed on unknown major version
+    //     (forward-compat, per §4.1)
+    //   - definitions whose new-slot Read failed on malformed payload
+    // In all three cases, "return origin on any further parse failure"
+    // preserves the existing pre-#28 semantic.
     ON_wString value;
     if (!pDef->GetUserString(kRookBlockBasePointKey, value))
         return ON_3dPoint::Origin;
@@ -1284,6 +1313,14 @@ void HandleBlockRename(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition idef_settings;
         idef_settings.SetName(Utf8ToWide(newName));
 
+        // #28 audit — UserData preservation:
+        // Mask is `idef_name_setting` only. Per the ON_InstanceDefinition
+        // contract, ModifyInstanceDefinition under a non-`all_idef_settings`
+        // mask rewrites only the named fields on the live entry and leaves
+        // everything else — including attached UserData — untouched. Our
+        // RookBlockBasePointUserData and the legacy user-string both live
+        // on the live entry and are not in the `settings` parameter here,
+        // so they survive this call. Covered by design doc §3.4 "rename".
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinition(
             idef_settings, idefIndex,
             ON_InstanceDefinition::idef_name_setting, true);
@@ -3523,6 +3560,19 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
 
         int newIdx = FindDefByName(pDoc, blockName);
 
+        // #28 audit — UserData behavior on link:
+        // We do NOT call StoreDefinitionBasePoint on the newly-linked
+        // idef. This is intentional (design §3.4): externally-authored
+        // linked definitions are not given a synthesized origin basePoint
+        // UserData — they may or may not carry one already (if the source
+        // .3dm was authored by a Rook build that embedded the payload),
+        // but either way the linked def inherits whatever the file says.
+        // Synthesizing an origin basePoint here would fabricate metadata
+        // that doesn't reflect actual authoring intent for externally-
+        // owned content, breaking the "exactly one authoritative payload"
+        // invariant from §3.1 if the source file later gets re-linked
+        // with a different payload.
+
         WriteResult wr;
         wr.success = (newIdx >= 0);
         wr.data["name"] = blockName;
@@ -3572,6 +3622,21 @@ void HandleBlockRefresh(const httplib::Request& req, httplib::Response& res)
         if (linkedPath.IsEmpty())
             throw std::invalid_argument("Block '" + name + "' is not a linked block");
 
+        // #28 audit — UserData behavior on refresh:
+        // UpdateLinkedInstanceDefinition reloads the linked definition's
+        // geometry and metadata from the source .3dm. If the source file
+        // has its own RookBlockBasePointUserData payload, the SDK pulls
+        // that in via the standard binary archive path (proved by test 6);
+        // if the source has none, the refreshed live entry carries no
+        // Rook UserData — matching design §3.4's "externally-authored
+        // linked defs do NOT get synthesized origin UserData". Rook does
+        // NOT add synthetic UserData to linked defs here.
+        //
+        // Intended rule (design §3.4 "refresh"): the refreshed state is
+        // whatever the source file says. No duplicate/stale payloads are
+        // created because the SDK replaces the full definition — any
+        // previously-attached UserData on the live entry is superseded
+        // by the archive-decoded state.
         bool refreshed = pDoc->m_instance_definition_table.UpdateLinkedInstanceDefinition(
             idefIndex, linkedPath, true, true);
 
@@ -3623,6 +3688,25 @@ void HandleBlockUnlink(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition idef_settings(*pIdef);
         idef_settings.SetInstanceDefinitionType(ON_InstanceDefinition::IDEF_UPDATE_TYPE::Static);
 
+        // #28 audit — UserData preservation:
+        // Unlinks a linked/embedded idef into a static one. The copy ctor
+        // above slices the full live entry (ON_Object carries UserData
+        // through operator= when m_userdata_copycount > 0; our class sets
+        // copycount=1), so any already-attached RookBlockBasePointUserData
+        // travels into `idef_settings` before ModifyInstanceDefinition
+        // rewrites the live entry under the `all_idef_settings` mask.
+        // Legacy user-string goes through the same path. Design §3.4:
+        // linked → local conversion must not drop metadata.
+        //
+        // Note: linked defs created via HandleBlockLink do NOT have
+        // synthesized RookBlockBasePointUserData to begin with (design
+        // §3.4: "externally-authored linked defs are not given origin
+        // UserData"), so typically there is nothing to preserve here. The
+        // invariant matters only if the source .3dm being linked was
+        // itself authored by Rook and thus arrives with an UserData
+        // payload embedded in the binary archive — test 6 proves that
+        // payload survives save/load, so preserving it on unlink is the
+        // right default.
         bool ok = pDoc->m_instance_definition_table.ModifyInstanceDefinition(
             idef_settings, idefIndex,
             ON_InstanceDefinition::all_idef_settings, true);
@@ -3742,6 +3826,13 @@ void HandleBlockDuplicate(const httplib::Request& req, httplib::Response& res)
         const CRhinoInstanceDefinition* pSrcDef = pDoc->m_instance_definition_table[srcIndex];
         if (!pSrcDef) throw std::runtime_error("Source block lookup failed");
 
+        // Read the source's basePoint so the duplicate preserves it. Rook
+        // metadata does NOT automatically transfer through the SDK's
+        // AddInstanceDefinition path for a freshly-constructed settings
+        // object — we must explicitly read + write. Per design §3.4
+        // Duplicate audit: "Do not rely on SDK duplication hooks."
+        ON_3dPoint sourceBasePoint = LookupDefinitionBasePoint(pSrcDef);
+
         // Collect geometry objects from source
         ON_SimpleArray<const CRhinoObject*> srcObjects;
         pSrcDef->GetObjects(srcObjects);
@@ -3749,6 +3840,7 @@ void HandleBlockDuplicate(const httplib::Request& req, httplib::Response& res)
         ON_InstanceDefinition new_idef;
         new_idef.SetName(Utf8ToWide(newName));
         new_idef.SetDescription(pSrcDef->Description());
+        StoreDefinitionBasePoint(new_idef, sourceBasePoint);
 
         int newIndex = pDoc->m_instance_definition_table.AddInstanceDefinition(
             new_idef, srcObjects, false, false);
@@ -4776,6 +4868,17 @@ void HandleBlockMerge(const httplib::Request& req, httplib::Response& res)
         // This is single-undo recoverable, not transactional — if a replacement
         // fails mid-way, partial mutations remain but can be undone as one step
         // via Rhino's undo system.
+        //
+        // #28 audit — UserData behavior on merge (design §3.4):
+        // - Surviving TARGET idef is never modified here. Its attached
+        //   RookBlockBasePointUserData and legacy user-string are
+        //   preserved by construction — we only DeleteObject/CreateInstanceObject
+        //   on instance refs, never touch the target definition itself.
+        // - DISCARDED source idefs keep their UserData until the caller
+        //   purges them (standard Rook convention: merge leaves sources
+        //   orphaned but intact; a subsequent purge removes them along
+        //   with all their metadata). This prevents duplicate payloads
+        //   on the surviving target.
         UndoScope undo(pDoc, L"Block merge");
 
         for (auto& src : validSources)
@@ -5226,6 +5329,169 @@ void HandleBlockLayerCensus(const httplib::Request& req, httplib::Response& res)
     {
         CRookServer::SendError(res, ex.what());
     }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Internal / test-only. NOT an MCP tool. Not exposed through the Python
+// bridge. Live-Rhino regression tests (#28 Phase B) hit this directly via
+// httpx against the native HTTP port to distinguish real new-slot writes
+// from legacy user-string fallback during the dual-write transition window.
+//
+// Public contract: none. Subject to change without notice. Product code
+// MUST NOT call this; any caller outside tests/ is an abuse.
+//
+// Gated on the `ROOK_ENABLE_DEBUG_ROUTES=1` environment variable (exact
+// string "1"; other truthy-ish values are rejected to avoid accidental
+// enablement from inherited env noise). Absent or any other value → 403.
+// The env var is read at handler entry (NOT registration time) so that
+// the routes exist on every build but only respond when the operator
+// explicitly opts in — keeping test builds and prod builds binary-
+// identical while still removing the default local attack surface.
+// Per Codex review on PR #33.
+// ───────────────────────────────────────────────────────────────────────────
+
+// Returns true iff ROOK_ENABLE_DEBUG_ROUTES is set to exactly "1" in the
+// process environment. Writes a 403 "debug routes disabled" response to
+// `res` and returns false otherwise.
+static bool DebugRoutesEnabledOrRefuse(httplib::Response& res)
+{
+    const char* env = std::getenv("ROOK_ENABLE_DEBUG_ROUTES");
+    if (env != nullptr && std::string(env) == "1")
+        return true;
+
+    res.status = 403;
+    res.set_header("Content-Type", "application/json");
+    res.body = R"({"success":false,"data":"Debug routes disabled. Set ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process environment and restart Rhino to enable /block/_debug/* routes. These routes are test-only and have no stable contract."})";
+    return false;
+}
+
+// POST /block/_debug/basepoint-userdata
+// Body: {"name": "<block name>"}
+// Response: {"attached": bool, "basePoint": [x,y,z] | null}
+// ───────────────────────────────────────────────────────────────────────────
+void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib::Response& res)
+{
+    if (!DebugRoutesEnabledOrRefuse(res)) return;
+
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string name = body.value("name", "");
+    if (name.empty()) { CRookServer::SendError(res, "Block name required"); return; }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, name]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        int idefIndex = FindDefByName(pDoc, name);
+        if (idefIndex < 0)
+            throw std::invalid_argument("Block definition '" + name + "' not found");
+
+        const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[idefIndex];
+        if (!pIdef) throw std::runtime_error("Block lookup failed");
+
+        WriteResult wr;
+        wr.success = true;
+
+        ON_3dPoint userDataBasePoint;
+        if (CRookBlockBasePointUserData::TryRead(*pIdef, userDataBasePoint))
+        {
+            wr.data["attached"] = true;
+            wr.data["basePoint"] = { userDataBasePoint.x, userDataBasePoint.y, userDataBasePoint.z };
+        }
+        else
+        {
+            wr.data["attached"] = false;
+            wr.data["basePoint"] = nullptr;
+        }
+
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Internal / test-only. NOT an MCP tool.
+//
+// POST /block/_debug/set-legacy-basepoint
+// Body: {"name": "<block name>", "basePoint": [x, y, z]}
+// Response: {"success": true, "data": {"name": ..., "basePoint": [...]}}
+//
+// Writes ONLY the legacy `rook_block_base_point` user-string on the named
+// idef via the standard ON_Object::SetUserString path. Does NOT touch the
+// new CRookBlockBasePointUserData slot.
+//
+// Exists so Phase C's disagreement test can produce a state the production
+// write path cannot: new slot and legacy user-string holding DIFFERENT
+// values. Any caller outside tests/ is an abuse.
+//
+// Gated on ROOK_ENABLE_DEBUG_ROUTES=1 — see handler above for rationale.
+// ───────────────────────────────────────────────────────────────────────────
+void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib::Response& res)
+{
+    if (!DebugRoutesEnabledOrRefuse(res)) return;
+
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    std::string name = body.value("name", "");
+    if (name.empty()) { CRookServer::SendError(res, "Block name required"); return; }
+
+    if (!body.contains("basePoint") || !body["basePoint"].is_array() || body["basePoint"].size() != 3)
+    {
+        CRookServer::SendError(res, "basePoint [x,y,z] required");
+        return;
+    }
+    double bx = body["basePoint"][0].get<double>();
+    double by = body["basePoint"][1].get<double>();
+    double bz = body["basePoint"][2].get<double>();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, name, bx, by, bz]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Test-only: set legacy basePoint user-string");
+
+        int idefIndex = FindDefByName(pDoc, name);
+        if (idefIndex < 0)
+            throw std::invalid_argument("Block definition '" + name + "' not found");
+
+        const CRhinoInstanceDefinition* pDef = pDoc->m_instance_definition_table[idefIndex];
+        if (!pDef) throw std::runtime_error("Block lookup failed");
+
+        // Slice-copy + ModifyInstanceDefinition with userdata mask — same
+        // pattern UpdateDefinitionBasePoint uses for the legacy string.
+        // The new UserData slot is untouched because we don't call Attach.
+        ON_InstanceDefinition idef_settings = *pDef;
+        wchar_t buf[128];
+        swprintf_s(buf, 128, L"%.17g,%.17g,%.17g", bx, by, bz);
+        idef_settings.SetUserString(kRookBlockBasePointKey, buf);
+
+        if (!pDoc->m_instance_definition_table.ModifyInstanceDefinition(
+                idef_settings, idefIndex,
+                ON_InstanceDefinition::idef_userdata_setting, false))
+            throw std::runtime_error("ModifyInstanceDefinition failed");
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["name"] = name;
+        wr.data["basePoint"] = { bx, by, bz };
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
 }
 
 } // namespace Handlers
