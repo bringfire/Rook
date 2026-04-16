@@ -1626,6 +1626,35 @@ namespace Rook.Handlers
                         Data = $"Cannot set {geometry.GetType().Name} on {typeName}. Type mismatch or unsupported combination."
                     };
 
+                // Stamp ReferenceID so gh_get_reference and other wrapper introspection paths
+                // see the wrapper as tied to a real Rhino doc object. Without this stamp, wrappers
+                // start with ReferenceID == Guid.Empty, and gh_get_reference's
+                // `refId.ToString() != Guid.Empty.ToString()` check at ~line 1500 treats them as
+                // unreferenced local geometry. Defensive: only write if the property exists,
+                // is writable, and is a Guid type — best-effort on failure since the wrapper
+                // still holds geometry by value.
+                //
+                // NOTE: This does NOT fix issue #45 (RhinoCode Python 3 list-access emits
+                // ephemeral random guids that don't correspond to ReferenceID). That needs a
+                // separate preamble-level workaround using ghenv.Component.Params.Input[i].VolatileData
+                // to read raw wrappers before RhinoCode's automatic guid-conversion.
+                //
+                // WARNING: Do NOT "helpfully" add a LoadGeometry() call here. Stamping ReferenceID
+                // alone is deliberate — the wrapper keeps the by-value geometry we just constructed
+                // and advertises doc identity for introspection only. LoadGeometry() would force
+                // GH to re-fetch from the active doc, which could fail if the object is deleted
+                // between set and solve.
+                try
+                {
+                    var refIdProp = ghWrapper.GetType().GetProperty("ReferenceID");
+                    if (refIdProp?.CanWrite == true && refIdProp.PropertyType == typeof(Guid))
+                        refIdProp.SetValue(ghWrapper, rhinoGuid);
+                }
+                catch
+                {
+                    // best-effort
+                }
+
                 // Append to persistent data
                 var appendMethod = persistentData.GetType().GetMethod("Append", new[] { ghWrapper.GetType().BaseType ?? ghWrapper.GetType() });
                 if (appendMethod == null)
