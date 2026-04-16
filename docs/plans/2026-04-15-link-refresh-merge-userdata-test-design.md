@@ -15,10 +15,14 @@ Three of those sites — `HandleBlockLink`, `HandleBlockRefresh`,
 drops `UserData` on one of these paths, the current test suite won't catch it.
 
 The other two audit sites (`HandleBlockRename`, `HandleBlockUnlink`) use
-`ModifyInstanceDefinition` masks whose UserData-preservation behavior is already
-structurally proven by the preserve-sites test (test 10 in PR #33). Link,
-refresh, and merge use fundamentally different SDK paths and need dedicated
-coverage.
+`ModifyInstanceDefinition` with specific masks (`idef_name_setting` and
+`all_idef_settings` respectively). These were comment-audited in PR #33 Phase D
+but intentionally left without live tests — they are out of scope for this issue
+as well. Note: the PR #33 preserve-sites test (test 10) exercises
+`ModifyInstanceDefinitionGeometry`, a different SDK path; it does not cover
+the `ModifyInstanceDefinition`-with-mask behavior used by rename/unlink. Link,
+refresh, and merge use fundamentally different SDK paths again and are the
+priority for dedicated coverage here.
 
 ---
 
@@ -57,9 +61,14 @@ The link test needs a .3dm whose block definition was NOT created through the
 Rook pipeline, so no `RookBlockBasePointUserData` is attached. Using
 `rhino_block_create` would defeat the claim because it dual-writes UserData.
 
-Implementation: `rhino_execute` a Python script that calls
-`scriptcontext.doc.InstanceDefinitions.Add(name, description, basePoint,
-geometry)` — the raw RhinoCommon API. Then save to a temp path.
+Implementation: `rhino_execute` a Python script that calls the verified
+`InstanceDefinitions.Add(name, description, basePoint, geometries, attributes)`
+overload — five parameters, matching the shape used throughout the repo's C#
+companion (e.g. `BlocksHandler.cs` CreateBlock at line 157, linked-file import,
+duplicate). The script creates a `Rhino.Geometry.Box`, converts to `Brep`,
+constructs a matching `ObjectAttributes`, and passes both arrays to `Add`. This
+is the raw RhinoCommon API with no Rook handler involvement, so no
+`RookBlockBasePointUserData` is attached. Then save to a temp path.
 
 This produces a genuine "pre-migration / externally-authored" .3dm file that
 has a block definition with no Rook-owned UserData attached.
