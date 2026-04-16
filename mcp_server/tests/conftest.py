@@ -315,3 +315,142 @@ async def assert_no_new_slot(block_name: str) -> None:
             f"Expected NO RookBlockBasePointUserData on block {block_name!r}, "
             f"but native reports attached=true with basePoint={bp!r}."
         )
+
+
+# --- Shared block helpers (live Rhino) ------------------------------------
+#
+# Originally local to test_block_replace_object_geometry_live.py. Promoted
+# here so test_block_rebase_live.py (and future live block test modules)
+# can share them. See docs/plans/2026-04-16-block-local-frame-helper-plan.md
+# Step 1d for the extraction rationale.
+
+
+async def _create_brep(corner1: list[float], corner2: list[float], name: str) -> str:
+    """Create a box brep via rhino_create. Returns object id."""
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_create",
+        {"type": "BOX", "corner1": corner1, "corner2": corner2, "name": name},
+    )
+    assert "id" in res, f"rhino_create returned no id: {res!r}"
+    return res["id"]
+
+
+async def _block_create(
+    name: str,
+    ids: list[str],
+    base_point: list[float],
+    replace_with_instance: bool = True,
+) -> dict:
+    """Create a block definition from object ids.
+
+    If replace_with_instance is True (default), the source objects are
+    replaced by an inserted instance at base_point — matching the
+    pre-extraction hardcoded behavior. Fixtures that need a definition
+    with zero auto-instances (so the test can explicitly insert instances
+    with controlled xforms) pass False.
+    """
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_block_create",
+        {
+            "name": name,
+            "ids": ids,
+            "basePoint": base_point,
+            "replaceWithInstance": replace_with_instance,
+        },
+    )
+    assert res.get("name") == name, f"rhino_block_create unexpected: {res!r}"
+    return res
+
+
+async def _block_insert(
+    block_name: str,
+    insertion_point,
+    scale: float = 1.0,
+    rotation_degrees: float = 0.0,
+) -> str:
+    """Insert a block instance via rhino_block_insert. Returns instance id.
+
+    Matches the actual handler surface (BlocksHandler.cpp:1097): uniform
+    scale + Z-axis rotation in degrees. Tests use non-identity scale
+    and/or rotation to give the oldXform * compensation post-multiplication
+    in rebase real teeth — a pure-translation insert couldn't distinguish
+    compose-then-translate from translate-then-compose.
+
+    Positional-args compatible with the prior local
+    `_block_insert(name, point)` helper that lived in
+    test_block_replace_object_geometry_live.py — callers that pass
+    (name, [x, y, z]) still work because scale/rotation default to
+    identity.
+    """
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_block_insert",
+        {
+            "name": block_name,
+            "insertionPoint": list(insertion_point),
+            "scale": scale,
+            "rotation": rotation_degrees,
+        },
+    )
+    assert res.get("success") is not False, f"block insert failed: {res!r}"
+    iid = res.get("instanceId")
+    assert isinstance(iid, str) and iid, f"no instanceId in response: {res!r}"
+    return iid
+
+
+async def _block_objects_detailed(name: str) -> dict:
+    """Definition-local geometry listing for a block. Used for parent
+    definition inspection in recursive-rebase tests."""
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor("rhino_block_objects_detailed", {"name": name})
+    assert "objects" in res, f"rhino_block_objects_detailed unexpected: {res!r}"
+    return res
+
+
+async def _measure_world_bbox(obj_id: str) -> dict:
+    """World-space bbox of any doc object. Returns
+    {"min": [x, y, z], "max": [x, y, z]}.
+
+    Wraps rhino_measure_bbox. Used by rebase tests to pin the
+    "world-space geometry of direct doc instances is preserved across
+    rebase" invariant without needing to read back instance xforms
+    (the tool surface does not expose them anyway).
+    """
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor("rhino_measure_bbox", {"id": obj_id})
+    assert res.get("success") is not False, f"measure_bbox failed: {res!r}"
+    # The handler response may carry the bbox either at top level or
+    # nested under "data" depending on envelope; tolerate both.
+    bbox = res.get("bbox") or (res.get("data") or {}).get("bbox")
+    if bbox is None and "min" in res and "max" in res:
+        bbox = {"min": res["min"], "max": res["max"]}
+    assert isinstance(bbox, dict) and "min" in bbox and "max" in bbox, (
+        f"unexpected bbox response shape: {res!r}"
+    )
+    return {"min": list(bbox["min"]), "max": list(bbox["max"])}
+
+
+async def _block_instances(block_name: str) -> list[dict]:
+    """Return the raw rhino_block_instances list for a block definition.
+
+    Each entry carries: id, blockName, insertionPoint (translation column
+    only — the tool does not expose full xforms), layer, name. Tests use
+    len() for count assertions and index for id read-back. The list shape
+    (rather than a count-only helper) is required because the recursive
+    rebase response does not expose an oldId → newId mapping; test 8 must
+    re-enumerate post-rebase to discover the new instance id.
+    """
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor("rhino_block_instances", {"name": block_name})
+    assert res.get("success") is not False, f"block_instances failed: {res!r}"
+    instances = res.get("instances") or (res.get("data") or {}).get("instances")
+    assert isinstance(instances, list), f"unexpected shape: {res!r}"
+    return instances
