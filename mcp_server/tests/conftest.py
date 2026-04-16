@@ -261,3 +261,57 @@ async def set_legacy_basepoint_for_test(
     body = resp.json()
     if body.get("success") is False:
         pytest.fail(f"{url} reported error: {body.get('data')!r}")
+
+
+async def assert_no_new_slot(block_name: str) -> None:
+    """Test-only introspection: assert NO RookBlockBasePointUserData is
+    attached to the named idef.
+
+    Complement to assert_new_slot. Hits the same native debug route.
+    Used by tests that verify Rook does NOT synthesize metadata on
+    externally-authored or linked definitions (#35).
+    """
+    import httpx
+    from rook.bridge import get_rhino_host
+
+    base_url = get_rhino_host()
+    if base_url is None:
+        pytest.fail(
+            "Native plugin not discoverable; cannot inspect UserData slot."
+        )
+
+    url = f"{base_url}/block/_debug/basepoint-userdata"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, json={"name": block_name})
+    except Exception as ex:
+        pytest.fail(f"POST {url} failed: {ex!r}")
+
+    if resp.status_code == 403:
+        pytest.skip(
+            f"{url} returned 403 — debug routes disabled. Set "
+            f"ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process environment "
+            f"and restart Rhino to enable #28 test-only routes."
+        )
+    if resp.status_code == 404:
+        pytest.fail(
+            f"{url} returned 404 — older RookNative build. Rebuild + redeploy."
+        )
+    if resp.status_code != 200:
+        pytest.fail(f"{url} returned {resp.status_code}: {resp.text}")
+
+    try:
+        body = resp.json()
+    except Exception as ex:
+        pytest.fail(f"{url} returned non-JSON body: {resp.text!r} ({ex!r})")
+
+    data = body.get("data")
+    if not isinstance(data, dict):
+        pytest.fail(f"{url} unexpected response shape: {body!r}")
+
+    if data.get("attached") is not False:
+        bp = data.get("basePoint")
+        pytest.fail(
+            f"Expected NO RookBlockBasePointUserData on block {block_name!r}, "
+            f"but native reports attached=true with basePoint={bp!r}."
+        )

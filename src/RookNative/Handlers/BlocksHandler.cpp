@@ -3511,6 +3511,14 @@ void HandleBlockSetObjectUserStrings(const httplib::Request& req, httplib::Respo
 // ─── Linked Blocks ──────────────────────────────────────────────────
 
 // POST /block/link
+// Creates a linked block definition from an external .3dm file.
+//
+// Ported from the managed BlocksHandler.LinkBlock implementation: reads
+// the file with ONX_Model, extracts geometry + attributes, creates the
+// definition programmatically via AddInstanceDefinition, then marks it
+// as linked via SetLinkedFileReference. This replaces the old RunScript
+// "_-Insert _File=..." approach which could strand Rhino in an interactive
+// prompt with no structured error surface back to the caller.
 void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
 {
     auto [docSn, body] = ParseBodyAndDocSn(req);
@@ -3521,15 +3529,35 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
         std::string pathErr = Rook::ValidateFilePath(path);
         if (!pathErr.empty()) { CRookServer::SendError(res, pathErr); return; }
     }
-    {
-        ON_wString wCheck = Utf8ToWide(path);
-        if (!CRhinoFileUtilities::FileExists(wCheck))
-        { CRookServer::SendError(res, "File not found: " + path); return; }
-    }
+    ON_wString widePath = Utf8ToWide(path);
+    if (!CRhinoFileUtilities::FileExists(widePath))
+    { CRookServer::SendError(res, "File not found: " + path); return; }
+
     std::string name = body.value("name", "");
+    const std::string updateTypeStr = body.value("updateType", "linked");
+
+    // Parse optional insertionPoint [x, y, z].
+    bool hasInsertionPoint = false;
+    ON_3dPoint insertionPoint = ON_3dPoint::Origin;
+    if (body.contains("insertionPoint") && body["insertionPoint"].is_array()
+        && body["insertionPoint"].size() >= 3)
+    {
+        hasInsertionPoint = true;
+        insertionPoint.x = body["insertionPoint"][0].get<double>();
+        insertionPoint.y = body["insertionPoint"][1].get<double>();
+        insertionPoint.z = body["insertionPoint"][2].get<double>();
+    }
+
+    // Map updateType string to SDK enum (matches managed BlocksHandler.cs).
+    ON_InstanceDefinition::IDEF_UPDATE_TYPE updateType =
+        ON_InstanceDefinition::IDEF_UPDATE_TYPE::Linked;
+    if (IEquals(updateTypeStr, "static"))
+        updateType = ON_InstanceDefinition::IDEF_UPDATE_TYPE::Static;
+    else if (IEquals(updateTypeStr, "linkedandembedded") || IEquals(updateTypeStr, "linked_and_embedded"))
+        updateType = ON_InstanceDefinition::IDEF_UPDATE_TYPE::LinkedAndEmbedded;
 
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, path, name]() -> WriteResult
+        [docSn, path, name, widePath, updateType, updateTypeStr, hasInsertionPoint, insertionPoint]() -> WriteResult
     {
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Link block");
@@ -3537,7 +3565,7 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
         std::string blockName = name;
         if (blockName.empty())
         {
-            ON_wString wPath = Utf8ToWide(path);
+            ON_wString wPath = widePath;
             wPath.TrimRight(L"\\/");
             int lastSlash = wPath.ReverseFind(L'\\');
             int lastFSlash = wPath.ReverseFind(L'/');
@@ -3551,14 +3579,124 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
         if (FindDefByName(pDoc, blockName) >= 0)
             throw std::invalid_argument("Block definition '" + blockName + "' already exists");
 
-        // Use RunScript _-Insert to import as linked block
-        ON_wString script;
-        ON_wString wPath = Utf8ToWide(path);
-        script.Format(L"_-Insert _File=\"%ls\" _Block _Enter _Enter",
-            wPath.Array());
-        RhinoApp().RunScript(pDoc->RuntimeSerialNumber(), script, 0);
+        // Read the external .3dm via ONX_Model (no RunScript, no interactive risk).
+        ONX_Model model;
+        if (!model.Read(widePath))
+            throw std::runtime_error("Failed to read file: " + path);
 
-        int newIdx = FindDefByName(pDoc, blockName);
+        // First pass: compute bounding box for base point before adding objects.
+        ON_BoundingBox allBbox;
+        {
+            ONX_ModelComponentIterator scan(model, ON_ModelComponent::Type::ModelGeometry);
+            for (const ON_ModelComponent* c = scan.FirstComponent(); c; c = scan.NextComponent())
+            {
+                const ON_ModelGeometryComponent* mgc = ON_ModelGeometryComponent::Cast(c);
+                if (!mgc) continue;
+                const ON_Geometry* g = mgc->Geometry(nullptr);
+                if (!g) continue;
+                ON_BoundingBox gb = g->BoundingBox();
+                if (gb.IsValid()) allBbox.Union(gb);
+            }
+        }
+        ON_3dPoint basePoint = allBbox.IsValid() ? allBbox.Min() : ON_3dPoint::Origin;
+
+        // Second pass: extract geometry into doc-resident temp objects,
+        // translating by -basePoint so the definition stores local coords
+        // relative to the insertion point (matches managed InstanceDefinitions.Add
+        // behavior which internally offsets by -basePoint).
+        ON_Xform xToLocal = ON_Xform::TranslationTransformation(-ON_3dVector(basePoint));
+        ON_SimpleArray<const CRhinoObject*> docResidentObjects;
+        std::vector<ON_UUID> tempObjectIds;
+        int skippedCount = 0;
+
+        ONX_ModelComponentIterator it(model, ON_ModelComponent::Type::ModelGeometry);
+        for (const ON_ModelComponent* component = it.FirstComponent();
+             component;
+             component = it.NextComponent())
+        {
+            const ON_ModelGeometryComponent* mgc = ON_ModelGeometryComponent::Cast(component);
+            if (!mgc) continue;
+
+            const ON_Geometry* geom = mgc->Geometry(nullptr);
+            if (!geom) continue;
+
+            ON_Geometry* dupGeom = geom->Duplicate();
+            if (!dupGeom) continue;
+
+            // Transform into definition-local coordinates.
+            dupGeom->Transform(xToLocal);
+
+            const ON_3dmObjectAttributes* srcAttrs = mgc->Attributes(nullptr);
+            ON_3dmObjectAttributes attrs;
+            if (srcAttrs) attrs = *srcAttrs;
+            attrs.m_uuid = ON_nil_uuid;
+
+            const CRhinoObject* docObj = AddGeometryToDoc(pDoc, dupGeom, &attrs);
+            delete dupGeom;
+
+            if (docObj)
+            {
+                docResidentObjects.Append(docObj);
+                tempObjectIds.push_back(docObj->Attributes().m_uuid);
+            }
+            else
+            {
+                // AddGeometryToDoc doesn't handle all geometry types (SubD,
+                // text, hatches, instance refs, point clouds). Skipped objects
+                // are counted and reported so callers know content was dropped.
+                // Full type coverage is a follow-up — the programmatic path
+                // trades type breadth for eliminating the interactive RunScript
+                // failure mode.
+                ++skippedCount;
+            }
+        }
+
+        if (docResidentObjects.Count() == 0)
+        {
+            throw std::invalid_argument(
+                "No supported geometry found in file: " + path +
+                (skippedCount > 0
+                    ? " (" + std::to_string(skippedCount) + " unsupported object(s) skipped: "
+                      "SubD, text, hatches, instance refs, and point clouds are not yet supported "
+                      "by the programmatic link path)"
+                    : ""));
+        }
+
+        // Create the instance definition with the extracted geometry.
+        ON_InstanceDefinition idef_settings;
+        idef_settings.SetName(Utf8ToWide(blockName));
+        ON_wString desc;
+        desc.Format(L"Linked from: %ls", static_cast<const wchar_t*>(widePath));
+        idef_settings.SetDescription(desc);
+        idef_settings.SetLinkedFileReference(
+            updateType,
+            static_cast<const wchar_t*>(widePath));
+
+        int newIndex = pDoc->m_instance_definition_table.AddInstanceDefinition(
+            idef_settings, docResidentObjects, false, false);
+
+        // Soft-delete temp objects (geometry data persists in the definition).
+        for (const auto& tmpId : tempObjectIds)
+            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), tmpId));
+
+        if (newIndex < 0)
+            throw std::runtime_error("Failed to create linked block definition");
+
+        const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[newIndex];
+
+        // Optionally insert an instance (matches managed LinkBlock behavior).
+        std::string instanceIdStr;
+        if (hasInsertionPoint)
+        {
+            ON_Xform xform = ON_Xform::TranslationTransformation(insertionPoint - basePoint);
+            ON_3dmObjectAttributes instAttrs;
+            instAttrs.m_uuid = ON_nil_uuid;
+            const CRhinoInstanceObject* inst =
+                pDoc->m_instance_definition_table.CreateInstanceObject(
+                    newIndex, xform, &instAttrs, nullptr, false, false, true);
+            if (inst)
+                instanceIdStr = UuidToString(inst->Attributes().m_uuid);
+        }
 
         // #28 audit — UserData behavior on link:
         // We do NOT call StoreDefinitionBasePoint on the newly-linked
@@ -3574,15 +3712,16 @@ void HandleBlockLink(const httplib::Request& req, httplib::Response& res)
         // with a different payload.
 
         WriteResult wr;
-        wr.success = (newIdx >= 0);
+        wr.success = true;
         wr.data["name"] = blockName;
         wr.data["sourcePath"] = path;
-        if (newIdx >= 0)
-        {
-            const CRhinoInstanceDefinition* pIdef = pDoc->m_instance_definition_table[newIdx];
-            wr.data["index"] = newIdx;
-            wr.data["objectCount"] = pIdef ? pIdef->ObjectCount() : 0;
-        }
+        wr.data["index"] = newIndex;
+        wr.data["objectCount"] = pIdef ? pIdef->ObjectCount() : 0;
+        wr.data["updateType"] = updateTypeStr;
+        if (skippedCount > 0)
+            wr.data["skippedObjects"] = skippedCount;
+        if (!instanceIdStr.empty())
+            wr.data["instanceId"] = instanceIdStr;
 
         pDoc->Redraw();
         return wr;
@@ -3624,19 +3763,19 @@ void HandleBlockRefresh(const httplib::Request& req, httplib::Response& res)
 
         // #28 audit — UserData behavior on refresh:
         // UpdateLinkedInstanceDefinition reloads the linked definition's
-        // geometry and metadata from the source .3dm. If the source file
-        // has its own RookBlockBasePointUserData payload, the SDK pulls
-        // that in via the standard binary archive path (proved by test 6);
-        // if the source has none, the refreshed live entry carries no
-        // Rook UserData — matching design §3.4's "externally-authored
-        // linked defs do NOT get synthesized origin UserData". Rook does
-        // NOT add synthetic UserData to linked defs here.
+        // GEOMETRY from the source .3dm. Linked definitions are wrappers
+        // over source-file geometry — idef-level UserData from the source
+        // file's internal block definitions is NOT part of the refresh
+        // contract. Even if the source .3dm was authored by a Rook build
+        // that embedded RookBlockBasePointUserData on its internal idef,
+        // the linked definition in the target doc does not inherit that
+        // metadata (confirmed by #35 test: assert_no_new_slot passes
+        // both pre- and post-refresh on a Rook-authored source file).
         //
-        // Intended rule (design §3.4 "refresh"): the refreshed state is
-        // whatever the source file says. No duplicate/stale payloads are
-        // created because the SDK replaces the full definition — any
-        // previously-attached UserData on the live entry is superseded
-        // by the archive-decoded state.
+        // Intended rule (design §3.4 "refresh"): the refreshed geometry
+        // state is whatever the source file says. No RookBlockBasePointUserData
+        // is synthesized or accumulated on the linked definition by refresh.
+        // Rook does NOT add synthetic UserData to linked defs here.
         bool refreshed = pDoc->m_instance_definition_table.UpdateLinkedInstanceDefinition(
             idefIndex, linkedPath, true, true);
 
