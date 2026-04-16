@@ -664,9 +664,13 @@ namespace Rook.Handlers
 
                     // Capture existing pin descriptions BEFORE recompile. RhinoCode's recompile
                     // resets pin Description to the framework default ("No conversion"), so we
-                    // save non-default user descriptions and restore them after ExpireSolution.
-                    var savedInputDescriptions = CaptureNonDefaultPinDescriptions(obj, isInput: true);
-                    var savedOutputDescriptions = CaptureNonDefaultPinDescriptions(obj, isInput: false, skipFirstN: 1);
+                    // save them and re-apply after ExpireSolution. Name-based FIFO matching
+                    // (via ApplyPinDescriptions) is robust against duplicate pin names AND
+                    // against any pin reordering a recompile might introduce — index-based
+                    // matching would silently land descriptions on the wrong pin if the
+                    // recompile ever shuffles params.
+                    var savedInputDescriptions = CapturePinDescriptionsByName(obj, isInput: true);
+                    var savedOutputDescriptions = CapturePinDescriptionsByName(obj, isInput: false, skipFirstN: 1);
 
                     if (isRhinoCode && setSourceMethod != null)
                     {
@@ -710,8 +714,31 @@ namespace Rook.Handlers
                     // Restore saved descriptions — must happen AFTER recompile + ExpireSolution
                     // or they get clobbered back to framework defaults.
                     var restoreWarnings = new List<string>();
-                    int restoredInputDescriptions = RestorePinDescriptions(obj, savedInputDescriptions, isInput: true, restoreWarnings);
-                    int restoredOutputDescriptions = RestorePinDescriptions(obj, savedOutputDescriptions, isInput: false, restoreWarnings, skipFirstN: 1);
+                    int restoredInputDescriptions = 0, droppedInputDescriptions = 0;
+                    int restoredOutputDescriptions = 0, droppedOutputDescriptions = 0;
+
+                    var paramsProp = obj.GetType().GetProperty("Params");
+                    var paramsObjForRestore = paramsProp?.GetValue(obj);
+                    if (paramsObjForRestore != null)
+                    {
+                        var inputListProp = paramsObjForRestore.GetType().GetProperty("Input");
+                        var outputListProp = paramsObjForRestore.GetType().GetProperty("Output");
+                        ApplyPinDescriptions(
+                            inputListProp?.GetValue(paramsObjForRestore),
+                            savedInputDescriptions,
+                            "input",
+                            restoreWarnings,
+                            out restoredInputDescriptions,
+                            out droppedInputDescriptions);
+                        ApplyPinDescriptions(
+                            outputListProp?.GetValue(paramsObjForRestore),
+                            savedOutputDescriptions,
+                            "output",
+                            restoreWarnings,
+                            out restoredOutputDescriptions,
+                            out droppedOutputDescriptions,
+                            skipFirstN: 1); // skip 'out' print stream
+                    }
 
                     RefreshCanvas(gh.Canvas!);
 
@@ -725,7 +752,9 @@ namespace Rook.Handlers
                             Action = "set",
                             ScriptLength = script.Length,
                             RestoredInputDescriptions = restoredInputDescriptions,
+                            DroppedInputDescriptions = droppedInputDescriptions,
                             RestoredOutputDescriptions = restoredOutputDescriptions,
+                            DroppedOutputDescriptions = droppedOutputDescriptions,
                             Warnings = restoreWarnings
                         }
                     };
@@ -890,12 +919,12 @@ namespace Rook.Handlers
             }
         }
 
-        private static List<KeyValuePair<int, string>> CaptureNonDefaultPinDescriptions(
+        private static Dictionary<string, Queue<string>> CapturePinDescriptionsByName(
             object component,
             bool isInput,
             int skipFirstN = 0)
         {
-            var result = new List<KeyValuePair<int, string>>();
+            var result = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
             var paramsProp = component.GetType().GetProperty("Params");
             if (paramsProp == null) return result;
             var paramsObj = paramsProp.GetValue(component);
@@ -910,69 +939,19 @@ namespace Rook.Handlers
                 idx++;
                 if (idx < skipFirstN) continue;
                 if (param == null) continue;
-                var desc = param.GetType().GetProperty("Description")?.GetValue(param) as string;
+                var paramType = param.GetType();
+                var name = paramType.GetProperty("Name")?.GetValue(param) as string;
+                if (string.IsNullOrEmpty(name)) continue;
+                var desc = paramType.GetProperty("Description")?.GetValue(param) as string;
                 if (string.IsNullOrEmpty(desc)) continue;
-                // Skip framework default so we don't bother restoring no-op values.
-                if (desc == "No conversion") continue;
-                result.Add(new KeyValuePair<int, string>(idx, desc));
+                if (!result.TryGetValue(name, out var queue))
+                {
+                    queue = new Queue<string>();
+                    result[name] = queue;
+                }
+                queue.Enqueue(desc);
             }
             return result;
-        }
-
-        private static int RestorePinDescriptions(
-            object component,
-            List<KeyValuePair<int, string>> saved,
-            bool isInput,
-            List<string> warnings,
-            int skipFirstN = 0)
-        {
-            if (saved == null || saved.Count == 0) return 0;
-            var paramsProp = component.GetType().GetProperty("Params");
-            if (paramsProp == null) return 0;
-            var paramsObj = paramsProp.GetValue(component);
-            if (paramsObj == null) return 0;
-            var listProp = paramsObj.GetType().GetProperty(isInput ? "Input" : "Output");
-            if (listProp == null) return 0;
-            var listObj = listProp.GetValue(paramsObj);
-            if (listObj == null) return 0;
-            var countProp = listObj.GetType().GetProperty("Count");
-            var itemProp = listObj.GetType().GetProperty("Item");
-            if (countProp == null || itemProp == null) return 0;
-            var count = (int)(countProp.GetValue(listObj) ?? 0);
-
-            int restored = 0;
-            var direction = isInput ? "input" : "output";
-            foreach (var kvp in saved)
-            {
-                var index = kvp.Key;
-                var description = kvp.Value;
-                if (index < skipFirstN || index >= count)
-                {
-                    warnings.Add($"Could not restore {direction} description at index {index}: out of range after recompile");
-                    continue;
-                }
-                var param = itemProp.GetValue(listObj, new object[] { index });
-                if (param == null) continue;
-                try
-                {
-                    var descProp = param.GetType().GetProperty("Description");
-                    if (descProp?.CanWrite == true)
-                    {
-                        descProp.SetValue(param, description);
-                        restored++;
-                    }
-                    else
-                    {
-                        warnings.Add($"Could not restore {direction} description at index {index}: Description property not writable");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    var msg = ex.InnerException?.Message ?? ex.Message;
-                    warnings.Add($"Failed to restore {direction} description at index {index}: {msg}");
-                }
-            }
-            return restored;
         }
 
         private static void ApplyPinDescriptions(
