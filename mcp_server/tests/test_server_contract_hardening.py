@@ -530,3 +530,75 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     assert payload["data"]["pins_in"][0]["optional"] is False
     assert payload["data"]["pins_out"][0]["access"] == "list"
     assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"
+
+
+def test_python_preamble_item_access_emits_scalar_coercion():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "crv", "type": "Curve", "access": "item"}]
+    )
+    assert "crv = _ghc(crv, None)" in preamble
+    assert "def _ghc_tree" not in preamble  # helper only emitted when tree access used
+    assert "for _v in" not in preamble
+
+
+def test_python_preamble_list_access_emits_list_comprehension():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "curves", "type": "Curve", "access": "list"}]
+    )
+    assert "curves = [_ghc(_v, None) for _v in (curves or [])]" in preamble
+    assert "def _ghc_tree" not in preamble
+
+
+def test_python_preamble_tree_access_emits_tree_helper_and_call():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "points", "type": "Point3d", "access": "tree"}]
+    )
+    assert "def _ghc_tree(tree, accessor=None, cast=None):" in preamble
+    assert "import Grasshopper as _gh" in preamble
+    assert "points = _ghc_tree(points, 'Location')" in preamble
+
+
+def test_python_preamble_list_numeric_applies_cast_per_item():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "nums", "type": "float", "access": "list"}]
+    )
+    assert "nums = [float(_ghc(_v)) if _v is not None else float(0) for _v in (nums or [])]" in preamble
+
+
+def test_python_preamble_tree_numeric_passes_cast_to_helper():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "xs", "type": "int", "access": "tree"}]
+    )
+    assert "xs = _ghc_tree(xs, None, int)" in preamble
+
+
+def test_python_preamble_value_geometry_list_access():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "planes", "type": "Plane", "access": "list"}]
+    )
+    assert "planes = [_ghc(_v) for _v in (planes or [])]" in preamble
+
+
+def test_python_preamble_missing_access_defaults_to_item():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "curve", "type": "Curve"}]  # no access key
+    )
+    assert "curve = _ghc(curve, None)" in preamble
+    # No list comprehension emitted for a pin without access=list
+    assert "for _v in (curve or [])" not in preamble
+
+
+def test_python_preamble_invalid_access_falls_back_to_item():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "pt", "type": "Point3d", "access": "bogus"}]
+    )
+    assert "pt = _ghc(pt, 'Location')" in preamble
+
+
+def test_python_preamble_string_type_passes_through_unchanged():
+    # String pins never emit coercion lines regardless of access mode.
+    preamble = server._build_gh_python_preamble(
+        [{"name": "txt", "type": "string", "access": "list"}]
+    )
+    # No coercion statement for txt — access mode is irrelevant for strings
+    assert "txt = " not in preamble

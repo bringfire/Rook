@@ -801,24 +801,38 @@ def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
         "bool": "bool",
     }
 
-    doc_pins = []    # (var_name, accessor_or_None)
-    value_pins = []  # var_name
-    num_pins = []    # (var_name, python_cast)
+    # Each collected pin carries (name, type-specific-metadata, access).
+    # access is one of "item" / "list" / "tree".
+    doc_pins = []    # (var_name, accessor_or_None, access)
+    value_pins = []  # (var_name, access)
+    num_pins = []    # (var_name, python_cast, access)
 
     for pin in pins_in:
         name = pin["name"]
         ptype = str(pin.get("type") or "string").strip() or "string"
+        access = str(pin.get("access") or "item").strip().lower() or "item"
+        if access not in ("item", "list", "tree"):
+            access = "item"
 
         if ptype in _DOC_GEOMETRY:
-            doc_pins.append((name, _DOC_GEOMETRY[ptype]))
+            doc_pins.append((name, _DOC_GEOMETRY[ptype], access))
         elif ptype in _VALUE_GEOMETRY:
-            value_pins.append(name)
+            value_pins.append((name, access))
         elif ptype in _NUMERIC_TYPES:
-            num_pins.append((name, _NUMERIC_TYPES[ptype]))
+            num_pins.append((name, _NUMERIC_TYPES[ptype], access))
         # string and unknown types pass through unchanged
 
     if not doc_pins and not value_pins and not num_pins:
         return ""  # No coercion needed
+
+    needs_tree_helper = any(
+        access == "tree"
+        for _, access in (
+            [(n, a) for n, _, a in doc_pins]
+            + list(value_pins)
+            + [(n, a) for n, _, a in num_pins]
+        )
+    )
 
     lines = [
         "# ── Auto-generated GH input coercion (do not edit) ──────────",
@@ -843,19 +857,58 @@ def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
         "",
     ]
 
+    if needs_tree_helper:
+        lines.extend([
+            "def _ghc_tree(tree, accessor=None, cast=None):",
+            '    """Coerce every leaf in a Grasshopper DataTree, preserving path structure."""',
+            "    if tree is None: return None",
+            "    try:",
+            "        import Grasshopper as _gh",
+            "        new_tree = _gh.DataTree[object]()",
+            "        for path, branch in zip(tree.Paths, tree.Branches):",
+            "            coerced = []",
+            "            for v in branch:",
+            "                x = _ghc(v, accessor)",
+            "                if cast is not None:",
+            "                    x = cast(x) if x is not None else cast(0)",
+            "                coerced.append(x)",
+            "            new_tree.AddRange(coerced, path)",
+            "        return new_tree",
+            "    except Exception:",
+            "        return tree  # best-effort: leave untouched if DataTree API unavailable",
+            "",
+        ])
+
     # Doc-referenced geometry (may be Guid, GH wrapper, or native)
-    for name, accessor in doc_pins:
+    for name, accessor, access in doc_pins:
         acc = f"'{accessor}'" if accessor else "None"
-        lines.append(f"{name} = _ghc({name}, {acc})")
+        if access == "item":
+            lines.append(f"{name} = _ghc({name}, {acc})")
+        elif access == "list":
+            lines.append(f"{name} = [_ghc(_v, {acc}) for _v in ({name} or [])]")
+        else:  # tree
+            lines.append(f"{name} = _ghc_tree({name}, {acc})")
 
     # Value geometry (GH wrapper or native — never Guid)
-    for name in value_pins:
-        lines.append(f"{name} = _ghc({name})")
+    for name, access in value_pins:
+        if access == "item":
+            lines.append(f"{name} = _ghc({name})")
+        elif access == "list":
+            lines.append(f"{name} = [_ghc(_v) for _v in ({name} or [])]")
+        else:  # tree
+            lines.append(f"{name} = _ghc_tree({name})")
 
     # Numerics (GH wrapper, native, or None → safe default)
-    for name, cast in num_pins:
-        lines.append(f"if {name} is not None: {name} = {cast}(_ghc({name}))")
-        lines.append(f"else: {name} = {cast}(0)")
+    for name, cast, access in num_pins:
+        if access == "item":
+            lines.append(f"if {name} is not None: {name} = {cast}(_ghc({name}))")
+            lines.append(f"else: {name} = {cast}(0)")
+        elif access == "list":
+            lines.append(
+                f"{name} = [{cast}(_ghc(_v)) if _v is not None else {cast}(0) for _v in ({name} or [])]"
+            )
+        else:  # tree
+            lines.append(f"{name} = _ghc_tree({name}, None, {cast})")
 
     lines.append("# ── End coercion ─────────────────────────────────────────────")
     lines.append("")
