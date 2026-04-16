@@ -765,35 +765,35 @@ def _apply_gh_script_pin_updates(
 
 
 def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
-    """Generate a Python preamble that coerces GH Generic Data inputs to declared types.
+    """Generate a Python preamble that reads raw GH wrappers via ghenv.VolatileData.
 
-    GH Python 3 Script components use Generic Data pins. Data arrives in three
-    forms depending on what's upstream:
+    RhinoCode's Python 3 Generic Data pin automatic conversion strips wrapper
+    identity and emits ephemeral runtime Guids for reference params (issue #45).
+    Rather than chase those non-doc Guids through RhinoDoc.FindId (which misses),
+    this preamble bypasses RhinoCode's conversion and reads directly from
+    `ghenv.Component.Params.Input[i].VolatileData` — the authoritative source
+    of GH_Curve / GH_Brep / etc. wrappers with intact .Value and .ReferenceID.
 
-      1. System.Guid  — reference to a Rhino doc object (points, curves, breps, meshes).
-                         Must be dereferenced via RhinoDoc.Objects.FindId().
-      2. GH wrapper   — GH_Point, GH_Number, GH_Vector, etc. with a .Value property
-                         holding the native Rhino/Python type.
-      3. Native type   — already the correct type (rare, but possible).
+    Emits three helpers plus one call per coerceable pin:
+      - _gh_extract_one(i, cast)    — item access: first non-empty branch, first Value
+      - _gh_extract_list(i, cast)   — list access: flatten all branches into one list
+      - _gh_extract_tree(i, cast)   — tree access: preserve original GH paths
 
-    The preamble emits a single universal coercion function and one line per input
-    pin that converts the raw GH input to the declared type.
+    cast is a primitive type (float / int / bool) for numeric pins, None otherwise.
+    Pin index `i` is the position in pins_in, which matches IGH_Param order in
+    GH_ComponentParamServer.Input after ScriptParams registration.
+
+    Note: after PR #48, `ReferenceID` carries the Rhino doc guid on reference
+    params, but this preamble prefers `.Value` — ReferenceID is metadata only.
     """
-    # Reference geometry — stored as Rhino doc objects, may arrive as System.Guid.
-    # Point is special: the doc object is rg.Point, but we want rg.Point3d (.Location).
-    _DOC_GEOMETRY = {
-        "Point3d": "Location",  # rg.Point → .Location → Point3d
-        "Curve": None,
-        "Surface": None,
-        "Brep": None,
-        "Mesh": None,
-    }
-    # Value geometry — never in the doc, always GH wrappers or native.
+    # Geometry types that need a Value-based unwrap (all handled uniformly by the
+    # ghenv path — no per-type accessor needed since GH_Point.Value → Point3d,
+    # GH_Curve.Value → Curve, etc.).
+    _DOC_GEOMETRY = {"Point3d", "Curve", "Surface", "Brep", "Mesh"}
     _VALUE_GEOMETRY = {
         "Vector3d", "Plane", "Line", "Circle", "Arc", "Box",
         "Polyline", "Point2d", "Interval", "Rectangle3d", "Transform",
     }
-    # Numeric/primitive types
     _NUMERIC_TYPES = {
         "float": "float",
         "double": "float",
@@ -801,114 +801,108 @@ def _build_gh_python_preamble(pins_in: list[dict[str, Any]]) -> str:
         "bool": "bool",
     }
 
-    # Each collected pin carries (name, type-specific-metadata, access).
-    # access is one of "item" / "list" / "tree".
-    doc_pins = []    # (var_name, accessor_or_None, access)
-    value_pins = []  # (var_name, access)
-    num_pins = []    # (var_name, python_cast, access)
-
-    for pin in pins_in:
+    # Plan: (pin_index, var_name, cast_or_None, access). Skip strings and unknowns.
+    pin_plan: list[tuple[int, str, str | None, str]] = []
+    for idx, pin in enumerate(pins_in):
         name = pin["name"]
         ptype = str(pin.get("type") or "string").strip() or "string"
         access = str(pin.get("access") or "item").strip().lower() or "item"
         if access not in ("item", "list", "tree"):
             access = "item"
 
-        if ptype in _DOC_GEOMETRY:
-            doc_pins.append((name, _DOC_GEOMETRY[ptype], access))
-        elif ptype in _VALUE_GEOMETRY:
-            value_pins.append((name, access))
+        if ptype in _DOC_GEOMETRY or ptype in _VALUE_GEOMETRY:
+            pin_plan.append((idx, name, None, access))
         elif ptype in _NUMERIC_TYPES:
-            num_pins.append((name, _NUMERIC_TYPES[ptype], access))
+            pin_plan.append((idx, name, _NUMERIC_TYPES[ptype], access))
         # string and unknown types pass through unchanged
 
-    if not doc_pins and not value_pins and not num_pins:
-        return ""  # No coercion needed
+    if not pin_plan:
+        return ""
 
-    needs_tree_helper = any(
-        access == "tree"
-        for _, access in (
-            [(n, a) for n, _, a in doc_pins]
-            + list(value_pins)
-            + [(n, a) for n, _, a in num_pins]
-        )
-    )
+    needs_tree = any(access == "tree" for _, _, _, access in pin_plan)
 
     lines = [
         "# ── Auto-generated GH input coercion (do not edit) ──────────",
-        "import Rhino as _rh",
-        "import Rhino.Geometry as rg",
-        "import System as _sys",
+        "# Reads raw wrappers via ghenv.Component.Params.Input[i].VolatileData,",
+        "# bypassing RhinoCode's automatic Generic-Data conversion which would",
+        "# otherwise emit ephemeral Guids for reference-param inputs (issue #45).",
         "",
-        "def _ghc(val, accessor=None):",
-        '    """Coerce a single GH Generic Data value to its native type."""',
-        "    if val is None: return None",
-        "    # Case 1: System.Guid → dereference from Rhino document",
-        "    if isinstance(val, _sys.Guid):",
-        "        obj = _rh.RhinoDoc.ActiveDoc.Objects.FindId(val)",
-        "        if obj and hasattr(obj, 'Geometry'):",
-        "            g = obj.Geometry",
-        "            return getattr(g, accessor) if accessor else g",
-        "        return None",
-        "    # Case 2: GH wrapper (GH_Point, GH_Number, etc.) → unwrap .Value",
-        "    if hasattr(val, 'Value'): return val.Value",
-        "    # Case 3: already native",
-        "    return val",
+        "def _gh_extract_one(_i, _cast=None):",
+        '    """Item access: first non-empty branch, first wrapper .Value. Returns None if empty or out of bounds."""',
+        "    _inputs = ghenv.Component.Params.Input",
+        "    if _i >= _inputs.Count: return None",
+        "    _vd = _inputs[_i].VolatileData",
+        "    if _vd.PathCount == 0 or _vd.DataCount == 0: return None",
+        "    for _p, _b in zip(_vd.Paths, _vd.Branches):",
+        "        if _b and len(_b) > 0:",
+        "            _w = _b[0]",
+        "            _v = _w.Value if hasattr(_w, 'Value') else _w",
+        "            if _v is None: return None",
+        "            if _cast is not None:",
+        "                try: _v = _cast(_v)",
+        "                except Exception: _v = _cast(0)  # bad-cast falls back to numeric default",
+        "            return _v",
+        "    return None",
+        "",
+        "def _gh_extract_list(_i, _cast=None):",
+        '    """List access: intentionally flatten ALL branches into one list. Matches GH list-access semantics where tree topology is discarded in favor of a single stream. Cast applied per-item; None items become cast(0) when cast is given, else None."""',
+        "    _inputs = ghenv.Component.Params.Input",
+        "    if _i >= _inputs.Count: return []",
+        "    _vd = _inputs[_i].VolatileData",
+        "    _out = []",
+        "    for _p, _b in zip(_vd.Paths, _vd.Branches):",
+        "        for _w in _b:",
+        "            _v = _w.Value if hasattr(_w, 'Value') else _w",
+        "            if _v is None:",
+        "                _out.append(None if _cast is None else _cast(0))",
+        "                continue",
+        "            if _cast is not None:",
+        "                try: _v = _cast(_v)",
+        "                except Exception: _v = _cast(0)  # bad-cast falls back to numeric default",
+        "            _out.append(_v)",
+        "    return _out",
         "",
     ]
 
-    if needs_tree_helper:
+    if needs_tree:
         lines.extend([
-            "def _ghc_tree(tree, accessor=None, cast=None):",
-            '    """Coerce every leaf in a Grasshopper DataTree, preserving path structure."""',
-            "    if tree is None: return None",
-            "    try:",
-            "        import Grasshopper as _gh",
-            "        new_tree = _gh.DataTree[object]()",
-            "        for path, branch in zip(tree.Paths, tree.Branches):",
-            "            coerced = []",
-            "            for v in branch:",
-            "                x = _ghc(v, accessor)",
-            "                if cast is not None:",
-            "                    x = cast(x) if x is not None else cast(0)",
-            "                coerced.append(x)",
-            "            new_tree.AddRange(coerced, path)",
-            "        return new_tree",
-            "    except Exception:",
-            "        return tree  # best-effort: leave untouched if DataTree API unavailable",
+            "def _gh_extract_tree(_i, _cast=None):",
+            '    """Tree access: preserve the original GH_Path objects (not inferred integer indices). Coerce leaves via .Value and optional cast; rebuild DataTree[object]."""',
+            "    import Grasshopper as _gh",
+            "    _tree = _gh.DataTree[object]()",
+            "    _inputs = ghenv.Component.Params.Input",
+            "    if _i >= _inputs.Count: return _tree",
+            "    _vd = _inputs[_i].VolatileData",
+            "    for _p, _b in zip(_vd.Paths, _vd.Branches):",
+            "        _c = []",
+            "        for _w in _b:",
+            "            _v = _w.Value if hasattr(_w, 'Value') else _w",
+            "            if _v is None:",
+            "                _c.append(None if _cast is None else _cast(0))",
+            "                continue",
+            "            if _cast is not None:",
+            "                try: _v = _cast(_v)",
+            "                except Exception: _v = _cast(0)  # bad-cast falls back to numeric default",
+            "            _c.append(_v)",
+            "        _tree.AddRange(_c, _p)",
+            "    return _tree",
             "",
         ])
 
-    # Doc-referenced geometry (may be Guid, GH wrapper, or native)
-    for name, accessor, access in doc_pins:
-        acc = f"'{accessor}'" if accessor else "None"
+    for idx, name, cast, access in pin_plan:
+        cast_arg = f", {cast}" if cast else ""
         if access == "item":
-            lines.append(f"{name} = _ghc({name}, {acc})")
+            # For numeric item access, preserve existing behavior: None → cast(0).
+            # Non-numeric item with no upstream → None (user can handle explicitly).
+            if cast:
+                lines.append(f"{name} = _gh_extract_one({idx}{cast_arg})")
+                lines.append(f"if {name} is None: {name} = {cast}(0)")
+            else:
+                lines.append(f"{name} = _gh_extract_one({idx})")
         elif access == "list":
-            lines.append(f"{name} = [_ghc(_v, {acc}) for _v in ({name} or [])]")
+            lines.append(f"{name} = _gh_extract_list({idx}{cast_arg})")
         else:  # tree
-            lines.append(f"{name} = _ghc_tree({name}, {acc})")
-
-    # Value geometry (GH wrapper or native — never Guid)
-    for name, access in value_pins:
-        if access == "item":
-            lines.append(f"{name} = _ghc({name})")
-        elif access == "list":
-            lines.append(f"{name} = [_ghc(_v) for _v in ({name} or [])]")
-        else:  # tree
-            lines.append(f"{name} = _ghc_tree({name})")
-
-    # Numerics (GH wrapper, native, or None → safe default)
-    for name, cast, access in num_pins:
-        if access == "item":
-            lines.append(f"if {name} is not None: {name} = {cast}(_ghc({name}))")
-            lines.append(f"else: {name} = {cast}(0)")
-        elif access == "list":
-            lines.append(
-                f"{name} = [{cast}(_ghc(_v)) if _v is not None else {cast}(0) for _v in ({name} or [])]"
-            )
-        else:  # tree
-            lines.append(f"{name} = _ghc_tree({name}, None, {cast})")
+            lines.append(f"{name} = _gh_extract_tree({idx}{cast_arg})")
 
     lines.append("# ── End coercion ─────────────────────────────────────────────")
     lines.append("")

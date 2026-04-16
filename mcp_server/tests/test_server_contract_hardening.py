@@ -532,67 +532,82 @@ async def test_chirp_create_preserves_rich_pin_metadata(monkeypatch, patched_ser
     assert payload["data"]["pins_out"][0]["description"] == "Candidate spans"
 
 
-def test_python_preamble_item_access_emits_scalar_coercion():
+def test_python_preamble_item_access_emits_ghenv_extract_one():
     preamble = server._build_gh_python_preamble(
         [{"name": "crv", "type": "Curve", "access": "item"}]
     )
-    assert "crv = _ghc(crv, None)" in preamble
-    assert "def _ghc_tree" not in preamble  # helper only emitted when tree access used
-    assert "for _v in" not in preamble
+    assert "crv = _gh_extract_one(0)" in preamble
+    assert "def _gh_extract_one(" in preamble
+    assert "def _gh_extract_tree(" not in preamble  # tree helper only when needed
+    # Old _ghc / FindId model is gone
+    assert "def _ghc(" not in preamble
+    assert "RhinoDoc.ActiveDoc.Objects.FindId" not in preamble
 
 
-def test_python_preamble_list_access_emits_list_comprehension():
+def test_python_preamble_list_access_emits_ghenv_extract_list():
     preamble = server._build_gh_python_preamble(
         [{"name": "curves", "type": "Curve", "access": "list"}]
     )
-    assert "curves = [_ghc(_v, None) for _v in (curves or [])]" in preamble
-    assert "def _ghc_tree" not in preamble
+    assert "curves = _gh_extract_list(0)" in preamble
+    assert "def _gh_extract_list(" in preamble
+    assert "def _gh_extract_tree(" not in preamble
 
 
 def test_python_preamble_tree_access_emits_tree_helper_and_call():
     preamble = server._build_gh_python_preamble(
         [{"name": "points", "type": "Point3d", "access": "tree"}]
     )
-    assert "def _ghc_tree(tree, accessor=None, cast=None):" in preamble
+    assert "def _gh_extract_tree(_i, _cast=None):" in preamble
     assert "import Grasshopper as _gh" in preamble
-    assert "points = _ghc_tree(points, 'Location')" in preamble
+    assert "_tree.AddRange(_c, _p)" in preamble  # path-preserving
+    assert "points = _gh_extract_tree(0)" in preamble
 
 
-def test_python_preamble_list_numeric_applies_cast_per_item():
+def test_python_preamble_list_numeric_applies_cast():
     preamble = server._build_gh_python_preamble(
         [{"name": "nums", "type": "float", "access": "list"}]
     )
-    assert "nums = [float(_ghc(_v)) if _v is not None else float(0) for _v in (nums or [])]" in preamble
+    assert "nums = _gh_extract_list(0, float)" in preamble
 
 
-def test_python_preamble_tree_numeric_passes_cast_to_helper():
+def test_python_preamble_tree_numeric_passes_cast():
     preamble = server._build_gh_python_preamble(
         [{"name": "xs", "type": "int", "access": "tree"}]
     )
-    assert "xs = _ghc_tree(xs, None, int)" in preamble
+    assert "xs = _gh_extract_tree(0, int)" in preamble
 
 
 def test_python_preamble_value_geometry_list_access():
     preamble = server._build_gh_python_preamble(
         [{"name": "planes", "type": "Plane", "access": "list"}]
     )
-    assert "planes = [_ghc(_v) for _v in (planes or [])]" in preamble
+    assert "planes = _gh_extract_list(0)" in preamble
+
+
+def test_python_preamble_item_numeric_preserves_zero_default():
+    # Item numeric with no upstream must still resolve to cast(0), not None.
+    preamble = server._build_gh_python_preamble(
+        [{"name": "n", "type": "float", "access": "item"}]
+    )
+    assert "n = _gh_extract_one(0, float)" in preamble
+    assert "if n is None: n = float(0)" in preamble
 
 
 def test_python_preamble_missing_access_defaults_to_item():
     preamble = server._build_gh_python_preamble(
         [{"name": "curve", "type": "Curve"}]  # no access key
     )
-    assert "curve = _ghc(curve, None)" in preamble
-    # No list comprehension emitted for a pin without access=list
-    assert "for _v in (curve or [])" not in preamble
+    assert "curve = _gh_extract_one(0)" in preamble
+    # Not routed to list or tree extractor:
+    assert "curve = _gh_extract_list" not in preamble
+    assert "curve = _gh_extract_tree" not in preamble
 
 
 def test_python_preamble_invalid_access_falls_back_to_item():
     preamble = server._build_gh_python_preamble(
         [{"name": "pt", "type": "Point3d", "access": "bogus"}]
     )
-    assert "pt = _ghc(pt, 'Location')" in preamble
+    assert "pt = _gh_extract_one(0)" in preamble
 
 
 def test_python_preamble_string_type_passes_through_unchanged():
@@ -600,5 +615,190 @@ def test_python_preamble_string_type_passes_through_unchanged():
     preamble = server._build_gh_python_preamble(
         [{"name": "txt", "type": "string", "access": "list"}]
     )
-    # No coercion statement for txt — access mode is irrelevant for strings
     assert "txt = " not in preamble
+
+
+def test_python_preamble_pin_indices_match_position_in_pins_in():
+    # Each extract call must use the pin's position in pins_in as the index.
+    preamble = server._build_gh_python_preamble([
+        {"name": "a", "type": "Curve", "access": "list"},
+        {"name": "b", "type": "float", "access": "item"},
+        {"name": "c", "type": "Point3d", "access": "tree"},
+    ])
+    assert "a = _gh_extract_list(0)" in preamble
+    assert "b = _gh_extract_one(1, float)" in preamble
+    assert "c = _gh_extract_tree(2)" in preamble
+
+
+def test_python_preamble_helpers_guard_bounds_and_use_path_driven_iteration():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "xs", "type": "Curve", "access": "tree"}]
+    )
+    # Bounds guard in each helper
+    assert "if _i >= _inputs.Count: return None" in preamble
+    assert "if _i >= _inputs.Count: return []" in preamble
+    assert "if _i >= _inputs.Count: return _tree" in preamble
+    # Path-paired iteration via zip(Paths, Branches) — this is the idiom that
+    # actually works in RhinoCode Python 3; GH_Structure doesn't expose Branch(path)
+    # as a Python-callable method despite it being in the .NET API.
+    assert "for _p, _b in zip(_vd.Paths, _vd.Branches):" in preamble
+
+
+# ---------- Runtime semantics tests ----------
+# These execute the generated preamble against a mock ghenv to verify behavior,
+# not just emitted source strings. Covers cast failure handling, mixed-type
+# lists, tree leaf coercion, bounds guards, and wrapper unwrap.
+
+class _MockWrapper:
+    """Simulates a GH_Goo wrapper with .Value."""
+    def __init__(self, value):
+        self.Value = value
+
+
+class _MockVolatileData:
+    def __init__(self, branches_by_path):
+        # branches_by_path: dict { path_key: [wrapper, ...] }
+        # The preamble iterates via zip(Paths, Branches) — Paths and Branches
+        # must be aligned (same order). We don't mock Branch(path) because
+        # GH_Structure in RhinoCode Python 3 doesn't expose it as a callable.
+        self._branches = dict(branches_by_path)
+        self.Paths = list(self._branches.keys())
+        self.Branches = list(self._branches.values())
+        self.PathCount = len(self._branches)
+        self.DataCount = sum(len(b) for b in self._branches.values())
+
+
+class _MockInput:
+    def __init__(self, volatile_data):
+        self.VolatileData = volatile_data
+
+
+class _MockInputs:
+    def __init__(self, inputs):
+        self._inputs = inputs
+        self.Count = len(inputs)
+
+    def __getitem__(self, i):
+        return self._inputs[i]
+
+
+class _MockParams:
+    def __init__(self, inputs):
+        self.Input = _MockInputs(inputs)
+
+
+class _MockComponent:
+    def __init__(self, inputs):
+        self.Params = _MockParams(inputs)
+
+
+class _MockGhEnv:
+    def __init__(self, inputs):
+        self.Component = _MockComponent(inputs)
+
+
+def _exec_preamble(pins_in, mock_inputs):
+    """Execute generated preamble against a mock ghenv; return the resulting namespace."""
+    preamble = server._build_gh_python_preamble(pins_in)
+    ns = {"ghenv": _MockGhEnv(mock_inputs)}
+    # Pre-seed pin variables (RhinoCode would populate these; we don't care about
+    # their values since the preamble overwrites them via ghenv).
+    for p in pins_in:
+        ns[p["name"]] = None
+    exec(compile(preamble, "<preamble>", "exec"), ns)
+    return ns
+
+
+def test_runtime_list_unwraps_values_from_wrappers():
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper(1.5), _MockWrapper(2.5), _MockWrapper(3.0)]})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["vals"] == [1.5, 2.5, 3.0]
+
+
+def test_runtime_list_cast_failure_falls_back_to_numeric_default():
+    # Non-numeric item should NOT silently pass through as a curve object —
+    # it must be replaced with float(0) per the cast-failure fallback.
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper(1.5), _MockWrapper("not_a_number"), _MockWrapper(3.0)]})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["vals"] == [1.5, 0.0, 3.0]
+
+
+def test_runtime_item_cast_failure_falls_back_to_numeric_default():
+    pins = [{"name": "n", "type": "float", "access": "item"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper("not_a_number")]})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["n"] == 0.0
+
+
+def test_runtime_list_none_item_becomes_numeric_default():
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper(None), _MockWrapper(5.0)]})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["vals"] == [0.0, 5.0]
+
+
+def test_runtime_list_non_numeric_preserves_unwrapped_value():
+    # For non-numeric pins, no cast happens — wrapper .Value passes through.
+    pins = [{"name": "crvs", "type": "Curve", "access": "list"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper("curve_a"), _MockWrapper("curve_b")]})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["crvs"] == ["curve_a", "curve_b"]
+
+
+def test_runtime_item_no_upstream_numeric_is_zero():
+    pins = [{"name": "n", "type": "float", "access": "item"}]
+    vd = _MockVolatileData({})  # empty
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["n"] == 0.0
+
+
+def test_runtime_item_no_upstream_non_numeric_is_none():
+    pins = [{"name": "crv", "type": "Curve", "access": "item"}]
+    vd = _MockVolatileData({})  # empty
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["crv"] is None
+
+
+def test_runtime_list_no_upstream_is_empty_list():
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({})
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["vals"] == []
+
+
+def test_runtime_list_flattens_multi_branch():
+    # List access intentionally flattens all branches into one stream.
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({
+        "path_a": [_MockWrapper(1.0), _MockWrapper(2.0)],
+        "path_b": [_MockWrapper(3.0)],
+    })
+    ns = _exec_preamble(pins, [_MockInput(vd)])
+    assert ns["vals"] == [1.0, 2.0, 3.0]
+
+
+def test_runtime_bounds_guard_when_pin_index_out_of_range():
+    # pins_in declares pin at index 0, but mock inputs is empty.
+    # Helper should return None / [] rather than IndexError.
+    pins = [{"name": "crv", "type": "Curve", "access": "item"}]
+    ns = _exec_preamble(pins, [])  # no mock inputs → Count = 0
+    assert ns["crv"] is None
+
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    ns = _exec_preamble(pins, [])
+    assert ns["vals"] == []
+
+
+def test_runtime_mixed_pins_use_correct_indices():
+    # Verifies pin_index == position_in_pins_in against actual execution.
+    pins = [
+        {"name": "a", "type": "Curve", "access": "list"},
+        {"name": "b", "type": "float", "access": "item"},
+    ]
+    vd_a = _MockVolatileData({"p": [_MockWrapper("curve_x")]})
+    vd_b = _MockVolatileData({"p": [_MockWrapper(42.0)]})
+    ns = _exec_preamble(pins, [_MockInput(vd_a), _MockInput(vd_b)])
+    assert ns["a"] == ["curve_x"]
+    assert ns["b"] == 42.0
