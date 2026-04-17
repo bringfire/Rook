@@ -13,6 +13,25 @@ bool HasGrasshopperBridgeRegistration();
 bool HasCanvasGraphProtocol();
 bool HasCanvasGraphNavigation();
 bool TryHandleManagedCreate(const httplib::Request& req, httplib::Response& res);
+
+// Invokes the managed CreateGeometry bridge callback with a prepared JSON body
+// (caller is responsible for injecting required fields such as "type"). On
+// success, populates responseJson + statusCode with the raw managed response
+// and returns kOk. Does not modify res — the caller parses the response and
+// applies any envelope normalization (used by /surface/* typed routes to
+// rewrite managed string errors into structured {errorCode, errorMessage}).
+enum class ManagedCreateInvokeResult
+{
+    Ok,
+    Unavailable,
+    Failed,
+};
+
+ManagedCreateInvokeResult InvokeManagedCreateWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res);
 void HandleManagedGameExportPrepare(const httplib::Request& req, httplib::Response& res);
 void ProxyManagedCompanionRequest(

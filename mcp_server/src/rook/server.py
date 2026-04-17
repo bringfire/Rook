@@ -2146,6 +2146,32 @@ Examples:
         ),
         # Surface creation tools
         Tool(
+            name="rhino_create_pipe",
+            description=(
+                "Create a pipe brep by sweeping a circular cross-section along a rail "
+                "curve. Typed Phase 1 route (POST /surface/pipe) — prefer over the "
+                "legacy /create dispatcher. Provide either uniform 'radius' OR both "
+                "'startRadius' and 'endRadius' (variable radius), never both forms. "
+                "Returns the full ObjectSnapshot on success."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveId": {"type": "string", "description": "Rail curve GUID"},
+                    "radius": {"type": "number", "description": "Uniform pipe radius (> 0). Mutually exclusive with startRadius/endRadius."},
+                    "startRadius": {"type": "number", "description": "Radius at curve start (> 0). Requires endRadius."},
+                    "endRadius": {"type": "number", "description": "Radius at curve end (> 0). Requires startRadius."},
+                    "cap": {"type": "boolean", "description": "Cap ends if curve is closed (default true)"},
+                    "tolerance": {"type": "number", "description": "Fit tolerance (> 0). Defaults to doc.ModelAbsoluteTolerance."},
+                    "name": {"type": "string", "description": "Object name"},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)"},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')"},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)"},
+                },
+                "required": ["curveId"]
+            }
+        ),
+        Tool(
             name="rhino_extrude",
             description="Extrude a curve or surface along a direction.",
             inputSchema={
@@ -9378,6 +9404,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 tool_ids = args.pop("toolIds", [])
                 args["ids"] = [target_id] + tool_ids
             result = await call_rhino("/boolean", "POST", args)
+
+        # Surface creation — typed routes
+        case "rhino_create_pipe":
+            result = await call_rhino("/surface/pipe", "POST", arguments)
 
         # Surface creation (via /create endpoint)
         case "rhino_extrude":
