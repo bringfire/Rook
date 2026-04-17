@@ -26,5 +26,14 @@ void HandlePipe(const httplib::Request& req, httplib::Response& res);
 // when the loft factory returns exactly one brep.
 void HandleLoft(const httplib::Request& req, httplib::Response& res);
 
+// POST /surface/sweep1 — Sweep profile(s) along one rail. Plural-contract.
+// style: "Freeform" (default) | "Roadlike". Roadlike requires roadlikeUp.
+void HandleSweep1(const httplib::Request& req, httplib::Response& res);
+
+// POST /surface/sweep2 — Sweep profile(s) between two rails. Plural-contract.
+// maintainHeight: false (default) preserves profile shape; true preserves
+// vertical height when rails diverge (maps to SweepTwoRail.MaintainHeight).
+void HandleSweep2(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

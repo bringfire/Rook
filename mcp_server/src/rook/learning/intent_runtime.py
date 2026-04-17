@@ -311,6 +311,24 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create lofted brep(s) through 2+ profile curves",
     )
+    routes["create_sweep1"] = RouteSpec(
+        endpoint="/surface/sweep1",
+        required_params=("railId", "profileIds"),
+        optional_params=(
+            "closed", "style", "roadlikeUp",
+            "name", "layer", "color", "visible",
+        ),
+        description="Sweep profile(s) along one rail",
+    )
+    routes["create_sweep2"] = RouteSpec(
+        endpoint="/surface/sweep2",
+        required_params=("rail1Id", "rail2Id", "profileIds"),
+        optional_params=(
+            "closed", "maintainHeight",
+            "name", "layer", "color", "visible",
+        ),
+        description="Sweep profile(s) between two rails",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
@@ -1012,7 +1030,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_arc", "create_rectangle", "create_box", "create_sphere",
         "create_cylinder", "create_cone", "create_extrusion",
         "create_interpolated_curve", "create_control_point_curve",
-        "create_pipe", "create_loft",
+        "create_pipe", "create_loft", "create_sweep1", "create_sweep2",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

@@ -2181,6 +2181,70 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_create_sweep1",
+            description=(
+                "Sweep profile curve(s) along a single rail to create brep(s). "
+                "Typed Phase 1 route (POST /surface/sweep1). Plural-contract: "
+                "response is {objects: [ObjectSnapshot, ...]} even when the "
+                "factory returns exactly one brep. style='Freeform' (default) "
+                "or 'Roadlike' (requires roadlikeUp direction vector). "
+                "AlignWithSurface is deferred to Phase 2."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "railId": {"type": "string", "description": "Rail curve GUID"},
+                    "profileIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Profile curve GUIDs (≥ 1)",
+                        "minItems": 1,
+                    },
+                    "closed": {"type": "boolean", "description": "Close the sweep (default false)"},
+                    "style": {
+                        "type": "string",
+                        "description": "Sweep orientation style (default Freeform)",
+                        "enum": ["Freeform", "Roadlike"],
+                    },
+                    "roadlikeUp": {"type": "array", "description": "Up direction [x,y,z] for Roadlike style (required iff style='Roadlike')"},
+                    "name": {"type": "string", "description": "Object name (applied to every brep)"},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)"},
+                    "color": {"type": "string", "description": "Object color"},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)"},
+                },
+                "required": ["railId", "profileIds"]
+            }
+        ),
+        Tool(
+            name="rhino_create_sweep2",
+            description=(
+                "Sweep profile curve(s) between two rails to create brep(s). "
+                "Typed Phase 1 route (POST /surface/sweep2). Plural-contract. "
+                "maintainHeight=true preserves cross-section height when rails "
+                "diverge. rail1Id and rail2Id must reference distinct objects."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "rail1Id": {"type": "string", "description": "First rail GUID"},
+                    "rail2Id": {"type": "string", "description": "Second rail GUID (distinct from rail1Id)"},
+                    "profileIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Profile curve GUIDs (≥ 1)",
+                        "minItems": 1,
+                    },
+                    "closed": {"type": "boolean", "description": "Close the sweep (default false)"},
+                    "maintainHeight": {"type": "boolean", "description": "Preserve cross-section height when rails diverge (default false)"},
+                    "name": {"type": "string", "description": "Object name"},
+                    "layer": {"type": "string", "description": "Layer path"},
+                    "color": {"type": "string", "description": "Object color"},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)"},
+                },
+                "required": ["rail1Id", "rail2Id", "profileIds"]
+            }
+        ),
+        Tool(
             name="rhino_create_pipe",
             description=(
                 "Create a pipe brep by sweeping a circular cross-section along a rail "
@@ -9443,6 +9507,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # Surface creation — typed routes
         case "rhino_create_loft":
             result = await call_rhino("/surface/loft", "POST", arguments)
+
+        case "rhino_create_sweep1":
+            result = await call_rhino("/surface/sweep1", "POST", arguments)
+
+        case "rhino_create_sweep2":
+            result = await call_rhino("/surface/sweep2", "POST", arguments)
 
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)

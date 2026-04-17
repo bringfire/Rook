@@ -34,6 +34,7 @@
 #include "RookServer.h"
 
 #include <nlohmann/json.hpp>
+#include <functional>
 #include <string>
 
 namespace Rook {
@@ -89,6 +90,48 @@ void EmitNormalized(httplib::Response& res, const std::string& managedResponseJs
         {"errorMessage", message},
     };
     CRookServer::SendErrorData(res, err);
+}
+
+// Shared dispatch tail for every /surface/* handler that has already finished
+// worker-thread validation and injected `type` + `_strictAttributes`. Calls
+// the managed CreateGeometry callback and normalizes the response through
+// EmitNormalized; covers Unavailable / Failed fallbacks uniformly.
+void DispatchToManagedCreate(const std::string& bodyJson, httplib::Response& res)
+{
+    std::string responseJson;
+    int managedStatus = 0;
+    std::string bridgeError;
+    const auto result = InvokeManagedCreateWithBody(bodyJson, responseJson, managedStatus, bridgeError);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+        EmitNormalized(res, responseJson, managedStatus);
+        return;
+    case ManagedCreateInvokeResult::Unavailable:
+    {
+        nlohmann::json err = {
+            {"errorCode", "bridge_unavailable"},
+            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
+        };
+        res.status = 503;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
+    case ManagedCreateInvokeResult::Failed:
+    default:
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
+        };
+        res.status = 500;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
+    }
 }
 
 } // namespace
@@ -212,40 +255,7 @@ void HandlePipe(const httplib::Request& req, httplib::Response& res)
     body["type"] = "PIPE";
     body["_strictAttributes"] = true;
 
-    std::string responseJson;
-    int managedStatus = 0;
-    std::string bridgeError;
-    const auto result = InvokeManagedCreateWithBody(body.dump(), responseJson, managedStatus, bridgeError);
-
-    switch (result)
-    {
-    case ManagedCreateInvokeResult::Ok:
-        EmitNormalized(res, responseJson, managedStatus);
-        return;
-    case ManagedCreateInvokeResult::Unavailable:
-    {
-        nlohmann::json err = {
-            {"errorCode", "bridge_unavailable"},
-            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
-        };
-        res.status = 503;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
-        return;
-    }
-    case ManagedCreateInvokeResult::Failed:
-    default:
-    {
-        nlohmann::json err = {
-            {"errorCode", "operation_failed"},
-            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
-        };
-        res.status = 500;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
-        return;
-    }
-    }
+    DispatchToManagedCreate(body.dump(), res);
 }
 
 // --- POST /surface/loft -------------------------------------------------
@@ -385,40 +395,241 @@ void HandleLoft(const httplib::Request& req, httplib::Response& res)
     body["type"] = "LOFT";
     body["_strictAttributes"] = true;
 
-    std::string responseJson;
-    int managedStatus = 0;
-    std::string bridgeError;
-    const auto result = InvokeManagedCreateWithBody(body.dump(), responseJson, managedStatus, bridgeError);
+    DispatchToManagedCreate(body.dump(), res);
+}
 
-    switch (result)
+// --- Shared validators for /surface/sweep* -------------------------------
+
+namespace {
+
+// Validate the attribute bundle (name/layer/color/visible) on the worker
+// thread. Returns false and sends an invalid_input response on any schema
+// violation; returns true on success (including when every field is absent).
+bool ValidateAttributeBundle(
+    const nlohmann::json& body,
+    const std::function<void(const std::string&, const char*)>& invalidInput)
+{
+    if (body.contains("name") && !body["name"].is_string())
     {
-    case ManagedCreateInvokeResult::Ok:
-        EmitNormalized(res, responseJson, managedStatus);
-        return;
-    case ManagedCreateInvokeResult::Unavailable:
+        invalidInput("Field 'name' must be a string", "invalid_input");
+        return false;
+    }
+    if (body.contains("layer"))
     {
+        if (!body["layer"].is_string() || body["layer"].get<std::string>().empty())
+        {
+            invalidInput("Field 'layer' must be a non-empty string", "invalid_input");
+            return false;
+        }
+    }
+    if (body.contains("visible") && !body["visible"].is_boolean())
+    {
+        invalidInput("Field 'visible' must be a boolean", "invalid_input");
+        return false;
+    }
+    if (body.contains("color"))
+    {
+        try { (void)ParseColor(body, "color"); }
+        catch (const std::invalid_argument& ex)
+        {
+            invalidInput(ex.what(), "invalid_input");
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+// --- POST /surface/sweep1 -----------------------------------------------
+//
+// Plural-contract route. Worker-thread validates railId (UUID format),
+// profileIds (≥ 1, each UUID format), style enum (Freeform | Roadlike),
+// roadlikeUp presence rules (required iff Roadlike; rejected otherwise),
+// closed type, and the attribute bundle. Managed CreateSweep1Plural (gated
+// on _strictAttributes) resolves objects, configures SweepOneRail, and
+// emits the plural {objects: [...]} envelope.
+
+void HandleSweep1(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
         nlohmann::json err = {
-            {"errorCode", "bridge_unavailable"},
-            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
+            {"errorCode", code},
+            {"errorMessage", message},
         };
-        res.status = 503;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
-        return;
-    }
-    case ManagedCreateInvokeResult::Failed:
-    default:
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // railId: required, UUID format.
+    try { (void)ParseUuid(body, "railId"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // profileIds: required, array, min length 1, each UUID format.
+    if (!body.contains("profileIds") || !body["profileIds"].is_array())
     {
-        nlohmann::json err = {
-            {"errorCode", "operation_failed"},
-            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
-        };
-        res.status = 500;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
+        invalidInput("Missing or invalid 'profileIds' (expected array of UUID strings)");
         return;
     }
+    if (body["profileIds"].size() == 0)
+    {
+        invalidInput("Sweep1 requires at least 1 profile curve", "no_profiles");
+        return;
     }
+    try { (void)ParseUuids(body, "profileIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // closed: optional boolean.
+    if (body.contains("closed") && !body["closed"].is_boolean())
+    {
+        invalidInput("Field 'closed' must be a boolean");
+        return;
+    }
+
+    // style: optional enum (Freeform | Roadlike). AlignWithSurface deferred
+    // to Phase 2 — surface-reference schema is unspecified in the plan.
+    std::string styleStr = "Freeform";
+    if (body.contains("style"))
+    {
+        if (!body["style"].is_string())
+        {
+            invalidInput("Field 'style' must be a string", "invalid_style");
+            return;
+        }
+        styleStr = body["style"].get<std::string>();
+        if (!(IEquals(styleStr, "Freeform") || IEquals(styleStr, "Roadlike")))
+        {
+            invalidInput(
+                "Invalid style: must be 'Freeform' or 'Roadlike' (AlignWithSurface deferred to Phase 2)",
+                "invalid_style");
+            return;
+        }
+    }
+    const bool isRoadlike = IEquals(styleStr, "Roadlike");
+
+    // roadlikeUp: [x,y,z] direction vector. Required iff style == Roadlike.
+    if (body.contains("roadlikeUp"))
+    {
+        if (!isRoadlike)
+        {
+            invalidInput(
+                "'roadlikeUp' provided but style is not 'Roadlike'",
+                "roadlike_up_without_style");
+            return;
+        }
+        const auto& up = body["roadlikeUp"];
+        if (!up.is_array() || up.size() != 3)
+        {
+            invalidInput("Field 'roadlikeUp' must be [x,y,z]");
+            return;
+        }
+        double sumSq = 0.0;
+        for (const auto& c : up)
+        {
+            if (!c.is_number())
+            {
+                invalidInput("Field 'roadlikeUp' coordinates must be numbers");
+                return;
+            }
+            const double v = c.get<double>();
+            sumSq += v * v;
+        }
+        if (sumSq <= 0.0)
+        {
+            invalidInput("Field 'roadlikeUp' must be non-zero");
+            return;
+        }
+    }
+    else if (isRoadlike)
+    {
+        invalidInput(
+            "style='Roadlike' requires 'roadlikeUp' direction vector",
+            "missing_roadlike_up");
+        return;
+    }
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "SWEEP1";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
+}
+
+// --- POST /surface/sweep2 -----------------------------------------------
+//
+// Plural-contract route. Worker-thread validates rail1Id / rail2Id (UUID
+// format, string inequality), profileIds (≥ 1, each UUID format), closed
+// and maintainHeight types, and the attribute bundle. Managed
+// CreateSweep2Plural handles object resolution, SweepTwoRail configuration,
+// atomic insert, and the plural envelope.
+//
+// Empty PerformSweep result → operation_failed. The plan's
+// `rails_disconnected` code is deferred until real geometric detection
+// replaces the empty-result heuristic (Codex review 2026-04-17).
+
+void HandleSweep2(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // rail1Id / rail2Id: required, UUID format, string-distinct.
+    try { (void)ParseUuid(body, "rail1Id"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    try { (void)ParseUuid(body, "rail2Id"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    const std::string rail1Str = body["rail1Id"].get<std::string>();
+    const std::string rail2Str = body["rail2Id"].get<std::string>();
+    if (rail1Str == rail2Str)
+    {
+        invalidInput(
+            "rail1Id and rail2Id refer to the same object (use Sweep1 instead)",
+            "rails_coincident");
+        return;
+    }
+
+    // profileIds: required, array, min length 1, each UUID format.
+    if (!body.contains("profileIds") || !body["profileIds"].is_array())
+    {
+        invalidInput("Missing or invalid 'profileIds' (expected array of UUID strings)");
+        return;
+    }
+    if (body["profileIds"].size() == 0)
+    {
+        invalidInput("Sweep2 requires at least 1 profile curve", "no_profiles");
+        return;
+    }
+    try { (void)ParseUuids(body, "profileIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    if (body.contains("closed") && !body["closed"].is_boolean())
+    {
+        invalidInput("Field 'closed' must be a boolean");
+        return;
+    }
+    if (body.contains("maintainHeight") && !body["maintainHeight"].is_boolean())
+    {
+        invalidInput("Field 'maintainHeight' must be a boolean");
+        return;
+    }
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "SWEEP2";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
 }
 
 } // namespace Handlers
