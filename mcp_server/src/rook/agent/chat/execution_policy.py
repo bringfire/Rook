@@ -50,8 +50,6 @@ from typing import Optional
 CREATION_TOOLS: frozenset = frozenset({
     "rhino_create",
     "rhino_boolean",
-    "rhino_loft",
-    "rhino_sweep",
     "rhino_extrude",
     # rhino_execute_intent excluded: multipurpose (create/modify/query/delete),
     #   objectsCreated=0 is a false failure for non-creation intents.

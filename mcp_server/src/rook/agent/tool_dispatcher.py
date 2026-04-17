@@ -384,18 +384,6 @@ def _transform_boolean(args: dict) -> Tuple[str, str, dict]:
     return "/boolean", "POST", a
 
 
-def _transform_loft(args: dict) -> Tuple[str, str, dict]:
-    a = dict(args)
-    a["type"] = "LOFT"
-    return "/create", "POST", a
-
-
-def _transform_sweep(args: dict) -> Tuple[str, str, dict]:
-    a = dict(args)
-    a["type"] = "SWEEP1"
-    return "/create", "POST", a
-
-
 def _transform_extrude(args: dict) -> Tuple[str, str, dict]:
     a = dict(args)
     a["type"] = "EXTRUDE"
@@ -752,8 +740,6 @@ def _transform_rhino_command(params: dict) -> Tuple[str, str, dict]:
 TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_command":           _transform_rhino_command,
     "rhino_boolean":           _transform_boolean,
-    "rhino_loft":              _transform_loft,
-    "rhino_sweep":             _transform_sweep,
     "rhino_extrude":           _transform_extrude,
     "rhino_text":              _transform_text,
     "rhino_select_all":        _transform_select_all,

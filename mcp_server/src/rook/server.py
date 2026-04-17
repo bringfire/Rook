@@ -2146,36 +2146,6 @@ Examples:
         ),
         # Surface creation tools
         Tool(
-            name="rhino_loft",
-            description="Create a lofted surface through multiple curves.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string", "const": "LOFT"},
-                    "curveIds": {"type": "array", "items": {"type": "string"}, "description": "Curve GUIDs to loft through"},
-                    "closed": {"type": "boolean", "description": "Create closed loft (default false)"},
-                    "name": {"type": "string", "description": "Object name"},
-                    "layer": {"type": "string", "description": "Layer path"}
-                },
-                "required": ["curveIds"]
-            }
-        ),
-        Tool(
-            name="rhino_sweep",
-            description="Create a swept surface along a rail curve.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string", "const": "SWEEP"},
-                    "railId": {"type": "string", "description": "Rail curve GUID"},
-                    "profileIds": {"type": "array", "items": {"type": "string"}, "description": "Profile curve GUIDs"},
-                    "name": {"type": "string", "description": "Object name"},
-                    "layer": {"type": "string", "description": "Layer path"}
-                },
-                "required": ["railId", "profileIds"]
-            }
-        ),
-        Tool(
             name="rhino_extrude",
             description="Extrude a curve or surface along a direction.",
             inputSchema={
@@ -9410,16 +9380,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await call_rhino("/boolean", "POST", args)
 
         # Surface creation (via /create endpoint)
-        case "rhino_loft":
-            args = dict(arguments)
-            args["type"] = "LOFT"
-            result = await call_rhino("/create", "POST", args)
-
-        case "rhino_sweep":
-            args = dict(arguments)
-            args["type"] = "SWEEP1"
-            result = await call_rhino("/create", "POST", args)
-
         case "rhino_extrude":
             args = dict(arguments)
             args["type"] = "EXTRUDE"

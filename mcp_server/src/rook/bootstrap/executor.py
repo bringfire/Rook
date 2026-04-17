@@ -158,8 +158,6 @@ class HttpExecutor:
 
             # Advanced geometry (POST)
             "rhino_boolean": ("POST", "/boolean", params),
-            "rhino_loft": ("POST", "/loft", params),
-            "rhino_sweep": ("POST", "/sweep", params),
             "rhino_extrude": ("POST", "/extrude", params),
 
             # Curve operations - routes based on action parameter

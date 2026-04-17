@@ -88,7 +88,7 @@ class TestRhinoCreationTools:
         assert isinstance(_RHINO_CREATION_TOOLS, frozenset)
 
     def test_contains_expected_tools(self):
-        expected = {"rhino_create", "rhino_boolean", "rhino_loft", "rhino_sweep", "rhino_extrude"}
+        expected = {"rhino_create", "rhino_boolean", "rhino_extrude"}
         assert _RHINO_CREATION_TOOLS == expected
 
     def test_excludes_read_tools(self):

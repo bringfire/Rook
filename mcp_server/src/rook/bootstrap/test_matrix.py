@@ -1592,26 +1592,6 @@ PHASE_6_TESTS = [
         learn_on_success="Three or more curves allow complex loft shapes",
     ),
 
-    # LOFT operation
-    TestCase(
-        id="advanced-022",
-        tool="rhino_loft",
-        params={"curveIds": ["PLACEHOLDER1", "PLACEHOLDER2", "PLACEHOLDER3"]},
-        expected=ExpectedOutcome.SUCCESS,
-        phase=TestPhase.PHASE_6_ADVANCED,
-        description="Loft through three circles",
-        intent="create lofted surface through curves",
-        tags=["advanced", "loft", "basic"],
-        depends_on=["advanced-019", "advanced-020", "advanced-021"],
-        learn_on_success=(
-            "rhino_loft with {curveIds: ['guid1', 'guid2', ...]} creates surface through curves. "
-            "Curves must be ordered from start to end. "
-            "Closed curves (circles) create closed surfaces. "
-            "Use closed: true for periodic loft (loops back to first curve)."
-        ),
-    ),
-
-    # LOFT with closed parameter
     TestCase(
         id="advanced-023",
         tool="rhino_create",
@@ -1645,23 +1625,6 @@ PHASE_6_TESTS = [
         tags=["advanced", "loft", "setup"],
         learn_on_success="Third point creates curved closed loft path",
     ),
-    TestCase(
-        id="advanced-026",
-        tool="rhino_loft",
-        params={"curveIds": ["PLACEHOLDER1", "PLACEHOLDER2", "PLACEHOLDER3"], "closed": True},
-        expected=ExpectedOutcome.SUCCESS,
-        phase=TestPhase.PHASE_6_ADVANCED,
-        description="Create closed loft (loops back)",
-        intent="create periodic loft surface",
-        tags=["advanced", "loft", "closed"],
-        depends_on=["advanced-023", "advanced-024", "advanced-025"],
-        learn_on_success=(
-            "rhino_loft with closed: true creates periodic surface that connects last curve back to first. "
-            "Creates a continuous loop surface. "
-            "Useful for creating ring/torus shapes."
-        ),
-    ),
-
     # SWEEP - Create rail and profile curves
     TestCase(
         id="advanced-027",
@@ -1686,26 +1649,6 @@ PHASE_6_TESTS = [
         learn_on_success="Sweep profile is the shape that travels along the rail",
     ),
 
-    # SWEEP operation
-    TestCase(
-        id="advanced-029",
-        tool="rhino_sweep",
-        params={"railId": "PLACEHOLDER_RAIL", "profileIds": ["PLACEHOLDER_PROFILE"]},
-        expected=ExpectedOutcome.SUCCESS,
-        phase=TestPhase.PHASE_6_ADVANCED,
-        description="Sweep circle along arc rail",
-        intent="create swept surface",
-        tags=["advanced", "sweep", "basic"],
-        depends_on=["advanced-027", "advanced-028"],
-        learn_on_success=(
-            "rhino_sweep with {railId: 'rail_guid', profileIds: ['profile_guid']} sweeps profile along rail. "
-            "Profile should be at or near the start of the rail. "
-            "Closed profiles create closed surfaces (pipes). "
-            "Multiple profiles can morph shape along the rail."
-        ),
-    ),
-
-    # SWEEP with multiple profiles
     TestCase(
         id="advanced-030",
         tool="rhino_create",
@@ -1739,23 +1682,6 @@ PHASE_6_TESTS = [
         tags=["advanced", "sweep", "setup"],
         learn_on_success="Profile at end of rail defines final shape",
     ),
-    TestCase(
-        id="advanced-033",
-        tool="rhino_sweep",
-        params={"railId": "PLACEHOLDER_RAIL", "profileIds": ["PLACEHOLDER_START", "PLACEHOLDER_END"]},
-        expected=ExpectedOutcome.SUCCESS,
-        phase=TestPhase.PHASE_6_ADVANCED,
-        description="Sweep with two profiles (morphing)",
-        intent="create morphing swept surface",
-        tags=["advanced", "sweep", "multi-profile"],
-        depends_on=["advanced-030", "advanced-031", "advanced-032"],
-        learn_on_success=(
-            "rhino_sweep with multiple profileIds morphs between profiles along the rail. "
-            "Profiles should be positioned at or near their rail locations. "
-            "Creates smooth transition between shapes."
-        ),
-    ),
-
     # Edge case: Boolean with single solid
     TestCase(
         id="advanced-034",
@@ -1804,22 +1730,6 @@ PHASE_6_TESTS = [
         intent="create loft profile with different shape",
         tags=["advanced", "loft", "setup"],
         learn_on_success="Lofting between different curve shapes (circle to rectangle) creates morphing surface",
-    ),
-    TestCase(
-        id="advanced-038",
-        tool="rhino_loft",
-        params={"curveIds": ["PLACEHOLDER1", "PLACEHOLDER2"]},
-        expected=ExpectedOutcome.SUCCESS,
-        phase=TestPhase.PHASE_6_ADVANCED,
-        description="Loft between circle and rectangle",
-        intent="loft between different shapes",
-        tags=["advanced", "loft", "morph"],
-        depends_on=["advanced-036", "advanced-037"],
-        learn_on_success=(
-            "Lofting between different closed shapes morphs smoothly between them. "
-            "Circle to rectangle creates gradual corner transition. "
-            "Both curves must be closed for closed loft surface."
-        ),
     ),
 ]
 
