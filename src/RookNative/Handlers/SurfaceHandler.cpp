@@ -16,6 +16,16 @@
 // managed string errors into structured {errorCode, errorMessage} form
 // on the way back so the typed route ships the target contract from day
 // one, rather than inheriting the reuse seam's legacy error shape.
+//
+// Strict-attributes convention (required for every new typed surface route):
+// each handler MUST inject `_strictAttributes: true` into the request body
+// before dispatching to InvokeManagedCreateWithBody. This opts the managed
+// CreateGeometry path into Phase 1 contract behavior (unknown layer /
+// unparseable color / wrong-type curveId → structured invalid_input;
+// `visible` applied; plural creators route to their *Plural counterparts
+// and return {objects: [...]} envelopes). Legacy /create callers that omit
+// the flag keep pre-PR-1 silent-ignore behavior and singular-brep
+// FirstOrDefault semantics — scope containment per the PR-1 Codex review.
 
 #include "stdafx.h"
 #include "Handlers/SurfaceHandler.h"
@@ -200,6 +210,179 @@ void HandlePipe(const httplib::Request& req, httplib::Response& res)
     // /create callers on the pre-PR-1 silent-ignore path, containing the
     // contract change to the typed surface routes.
     body["type"] = "PIPE";
+    body["_strictAttributes"] = true;
+
+    std::string responseJson;
+    int managedStatus = 0;
+    std::string bridgeError;
+    const auto result = InvokeManagedCreateWithBody(body.dump(), responseJson, managedStatus, bridgeError);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+        EmitNormalized(res, responseJson, managedStatus);
+        return;
+    case ManagedCreateInvokeResult::Unavailable:
+    {
+        nlohmann::json err = {
+            {"errorCode", "bridge_unavailable"},
+            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
+        };
+        res.status = 503;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
+    case ManagedCreateInvokeResult::Failed:
+    default:
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
+        };
+        res.status = 500;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
+    }
+}
+
+// --- POST /surface/loft -------------------------------------------------
+//
+// Plural-contract route. Worker-thread validates curveIds (≥ 2, each UUID
+// format), loftType enum, closed, convergence points, tolerance, and the
+// attribute bundle. Managed CreateLoftPlural (gated on _strictAttributes)
+// handles curve resolution, factory invocation, atomic doc insertion, and
+// {objects: [...]} envelope construction.
+
+void HandleLoft(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // curveIds: required, array, min length 2, each element a valid UUID.
+    if (!body.contains("curveIds") || !body["curveIds"].is_array())
+    {
+        invalidInput("Missing or invalid 'curveIds' (expected array of UUID strings)");
+        return;
+    }
+    if (body["curveIds"].size() < 2)
+    {
+        invalidInput("Loft requires at least 2 curves", "insufficient_curves");
+        return;
+    }
+    try { (void)ParseUuids(body, "curveIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // loftType: optional string, case-insensitive enum check.
+    if (body.contains("loftType"))
+    {
+        if (!body["loftType"].is_string())
+        {
+            invalidInput("Field 'loftType' must be a string", "invalid_loft_type");
+            return;
+        }
+        std::string lt = body["loftType"].get<std::string>();
+        static const char* kValid[] = {
+            "Normal", "Loose", "Tight", "Straight", "Uniform", "Developable"
+        };
+        bool ok = false;
+        for (const char* v : kValid)
+        {
+            if (IEquals(lt, v)) { ok = true; break; }
+        }
+        if (!ok)
+        {
+            invalidInput(
+                "Invalid loftType: must be one of Normal/Loose/Tight/Straight/Uniform/Developable",
+                "invalid_loft_type");
+            return;
+        }
+    }
+
+    // closed: optional boolean.
+    if (body.contains("closed") && !body["closed"].is_boolean())
+    {
+        invalidInput("Field 'closed' must be a boolean");
+        return;
+    }
+    const bool closed = body.value("closed", false);
+
+    // Convergence points: optional [x,y,z] arrays.
+    auto validatePoint = [&](const char* field) -> bool {
+        if (!body.contains(field)) return true;
+        const auto& el = body[field];
+        if (!el.is_array() || el.size() != 3)
+        {
+            invalidInput(std::string("Field '") + field + "' must be [x,y,z]");
+            return false;
+        }
+        for (const auto& c : el)
+        {
+            if (!c.is_number())
+            {
+                invalidInput(std::string("Field '") + field + "' coordinates must be numbers");
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!validatePoint("startPoint")) return;
+    if (!validatePoint("endPoint")) return;
+
+    // closed + convergence conflict.
+    if (closed && (body.contains("startPoint") || body.contains("endPoint")))
+    {
+        invalidInput(
+            "Cannot combine closed=true with convergence points (startPoint/endPoint)",
+            "convergence_point_conflict");
+        return;
+    }
+
+    // Note: tolerance is intentionally not accepted on this route. The
+    // RhinoCommon `Brep.CreateFromLoft(curves, start, end, type, closed)`
+    // overload uses `doc.ModelAbsoluteTolerance` implicitly and exposes no
+    // tolerance parameter. Honoring a user-supplied tolerance would require
+    // switching to `CreateFromLoftRefit` (different semantics — adds
+    // rebuild-point control) and is deferred to a future PR with an
+    // explicit use case.
+
+    // Attribute bundle — same syntactic checks as HandlePipe.
+    if (body.contains("name") && !body["name"].is_string())
+    {
+        invalidInput("Field 'name' must be a string");
+        return;
+    }
+    if (body.contains("layer"))
+    {
+        if (!body["layer"].is_string() || body["layer"].get<std::string>().empty())
+        {
+            invalidInput("Field 'layer' must be a non-empty string");
+            return;
+        }
+    }
+    if (body.contains("visible") && !body["visible"].is_boolean())
+    {
+        invalidInput("Field 'visible' must be a boolean");
+        return;
+    }
+    if (body.contains("color"))
+    {
+        try { (void)ParseColor(body, "color"); }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+
+    // Inject type + strict-attributes opt-in (see file header for convention).
+    body["type"] = "LOFT";
     body["_strictAttributes"] = true;
 
     std::string responseJson;

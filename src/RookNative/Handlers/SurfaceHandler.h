@@ -21,5 +21,10 @@ namespace Handlers {
 // POST /surface/pipe — Create a pipe brep along a rail curve.
 void HandlePipe(const httplib::Request& req, httplib::Response& res);
 
+// POST /surface/loft — Create lofted brep(s) through 2+ profile curves.
+// Plural-contract route: response wraps result in {objects: [...]} even
+// when the loft factory returns exactly one brep.
+void HandleLoft(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

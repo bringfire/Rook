@@ -1044,6 +1044,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/surface/pipe", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandlePipe(req, res);
     });
+    m_server->Post("/surface/loft", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleLoft(req, res);
+    });
 
     // Phase 4E: Mesh operations
     m_server->Post("/mesh/from-brep", [this](const httplib::Request& req, httplib::Response& res) {

@@ -246,18 +246,18 @@ async def test_pipe_invalid_uuid_format(fresh_document):
 
 
 async def test_pipe_unknown_curveid(fresh_document):
-    """curveId is valid UUID but does not exist in document → invalid_input.
+    """curveId is valid UUID but does not exist in document → not_found.
 
-    Managed CreatePipe rejects not-found ids with structured errors; the
-    "in document" string in the message distinguishes not-found from
-    wrong-type.
+    Managed CreatePipe rejects not-found ids with structured errors, distinct
+    from invalid_input (bad UUID format) and wrong-type ("not a curve"), per
+    the error-taxonomy base set (invalid_input / not_found / operation_failed).
     """
     # Use a syntactically valid UUID that cannot exist in a fresh doc.
     status, envelope = await _post_pipe_raw({
         "curveId": "00000000-0000-0000-0000-000000000001",
         "radius": 1.0,
     })
-    _assert_structured_error(envelope, "invalid_input")
+    _assert_structured_error(envelope, "not_found")
     assert "not found" in envelope["data"]["errorMessage"].lower(), (
         f"Expected 'not found' message: {envelope!r}"
     )
