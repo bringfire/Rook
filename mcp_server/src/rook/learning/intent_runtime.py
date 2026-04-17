@@ -329,6 +329,17 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Sweep profile(s) between two rails",
     )
+    routes["create_revolve"] = RouteSpec(
+        endpoint="/surface/revolve",
+        required_params=("curveId", "axisStart", "axisEnd"),
+        optional_params=(
+            "startAngle", "endAngle",
+            # `tolerance` intentionally omitted — RevSurface.ToBrep() takes
+            # no tolerance parameter. Same API-limitation rationale as Loft.
+            "name", "layer", "color", "visible",
+        ),
+        description="Revolve a curve around a line axis",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
@@ -1031,6 +1042,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_cylinder", "create_cone", "create_extrusion",
         "create_interpolated_curve", "create_control_point_curve",
         "create_pipe", "create_loft", "create_sweep1", "create_sweep2",
+        "create_revolve",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

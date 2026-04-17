@@ -163,7 +163,7 @@ namespace Rook.Handlers
                     "LOFT" => CreateLoft(doc, request),
                     "SWEEP1" => CreateSweep1(doc, request),
                     "SWEEP2" => CreateSweep2(doc, request),
-                    "REVOLVE" => CreateRevolve(doc, request),
+                    "REVOLVE" => strictAttributes ? CreateRevolveStrict(doc, request) : CreateRevolve(doc, request),
                     "EXTRUDE" => CreateExtrude(doc, request),
                     "PIPE" => CreatePipe(doc, request, strictAttributes),
                     "PLANAR_SURFACE" or "PLANARSURFACE" => CreatePlanarSurface(doc, request),
@@ -1610,6 +1610,77 @@ namespace Rook.Handlers
                     "SweepTwoRail produced no geometry");
 
             return InsertBrepsAsPluralResponse(doc, breps, attributes, "SweepTwoRail");
+        }
+
+        /// <summary>
+        /// Creates a revolved surface around a line axis with the Phase 1
+        /// typed contract. Reached only via the singular switch when
+        /// _strictAttributes is set (`"REVOLVE" => strict ? CreateRevolveStrict
+        /// : CreateRevolve`). Legacy /create?type=REVOLVE callers continue to
+        /// hit the silent-defaults CreateRevolve path — scope containment
+        /// per Codex review of the PR-4 scoping pass.
+        ///
+        /// Contract deltas vs legacy CreateRevolve:
+        ///   - axisStart + axisEnd REQUIRED (legacy defaults to Z axis
+        ///     through origin)
+        ///   - startAngle + endAngle explicit (legacy takes single `angle`
+        ///     with implicit 0 start)
+        ///   - axis_degenerate / angle_invalid rejections (legacy silently
+        ///     accepts any input)
+        ///
+        /// `curve_intersects_axis` is a DEFERRED PLAN-CODE: detection needs
+        /// geometric curve-line intersection (feasible via
+        /// Intersection.CurveLine but tolerance-sensitive). Factory failures
+        /// — including the curve-crosses-axis case — classify as
+        /// operation_failed in PR-4. A future PR replaces the fallthrough
+        /// with real detection.
+        /// </summary>
+        private Brep? CreateRevolveStrict(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // Native has already validated curveId UUID format, axis presence
+            // + shape, axis_degenerate, angle types, angle_invalid, and the
+            // attribute bundle. Managed re-resolves for structured error codes.
+            string? curveId = request.TryGetValue("curveId", out var curveEl) ? curveEl.GetString() : null;
+            var curve = ResolveCurveStrict(doc, curveId, "curveId");
+
+            if (!request.TryGetValue("axisStart", out var axisStartEl) || !request.TryGetValue("axisEnd", out var axisEndEl))
+                throw new CreateInvalidInputException("axisStart and axisEnd are required");
+
+            var axisStart = ParsePoint3d(axisStartEl);
+            var axisEnd = ParsePoint3d(axisEndEl);
+            if (!axisStart.HasValue || !axisEnd.HasValue)
+                throw new CreateInvalidInputException("Invalid axisStart or axisEnd — expected [x,y,z]");
+
+            // Belt-and-suspenders: native already rejected coordinate-exact
+            // equality. If something slips through (native bypassed via direct
+            // /create call with _strictAttributes), catch it here too.
+            if (axisStart.Value == axisEnd.Value)
+                throw new CreateInvalidInputException(
+                    "axisStart and axisEnd are identical; axis has zero length",
+                    errorCode: "axis_degenerate");
+
+            var startAngleDeg = GetDouble(request, "startAngle") ?? 0.0;
+            var endAngleDeg = GetDouble(request, "endAngle") ?? 360.0;
+            if (startAngleDeg == endAngleDeg)
+                throw new CreateInvalidInputException(
+                    "startAngle and endAngle are identical; revolve sweep is empty",
+                    errorCode: "angle_invalid");
+
+            var axis = new Line(axisStart.Value, axisEnd.Value);
+            var startRad = RhinoMath.ToRadians(startAngleDeg);
+            var endRad = RhinoMath.ToRadians(endAngleDeg);
+
+            var rev = RevSurface.Create(curve, axis, startRad, endRad);
+            if (rev == null)
+                throw new CreateOperationFailedException(
+                    "RevSurface.Create produced no surface "
+                    + "(curve may intersect axis or input is otherwise incompatible)");
+
+            var brep = rev.ToBrep();
+            if (brep == null)
+                throw new CreateOperationFailedException("RevSurface.ToBrep produced no brep");
+
+            return brep;
         }
 
         #endregion
