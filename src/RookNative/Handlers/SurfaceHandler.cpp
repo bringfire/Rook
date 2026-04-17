@@ -251,9 +251,9 @@ void HandlePipe(const httplib::Request& req, httplib::Response& res)
 // --- POST /surface/loft -------------------------------------------------
 //
 // Plural-contract route. Worker-thread validates curveIds (≥ 2, each UUID
-// format), loftType enum, closed, convergence points, tolerance, and the
-// attribute bundle. Managed CreateLoftPlural (gated on _strictAttributes)
-// handles curve resolution, factory invocation, atomic doc insertion, and
+// format), loftType enum, closed, convergence points, and the attribute
+// bundle. Managed CreateLoftPlural (gated on _strictAttributes) handles
+// curve resolution, factory invocation, atomic doc insertion, and
 // {objects: [...]} envelope construction.
 
 void HandleLoft(const httplib::Request& req, httplib::Response& res)
