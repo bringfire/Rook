@@ -12,6 +12,25 @@ using Rook.Serialization;
 namespace Rook.Handlers
 {
     /// <summary>
+    /// Thrown by create-geometry code paths to signal a structured
+    /// {errorCode, errorMessage} failure that should bubble to the ApiResponse
+    /// without the generic "Create failed" wrapper. Used by the Phase 1 typed
+    /// surface routes to give callers precise error codes (invalid_input /
+    /// not_found) instead of silent-ignore behavior for bad attribute bundles
+    /// and wrong-type inputs.
+    /// </summary>
+    internal class CreateInvalidInputException : Exception
+    {
+        public string ErrorCode { get; }
+
+        public CreateInvalidInputException(string message, string errorCode = "invalid_input")
+            : base(message)
+        {
+            ErrorCode = errorCode;
+        }
+    }
+
+    /// <summary>
     /// Handles /create endpoint - creates basic geometry.
     /// </summary>
     public class CreateHandler
@@ -44,6 +63,11 @@ namespace Rook.Handlers
             {
                 return new ApiResponse { Success = false, Data = "Invalid type" };
             }
+
+            // Read the strict-attributes flag upfront so geometry factories can
+            // pick throw-on-bad-input (strict) vs return-null (legacy) behavior.
+            var strictAttributes = request.TryGetValue("_strictAttributes", out var strictEl)
+                && strictEl.ValueKind == JsonValueKind.True;
 
             var record = doc.BeginUndoRecord($"Create {type}");
 
@@ -97,7 +121,7 @@ namespace Rook.Handlers
                     "SWEEP2" => CreateSweep2(doc, request),
                     "REVOLVE" => CreateRevolve(doc, request),
                     "EXTRUDE" => CreateExtrude(doc, request),
-                    "PIPE" => CreatePipe(doc, request),
+                    "PIPE" => CreatePipe(doc, request, strictAttributes),
                     "PLANAR_SURFACE" or "PLANARSURFACE" => CreatePlanarSurface(doc, request),
                     // Curve types
                     "INTERPOLATED_CURVE" or "INTERPOLATEDCURVE" or "INTERP_CURVE" => CreateInterpolatedCurve(request),
@@ -110,7 +134,14 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = $"Unknown or invalid geometry type: {type}" };
                 }
 
-                // Set up attributes
+                // Set up attributes. When `_strictAttributes` is set (Phase 1
+                // typed routes opt in via the native layer), unknown layers
+                // and unparseable colors are rejected as structured
+                // invalid_input errors rather than silently ignored. Legacy
+                // /create callers keep the pre-PR-1 silent-ignore behavior for
+                // compat, per Codex review of PR-1 scope containment. `visible`
+                // is additive in both modes — a new field, not a behavior
+                // change for existing callers.
                 var attributes = new ObjectAttributes();
 
                 if (request.TryGetValue("name", out var nameEl))
@@ -124,7 +155,13 @@ namespace Rook.Handlers
                     if (!string.IsNullOrEmpty(layerPath))
                     {
                         var layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
-                        if (layerIndex >= 0)
+                        if (layerIndex < 0)
+                        {
+                            if (strictAttributes)
+                                throw new CreateInvalidInputException($"Layer not found: {layerPath}");
+                            // Legacy silent-ignore path for non-strict callers.
+                        }
+                        else
                         {
                             attributes.LayerIndex = layerIndex;
                         }
@@ -138,6 +175,26 @@ namespace Rook.Handlers
                     {
                         attributes.ObjectColor = color.Value;
                         attributes.ColorSource = ObjectColorSource.ColorFromObject;
+                    }
+                    else if (strictAttributes)
+                    {
+                        throw new CreateInvalidInputException("Invalid color format");
+                    }
+                    // else: legacy silent-ignore path.
+                }
+
+                if (request.TryGetValue("visible", out var visibleEl))
+                {
+                    if (visibleEl.ValueKind != JsonValueKind.True && visibleEl.ValueKind != JsonValueKind.False)
+                    {
+                        if (strictAttributes)
+                            throw new CreateInvalidInputException("Field 'visible' must be a boolean");
+                        // Non-strict callers get silent-ignore for non-boolean visible,
+                        // matching the legacy pattern for other attribute fields.
+                    }
+                    else
+                    {
+                        attributes.Visible = visibleEl.GetBoolean();
                     }
                 }
 
@@ -155,6 +212,19 @@ namespace Rook.Handlers
                 {
                     Success = true,
                     Data = obj != null ? RhinoSerializer.SerializeObject(obj) : new Dictionary<string, object> { ["id"] = guid.ToString() }
+                };
+            }
+            catch (CreateInvalidInputException ex)
+            {
+                doc.Undo();
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new Dictionary<string, object>
+                    {
+                        ["errorCode"] = ex.ErrorCode,
+                        ["errorMessage"] = ex.Message,
+                    }
                 };
             }
             catch (Exception ex)
@@ -646,15 +716,46 @@ namespace Rook.Handlers
         /// { "type": "PIPE", "curveId": "guid", "radius": 5 }
         /// or { "type": "PIPE", "curveId": "guid", "startRadius": 5, "endRadius": 10 }
         /// </summary>
-        private Brep? CreatePipe(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        private Brep? CreatePipe(RhinoDoc doc, Dictionary<string, JsonElement> request, bool strictAttributes)
         {
-            // Get curve
+            // Get curve — in strict mode (typed /surface/pipe route) we
+            // differentiate missing / bad-UUID / not-found / wrong-type and
+            // throw structured invalid_input errors. Legacy /create?type=PIPE
+            // callers keep the return-null behavior which bubbles up to the
+            // "Unknown or invalid geometry type" envelope for compat.
             string? curveId = null;
             if (request.TryGetValue("curveId", out var curveEl))
                 curveId = curveEl.GetString();
-            var curve = GetCurve(doc, curveId);
-            if (curve == null)
+            if (string.IsNullOrEmpty(curveId))
+            {
+                if (strictAttributes)
+                    throw new CreateInvalidInputException("Missing required field: curveId");
                 return null;
+            }
+            if (!Guid.TryParse(curveId, out var curveGuid))
+            {
+                if (strictAttributes)
+                    throw new CreateInvalidInputException($"Invalid UUID format for curveId: {curveId}");
+                return null;
+            }
+            var curveObj = doc.Objects.FindId(curveGuid);
+            if (curveObj == null)
+            {
+                if (strictAttributes)
+                    throw new CreateInvalidInputException($"curveId {curveId} not found in document");
+                return null;
+            }
+            var curve = curveObj.Geometry as Curve;
+            if (curve == null)
+            {
+                if (strictAttributes)
+                {
+                    var typeName = curveObj.Geometry?.GetType().Name ?? "unknown";
+                    throw new CreateInvalidInputException(
+                        $"curveId {curveId} is not a curve (geometry type: {typeName})");
+                }
+                return null;
+            }
 
             // Get radius/radii
             var radius = GetDouble(request, "radius");

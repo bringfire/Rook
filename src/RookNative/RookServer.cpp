@@ -26,6 +26,7 @@
 #include "Handlers/IntersectionHandler.h"
 #include "Handlers/SplitTrimHandler.h"
 #include "Handlers/OffsetBrepHandler.h"
+#include "Handlers/SurfaceHandler.h"
 #include "Handlers/MeshHandler.h"
 #include "Handlers/SubDHandler.h"
 #include "Handlers/BlocksHandler.h"
@@ -1036,6 +1037,12 @@ void CRookServer::RegisterRoutes()
     // Phase 4E: Offset Brep
     m_server->Post("/offset/brep", [this](const httplib::Request& req, httplib::Response& res) {
         HandleOffsetBrep(req, res);
+    });
+
+    // Phase 1 typed surface-creation routes (managed-bridge reuse).
+    // Plan: rook_docs/2026-04-17-typed-route-phase1-plan.md
+    m_server->Post("/surface/pipe", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandlePipe(req, res);
     });
 
     // Phase 4E: Mesh operations

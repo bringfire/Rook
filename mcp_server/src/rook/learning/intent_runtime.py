@@ -282,6 +282,20 @@ def _build_route_table() -> dict[str, RouteSpec]:
             description=f"Create {type_val.lower().replace('_', ' ')}",
         )
 
+    # === Creation: Phase 1 typed surface routes ===
+    # Plan: rook_docs/2026-04-17-typed-route-phase1-plan.md
+    # XOR contract (radius vs startRadius+endRadius) is enforced natively.
+    routes["create_pipe"] = RouteSpec(
+        endpoint="/surface/pipe",
+        required_params=("curveId",),
+        optional_params=(
+            "radius", "startRadius", "endRadius",
+            "cap", "tolerance",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create pipe brep along rail curve",
+    )
+
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
         endpoint="/mesh/box",
@@ -982,6 +996,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_arc", "create_rectangle", "create_box", "create_sphere",
         "create_cylinder", "create_cone", "create_extrusion",
         "create_interpolated_curve", "create_control_point_curve",
+        "create_pipe",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

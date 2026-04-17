@@ -352,6 +352,49 @@ BridgeInvokeResult TryInvokeRegisteredCallback(
     return BridgeInvokeResult::Completed;
 }
 
+BridgeInvokeResult TryInvokeRegisteredCallbackWithBody(
+    GhBridgeCallbackFn callback,
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& outStatusCode,
+    std::string& error)
+{
+    if (!callback)
+    {
+        return BridgeInvokeResult::Unavailable;
+    }
+
+    std::vector<char> responseBuffer(1024 * 1024, '\0');
+    int32_t responseLength = 0;
+    int32_t statusCode = 0;
+
+    const int rc = callback(
+        requestJson.c_str(),
+        static_cast<int32_t>(requestJson.size()),
+        responseBuffer.data(),
+        static_cast<int32_t>(responseBuffer.size()),
+        &responseLength,
+        &statusCode);
+
+    if (rc != 0)
+    {
+        std::ostringstream message;
+        message << "Managed GH callback invocation failed (" << rc << ").";
+        error = message.str();
+        return BridgeInvokeResult::Failed;
+    }
+
+    if (responseLength < 0 || responseLength > static_cast<int32_t>(responseBuffer.size()))
+    {
+        error = "Managed GH callback returned an invalid response length.";
+        return BridgeInvokeResult::Failed;
+    }
+
+    responseJson.assign(responseBuffer.data(), responseBuffer.data() + responseLength);
+    outStatusCode = statusCode == 0 ? 200 : statusCode;
+    return BridgeInvokeResult::Completed;
+}
+
 void DispatchGrasshopperRoute(
     const httplib::Request& req,
     httplib::Response& res,
@@ -856,6 +899,37 @@ bool TryHandleManagedCreate(const httplib::Request& req, httplib::Response& res)
     }
 
     return false;
+}
+
+ManagedCreateInvokeResult InvokeManagedCreateWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.create_geometry == nullptr)
+    {
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.create_geometry,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
 }
 
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res)
