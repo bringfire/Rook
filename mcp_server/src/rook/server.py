@@ -2245,6 +2245,32 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_create_revolve",
+            description=(
+                "Revolve a profile curve around a line axis to create a brep. "
+                "Typed Phase 1 route (POST /surface/revolve). Singular contract: "
+                "response is a bare ObjectSnapshot. axisStart + axisEnd are "
+                "REQUIRED (no implicit default axis); startAngle + endAngle "
+                "are degrees (defaults 0 and 360). Supports partial revolve "
+                "(e.g. startAngle=90, endAngle=270)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveId": {"type": "string", "description": "Profile curve GUID"},
+                    "axisStart": {"type": "array", "description": "Axis line start [x,y,z]"},
+                    "axisEnd": {"type": "array", "description": "Axis line end [x,y,z] — must differ from axisStart"},
+                    "startAngle": {"type": "number", "description": "Sweep start angle in degrees (default 0)"},
+                    "endAngle": {"type": "number", "description": "Sweep end angle in degrees (default 360)"},
+                    "name": {"type": "string", "description": "Object name"},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)"},
+                    "color": {"type": "string", "description": "Object color"},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)"},
+                },
+                "required": ["curveId", "axisStart", "axisEnd"]
+            }
+        ),
+        Tool(
             name="rhino_create_pipe",
             description=(
                 "Create a pipe brep by sweeping a circular cross-section along a rail "
@@ -9513,6 +9539,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_sweep2":
             result = await call_rhino("/surface/sweep2", "POST", arguments)
+
+        case "rhino_create_revolve":
+            result = await call_rhino("/surface/revolve", "POST", arguments)
 
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)

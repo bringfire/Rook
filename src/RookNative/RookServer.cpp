@@ -1053,6 +1053,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/surface/sweep2", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleSweep2(req, res);
     });
+    m_server->Post("/surface/revolve", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleRevolve(req, res);
+    });
 
     // Phase 4E: Mesh operations
     m_server->Post("/mesh/from-brep", [this](const httplib::Request& req, httplib::Response& res) {

@@ -35,5 +35,11 @@ void HandleSweep1(const httplib::Request& req, httplib::Response& res);
 // vertical height when rails diverge (maps to SweepTwoRail.MaintainHeight).
 void HandleSweep2(const httplib::Request& req, httplib::Response& res);
 
+// POST /surface/revolve — Revolve a profile curve around a line axis.
+// Singular-contract (RevSurface.Create produces one surface → one brep).
+// axisStart/axisEnd required; startAngle/endAngle optional (degrees,
+// defaults 0 and 360).
+void HandleRevolve(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

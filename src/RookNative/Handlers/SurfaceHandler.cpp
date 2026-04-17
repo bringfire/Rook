@@ -632,5 +632,121 @@ void HandleSweep2(const httplib::Request& req, httplib::Response& res)
     DispatchToManagedCreate(body.dump(), res);
 }
 
+// --- POST /surface/revolve ----------------------------------------------
+//
+// Singular-contract route (bare ObjectSnapshot on success, same as Pipe).
+// Worker-thread validates curveId UUID format, axisStart/axisEnd presence
+// and shape, angle types, axis_degenerate (axisStart == axisEnd), and
+// angle_invalid (startAngle == endAngle). Managed CreateRevolveStrict
+// (gated on _strictAttributes) resolves the curve, builds the axis line,
+// converts angles to radians, and invokes RevSurface.Create + ToBrep.
+//
+// The plan lists `curve_intersects_axis` as a route-specific error code.
+// PR-4 ships this as a DEFERRED PLAN-CODE: detection requires geometric
+// curve-line intersection checks (feasible via Intersection.CurveLine but
+// tolerance-sensitive without a deterministic fixture). Factory failures
+// — including the curve-crosses-axis case — classify as operation_failed
+// in PR-4. The code itself remains in the plan's taxonomy; a future PR
+// replaces the fallthrough with real geometric detection.
+//
+// tolerance deliberately omitted from the schema: RevSurface.ToBrep()
+// takes no tolerance parameter, same API limitation as Loft's
+// Brep.CreateFromLoft non-refit overload.
+
+void HandleRevolve(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // curveId: required, UUID format.
+    try { (void)ParseUuid(body, "curveId"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // axisStart, axisEnd: required [x,y,z] arrays of numbers.
+    auto parseAxisPoint = [&](const char* field, double out[3]) -> bool {
+        if (!body.contains(field))
+        {
+            invalidInput(std::string("Missing required field: ") + field);
+            return false;
+        }
+        const auto& el = body[field];
+        if (!el.is_array() || el.size() != 3)
+        {
+            invalidInput(std::string("Field '") + field + "' must be [x,y,z]");
+            return false;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!el[i].is_number())
+            {
+                invalidInput(std::string("Field '") + field + "' coordinates must be numbers");
+                return false;
+            }
+            out[i] = el[i].get<double>();
+        }
+        return true;
+    };
+    double axisStart[3], axisEnd[3];
+    if (!parseAxisPoint("axisStart", axisStart)) return;
+    if (!parseAxisPoint("axisEnd", axisEnd)) return;
+
+    // axis_degenerate: axisStart == axisEnd (coordinate-exact).
+    if (axisStart[0] == axisEnd[0]
+        && axisStart[1] == axisEnd[1]
+        && axisStart[2] == axisEnd[2])
+    {
+        invalidInput(
+            "axisStart and axisEnd are identical; axis has zero length",
+            "axis_degenerate");
+        return;
+    }
+
+    // startAngle, endAngle: optional numbers (degrees).
+    double startAngle = 0.0;
+    double endAngle = 360.0;
+    if (body.contains("startAngle"))
+    {
+        if (!body["startAngle"].is_number())
+        {
+            invalidInput("Field 'startAngle' must be a number");
+            return;
+        }
+        startAngle = body["startAngle"].get<double>();
+    }
+    if (body.contains("endAngle"))
+    {
+        if (!body["endAngle"].is_number())
+        {
+            invalidInput("Field 'endAngle' must be a number");
+            return;
+        }
+        endAngle = body["endAngle"].get<double>();
+    }
+
+    // angle_invalid: startAngle == endAngle (empty sweep).
+    if (startAngle == endAngle)
+    {
+        invalidInput(
+            "startAngle and endAngle are identical; revolve sweep is empty",
+            "angle_invalid");
+        return;
+    }
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "REVOLVE";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
+}
+
 } // namespace Handlers
 } // namespace Rook
