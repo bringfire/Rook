@@ -2146,6 +2146,41 @@ Examples:
         ),
         # Surface creation tools
         Tool(
+            name="rhino_create_loft",
+            description=(
+                "Create lofted brep(s) through 2+ profile curves. Typed Phase 1 "
+                "route (POST /surface/loft). Plural-contract: response is "
+                "{objects: [ObjectSnapshot, ...]} even when the loft factory "
+                "returns exactly one brep. loftType values: Normal (default), "
+                "Loose, Tight, Straight, Uniform, Developable. Convergence "
+                "points startPoint/endPoint are incompatible with closed=true."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Profile curve GUIDs (≥ 2)",
+                        "minItems": 2,
+                    },
+                    "loftType": {
+                        "type": "string",
+                        "description": "Loft fit style (default Normal)",
+                        "enum": ["Normal", "Loose", "Tight", "Straight", "Uniform", "Developable"],
+                    },
+                    "closed": {"type": "boolean", "description": "Close the loft (default false). Incompatible with startPoint/endPoint."},
+                    "startPoint": {"type": "array", "description": "Convergence point at loft start [x,y,z]"},
+                    "endPoint": {"type": "array", "description": "Convergence point at loft end [x,y,z]"},
+                    "name": {"type": "string", "description": "Object name (applied to every brep)"},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)"},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')"},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)"},
+                },
+                "required": ["curveIds"]
+            }
+        ),
+        Tool(
             name="rhino_create_pipe",
             description=(
                 "Create a pipe brep by sweeping a circular cross-section along a rail "
@@ -9406,6 +9441,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await call_rhino("/boolean", "POST", args)
 
         # Surface creation — typed routes
+        case "rhino_create_loft":
+            result = await call_rhino("/surface/loft", "POST", arguments)
+
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)
 

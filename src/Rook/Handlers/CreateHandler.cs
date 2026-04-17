@@ -31,6 +31,23 @@ namespace Rook.Handlers
     }
 
     /// <summary>
+    /// Thrown by create-geometry code paths to signal a Rhino-side failure
+    /// (factory returned empty result, AddBrep returned Guid.Empty, etc.)
+    /// that must be surfaced as structured {errorCode:"operation_failed", ...}
+    /// and trigger the enclosing undo record's rollback.
+    ///
+    /// Critical for plural-contract routes: once the AddBrep loop starts,
+    /// any mid-loop failure MUST throw (not return) so doc.Undo() rolls
+    /// back previously-added breps atomically. Returning failure after
+    /// the first successful add would leave the document in a partial
+    /// state — violating the "one UndoScope per request" contract.
+    /// </summary>
+    internal class CreateOperationFailedException : Exception
+    {
+        public CreateOperationFailedException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Handles /create endpoint - creates basic geometry.
     /// </summary>
     public class CreateHandler
@@ -101,6 +118,31 @@ namespace Rook.Handlers
                         Success = true,
                         Data = annotationObj != null ? RhinoSerializer.SerializeObject(annotationObj) : new Dictionary<string, object> { ["id"] = annotationGuid.Value.ToString() }
                     };
+                }
+
+                // Phase 1 plural-contract typed routes dispatch here before the
+                // singular GeometryBase? switch. Only reachable via the native
+                // SurfaceHandler routes (they inject _strictAttributes=true);
+                // legacy /create?type=LOFT callers without the flag fall through
+                // to the singular CreateLoft path below for compat.
+                //
+                // ATOMICITY CONTRACT: once a *Plural creator begins inserting
+                // breps into the document, any mid-loop failure MUST throw
+                // CreateOperationFailedException — NEVER return failure — so
+                // the enclosing BeginUndoRecord/doc.Undo() path rolls back
+                // partial inserts as a single atomic unit.
+                if (strictAttributes)
+                {
+                    ApiResponse? pluralResult = type switch
+                    {
+                        "LOFT" => CreateLoftPlural(doc, request),
+                        _ => null
+                    };
+                    if (pluralResult != null)
+                    {
+                        doc.Views.Redraw();
+                        return pluralResult;
+                    }
                 }
 
                 GeometryBase? geometry = type switch
@@ -223,6 +265,19 @@ namespace Rook.Handlers
                     Data = new Dictionary<string, object>
                     {
                         ["errorCode"] = ex.ErrorCode,
+                        ["errorMessage"] = ex.Message,
+                    }
+                };
+            }
+            catch (CreateOperationFailedException ex)
+            {
+                doc.Undo();
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = new Dictionary<string, object>
+                    {
+                        ["errorCode"] = "operation_failed",
                         ["errorMessage"] = ex.Message,
                     }
                 };
@@ -742,7 +797,8 @@ namespace Rook.Handlers
             if (curveObj == null)
             {
                 if (strictAttributes)
-                    throw new CreateInvalidInputException($"curveId {curveId} not found in document");
+                    throw new CreateInvalidInputException(
+                        $"curveId {curveId} not found in document", errorCode: "not_found");
                 return null;
             }
             var curve = curveObj.Geometry as Curve;
@@ -1210,6 +1266,193 @@ namespace Rook.Handlers
                 dot.FontHeight = (int)height.Value;
 
             return doc.Objects.AddTextDot(dot);
+        }
+
+        #endregion
+
+        #region Phase 1 plural-contract helpers
+
+        /// <summary>
+        /// Builds an ObjectAttributes from the request's attribute bundle
+        /// (name, layer, color, visible) with Phase 1 strict semantics:
+        /// unknown layers, unparseable colors, and non-boolean visible values
+        /// throw CreateInvalidInputException. Shared by plural-contract
+        /// creators (CreateLoftPlural, future CreateSweepPlural, etc.).
+        /// </summary>
+        private ObjectAttributes BuildAttributesStrict(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            var attributes = new ObjectAttributes();
+
+            if (request.TryGetValue("name", out var nameEl))
+            {
+                attributes.Name = nameEl.GetString() ?? "";
+            }
+
+            if (request.TryGetValue("layer", out var layerEl))
+            {
+                var layerPath = layerEl.GetString();
+                if (!string.IsNullOrEmpty(layerPath))
+                {
+                    var layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
+                    if (layerIndex < 0)
+                        throw new CreateInvalidInputException($"Layer not found: {layerPath}");
+                    attributes.LayerIndex = layerIndex;
+                }
+            }
+
+            if (request.TryGetValue("color", out var colorEl))
+            {
+                var color = ParseColor(colorEl);
+                if (!color.HasValue)
+                    throw new CreateInvalidInputException("Invalid color format");
+                attributes.ObjectColor = color.Value;
+                attributes.ColorSource = ObjectColorSource.ColorFromObject;
+            }
+
+            if (request.TryGetValue("visible", out var visibleEl))
+            {
+                if (visibleEl.ValueKind != JsonValueKind.True && visibleEl.ValueKind != JsonValueKind.False)
+                    throw new CreateInvalidInputException("Field 'visible' must be a boolean");
+                attributes.Visible = visibleEl.GetBoolean();
+            }
+
+            return attributes;
+        }
+
+        /// <summary>
+        /// Creates lofted brep(s) through 2+ profile curves with the Phase 1
+        /// plural contract: returns {objects: [ObjectSnapshot, ...]} wrapping
+        /// every brep in the Brep.CreateFromLoft result (not FirstOrDefault).
+        ///
+        /// Reached only via the early plural-dispatch block in CreateGeometry
+        /// when _strictAttributes is set. Legacy /create?type=LOFT callers
+        /// without the flag fall through to the singular CreateLoft path.
+        ///
+        /// ATOMICITY: once the per-brep AddBrep loop begins, ANY failure
+        /// MUST throw (never return) so the enclosing doc.Undo() rolls back
+        /// partial inserts. Pre-loop validation failures throw
+        /// CreateInvalidInputException / CreateOperationFailedException;
+        /// post-loop-entry failures throw CreateOperationFailedException.
+        /// </summary>
+        private ApiResponse CreateLoftPlural(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // --- Pre-insert validation: curve resolution ---
+            // Native SurfaceHandler has already validated curveIds presence,
+            // minimum length (≥ 2), and UUID format. This block resolves
+            // each id to a Curve, differentiating not-found vs wrong-type.
+            if (!request.TryGetValue("curveIds", out var curveIdsEl) || curveIdsEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'curveIds'");
+
+            var curves = new List<Curve>();
+            foreach (var el in curveIdsEl.EnumerateArray())
+            {
+                var id = el.GetString();
+                if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out var guid))
+                    throw new CreateInvalidInputException($"Invalid UUID in curveIds: {id}");
+                var obj = doc.Objects.FindId(guid);
+                if (obj == null)
+                    throw new CreateInvalidInputException(
+                        $"curveId {id} not found in document", errorCode: "not_found");
+                var curve = obj.Geometry as Curve;
+                if (curve == null)
+                {
+                    var typeName = obj.Geometry?.GetType().Name ?? "unknown";
+                    throw new CreateInvalidInputException(
+                        $"curveId {id} is not a curve (geometry type: {typeName})");
+                }
+                curves.Add(curve);
+            }
+
+            if (curves.Count < 2)
+                throw new CreateInvalidInputException(
+                    "Loft requires at least 2 curves", errorCode: "insufficient_curves");
+
+            // --- loftType enum ---
+            var loftType = LoftType.Normal;
+            if (request.TryGetValue("loftType", out var ltEl) && ltEl.ValueKind == JsonValueKind.String)
+            {
+                var ltStr = ltEl.GetString() ?? "";
+                loftType = ltStr.ToUpperInvariant() switch
+                {
+                    "NORMAL" => LoftType.Normal,
+                    "LOOSE" => LoftType.Loose,
+                    "TIGHT" => LoftType.Tight,
+                    "STRAIGHT" => LoftType.Straight,
+                    "UNIFORM" => LoftType.Uniform,
+                    "DEVELOPABLE" => LoftType.Developable,
+                    _ => throw new CreateInvalidInputException(
+                        $"Invalid loftType: {ltStr}", errorCode: "invalid_loft_type"),
+                };
+            }
+
+            // --- closed + convergence points ---
+            var closed = GetBool(request, "closed", false);
+            var startPoint = Point3d.Unset;
+            var endPoint = Point3d.Unset;
+            if (request.TryGetValue("startPoint", out var spEl))
+            {
+                var pt = ParsePoint3d(spEl);
+                if (!pt.HasValue)
+                    throw new CreateInvalidInputException("Invalid 'startPoint' — expected [x,y,z]");
+                startPoint = pt.Value;
+            }
+            if (request.TryGetValue("endPoint", out var epEl))
+            {
+                var pt = ParsePoint3d(epEl);
+                if (!pt.HasValue)
+                    throw new CreateInvalidInputException("Invalid 'endPoint' — expected [x,y,z]");
+                endPoint = pt.Value;
+            }
+            if (closed && (startPoint != Point3d.Unset || endPoint != Point3d.Unset))
+                throw new CreateInvalidInputException(
+                    "Cannot combine closed=true with convergence points (startPoint/endPoint)",
+                    errorCode: "convergence_point_conflict");
+
+            // --- Attribute bundle (strict) — builds before any insert so
+            //     layer/color/visible errors roll back cleanly ---
+            var attributes = BuildAttributesStrict(doc, request);
+
+            // --- Factory invocation ---
+            var breps = Brep.CreateFromLoft(curves, startPoint, endPoint, loftType, closed);
+            if (breps == null || breps.Length == 0)
+                throw new CreateOperationFailedException("Brep.CreateFromLoft produced no result");
+
+            // --- Atomic insert loop ---
+            // Past this point, any failure MUST throw so doc.Undo() rolls
+            // back previously-added breps as a single atomic unit. Never
+            // return failure mid-loop.
+            var snapshots = new List<Dictionary<string, object?>>();
+            foreach (var brep in breps)
+            {
+                if (brep == null) continue;
+                var guid = doc.Objects.AddBrep(brep, attributes);
+                if (guid == Guid.Empty)
+                    throw new CreateOperationFailedException(
+                        "Failed to add brep to document during loft insert");
+                var rhinoObj = doc.Objects.FindId(guid);
+                if (rhinoObj != null)
+                    snapshots.Add(RhinoSerializer.SerializeObject(rhinoObj));
+                else
+                    snapshots.Add(new Dictionary<string, object?> { ["id"] = guid.ToString() });
+            }
+
+            // Guard against the pathological case where Brep.CreateFromLoft
+            // returns a non-empty array containing only nulls: the pre-loop
+            // check above passes (Length > 0), but every entry is skipped
+            // here, leaving snapshots empty. An empty success envelope
+            // violates the plural contract — normalize to operation_failed.
+            if (snapshots.Count == 0)
+                throw new CreateOperationFailedException(
+                    "Brep.CreateFromLoft produced no insertable breps");
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new Dictionary<string, object>
+                {
+                    ["objects"] = snapshots,
+                },
+            };
         }
 
         #endregion

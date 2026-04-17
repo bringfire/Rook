@@ -284,7 +284,9 @@ def _build_route_table() -> dict[str, RouteSpec]:
 
     # === Creation: Phase 1 typed surface routes ===
     # Plan: rook_docs/2026-04-17-typed-route-phase1-plan.md
-    # XOR contract (radius vs startRadius+endRadius) is enforced natively.
+    # Semantic constraints enforced natively:
+    #   - Pipe: radius XOR startRadius+endRadius
+    #   - Loft: closed=true incompatible with startPoint/endPoint
     routes["create_pipe"] = RouteSpec(
         endpoint="/surface/pipe",
         required_params=("curveId",),
@@ -294,6 +296,20 @@ def _build_route_table() -> dict[str, RouteSpec]:
             "name", "layer", "color", "visible",
         ),
         description="Create pipe brep along rail curve",
+    )
+    routes["create_loft"] = RouteSpec(
+        endpoint="/surface/loft",
+        required_params=("curveIds",),
+        optional_params=(
+            "loftType", "closed",
+            "startPoint", "endPoint",
+            # `tolerance` intentionally omitted — Brep.CreateFromLoft's
+            # non-refit overload uses doc tolerance implicitly. Honoring a
+            # caller-supplied value requires CreateFromLoftRefit (different
+            # semantics) and is deferred to a future PR.
+            "name", "layer", "color", "visible",
+        ),
+        description="Create lofted brep(s) through 2+ profile curves",
     )
 
     # === Creation: mesh primitives ===
@@ -996,7 +1012,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_arc", "create_rectangle", "create_box", "create_sphere",
         "create_cylinder", "create_cone", "create_extrusion",
         "create_interpolated_curve", "create_control_point_curve",
-        "create_pipe",
+        "create_pipe", "create_loft",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",
