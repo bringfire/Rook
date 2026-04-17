@@ -69,7 +69,7 @@ def get_all_tools() -> list[str]:
             "rhino_select_none", "rhino_select_invert", "rhino_deselect",
             "rhino_measure_distance", "rhino_measure_area", "rhino_measure_volume",
             "rhino_measure_length", "rhino_measure_bbox", "rhino_measure_centroid",
-            "rhino_boolean", "rhino_loft", "rhino_sweep", "rhino_extrude",
+            "rhino_boolean", "rhino_extrude",
             "rhino_import", "rhino_export", "rhino_group",
             "rhino_blocks", "rhino_block_create", "rhino_block_insert",
             "rhino_block_explode", "rhino_block_delete", "rhino_block_rename",
@@ -233,9 +233,7 @@ async def create_tool_executor():
             "rhino_linetype_purge": ("POST", "/linetypes/purge"),
             "rhino_block_layer_census": ("GET", "/block/layer-census"),
             "rhino_boolean": ("POST", "/boolean"),
-            # loft/sweep/extrude use /create with type - handled in special cases below
-            "rhino_loft": ("POST", "/create"),
-            "rhino_sweep": ("POST", "/create"),
+            # extrude uses /create with type - handled in special cases below
             "rhino_extrude": ("POST", "/create"),
             # Selection tools - all use /select with different params
             "rhino_select_by_type": ("POST", "/select"),
@@ -299,14 +297,8 @@ async def create_tool_executor():
         elif tool_name == "rhino_deselect":
             params = {"deselectIds": params.get("ids", []), "clear": False}
 
-        # Add type param for loft/sweep/extrude (they use /create endpoint)
-        if tool_name == "rhino_loft":
-            params = dict(params)
-            params["type"] = "LOFT"
-        elif tool_name == "rhino_sweep":
-            params = dict(params)
-            params["type"] = "SWEEP1"
-        elif tool_name == "rhino_extrude":
+        # Add type param for extrude (uses /create endpoint)
+        if tool_name == "rhino_extrude":
             params = dict(params)
             params["type"] = "EXTRUDE"
 

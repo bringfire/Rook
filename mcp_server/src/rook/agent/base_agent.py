@@ -68,8 +68,6 @@ ToolExecutor = Callable[[str, Dict[str, Any]], Any]
 _RHINO_CREATION_TOOLS = frozenset({
     "rhino_create",     # /create → data.id (ObjectSnapshot)
     "rhino_boolean",    # /boolean → data.id
-    "rhino_loft",       # /loft → data.id
-    "rhino_sweep",      # /sweep → data.id
     "rhino_extrude",    # /extrude → data.id
 })
 

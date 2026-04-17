@@ -126,8 +126,6 @@ _TOOL_DESCRIPTIONS: Dict[str, str] = {
     "rhino_block_layer_census": "Report which layers each block definition's geometry lives on",
     # Rhino transform tools
     "rhino_boolean": "Boolean operations (union, difference, intersection) on solids",
-    "rhino_loft": "Create a surface by lofting through curves",
-    "rhino_sweep": "Sweep a profile curve along a rail curve",
     "rhino_extrude": "Extrude a curve to create a surface or solid",
     "rhino_text": "Create 3D text objects",
     "rhino_execute_intent": "Execute a Rhino intent through the typed runtime. It prefers direct API routes, but can fall back to command or interactive substrates for ambiguous requests.",

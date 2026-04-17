@@ -474,30 +474,6 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
     # =========================================================================
     # Surface Creation
     # =========================================================================
-    "rhino_loft": ToolSchema(
-        name="rhino_loft",
-        description="Create lofted surface through curves",
-        params=[
-            ParamSchema("curveIds", "array", "Curve GUIDs to loft through", required=True, items_type="string", geometry_type="curveIds"),
-            ParamSchema("closed", "boolean", "Create closed loft", default=False),
-            ParamSchema("name", "string", "Object name"),
-            ParamSchema("layer", "string", "Layer path"),
-        ],
-        needs_geometry=["curve"],
-        geometry_count=2,
-    ),
-    "rhino_sweep": ToolSchema(
-        name="rhino_sweep",
-        description="Create swept surface along rail",
-        params=[
-            ParamSchema("railId", "string", "Rail curve GUID", required=True, geometry_type="curveId"),
-            ParamSchema("profileIds", "array", "Profile curve GUIDs", required=True, items_type="string", geometry_type="curveIds"),
-            ParamSchema("name", "string", "Object name"),
-            ParamSchema("layer", "string", "Layer path"),
-        ],
-        needs_geometry=["curve"],
-        geometry_count=2,
-    ),
     "rhino_extrude": ToolSchema(
         name="rhino_extrude",
         description="Extrude curve or surface",

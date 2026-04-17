@@ -101,7 +101,6 @@ TOOL_GROUPS: Dict[str, List[str]] = {
     # --- Rhino Geometry Creation & Manipulation ---
     "rhino_geometry": [
         "rhino_create", "rhino_geometry", "rhino_boolean", "rhino_extrude",
-        "rhino_loft", "rhino_sweep",
         # rhino_prepare_geometry excluded — requires CommandObserver (MCP-only)
     ],
     "rhino_transform": [
@@ -416,8 +415,6 @@ TOOL_GROUP_TRIGGERS: Dict[str, str] = {
     "rhino_execute_intent": "rhino_geometry",
     "rhino_create": "rhino_transform",
     "rhino_extrude": "rhino_transform",
-    "rhino_loft": "rhino_transform",
-    "rhino_sweep": "rhino_transform",
     "rhino_boolean": "rhino_transform",
     # GH intent -> need canvas tools
     "gh_execute_intent": "gh_canvas",
@@ -453,8 +450,6 @@ TOOL_TRANSITIONS: Dict[str, List[str]] = {
     "rhino_boolean": ["rhino_objects", "rhino_transform", "rhino_geometry"],
     "rhino_copy": ["rhino_transform", "rhino_objects"],
     "rhino_extrude": ["rhino_transform", "rhino_boolean", "rhino_objects"],
-    "rhino_loft": ["rhino_objects", "rhino_transform"],
-    "rhino_sweep": ["rhino_objects", "rhino_transform"],
     # Materials
     "rhino_material_ops": [
         "rhino_apply_uv_box_mapping", "rhino_apply_uv_planar_mapping",
