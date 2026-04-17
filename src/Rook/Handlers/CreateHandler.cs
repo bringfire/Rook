@@ -136,6 +136,8 @@ namespace Rook.Handlers
                     ApiResponse? pluralResult = type switch
                     {
                         "LOFT" => CreateLoftPlural(doc, request),
+                        "SWEEP1" => CreateSweep1Plural(doc, request),
+                        "SWEEP2" => CreateSweep2Plural(doc, request),
                         _ => null
                     };
                     if (pluralResult != null)
@@ -1334,6 +1336,102 @@ namespace Rook.Handlers
         /// CreateInvalidInputException / CreateOperationFailedException;
         /// post-loop-entry failures throw CreateOperationFailedException.
         /// </summary>
+        /// <summary>
+        /// Resolves a single curve id string to a Curve, differentiating the
+        /// four failure modes (missing / bad UUID / not in doc / wrong type)
+        /// and throwing structured CreateInvalidInputException with the right
+        /// error code. `fieldName` is used in error messages to identify the
+        /// source field (e.g. "curveId", "railId", "profileIds[0]").
+        /// </summary>
+        private Curve ResolveCurveStrict(RhinoDoc doc, string? id, string fieldName)
+        {
+            if (string.IsNullOrEmpty(id))
+                throw new CreateInvalidInputException($"Missing or empty {fieldName}");
+            if (!Guid.TryParse(id, out var guid))
+                throw new CreateInvalidInputException($"Invalid UUID for {fieldName}: {id}");
+            var obj = doc.Objects.FindId(guid);
+            if (obj == null)
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id} not found in document", errorCode: "not_found");
+            var curve = obj.Geometry as Curve;
+            if (curve == null)
+            {
+                var typeName = obj.Geometry?.GetType().Name ?? "unknown";
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id} is not a curve (geometry type: {typeName})");
+            }
+            return curve;
+        }
+
+        /// <summary>
+        /// Resolves a JSON array of curve ids to a List<Curve> via
+        /// ResolveCurveStrict. `arrayFieldName` identifies the array (e.g.
+        /// "curveIds", "profileIds") so per-element errors reference the
+        /// array position.
+        /// </summary>
+        private List<Curve> ResolveCurvesStrict(RhinoDoc doc, JsonElement arrayEl, string arrayFieldName)
+        {
+            var curves = new List<Curve>();
+            int i = 0;
+            foreach (var el in arrayEl.EnumerateArray())
+            {
+                var id = el.GetString();
+                curves.Add(ResolveCurveStrict(doc, id, $"{arrayFieldName}[{i}]"));
+                i++;
+            }
+            return curves;
+        }
+
+        /// <summary>
+        /// Atomic insert-and-build for the plural contract. Adds every
+        /// non-null brep from `breps` to the document with the given
+        /// attributes, throwing CreateOperationFailedException on any failure
+        /// (so the enclosing doc.Undo() rolls back partial inserts). Returns
+        /// an ApiResponse wrapping {objects: [...]} on success.
+        ///
+        /// The caller must have already rejected empty/null `breps` with its
+        /// route-specific operation_failed message before calling this helper.
+        ///
+        /// ATOMICITY: any failure inside this loop MUST throw — never return —
+        /// to preserve the "one UndoScope per request" contract.
+        /// </summary>
+        private ApiResponse InsertBrepsAsPluralResponse(
+            RhinoDoc doc, Brep[] breps, ObjectAttributes attributes, string factoryName)
+        {
+            var snapshots = new List<Dictionary<string, object?>>();
+            foreach (var brep in breps)
+            {
+                if (brep == null) continue;
+                var guid = doc.Objects.AddBrep(brep, attributes);
+                if (guid == Guid.Empty)
+                    throw new CreateOperationFailedException(
+                        $"Failed to add brep to document during {factoryName} insert");
+                var rhinoObj = doc.Objects.FindId(guid);
+                if (rhinoObj != null)
+                    snapshots.Add(RhinoSerializer.SerializeObject(rhinoObj));
+                else
+                    snapshots.Add(new Dictionary<string, object?> { ["id"] = guid.ToString() });
+            }
+
+            // Guard against the pathological case where the factory returns
+            // a non-empty array containing only nulls: the pre-loop check
+            // passes (Length > 0), but every entry is skipped here, leaving
+            // snapshots empty. An empty success envelope violates the plural
+            // contract — normalize to operation_failed.
+            if (snapshots.Count == 0)
+                throw new CreateOperationFailedException(
+                    $"{factoryName} produced no insertable breps");
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new Dictionary<string, object>
+                {
+                    ["objects"] = snapshots,
+                },
+            };
+        }
+
         private ApiResponse CreateLoftPlural(RhinoDoc doc, Dictionary<string, JsonElement> request)
         {
             // --- Pre-insert validation: curve resolution ---
@@ -1343,25 +1441,7 @@ namespace Rook.Handlers
             if (!request.TryGetValue("curveIds", out var curveIdsEl) || curveIdsEl.ValueKind != JsonValueKind.Array)
                 throw new CreateInvalidInputException("Missing or invalid 'curveIds'");
 
-            var curves = new List<Curve>();
-            foreach (var el in curveIdsEl.EnumerateArray())
-            {
-                var id = el.GetString();
-                if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out var guid))
-                    throw new CreateInvalidInputException($"Invalid UUID in curveIds: {id}");
-                var obj = doc.Objects.FindId(guid);
-                if (obj == null)
-                    throw new CreateInvalidInputException(
-                        $"curveId {id} not found in document", errorCode: "not_found");
-                var curve = obj.Geometry as Curve;
-                if (curve == null)
-                {
-                    var typeName = obj.Geometry?.GetType().Name ?? "unknown";
-                    throw new CreateInvalidInputException(
-                        $"curveId {id} is not a curve (geometry type: {typeName})");
-                }
-                curves.Add(curve);
-            }
+            var curves = ResolveCurvesStrict(doc, curveIdsEl, "curveIds");
 
             if (curves.Count < 2)
                 throw new CreateInvalidInputException(
@@ -1417,42 +1497,119 @@ namespace Rook.Handlers
             if (breps == null || breps.Length == 0)
                 throw new CreateOperationFailedException("Brep.CreateFromLoft produced no result");
 
-            // --- Atomic insert loop ---
-            // Past this point, any failure MUST throw so doc.Undo() rolls
-            // back previously-added breps as a single atomic unit. Never
-            // return failure mid-loop.
-            var snapshots = new List<Dictionary<string, object?>>();
-            foreach (var brep in breps)
+            return InsertBrepsAsPluralResponse(doc, breps, attributes, "Brep.CreateFromLoft");
+        }
+
+        /// <summary>
+        /// Creates swept brep(s) along one rail with the Phase 1 plural
+        /// contract. Reached only via the early plural-dispatch block in
+        /// CreateGeometry when _strictAttributes is set. Legacy
+        /// /create?type=SWEEP1 callers without the flag fall through to the
+        /// singular CreateSweep1 path.
+        ///
+        /// ATOMICITY: inherits from InsertBrepsAsPluralResponse — any
+        /// mid-insert failure throws CreateOperationFailedException so
+        /// doc.Undo() rolls back partial inserts.
+        /// </summary>
+        private ApiResponse CreateSweep1Plural(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // --- Rail + profile resolution ---
+            string? railId = request.TryGetValue("railId", out var railEl) ? railEl.GetString() : null;
+            var rail = ResolveCurveStrict(doc, railId, "railId");
+
+            if (!request.TryGetValue("profileIds", out var profilesEl) || profilesEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'profileIds'");
+            var profiles = ResolveCurvesStrict(doc, profilesEl, "profileIds");
+            if (profiles.Count == 0)
+                throw new CreateInvalidInputException(
+                    "Sweep1 requires at least 1 profile curve", errorCode: "no_profiles");
+
+            // --- style + roadlikeUp ---
+            // Native handler has already validated style enum membership
+            // and roadlikeUp presence rules; this block maps to the
+            // SweepOneRail configuration surface.
+            var closed = GetBool(request, "closed", false);
+            var styleStr = request.TryGetValue("style", out var styleEl) && styleEl.ValueKind == JsonValueKind.String
+                ? (styleEl.GetString() ?? "Freeform")
+                : "Freeform";
+            var isRoadlike = string.Equals(styleStr, "Roadlike", StringComparison.OrdinalIgnoreCase);
+
+            Vector3d? roadlikeUp = null;
+            if (isRoadlike && request.TryGetValue("roadlikeUp", out var upEl))
             {
-                if (brep == null) continue;
-                var guid = doc.Objects.AddBrep(brep, attributes);
-                if (guid == Guid.Empty)
-                    throw new CreateOperationFailedException(
-                        "Failed to add brep to document during loft insert");
-                var rhinoObj = doc.Objects.FindId(guid);
-                if (rhinoObj != null)
-                    snapshots.Add(RhinoSerializer.SerializeObject(rhinoObj));
-                else
-                    snapshots.Add(new Dictionary<string, object?> { ["id"] = guid.ToString() });
+                var pt = ParsePoint3d(upEl);
+                if (!pt.HasValue)
+                    throw new CreateInvalidInputException(
+                        "Invalid 'roadlikeUp' — expected [x,y,z]",
+                        errorCode: "missing_roadlike_up");
+                roadlikeUp = new Vector3d(pt.Value);
             }
 
-            // Guard against the pathological case where Brep.CreateFromLoft
-            // returns a non-empty array containing only nulls: the pre-loop
-            // check above passes (Length > 0), but every entry is skipped
-            // here, leaving snapshots empty. An empty success envelope
-            // violates the plural contract — normalize to operation_failed.
-            if (snapshots.Count == 0)
-                throw new CreateOperationFailedException(
-                    "Brep.CreateFromLoft produced no insertable breps");
+            // --- Attribute bundle (strict) — built before any insert ---
+            var attributes = BuildAttributesStrict(doc, request);
 
-            return new ApiResponse
+            // --- Configure SweepOneRail + invoke ---
+            var sweep = new SweepOneRail
             {
-                Success = true,
-                Data = new Dictionary<string, object>
-                {
-                    ["objects"] = snapshots,
-                },
+                ClosedSweep = closed,
+                AngleToleranceRadians = doc.ModelAngleToleranceRadians,
+                SweepTolerance = doc.ModelAbsoluteTolerance,
             };
+            if (isRoadlike && roadlikeUp.HasValue)
+                sweep.SetRoadlikeUpDirection(roadlikeUp.Value);
+
+            var breps = sweep.PerformSweep(rail, profiles);
+            if (breps == null || breps.Length == 0)
+                throw new CreateOperationFailedException(
+                    "SweepOneRail produced no geometry");
+
+            return InsertBrepsAsPluralResponse(doc, breps, attributes, "SweepOneRail");
+        }
+
+        /// <summary>
+        /// Creates swept brep(s) between two rails with the Phase 1 plural
+        /// contract. Native layer has already validated that rail1Id and
+        /// rail2Id are UUID-distinct strings (rails_coincident pre-check);
+        /// geometric identity of distinct-id-but-same-curve is deferred.
+        ///
+        /// Empty PerformSweep results classify as operation_failed. The
+        /// plan's `rails_disconnected` code is intentionally deferred until
+        /// real geometric detection replaces the empty-result heuristic
+        /// (Codex review 2026-04-17).
+        /// </summary>
+        private ApiResponse CreateSweep2Plural(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // --- Rails + profile resolution ---
+            string? rail1Id = request.TryGetValue("rail1Id", out var r1El) ? r1El.GetString() : null;
+            string? rail2Id = request.TryGetValue("rail2Id", out var r2El) ? r2El.GetString() : null;
+            var rail1 = ResolveCurveStrict(doc, rail1Id, "rail1Id");
+            var rail2 = ResolveCurveStrict(doc, rail2Id, "rail2Id");
+
+            if (!request.TryGetValue("profileIds", out var profilesEl) || profilesEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'profileIds'");
+            var profiles = ResolveCurvesStrict(doc, profilesEl, "profileIds");
+            if (profiles.Count == 0)
+                throw new CreateInvalidInputException(
+                    "Sweep2 requires at least 1 profile curve", errorCode: "no_profiles");
+
+            // --- Attribute bundle (strict) — built before any insert ---
+            var attributes = BuildAttributesStrict(doc, request);
+
+            // --- Configure SweepTwoRail + invoke ---
+            var sweep = new SweepTwoRail
+            {
+                ClosedSweep = GetBool(request, "closed", false),
+                MaintainHeight = GetBool(request, "maintainHeight", false),
+                AngleToleranceRadians = doc.ModelAngleToleranceRadians,
+                SweepTolerance = doc.ModelAbsoluteTolerance,
+            };
+
+            var breps = sweep.PerformSweep(rail1, rail2, profiles);
+            if (breps == null || breps.Length == 0)
+                throw new CreateOperationFailedException(
+                    "SweepTwoRail produced no geometry");
+
+            return InsertBrepsAsPluralResponse(doc, breps, attributes, "SweepTwoRail");
         }
 
         #endregion
