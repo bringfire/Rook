@@ -2297,6 +2297,62 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_array_linear",
+            description=(
+                "Array objects along a direction vector. Typed Phase 1 route "
+                "(POST /array/linear). Atomic mode: one undo record plus "
+                "server-side rollback on mid-loop failure. Count includes the "
+                "source object, so count=5 produces 4 new copies."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source object GUIDs (min 1)",
+                        "minItems": 1,
+                    },
+                    "direction": {
+                        "type": "array",
+                        "description": "Direction vector [x, y, z] (must be non-zero)",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "spacing": {"type": "number", "description": "Distance between copies (> 0)"},
+                    "count": {"type": "integer", "description": "Total copies including source (>= 1)"},
+                },
+                "required": ["ids", "direction", "spacing", "count"]
+            }
+        ),
+        Tool(
+            name="rhino_array_rectangular",
+            description=(
+                "Array objects in an X/Y(/Z) grid aligned to the active viewport's "
+                "CPlane at dispatch. Typed Phase 1 route (POST /array/rectangular). "
+                "Atomic mode with rollback on failure. Axis counts are total-"
+                "including-source. Success responses echo planeUsed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source object GUIDs (min 1)",
+                        "minItems": 1,
+                    },
+                    "xCount": {"type": "integer", "description": "Total X cells including source (>= 1)"},
+                    "yCount": {"type": "integer", "description": "Total Y cells including source (>= 1)"},
+                    "zCount": {"type": "integer", "description": "Total Z cells including source (>= 1, default 1)"},
+                    "xSpacing": {"type": "number", "description": "> 0 when xCount > 1"},
+                    "ySpacing": {"type": "number", "description": "> 0 when yCount > 1"},
+                    "zSpacing": {"type": "number", "description": "> 0 when zCount > 1"},
+                },
+                "required": ["ids", "xCount", "yCount", "xSpacing", "ySpacing"]
+            }
+        ),
+        Tool(
             name="rhino_extrude",
             description="Extrude a curve or surface along a direction.",
             inputSchema={
@@ -9545,6 +9601,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)
+
+        case "rhino_array_linear":
+            result = await call_rhino("/array/linear", "POST", arguments)
+
+        case "rhino_array_rectangular":
+            result = await call_rhino("/array/rectangular", "POST", arguments)
 
         # Surface creation (via /create endpoint)
         case "rhino_extrude":
