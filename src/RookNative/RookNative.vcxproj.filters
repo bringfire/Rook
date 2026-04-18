@@ -75,6 +75,9 @@
     <ClCompile Include="Handlers\GrasshopperProxyHandler.cpp">
       <Filter>Handlers</Filter>
     </ClCompile>
+    <ClCompile Include="Handlers\ArrayHandler.cpp">
+      <Filter>Handlers</Filter>
+    </ClCompile>
     <ClCompile Include="Interactive\GumballContextBuilder.cpp">
       <Filter>Interactive</Filter>
     </ClCompile>
@@ -144,6 +147,9 @@
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Handlers\GrasshopperProxyHandler.h">
+      <Filter>Handlers</Filter>
+    </ClInclude>
+    <ClInclude Include="Handlers\ArrayHandler.h">
       <Filter>Handlers</Filter>
     </ClInclude>
     <ClInclude Include="Interactive\GumballContext.h">

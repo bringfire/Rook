@@ -340,6 +340,18 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Revolve a curve around a line axis",
     )
+    routes["array_linear"] = RouteSpec(
+        endpoint="/array/linear",
+        required_params=("ids", "direction", "spacing", "count"),
+        optional_params=(),
+        description="Array objects along a direction vector",
+    )
+    routes["array_rectangular"] = RouteSpec(
+        endpoint="/array/rectangular",
+        required_params=("ids", "xCount", "yCount", "xSpacing", "ySpacing"),
+        optional_params=("zCount", "zSpacing"),
+        description="Array objects in an X/Y/Z grid aligned to the active CPlane",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
@@ -1042,7 +1054,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_cylinder", "create_cone", "create_extrusion",
         "create_interpolated_curve", "create_control_point_curve",
         "create_pipe", "create_loft", "create_sweep1", "create_sweep2",
-        "create_revolve",
+        "create_revolve", "array_linear", "array_rectangular",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

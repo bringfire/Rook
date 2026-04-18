@@ -26,6 +26,7 @@
 #include "Handlers/IntersectionHandler.h"
 #include "Handlers/SplitTrimHandler.h"
 #include "Handlers/OffsetBrepHandler.h"
+#include "Handlers/ArrayHandler.h"
 #include "Handlers/SurfaceHandler.h"
 #include "Handlers/MeshHandler.h"
 #include "Handlers/SubDHandler.h"
@@ -1055,6 +1056,18 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/surface/revolve", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleRevolve(req, res);
+    });
+    m_server->Post("/array/linear", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleLinear(req, res);
+    });
+    m_server->Post("/array/rectangular", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleRectangular(req, res);
+    });
+    // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
+    // to inject a synthetic TransformObject failure at a chosen copy ordinal.
+    // Product code MUST NOT call this; public contract is explicitly none.
+    m_server->Post("/array/_debug/fail-next-copy", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDebugFailNextCopy(req, res);
     });
 
     // Phase 4E: Mesh operations

@@ -126,6 +126,7 @@
     <ClCompile Include="Handlers\IntersectionHandler.cpp" />
     <ClCompile Include="Handlers\SplitTrimHandler.cpp" />
     <ClCompile Include="Handlers\OffsetBrepHandler.cpp" />
+    <ClCompile Include="Handlers\ArrayHandler.cpp" />
     <ClCompile Include="Handlers\SurfaceHandler.cpp" />
     <ClCompile Include="Handlers\MeshHandler.cpp" />
     <ClCompile Include="Handlers\SubDHandler.cpp" />
@@ -190,6 +191,7 @@
     <ClInclude Include="Handlers\IntersectionHandler.h" />
     <ClInclude Include="Handlers\SplitTrimHandler.h" />
     <ClInclude Include="Handlers\OffsetBrepHandler.h" />
+    <ClInclude Include="Handlers\ArrayHandler.h" />
     <ClInclude Include="Handlers\SurfaceHandler.h" />
     <ClInclude Include="Handlers\MeshHandler.h" />
     <ClInclude Include="Handlers\SubDHandler.h" />
