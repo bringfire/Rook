@@ -2338,12 +2338,14 @@ Examples:
                 "vertex. Typed Phase 2 route (POST /annotation/dim-angle). "
                 "3-point contract: center (vertex) + start (endpoint of first "
                 "ray) + end (endpoint of second ray) + point (interior of the "
-                "angular dim arc; disambiguates which of up to four possible "
-                "spans to dimension — REQUIRED, no default). Produces "
+                "angular dim arc — REQUIRED). Produces "
                 "ON::AnnotationType::Angular3pt (wire: 'Angular3ptDimension'). "
-                "measuredValue is the angle in DEGREES, read via the SDK's "
-                "Measurement() accessor so whatever span the SDK selected "
-                "from `point` is reflected exactly."
+                "`point` is load-bearing for numeric measurement, not just "
+                "visual placement: placing `point` inside the principal span "
+                "returns the principal angle; placing it inside the reflex "
+                "span returns the reflex angle (360° - principal). "
+                "measuredValue is in DEGREES, sourced from the SDK's "
+                "Measurement() accessor."
             ),
             inputSchema={
                 "type": "object",
@@ -2368,7 +2370,7 @@ Examples:
                     },
                     "point": {
                         "type": "array",
-                        "description": "Interior point of the angular dim arc [x,y,z]. Selects which span is dimensioned.",
+                        "description": "Interior point of the angular dim arc [x,y,z]. Load-bearing: selects which span (principal or reflex) the SDK measures. Principal-span point returns the principal angle; reflex-span point returns 360° - principal.",
                         "minItems": 3,
                         "maxItems": 3,
                     },

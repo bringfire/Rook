@@ -446,10 +446,16 @@ void HandleDimAngle(const httplib::Request& req, httplib::Response& res)
         if (!rayB.Unitize())
             throw std::invalid_argument("'end' must differ from 'center' (degenerate ray)");
 
-        // Plane normal: try cross(rayA, rayB) first; if colinear, fall back
-        // through Z / Y / X cross-products. Matches PR-2/PR-3 perpendicular
-        // construction rhythm. The pure-Z fallback in the initial scope
-        // draft was degenerate when rayA ∥ Z; this chain covers that case.
+        // Plane normal construction with a three-step fallback:
+        //   1) cross(rayA, rayB) — works whenever the rays are not colinear
+        //   2) cross(rayA, Z)    — covers most colinear cases
+        //   3) cross(rayA, Y)    — covers the remaining edge case where
+        //                          rayA is itself parallel to world Z
+        //                          (step 2 would then produce the zero vector)
+        // Matches PR-2/PR-3 perpendicular-construction rhythm. The X-axis
+        // case is covered by step 2 (rayA ∥ X is not parallel to Z, so
+        // cross(rayA, Z) unitizes fine), so no third world-axis attempt
+        // is needed.
         ON_3dVector normal = ON_CrossProduct(rayA, rayB);
         if (!normal.Unitize())
         {

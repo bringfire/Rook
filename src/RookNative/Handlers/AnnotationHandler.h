@@ -33,22 +33,32 @@ namespace Handlers {
 //   center: the angle vertex.
 //   start:  endpoint defining the first extension ray from center.
 //   end:    endpoint defining the second extension ray.
-//   point:  interior of the angular dim arc. REQUIRED — the SDK uses this
-//           to disambiguate which of up to four possible angular spans
-//           (acute/obtuse, either side) to dimension. Defaulting it would
-//           silently pick one span; callers MUST be explicit.
+//   point:  interior of the angular dim arc. REQUIRED — load-bearing
+//           for BOTH visual placement AND numeric measurement. Observed
+//           Rhino 8 contract (2026-04-19): ON_DimAngular::Measurement()
+//           honors the span selected by `point`. Placing `point` inside
+//           the principal span returns the principal angle; placing it
+//           in the reflex span (the "other way around") returns the
+//           reflex angle (360° - principal). A right-angle vertex with
+//           `point = [5, 5, 0]` reports 90°; the same vertex with
+//           `point = [-5, -5, 0]` reports 270°. The pinned behavior is
+//           verified by test_point_selects_angular_span.
 // Optional: name / layer / color / visible (strict bundle).
 //
 // Response measuredValue is read from the constructed ON_DimAngular via
-// its SDK Measurement() accessor (converted from radians to degrees), so
-// whatever span the SDK selected from `point` is reflected exactly. The
-// measured value is NOT parsed from PlainText and NOT computed from a
-// pre-committed acos shortcut — both would drift from the authoritative
-// SDK value in reflex / supplementary cases.
+// its SDK Measurement() accessor (converted from radians to degrees).
+// NOT parsed from PlainText (presentation is unsafe for numeric
+// contract) and NOT computed from a pre-committed acos shortcut (would
+// drift from the SDK's value if the SDK ever starts honoring reflex
+// selection — in that case the test suite would fail loud, not silently
+// disagree).
 //
 // `center == start` or `center == end` rejected via Unitize-fail posture.
-// Colinear rays use a Z/Y/X cross-product fallback chain for the plane
-// normal — matches PR-2/PR-3 perpendicular-construction rhythm.
+// Colinear rays use a three-step fallback for the plane normal:
+// cross(rayA, rayB), then cross(rayA, Z), then cross(rayA, Y). The chain
+// fails only if all three collapse. No X-axis attempt is needed because
+// rayA ∥ X is already handled by the Z attempt. Matches PR-2/PR-3
+// perpendicular-construction rhythm.
 void HandleDimAngle(const httplib::Request& req, httplib::Response& res);
 
 // POST /annotation/dim-radius — Create a radial dimension measuring the
