@@ -1063,6 +1063,9 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/array/rectangular", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleRectangular(req, res);
     });
+    m_server->Post("/array/polar", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandlePolar(req, res);
+    });
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
     // to inject a synthetic TransformObject failure at a chosen copy ordinal.
     // Product code MUST NOT call this; public contract is explicitly none.
