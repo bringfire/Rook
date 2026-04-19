@@ -28,6 +28,7 @@
 #include "Handlers/OffsetBrepHandler.h"
 #include "Handlers/ArrayHandler.h"
 #include "Handlers/SurfaceHandler.h"
+#include "Handlers/AnnotationHandler.h"
 #include "Handlers/MeshHandler.h"
 #include "Handlers/SubDHandler.h"
 #include "Handlers/BlocksHandler.h"
@@ -1065,6 +1066,12 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/array/polar", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandlePolar(req, res);
+    });
+
+    // Phase 2 typed annotation-creation routes (direct-sdk native).
+    // Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md
+    m_server->Post("/annotation/text", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleText(req, res);
     });
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
     // to inject a synthetic TransformObject failure at a chosen copy ordinal.

@@ -359,6 +359,18 @@ def _build_route_table() -> dict[str, RouteSpec]:
         description="Polar (rotational) array around a center + axis",
     )
 
+    # === Creation: Phase 2 typed annotation routes ===
+    # Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md
+    routes["create_text"] = RouteSpec(
+        endpoint="/annotation/text",
+        required_params=("text",),
+        optional_params=(
+            "point", "height", "font", "bold", "italic",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a 2D text annotation (direct-sdk native; preserves annotation-level typography overrides)",
+    )
+
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
         endpoint="/mesh/box",

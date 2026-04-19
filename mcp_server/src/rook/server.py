@@ -2297,6 +2297,41 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_text",
+            description=(
+                "Create a 2D text annotation with strict attribute handling. Typed "
+                "Phase 2 route (POST /annotation/text) — prefer over legacy "
+                "/create?type=TEXT. Preserves annotation-level typography "
+                "overrides (font, bold, italic, height) via the native "
+                "ON_Text::SetAnnotation* setter family; the response payload "
+                "echoes the EFFECTIVE applied typography (so font-fallback "
+                "cases are observable without a follow-up read). Unknown "
+                "layer / unparseable color / non-boolean visible surface as "
+                "structured invalid_input."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Annotation text (non-empty)."},
+                    "point": {
+                        "type": "array",
+                        "description": "Insertion point [x, y, z] in world coordinates (default [0, 0, 0]).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "height": {"type": "number", "description": "Text height (> 0, default 1.0)."},
+                    "font": {"type": "string", "description": "Font family name (default 'Arial'). Falls back to document default if unavailable."},
+                    "bold": {"type": "boolean", "description": "Bold weight (default false)."},
+                    "italic": {"type": "boolean", "description": "Italic style (default false)."},
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["text"]
+            }
+        ),
+        Tool(
             name="rhino_array_linear",
             description=(
                 "Array objects along a direction vector. Typed Phase 1 route "
@@ -9645,6 +9680,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)
+
+        case "rhino_annotation_text":
+            result = await call_rhino("/annotation/text", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)
