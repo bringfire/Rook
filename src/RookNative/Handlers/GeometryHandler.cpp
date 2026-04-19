@@ -16,24 +16,9 @@ namespace Handlers {
 
 // --- Geometry detail capture (main thread only) ---
 
-static std::string AnnotationTypeToString(ON::AnnotationType annotationType)
-{
-    switch (annotationType)
-    {
-    case ON::AnnotationType::Text: return "Text";
-    case ON::AnnotationType::Leader: return "Leader";
-    case ON::AnnotationType::Aligned: return "AlignedDimension";
-    case ON::AnnotationType::Angular: return "AngularDimension";
-    case ON::AnnotationType::Angular3pt: return "Angular3ptDimension";
-    case ON::AnnotationType::Diameter: return "DiameterDimension";
-    case ON::AnnotationType::Radius: return "RadialDimension";
-    case ON::AnnotationType::Rotated: return "LinearDimension";
-    case ON::AnnotationType::Ordinate: return "OrdinateDimension";
-    case ON::AnnotationType::ArcLen: return "ArcLengthDimension";
-    case ON::AnnotationType::CenterMark: return "Centermark";
-    default: return "Annotation";
-    }
-}
+// AnnotationTypeToString was promoted to Serialization/RhinoSerializer.{h,cpp}
+// on 2026-04-19 so /geometry (this file) and /annotation/* typed routes
+// (AnnotationHandler.cpp) share one mapping byte-for-byte.
 
 GeometryDetail CaptureGeometryDetail(const CRhinoObject* obj, const ON_Geometry* geom, const CRhinoDoc* pDoc, std::string& outType)
 {
@@ -49,7 +34,7 @@ GeometryDetail CaptureGeometryDetail(const CRhinoObject* obj, const ON_Geometry*
         {
             outType = "Annotation";
             AnnotationDetail d;
-            d.annotationType = AnnotationTypeToString(annotation->AnnotationType());
+            d.annotationType = Rook::Serializer::AnnotationTypeToString(annotation->AnnotationType());
             d.plainText = WideToUtf8(annotation->PlainText());
             d.richText = WideToUtf8(annotation->RichText());
 

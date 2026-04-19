@@ -1079,6 +1079,12 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/annotation/dim-aligned", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleDimAligned(req, res);
     });
+    m_server->Post("/annotation/dim-radius", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDimRadius(req, res);
+    });
+    m_server->Post("/annotation/dim-diameter", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleDimDiameter(req, res);
+    });
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
     // to inject a synthetic TransformObject failure at a chosen copy ordinal.
     // Product code MUST NOT call this; public contract is explicitly none.

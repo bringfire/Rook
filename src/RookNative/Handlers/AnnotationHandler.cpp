@@ -66,6 +66,64 @@ namespace Handlers {
 
 namespace {
 
+// Structured-error carrier. Top-level catch blocks in Phase 2 annotation
+// handlers emit {errorCode, errorMessage} from this type, so handlers
+// can signal specific error codes (e.g. "not_found", "invalid_input")
+// by throwing rather than routing through std::invalid_argument (which
+// only maps to "invalid_input"). Mirrors ArrayHandler.cpp's pattern at
+// ArrayHandler.cpp:46-63.
+struct StructuredError : public std::exception
+{
+    StructuredError(std::string codeIn, std::string messageIn)
+        : code(std::move(codeIn)), message(std::move(messageIn)),
+          whatCache(code + ": " + message)
+    {
+    }
+
+    const char* what() const noexcept override { return whatCache.c_str(); }
+
+    std::string code;
+    std::string message;
+
+private:
+    std::string whatCache;
+};
+
+// Resolve a `curveId` request field to an ON_Arc. Wraps closed circles
+// as ON_Arc(circle, 2π) so both callers can share a single arc math path.
+// Throws StructuredError with an explicit code the top-level catch
+// translates into a structured error envelope.
+ON_Arc ExtractArcFromCurveId(const nlohmann::json& body, CRhinoDoc* pDoc)
+{
+    if (!body.contains("curveId") || !body["curveId"].is_string())
+        throw StructuredError("invalid_input", "Missing required field: curveId");
+
+    const std::string idStr = body["curveId"].get<std::string>();
+    const ON_UUID uuid = ON_UuidFromString(idStr.c_str());
+    if (ON_UuidIsNil(uuid))
+        throw StructuredError("invalid_input", "Invalid GUID for 'curveId': " + idStr);
+
+    const CRhinoObject* obj = pDoc->LookupObject(uuid);
+    if (!obj)
+        throw StructuredError("not_found", "Object not found: " + idStr);
+
+    const ON_Geometry* geom = obj->Geometry();
+    const ON_Curve* curve = ON_Curve::Cast(geom);
+    if (!curve)
+        throw StructuredError("invalid_input",
+            "Object '" + idStr + "' is not a curve");
+
+    // ON_Curve::IsArc reports true for both proper arcs and full circles
+    // (per opennurbs_curve.h:353-363: ON_Arc.m_angle == 2π indicates a
+    // circle). Unified accessor — no separate circle branch needed.
+    ON_Arc arc;
+    if (curve->IsArc(nullptr, &arc))
+        return arc;
+
+    throw StructuredError("invalid_input",
+        "Object '" + idStr + "' is not an arc or circle curve");
+}
+
 // Strict attribute application for Phase 2 typed routes. Distinct from
 // CreateHandler.cpp's ApplyCommonAttributes (:91-117), which silently
 // ignores unparseable colors (catch(...) at :115) and does not handle
@@ -321,6 +379,199 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- Shared dispatch for radial dims ------------------------------------
+
+namespace {
+
+// Shared builder for /annotation/dim-radius and /annotation/dim-diameter.
+// Both routes take the same input (curveId, optional point + strict attrs);
+// the only per-route difference is the AnnotationType enum and the
+// measuredValue math (r vs 2r). Factoring the body avoids a 2nd copy of
+// ~60 lines across the two handlers.
+//
+// `radialType` is ON::AnnotationType::Radius or ::Diameter; the caller is
+// responsible for passing the correct one. The undoLabel distinguishes the
+// two operations in the undo stack so users see "Undo Create Radius
+// Dimension" vs "Undo Create Diameter Dimension".
+void DispatchRadialDim(
+    const httplib::Request& req,
+    httplib::Response& res,
+    ON::AnnotationType radialType,
+    const wchar_t* undoLabel)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    if (!body.contains("curveId"))
+    {
+        invalidInput("Missing required field: curveId");
+        return;
+    }
+    if (!body["curveId"].is_string())
+    {
+        invalidInput("'curveId' must be a string");
+        return;
+    }
+
+    if (body.contains("point"))
+    {
+        if (!body["point"].is_array() || body["point"].size() != 3)
+        {
+            invalidInput("'point' must be an array of exactly 3 numbers");
+            return;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body["point"][i].is_number())
+            {
+                invalidInput("'point' entries must be numbers");
+                return;
+            }
+        }
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body, radialType, undoLabel]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, undoLabel);
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        // Throws StructuredError on not_found / invalid_input per the
+        // explicit error-code contract.
+        const ON_Arc arc = ExtractArcFromCurveId(body, pDoc);
+
+        const ON_3dPoint center = arc.Center();
+        const ON_3dPoint radiusPoint = arc.PointAt(0.0);
+        // Default dim leader position is a point on the arc itself,
+        // matching the managed CreateRadiusDimension fallback at
+        // CreateHandler.cs:1076-1077 (arc.MidPoint). Callers who want
+        // text offset outside the arc can pass `point` explicitly.
+        const ON_3dPoint dimLinePoint = body.contains("point")
+            ? ParsePoint3d(body, "point")
+            : arc.MidPoint();
+
+        const auto dimContext = pDoc->DimStyleContext();
+        const ON_DimStyle& currentStyle = dimContext.CurrentDimStyle();
+
+        // No CRhinoDoc::AddDimRadialObject convenience exists (unlike
+        // AddDimLinearObject / AddDimAngularObject). Construct the
+        // ON_DimRadial explicitly with the correct AnnotationType, wrap
+        // it in a CRhinoDimRadial, and add via AddObject. The SDK plane
+        // is the arc's own plane.
+        ON_DimRadial* dim = new ON_DimRadial();
+        const bool created = dim->Create(
+            radialType,
+            currentStyle.Id(),
+            arc.Plane(),
+            center,
+            radiusPoint,
+            dimLinePoint);
+        if (!created)
+        {
+            delete dim;
+            throw StructuredError("operation_failed",
+                "Failed to build radial dimension geometry");
+        }
+
+        CRhinoDimRadial* rhinoDim = new CRhinoDimRadial(attrs);
+        rhinoDim->SetDimension(dim);  // rhinoDim takes ownership of dim
+
+        if (!pDoc->AddObject(rhinoDim))
+        {
+            delete rhinoDim;
+            throw StructuredError("operation_failed",
+                "Failed to add radial dimension to document");
+        }
+
+        pDoc->Redraw();
+
+        // Measured value is always the arc radius or diameter — computed
+        // from the extracted geometry, never parsed from PlainText. Rule
+        // inherited from PR-2 (presentation text is unsafe for numeric
+        // contract: dimstyle formatting, rounding, prefixes could corrupt).
+        const double radius = arc.Radius();
+        const double measuredValue =
+            (radialType == ON::AnnotationType::Diameter) ? (2.0 * radius)
+                                                          : radius;
+
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(rhinoDim, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(rhinoDim))
+        {
+            data["annotationType"] = Rook::Serializer::AnnotationTypeToString(
+                annotation->AnnotationType());
+        }
+        data["measuredValue"] = measuredValue;
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", ex.code},
+            {"errorMessage", ex.message},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
+} // namespace
+
+// --- POST /annotation/dim-radius ----------------------------------------
+
+void HandleDimRadius(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchRadialDim(req, res,
+        ON::AnnotationType::Radius,
+        L"Create Radius Dimension");
+}
+
+// --- POST /annotation/dim-diameter --------------------------------------
+
+void HandleDimDiameter(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchRadialDim(req, res,
+        ON::AnnotationType::Diameter,
+        L"Create Diameter Dimension");
+}
+
 // --- POST /annotation/dim-aligned ---------------------------------------
 
 void HandleDimAligned(const httplib::Request& req, httplib::Response& res)
@@ -458,20 +709,8 @@ void HandleDimAligned(const httplib::Request& req, httplib::Response& res)
 
         if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(obj))
         {
-            // Third local copy of the ON::AnnotationType → wire-string
-            // mapping (also in GeometryHandler.cpp:19-36 and
-            // HandleDimLinear above). Accepted conscious debt per Codex
-            // 2026-04-19 review of PR-2: promotion to a shared helper
-            // waits for a concrete 4th-caller trigger rather than
-            // speculative extraction. The parked work-queue entry tracks
-            // the trigger.
-            const ON::AnnotationType at = annotation->AnnotationType();
-            switch (at)
-            {
-            case ON::AnnotationType::Aligned:      data["annotationType"] = "AlignedDimension"; break;
-            case ON::AnnotationType::Rotated:      data["annotationType"] = "LinearDimension"; break;
-            default:                                data["annotationType"] = "Annotation"; break;
-            }
+            data["annotationType"] = Rook::Serializer::AnnotationTypeToString(
+                annotation->AnnotationType());
         }
         data["measuredValue"] = measuredValue;
 
@@ -673,16 +912,8 @@ void HandleDimLinear(const httplib::Request& req, httplib::Response& res)
 
         if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(obj))
         {
-            const ON::AnnotationType at = annotation->AnnotationType();
-            // Mirror the exact string used by GeometryHandler.cpp's
-            // AnnotationTypeToString (line 19-36) so /annotation/dim-linear
-            // and GET /geometry agree on the wire format.
-            switch (at)
-            {
-            case ON::AnnotationType::Aligned:      data["annotationType"] = "AlignedDimension"; break;
-            case ON::AnnotationType::Rotated:      data["annotationType"] = "LinearDimension"; break;
-            default:                                data["annotationType"] = "Annotation"; break;
-            }
+            data["annotationType"] = Rook::Serializer::AnnotationTypeToString(
+                annotation->AnnotationType());
         }
         data["measuredValue"] = measuredValue;
 

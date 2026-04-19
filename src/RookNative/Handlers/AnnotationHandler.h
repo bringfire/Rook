@@ -20,6 +20,32 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dim-radius — Create a radial dimension measuring the
+// radius of an arc or circle curve.
+//
+// Radial semantics (ON::AnnotationType::Radius, serialized as
+// "RadialDimension" per Serializer::AnnotationTypeToString).
+// measuredValue in the response is the arc's radius, computed from the
+// extracted geometry (never parsed from PlainText).
+//
+// Required: curveId (GUID of a Rhino object whose geometry is an arc
+//           or a closed circle curve).
+// Optional: point ([x,y,z], dim leader text position; default = arc
+//           midpoint), name / layer / color / visible (strict bundle).
+// Error codes: not_found (unknown curveId), invalid_input (bad GUID or
+//           curve is not arc/circle).
+void HandleDimRadius(const httplib::Request& req, httplib::Response& res);
+
+// POST /annotation/dim-diameter — Create a diameter dimension on an arc
+// or circle curve.
+//
+// Diameter semantics (ON::AnnotationType::Diameter, serialized as
+// "DiameterDimension"). Sibling to /annotation/dim-radius — same input
+// shape, same SDK construction path, differs only by the AnnotationType
+// enum the underlying ON_DimRadial is built with, and the measuredValue
+// (2·radius).
+void HandleDimDiameter(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/dim-aligned — Create an ALIGNED dimension between
 // two points.
 //

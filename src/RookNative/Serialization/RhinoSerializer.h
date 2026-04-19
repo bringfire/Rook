@@ -5,10 +5,24 @@
 
 #pragma once
 
+#include <string>
 #include "Models/Snapshots.h"
+
+// Note: `ON::AnnotationType` resolves against the OpenNURBS `ON` class
+// scope declared in opennurbs_dimension.h — not a namespace, so it cannot
+// be forward-declared here. Every translation unit that includes this
+// header already pulls the SDK via stdafx.h, so the enum is in scope
+// by the time this declaration is parsed.
 
 namespace Rook {
 namespace Serializer {
+
+// Canonical wire-format string for an annotation type. Shared between
+// GeometryHandler.cpp (GET /geometry response's AnnotationDetail field)
+// and AnnotationHandler.cpp (typed /annotation/* route response payloads),
+// so both surfaces agree byte-for-byte on the enum→string mapping.
+// Unknown / unmapped values return "Annotation".
+std::string AnnotationTypeToString(ON::AnnotationType annotationType);
 
 // Object summary (for GET /objects)
 nlohmann::json SerializeObject(const ObjectSnapshot& obj);
