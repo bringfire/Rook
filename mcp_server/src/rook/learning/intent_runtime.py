@@ -379,6 +379,14 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create a LINEAR dimension — measures projected distance of (end-start) onto direction (default world X), NOT direct Euclidean",
     )
+    routes["create_dim_aligned"] = RouteSpec(
+        endpoint="/annotation/dim-aligned",
+        required_params=("start", "end", "offset"),
+        optional_params=(
+            "name", "layer", "color", "visible",
+        ),
+        description="Create an ALIGNED dimension — measures direct Euclidean distance between start and end. No projection direction (use /annotation/dim-linear for that).",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
