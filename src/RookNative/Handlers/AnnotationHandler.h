@@ -20,6 +20,39 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dot — Create a text dot (camera-facing text label
+// anchored at a point).
+//
+// Category note: text dots are NOT annotations in the SDK sense. ON_TextDot
+// subclasses ON_Geometry, not ON_Annotation, and its ObjectType() is
+// ON::text_dot (not ON::annotation_object). The response therefore has
+// NO `annotationType` field — the shared AnnotationTypeToString helper
+// does not apply to dots. The top-level snapshot `type` field is
+// "TextDot" (hard-coded in DocumentHelpers.h:127's ON::text_dot branch).
+// Dots are still grouped under /annotation/* because they read as
+// annotation-family from the user's POV (text labels that stay upright
+// and face the camera).
+//
+// Required: text (non-empty string, primary label), location ([x,y,z]
+//           exactly 3 numeric, dot center point).
+// Optional: secondaryText (string, shown on hover/click in Rhino UI),
+//           heightInPoints (JSON integer ≥ 3; default 14 per
+//           ON_TextDot::DefaultHeightInPoints — rejects JSON floats
+//           including 24.0, consistent with ArrayHandler's integer
+//           posture), fontFace (string; default is whatever
+//           ON_TextDot uses when SetFontFace is not called — empirically
+//           determined and pinned in the happy-path test), name /
+//           layer / color / visible (strict bundle).
+//
+// Response echoes effective applied values (text, secondaryText,
+// heightInPoints, fontFace) read from the live dot object, NOT request
+// echoes — PR-1 posture. No measuredValue field (dots have no
+// dimensioned numeric quantity). GeometryHandler currently has no
+// ON_TextDot branch, so GET /geometry does NOT give dot-specific detail
+// (text / font / height) — verification is route-response-only for
+// this PR. Richer /geometry support is follow-up hygiene.
+void HandleTextDot(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/leader — Create a leader (text label with a polyline
 // pointing at an annotated location).
 //
