@@ -2332,6 +2332,55 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_dim_angle",
+            description=(
+                "Create an angular dimension between two rays from a common "
+                "vertex. Typed Phase 2 route (POST /annotation/dim-angle). "
+                "3-point contract: center (vertex) + start (endpoint of first "
+                "ray) + end (endpoint of second ray) + point (interior of the "
+                "angular dim arc; disambiguates which of up to four possible "
+                "spans to dimension — REQUIRED, no default). Produces "
+                "ON::AnnotationType::Angular3pt (wire: 'Angular3ptDimension'). "
+                "measuredValue is the angle in DEGREES, read via the SDK's "
+                "Measurement() accessor so whatever span the SDK selected "
+                "from `point` is reflected exactly."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "center": {
+                        "type": "array",
+                        "description": "Angle vertex [x,y,z] (exactly 3 numbers).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "start": {
+                        "type": "array",
+                        "description": "Endpoint of first extension ray [x,y,z]. Must differ from center.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "end": {
+                        "type": "array",
+                        "description": "Endpoint of second extension ray [x,y,z]. Must differ from center.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "point": {
+                        "type": "array",
+                        "description": "Interior point of the angular dim arc [x,y,z]. Selects which span is dimensioned.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "name": {"type": "string"},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string"},
+                    "visible": {"type": "boolean"},
+                },
+                "required": ["center", "start", "end", "point"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_dim_radius",
             description=(
                 "Create a radial dimension measuring the radius of an arc "
@@ -9837,6 +9886,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_dim_diameter":
             result = await call_rhino("/annotation/dim-diameter", "POST", arguments)
+
+        case "rhino_annotation_dim_angle":
+            result = await call_rhino("/annotation/dim-angle", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

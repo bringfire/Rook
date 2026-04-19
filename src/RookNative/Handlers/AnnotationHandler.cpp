@@ -379,6 +379,191 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- POST /annotation/dim-angle -----------------------------------------
+
+void HandleDimAngle(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    auto requirePoint = [&](const char* key) -> bool {
+        if (!body.contains(key))
+        {
+            invalidInput(std::string("Missing required field: ") + key);
+            return false;
+        }
+        if (!body[key].is_array() || body[key].size() != 3)
+        {
+            invalidInput(std::string("'") + key + "' must be an array of exactly 3 numbers");
+            return false;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body[key][i].is_number())
+            {
+                invalidInput(std::string("'") + key + "' entries must be numbers");
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!requirePoint("center")) return;
+    if (!requirePoint("start")) return;
+    if (!requirePoint("end")) return;
+    if (!requirePoint("point")) return;
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Angle Dimension");
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        const ON_3dPoint center = ParsePoint3d(body, "center");
+        const ON_3dPoint startPt = ParsePoint3d(body, "start");
+        const ON_3dPoint endPt = ParsePoint3d(body, "end");
+        const ON_3dPoint dimPoint = ParsePoint3d(body, "point");
+
+        // Degenerate-ray rejection via Unitize-fail posture (matches PR-2/PR-3
+        // coincident-point convention — no custom tolerance).
+        ON_3dVector rayA = startPt - center;
+        if (!rayA.Unitize())
+            throw std::invalid_argument("'start' must differ from 'center' (degenerate ray)");
+
+        ON_3dVector rayB = endPt - center;
+        if (!rayB.Unitize())
+            throw std::invalid_argument("'end' must differ from 'center' (degenerate ray)");
+
+        // Plane normal: try cross(rayA, rayB) first; if colinear, fall back
+        // through Z / Y / X cross-products. Matches PR-2/PR-3 perpendicular
+        // construction rhythm. The pure-Z fallback in the initial scope
+        // draft was degenerate when rayA ∥ Z; this chain covers that case.
+        ON_3dVector normal = ON_CrossProduct(rayA, rayB);
+        if (!normal.Unitize())
+        {
+            normal = ON_CrossProduct(rayA, ON_3dVector::ZAxis);
+            if (!normal.Unitize())
+            {
+                normal = ON_CrossProduct(rayA, ON_3dVector::YAxis);
+                if (!normal.Unitize())
+                    throw std::runtime_error("Failed to construct angular dimension plane");
+            }
+        }
+
+        const ON_3dVector planeY = ON_CrossProduct(normal, rayA);
+        const ON_Plane plane(center, rayA, planeY);
+
+        const auto dimContext = pDoc->DimStyleContext();
+        const ON_DimStyle& currentStyle = dimContext.CurrentDimStyle();
+
+        // 3-point angular Create overload. `ref_horizontal` aligned with
+        // rayA; the SDK uses `dimPoint` to select which of up to four
+        // possible angular spans to dimension (acute/obtuse on either
+        // side of the intersection). Whatever span it picks, we read the
+        // result back via Measurement() below — no pre-committed acos
+        // shortcut that could drift from the SDK's selection.
+        ON_DimAngular* dim = new ON_DimAngular();
+        const bool created = dim->Create(
+            currentStyle.Id(),
+            plane,
+            rayA,          // ref_horizontal
+            center,        // center_pt
+            startPt,       // extension_pt1
+            endPt,         // extension_pt2
+            dimPoint);     // dimline_pt
+        if (!created)
+        {
+            delete dim;
+            throw StructuredError("operation_failed",
+                "Failed to build angular dimension geometry");
+        }
+
+        CRhinoDimAngular* rhinoDim = pDoc->CreateDimAngularObject(*dim, &attrs);
+        delete dim;  // CreateDimAngularObject copies — original can be freed.
+        if (!rhinoDim)
+            throw StructuredError("operation_failed",
+                "Failed to wrap angular dimension for document insertion");
+
+        if (!pDoc->AddObject(rhinoDim))
+        {
+            delete rhinoDim;
+            throw StructuredError("operation_failed",
+                "Failed to add angular dimension to document");
+        }
+
+        pDoc->Redraw();
+
+        // Measurement() is the SDK's authoritative numeric accessor for
+        // the dim's displayed value — honors the span selected from
+        // `point`. Returns radians; convert to degrees for response
+        // ergonomics. This is a numeric accessor, not a text accessor,
+        // so it doesn't violate the PR-2 "never parse from PlainText"
+        // rule — it IS the geometry math, just expressed through the
+        // SDK's view of its own construction.
+        double measuredValueRadians = 0.0;
+        if (const auto* angularDim = dynamic_cast<const ON_DimAngular*>(rhinoDim->Geometry()))
+            measuredValueRadians = angularDim->Measurement();
+
+        const double measuredValueDegrees = measuredValueRadians * (180.0 / ON_PI);
+
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(rhinoDim, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(rhinoDim))
+        {
+            data["annotationType"] = Rook::Serializer::AnnotationTypeToString(
+                annotation->AnnotationType());
+        }
+        data["measuredValue"] = measuredValueDegrees;
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", ex.code},
+            {"errorMessage", ex.message},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
 // --- Shared dispatch for radial dims ------------------------------------
 
 namespace {

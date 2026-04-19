@@ -20,6 +20,37 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dim-angle — Create an angular dimension between two
+// rays from a common vertex (3-point form).
+//
+// Angular semantics: ON::AnnotationType::Angular3pt (wire:
+// "Angular3ptDimension" per Rook::Serializer::AnnotationTypeToString).
+// Empirically verified 2026-04-19: the 3-point ON_DimAngular::Create
+// overload produces Angular3pt, not the bare Angular type (which
+// corresponds to the line-based two-line intersection overload).
+//
+// Required: center, start, end, point — all [x,y,z] with exactly 3 entries.
+//   center: the angle vertex.
+//   start:  endpoint defining the first extension ray from center.
+//   end:    endpoint defining the second extension ray.
+//   point:  interior of the angular dim arc. REQUIRED — the SDK uses this
+//           to disambiguate which of up to four possible angular spans
+//           (acute/obtuse, either side) to dimension. Defaulting it would
+//           silently pick one span; callers MUST be explicit.
+// Optional: name / layer / color / visible (strict bundle).
+//
+// Response measuredValue is read from the constructed ON_DimAngular via
+// its SDK Measurement() accessor (converted from radians to degrees), so
+// whatever span the SDK selected from `point` is reflected exactly. The
+// measured value is NOT parsed from PlainText and NOT computed from a
+// pre-committed acos shortcut — both would drift from the authoritative
+// SDK value in reflex / supplementary cases.
+//
+// `center == start` or `center == end` rejected via Unitize-fail posture.
+// Colinear rays use a Z/Y/X cross-product fallback chain for the plane
+// normal — matches PR-2/PR-3 perpendicular-construction rhythm.
+void HandleDimAngle(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/dim-radius — Create a radial dimension measuring the
 // radius of an arc or circle curve.
 //
