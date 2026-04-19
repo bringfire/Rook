@@ -75,6 +75,43 @@ def _executor_case_labels(source: str) -> set[str]:
     return set(re.findall(r'^\s+case "([^"]+)":', source, flags=re.MULTILINE))
 
 
+def _executor_simple_case_endpoints(source: str) -> dict[str, str]:
+    """Pairs of (tool_name, call_rhino endpoint) for the simple case-arm
+    pattern used by every Phase 1 typed-route arm:
+
+        case "rhino_<X>":
+            result = await call_rhino("<endpoint>", ...)
+
+    Complex arms that wrap call_rhino with argument munging (e.g.
+    rhino_boolean, rhino_extrude) won't match this pattern and won't appear
+    in the result dict. That's acceptable — the audit only needs to pin the
+    simple typed-route arms used by all 8 Phase 1 intents, and any future
+    complex arm that wants the assertion can be refactored to call a small
+    helper that the regex covers.
+
+    Catches: case-label-vs-endpoint mismatch (e.g. somebody pastes
+    `case "rhino_array_polar":` followed by `call_rhino("/array/linear", ...)`).
+    Without this check, the label-presence test passes while the agent
+    invokes the wrong route.
+    """
+    pattern = re.compile(
+        r'case\s+"(rhino_[A-Za-z0-9_]+)"\s*:\s*\n'
+        r'\s*result\s*=\s*await\s+call_rhino\(\s*"([^"]+)"',
+        flags=re.MULTILINE,
+    )
+    return {tool_name: endpoint for tool_name, endpoint in pattern.findall(source)}
+
+
+def _server_py_typed_endpoints(source: str) -> set[str]:
+    """All /surface/* and /array/* endpoint strings appearing in any
+    call_rhino(...) call in server.py. Used by the coverage-of-coverage
+    test to catch a typed route that's wired in the executor but never
+    given a RouteSpec.
+    """
+    pattern = re.compile(r'call_rhino\(\s*"(/(?:surface|array)/[^"]+)"')
+    return set(pattern.findall(source))
+
+
 async def _list_tools_names() -> set[str]:
     """Names of all MCP tools registered via the @mcp.list_tools() handler."""
     from rook.server import list_tools
@@ -122,17 +159,45 @@ async def test_phase1_intent_has_mcp_tool_registration(
 def test_phase1_intent_has_executor_case_arm(
     intent: str, tool_name: str, endpoint: str
 ) -> None:
-    """Surface 2: `case "rhino_<X>":` exists in the call_tool match block.
+    """Surface 2: `case "rhino_<X>":` exists in the call_tool match block
+    AND its body routes to the expected endpoint.
 
-    Failure mode caught: tool registered but no executor routing — invocation
-    falls into the default case and returns "Unknown tool" or similar.
+    Failure modes caught:
+    - Tool registered but no executor routing — invocation falls into the
+      default case and returns "Unknown tool" or similar.
+    - Case label exists but routes to the wrong endpoint (e.g. paste error
+      where `case "rhino_array_polar":` body calls `call_rhino("/array/linear", ...)`).
+      The label-only check would pass; an agent would silently invoke the
+      wrong route. Per Codex review of PR #61.
     """
-    labels = _executor_case_labels(_server_py_source())
+    source = _server_py_source()
+    labels = _executor_case_labels(source)
     assert tool_name in labels, (
         f"Intent {intent!r}: tool {tool_name!r} has no executor case arm. "
         f"Agent invocations would hit the default branch.\n"
         f"To fix: add `case \"{tool_name}\":` to call_tool() routing the "
         f"call to {endpoint!r}."
+    )
+
+    routed = _executor_simple_case_endpoints(source)
+    assert tool_name in routed, (
+        f"Intent {intent!r}: tool {tool_name!r} has a case arm but its body "
+        f"does not match the expected simple shape\n"
+        f"  case \"{tool_name}\":\n"
+        f"      result = await call_rhino(\"<endpoint>\", ...)\n"
+        f"If the arm has been wrapped with argument munging or other logic, "
+        f"refactor the call_rhino invocation into a recognizable shape so "
+        f"this audit can verify endpoint routing."
+    )
+
+    actual_endpoint = routed[tool_name]
+    assert actual_endpoint == endpoint, (
+        f"Intent {intent!r}: executor case arm routes to the wrong endpoint.\n"
+        f"  case label: {tool_name!r}\n"
+        f"  expected:   call_rhino({endpoint!r}, ...)\n"
+        f"  actual:     call_rhino({actual_endpoint!r}, ...)\n"
+        f"An agent invoking this tool would hit the wrong handler. Likely "
+        f"a paste error or refactor that swapped endpoints."
     )
 
 
@@ -197,7 +262,7 @@ def test_phase1_intent_in_creation_category(
 def test_phase1_inventory_covers_all_surface_and_array_routes() -> None:
     """Every RouteSpec with /surface/* or /array/* endpoint must appear in
     PHASE1_TYPED_ROUTE_INTENTS. Catches the case where a new typed route
-    ships and the audit list isn't updated to cover it.
+    ships, gets a RouteSpec, but isn't added to the audit list.
     """
     routes = _route_table()
     inventory_intents = {entry[0] for entry in PHASE1_TYPED_ROUTE_INTENTS}
@@ -214,4 +279,49 @@ def test_phase1_inventory_covers_all_surface_and_array_routes() -> None:
         f"inventory: {sorted(missing_from_inventory)}.\n"
         f"Add them to PHASE1_TYPED_ROUTE_INTENTS so the four-surface audit "
         f"applies to them too."
+    )
+
+
+def test_phase1_inventory_covers_all_executor_typed_endpoints() -> None:
+    """Every /surface/* or /array/* endpoint mentioned in any call_rhino()
+    invocation in server.py must have a corresponding RouteSpec in
+    intent_runtime AND an entry in PHASE1_TYPED_ROUTE_INTENTS.
+
+    Closes the symmetric blind spot Codex flagged on PR #61: the
+    intent_runtime-derived inventory check would miss a typed route added
+    to the executor but never given a RouteSpec. This check derives the
+    inventory from server.py instead, so neither side can drift silently.
+
+    A future typed-route family being shipped behind a feature flag and
+    intentionally without a RouteSpec would need to be exempted here
+    explicitly — that's the right discipline for "shipped but not yet
+    plannable" routes.
+    """
+    source = _server_py_source()
+    executor_endpoints = _server_py_typed_endpoints(source)
+
+    routes = _route_table()
+    route_table_endpoints = {
+        spec.endpoint
+        for spec in routes.values()
+        if spec.endpoint.startswith(("/surface/", "/array/"))
+    }
+    inventory_endpoints = {entry[2] for entry in PHASE1_TYPED_ROUTE_INTENTS}
+
+    missing_from_route_table = executor_endpoints - route_table_endpoints
+    assert not missing_from_route_table, (
+        f"Executor wires typed endpoints that have no CapabilityRouter "
+        f"RouteSpec: {sorted(missing_from_route_table)}.\n"
+        f"Agents invoking these via /intent would fall through to the DSPy "
+        f"command-string fallback instead of the typed endpoint. Add the "
+        f"missing RouteSpec entries to mcp_server/src/rook/learning/"
+        f"intent_runtime.py."
+    )
+
+    missing_from_inventory = executor_endpoints - inventory_endpoints
+    assert not missing_from_inventory, (
+        f"Executor wires typed endpoints that aren't in the audit inventory: "
+        f"{sorted(missing_from_inventory)}.\n"
+        f"Add them to PHASE1_TYPED_ROUTE_INTENTS so the four-surface audit "
+        f"covers them."
     )
