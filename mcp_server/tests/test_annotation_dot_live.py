@@ -113,20 +113,17 @@ async def test_basic_dot_happy_path(fresh_document):
         f"Expected default heightInPoints=14, got {result.get('heightInPoints')!r}"
     )
 
-    # Default fontFace: whatever ON_TextDot reports when SetFontFace is not
-    # called. SDK header is ambiguous (DefaultFontFace = "Arial" but the
-    # FontFace() getter remark says "Arial Bold"). The runtime value is
-    # deterministic — pin whichever exact string it returns.
-    default_font = result.get("fontFace")
-    assert isinstance(default_font, str) and default_font, (
-        f"Expected non-empty default fontFace, got {default_font!r}"
-    )
-    # Tighten to exact set. If a future SDK adds a third default, this
-    # fails loud and forces a deliberate contract update.
-    assert default_font in ("Arial", "Arial Bold"), (
-        f"Unexpected default fontFace: {default_font!r}. "
-        f"SDK header declares DefaultFontFace='Arial' but FontFace() remark "
-        f"says 'Arial Bold' — the actual runtime should be one of those."
+    # Default fontFace pinned to exact value observed on Rhino 8 /
+    # RookNative 2026-04-19. SDK header is ambiguous (DefaultFontFace =
+    # "Arial" but the FontFace() getter remark says "Arial Bold"); the
+    # runtime returns "Arial". Pinning the exact string instead of a
+    # disjunction — PR-5 lesson carried forward (lax `A OR B` matchers
+    # mask the real behavior).
+    assert result.get("fontFace") == "Arial", (
+        f"Expected default fontFace == 'Arial' exactly, got "
+        f"{result.get('fontFace')!r}. If the runtime changed to "
+        f"'Arial Bold' (matching the SDK getter remark), update the MCP "
+        f"tool description and this test together."
     )
 
     # Dots are ON_Geometry not ON_Annotation — no annotationType field.

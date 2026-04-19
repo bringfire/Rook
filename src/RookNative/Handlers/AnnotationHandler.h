@@ -39,10 +39,10 @@ namespace Handlers {
 //           heightInPoints (JSON integer ≥ 3; default 14 per
 //           ON_TextDot::DefaultHeightInPoints — rejects JSON floats
 //           including 24.0, consistent with ArrayHandler's integer
-//           posture), fontFace (string; default is whatever
-//           ON_TextDot uses when SetFontFace is not called — empirically
-//           determined and pinned in the happy-path test), name /
-//           layer / color / visible (strict bundle).
+//           posture), fontFace (string; observed default = "Arial" on
+//           Rhino 8 / RookNative 2026-04-19 — pinned by
+//           test_basic_dot_happy_path and the MCP tool description),
+//           name / layer / color / visible (strict bundle).
 //
 // Response echoes effective applied values (text, secondaryText,
 // heightInPoints, fontFace) read from the live dot object, NOT request

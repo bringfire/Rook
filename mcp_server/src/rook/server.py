@@ -2366,7 +2366,7 @@ Examples:
                     },
                     "fontFace": {
                         "type": "string",
-                        "description": "Font face name. Default is the ON_TextDot default (Arial / Arial Bold per SDK).",
+                        "description": "Font face name. Default is 'Arial' (observed Rhino 8 runtime; SDK header is ambiguous between 'Arial' and 'Arial Bold' but the actual default returned by ON_TextDot is 'Arial').",
                     },
                     "name": {"type": "string"},
                     "layer": {"type": "string", "description": "Layer path (must exist)."},

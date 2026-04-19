@@ -506,16 +506,25 @@ void HandleTextDot(const httplib::Request& req, httplib::Response& res)
         // aren't ON_Annotation, so there's no annotationType field;
         // snapshot's top-level `type` field = "TextDot" from
         // DocumentHelpers.h:127 already identifies the object.
+        //
+        // The text/secondaryText/heightInPoints/fontFace echoes are
+        // load-bearing for the route's contract (verification is
+        // route-response-only — GeometryHandler has no ON_TextDot
+        // branch, so /geometry can't fall back). If the dynamic_cast
+        // fails the response would silently lose those fields, so we
+        // fail loud here instead.
         ObjectSnapshot snapshot = CaptureObjectSnapshot(rhinoDot, pDoc);
         nlohmann::json data = Serializer::SerializeObject(snapshot);
 
-        if (const auto* liveDot = dynamic_cast<const ON_TextDot*>(rhinoDot->Geometry()))
-        {
-            data["text"] = WideToUtf8(liveDot->PrimaryText());
-            data["secondaryText"] = WideToUtf8(liveDot->SecondaryText());
-            data["heightInPoints"] = liveDot->HeightInPoints();
-            data["fontFace"] = WideToUtf8(liveDot->FontFace());
-        }
+        const auto* liveDot = dynamic_cast<const ON_TextDot*>(rhinoDot->Geometry());
+        if (!liveDot)
+            throw StructuredError("operation_failed",
+                "Created text dot did not resolve to ON_TextDot for read-back");
+
+        data["text"] = WideToUtf8(liveDot->PrimaryText());
+        data["secondaryText"] = WideToUtf8(liveDot->SecondaryText());
+        data["heightInPoints"] = liveDot->HeightInPoints();
+        data["fontFace"] = WideToUtf8(liveDot->FontFace());
 
         WriteResult wr;
         wr.success = true;
