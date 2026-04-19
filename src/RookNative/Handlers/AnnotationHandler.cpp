@@ -1,0 +1,321 @@
+// AnnotationHandler.cpp
+//
+// Phase 2 typed annotation-creation routes. See plan:
+//   rook_docs/2026-04-19-typed-route-phase2-plan.md
+//
+// Substrate: direct-sdk (native C++).
+//   - Native owns: HTTP entry, JSON parse, schema validation, dimstyle
+//     override construction (SetTextHeight / SetAnnotationFont /
+//     SetAnnotationBold / SetAnnotationItalic / SetAnnotationFacename),
+//     pDoc->CreateTextObject + pDoc->AddObject, strict attribute
+//     application, response envelope.
+//   - Managed owns nothing here.
+//
+// Substrate rationale (per gap-analysis 2026-04-19 decision, binding
+// under Decision Record Rule 6):
+//   (a) RookNative is the public HTTP surface; managed is internal
+//       companion. Typed routes belong on the public substrate.
+//   (b) Native already has higher-fidelity TEXT than managed (override
+//       persistence at CreateHandler.cpp:558-563 not replicated on the
+//       managed factory).
+//   (c) Routing through managed would introduce a new bridge_unavailable
+//       / 503 mode for operations that have no bridge dependency today.
+//   (d) Avoids baking managed's strict-attrs bypass (managed's annotation
+//       switch at CreateHandler.cs:93-121 returns before the attribute
+//       block at :181) and LINEAR/ALIGNED collapse into the new contract.
+//
+// Strict-attrs convention: Phase 2 annotation routes enforce strict
+// attribute application from day one — no _strictAttributes flag opt-in.
+// Unknown layer / unparseable color / non-boolean visible → structured
+// invalid_input. Legacy /create?type=TEXT remains on the lax
+// ApplyCommonAttributes (CreateHandler.cpp:91-117) and is untouched by
+// this PR.
+//
+// Factory-body policy: the TEXT factory body is copied near-verbatim
+// from CreateHandler.cpp:514-576 rather than shared with the legacy
+// caller. Premature helper extraction between a strict typed route and
+// a legacy lax route would couple the two before there is a second typed
+// caller to justify the seam (Codex 2026-04-19). A shared-factory
+// consolidation PR is reasonable once a second annotation variant lands.
+//
+// Response-payload echo policy: typography fields (font, bold, italic,
+// height) in the success payload are the EFFECTIVE applied values read
+// from the created annotation via GetEffectiveDimensionStyle, NOT the
+// request parameters. Font-characteristic failures fall back to the
+// document default font; the response reflects the fallback, so callers
+// can verify what was actually persisted without a follow-up GET
+// /geometry read.
+
+#include "stdafx.h"
+#include "Handlers/AnnotationHandler.h"
+#include "Infrastructure/JsonHelpers.h"
+#include "Infrastructure/LayerHelpers.h"
+#include "Infrastructure/UndoScope.h"
+#include "Infrastructure/WriteResult.h"
+#include "Models/Snapshots.h"
+#include "Models/DocumentHelpers.h"
+#include "Serialization/RhinoSerializer.h"
+#include "Threading/MainThreadDispatcher.h"
+#include "RookServer.h"
+
+#include <nlohmann/json.hpp>
+#include <string>
+
+namespace Rook {
+namespace Handlers {
+
+namespace {
+
+// Strict attribute application for Phase 2 typed routes. Distinct from
+// CreateHandler.cpp's ApplyCommonAttributes (:91-117), which silently
+// ignores unparseable colors (catch(...) at :115) and does not handle
+// `visible` at all. This variant:
+//   - delegates layer resolution to ResolveLayerRef (already throws on
+//     unknown / empty / ambiguous — LayerHelpers.cpp:77-107);
+//   - lets ParseColor's throw propagate (no catch);
+//   - validates and applies `visible` as a boolean (non-boolean throws).
+// Callers rely on std::invalid_argument propagating to the top-level
+// catch for mapping to structured invalid_input.
+void ApplyCommonAttributesStrict(ON_3dmObjectAttributes& attrs,
+                                  const nlohmann::json& body,
+                                  CRhinoDoc* pDoc)
+{
+    if (body.contains("name") && body["name"].is_string())
+    {
+        attrs.m_name = Utf8ToWide(body["name"].get<std::string>());
+    }
+
+    if (body.contains("layer") && body["layer"].is_string())
+    {
+        std::string layerName = body["layer"].get<std::string>();
+        auto ref = Rook::Infrastructure::ResolveLayerRef(pDoc, layerName, "layer");
+        attrs.m_layer_index = ref.index;
+    }
+
+    if (body.contains("color"))
+    {
+        ON_Color c = ParseColor(body, "color");
+        attrs.m_color = c;
+        attrs.SetColorSource(ON::color_from_object);
+    }
+
+    if (body.contains("visible"))
+    {
+        if (!body["visible"].is_boolean())
+            throw std::invalid_argument("Field 'visible' must be a boolean");
+        attrs.SetVisible(body["visible"].get<bool>());
+    }
+}
+
+} // namespace
+
+// --- POST /annotation/text ----------------------------------------------
+
+void HandleText(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    if (!body.contains("text") || !body["text"].is_string())
+    {
+        invalidInput("Missing required field: text");
+        return;
+    }
+    if (body["text"].get<std::string>().empty())
+    {
+        invalidInput("'text' must be a non-empty string");
+        return;
+    }
+
+    if (body.contains("height"))
+    {
+        if (!body["height"].is_number())
+        {
+            invalidInput("'height' must be a number");
+            return;
+        }
+        if (!(body["height"].get<double>() > 0.0))
+        {
+            invalidInput("'height' must be > 0");
+            return;
+        }
+    }
+
+    if (body.contains("font") && !body["font"].is_string())
+    {
+        invalidInput("'font' must be a string");
+        return;
+    }
+
+    if (body.contains("bold") && !body["bold"].is_boolean())
+    {
+        invalidInput("'bold' must be a boolean");
+        return;
+    }
+
+    if (body.contains("italic") && !body["italic"].is_boolean())
+    {
+        invalidInput("'italic' must be a boolean");
+        return;
+    }
+
+    if (body.contains("point"))
+    {
+        if (!body["point"].is_array() || body["point"].size() < 3)
+        {
+            invalidInput("'point' must be an array of 3 numbers");
+            return;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body["point"][i].is_number())
+            {
+                invalidInput("'point' entries must be numbers");
+                return;
+            }
+        }
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Text");
+
+        // Apply strict attributes before constructing the annotation. Any
+        // failure here (unknown layer, unparseable color, non-boolean
+        // visible) throws std::invalid_argument, caught by the top-level
+        // handler and mapped to structured invalid_input.
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        // --- Factory body (copied near-verbatim from
+        // CreateHandler.cpp:514-576 per factory-body policy in file
+        // header). The legacy caller at CreateHandler.cpp:664-665
+        // remains wired to the original in-file factory for
+        // legacy-compat; this copy is the canonical home for the
+        // strict typed route. ---
+
+        const std::string text = body["text"].get<std::string>();
+        const ON_3dPoint point = ParsePoint3dOrDefault(body, "point", ON_3dPoint::Origin);
+        const double height = body.value("height", 1.0);
+
+        ON_Plane plane = ON_Plane::World_xy;
+        plane.origin = point;
+
+        const auto dimContext = pDoc->DimStyleContext();
+        const ON_DimStyle parentDimStyle = dimContext.CurrentDimStyle();
+        ON_DimStyle dimStyle = parentDimStyle;
+        dimStyle.SetTextHeight(height);
+
+        const std::string fontName = body.value("font", std::string("Arial"));
+        const bool bold = body.value("bold", false);
+        const bool italic = body.value("italic", false);
+
+        ON_Font font;
+        const bool fontApplied = font.SetFontCharacteristics(
+            Utf8ToWide(fontName),
+            bold,
+            italic,
+            false,
+            false);
+        if (!fontApplied)
+        {
+            // Match legacy behavior: fall back to document default when
+            // the requested font is unavailable. The response payload
+            // will echo the effective font (see below), so callers can
+            // observe the fallback without a follow-up read.
+            font = RhinoApp().AppSettings().DefaultFont();
+        }
+        dimStyle.SetFont(font);
+
+        ON_Text textObject;
+        const ON_wString wideText = Utf8ToWide(text);
+        if (!textObject.Create(wideText, &dimStyle, plane))
+            throw std::runtime_error("Failed to build text annotation");
+
+        // Annotation-level override persistence. Passing the override
+        // dimstyle into ON_Text::Create() alone is not enough for the
+        // final object to retain height/font styling.
+        textObject.SetTextHeight(&parentDimStyle, height);
+        textObject.SetAnnotationFont(&font, &parentDimStyle);
+        textObject.SetAnnotationBold(bold, &parentDimStyle);
+        textObject.SetAnnotationItalic(italic, &parentDimStyle);
+        if (!fontName.empty())
+            textObject.SetAnnotationFacename(true, Utf8ToWide(fontName), &parentDimStyle);
+
+        auto* textRhinoObject = pDoc->CreateTextObject(textObject, &attrs);
+        if (!textRhinoObject)
+            throw std::runtime_error("Failed to create text object");
+
+        if (!pDoc->AddObject(textRhinoObject))
+        {
+            delete textRhinoObject;
+            throw std::runtime_error("Failed to add text object to document");
+        }
+
+        pDoc->Redraw();
+
+        // --- End factory body ---
+
+        // Read back the effective typography from the persisted annotation
+        // so the response reflects what was actually applied (including
+        // font-fallback cases), not the request parameters.
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(textRhinoObject, pDoc);
+
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        // Echo effective typography as top-level fields. Sourced from the
+        // live annotation's effective dimstyle + annotation object, mirroring
+        // what GeometryHandler's AnnotationDetail exposes via /geometry so
+        // the two surfaces agree.
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(textRhinoObject))
+        {
+            const ON_DimStyle& effStyle = annotation->GetEffectiveDimensionStyle(pDoc);
+            const ON_Font& effFont = effStyle.Font();
+            data["height"] = effStyle.TextHeight();
+            data["font"] = WideToUtf8(effFont.FamilyName());
+            data["fontFace"] = WideToUtf8(effFont.FaceName());
+            data["bold"] = effFont.IsBold();
+            data["italic"] = effFont.IsItalic();
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
+} // namespace Handlers
+} // namespace Rook
