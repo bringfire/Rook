@@ -419,7 +419,7 @@ def _build_route_table() -> dict[str, RouteSpec]:
         optional_params=(
             "name", "layer", "color", "visible",
         ),
-        description="Create a leader annotation (text label + polyline). Points are flattened onto world XY.",
+        description="Create a leader annotation (text label + polyline). Constructed with ON_Plane::World_xy as the text/dim-style orientation plane; Z behavior of input points in the resulting geometry is SDK-governed and not pinned by Rook's contract.",
     )
 
     # === Creation: mesh primitives ===

@@ -453,10 +453,12 @@ void HandleLeader(const httplib::Request& req, httplib::Response& res)
 
         // Collect points into a contiguous buffer for the SDK call.
         // Worker-thread validation already confirmed shape + types, so
-        // parsing is straightforward. Z-components pass through to the
-        // SDK, which projects them onto World_xy (flattening contract
-        // documented in the handler header + verified by
-        // test_leader_flattens_z_to_world_xy).
+        // parsing is straightforward. Z-components pass through as-is
+        // to the SDK; what the SDK does with them in the resulting
+        // geometry is not part of Rook's contract. See the handler
+        // header for the full plane-contract note and
+        // test_non_zero_z_input_accepted for the pinned positive
+        // behavior (non-zero Z input produces a valid Leader).
         std::vector<ON_3dPoint> points;
         points.reserve(body["points"].size());
         for (const auto& p : body["points"])
