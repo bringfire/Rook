@@ -2353,6 +2353,50 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_array_polar",
+            description=(
+                "Polar (rotational) array around a center + axis. Typed Phase 1 route "
+                "(POST /array/polar). Atomic mode with rollback on failure. count is "
+                "total-including-source (count=6 produces 5 new copies). angle is the "
+                "total sweep in degrees (default 360); negative angles reverse the "
+                "sweep direction. ±360 are treated as full circle (step = angle/count) "
+                "to avoid collision at the source position; partial sweeps use "
+                "angle/(count-1) so the last copy lands at the angle position. "
+                "axis defaults to world [0,0,1] (no CPlane dependency). rotate=false "
+                "preserves source orientation: copies orbit each source's tight "
+                "bounding-box center without re-orienting. count=1 short-circuits "
+                "the copy loop after source pre-flight (bogus uuids still surface "
+                "as not_found at count=1)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source object GUIDs (min 1)",
+                        "minItems": 1,
+                    },
+                    "center": {
+                        "type": "array",
+                        "description": "Rotation center [x, y, z]",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "axis": {
+                        "type": "array",
+                        "description": "Rotation axis direction [x, y, z], default world Z [0,0,1]",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "count": {"type": "integer", "description": "Total copies including source (>= 1)"},
+                    "angle": {"type": "number", "description": "Total sweep in degrees (default 360). Negative reverses direction."},
+                    "rotate": {"type": "boolean", "description": "If true (default), each copy is re-oriented to its angular position. If false, copies orbit the bounding-box center and keep source orientation."},
+                },
+                "required": ["ids", "center", "count"]
+            }
+        ),
+        Tool(
             name="rhino_extrude",
             description="Extrude a curve or surface along a direction.",
             inputSchema={
@@ -9607,6 +9651,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_array_rectangular":
             result = await call_rhino("/array/rectangular", "POST", arguments)
+
+        case "rhino_array_polar":
+            result = await call_rhino("/array/polar", "POST", arguments)
 
         # Surface creation (via /create endpoint)
         case "rhino_extrude":

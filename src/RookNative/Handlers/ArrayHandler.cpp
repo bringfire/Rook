@@ -81,6 +81,16 @@ struct RectangularParams
     double zSpacing = 0.0;
 };
 
+struct PolarParams
+{
+    std::vector<ON_UUID> ids;
+    ON_3dPoint center = ON_3dPoint::Origin;
+    ON_3dVector axis = ON_3dVector::ZAxis;   // default world Z; explicit, never CPlane-derived
+    int count = 0;
+    double angle = 360.0;                     // total sweep, degrees; signed
+    bool rotate = true;                       // false: orbit tight-bbox center, preserve orientation
+};
+
 std::atomic<int> g_debugFailCopyIndex{ 0 };
 
 struct ScopedDebugArmReset
@@ -267,6 +277,48 @@ bool TryParseLinearParams(const nlohmann::json& body, LinearParams& params, http
     return true;
 }
 
+bool TryParsePolarParams(const nlohmann::json& body, PolarParams& params, httplib::Response& res)
+{
+    if (!TryParseRequiredIds(body, params.ids, res)) return false;
+
+    {
+        ON_3dVector centerVec;
+        if (!TryParseExactVector3(body, "center", centerVec, res)) return false;
+        params.center = ON_3dPoint(centerVec.x, centerVec.y, centerVec.z);
+    }
+
+    if (body.contains("axis"))
+    {
+        if (!TryParseExactVector3(body, "axis", params.axis, res)) return false;
+    }
+    // else: axis already defaulted to world Z in the struct
+
+    if (!TryParseRequiredCountField(body, "count", params.count, res)) return false;
+
+    if (body.contains("angle"))
+    {
+        if (!body["angle"].is_number())
+        {
+            SendStructuredError(res, "invalid_input", "Field 'angle' must be a number");
+            return false;
+        }
+        params.angle = body["angle"].get<double>();
+    }
+    // else: angle already defaulted to 360.0 in the struct
+
+    if (body.contains("rotate"))
+    {
+        if (!body["rotate"].is_boolean())
+        {
+            SendStructuredError(res, "invalid_input", "Field 'rotate' must be a boolean");
+            return false;
+        }
+        params.rotate = body["rotate"].get<bool>();
+    }
+
+    return true;
+}
+
 bool TryParseRectangularParams(const nlohmann::json& body, RectangularParams& params, httplib::Response& res)
 {
     if (!TryParseRequiredIds(body, params.ids, res)) return false;
@@ -380,6 +432,66 @@ nlohmann::json MakeLinearSuccessData(
         {"direction", Vector3dToJson(params.direction)},
         {"spacing", params.spacing},
         {"count", params.count},
+    };
+}
+
+// Reference point for polar `rotate=false`. Prefers tight bounding-box center
+// (representation-independent — see BlocksHandler.cpp:837 for the full
+// rationale around NURBS Brep representation drift on AddBrepObject). Falls
+// back to BoundingBox().Center() only when GetTightBoundingBox returns invalid.
+ON_3dPoint GetPolarReferencePoint(const CRhinoObject* src)
+{
+    ON_BoundingBox tight;
+    if (src->GetTightBoundingBox(tight) && tight.IsValid())
+        return tight.Center();
+    return src->BoundingBox().Center();
+}
+
+// Compose the polar transform for a single copy.
+//   rotate=true:  pure rotation around (center, axis) by thetaRad.
+//   rotate=false: orbit the source's reference point around (center, axis) but
+//                 cancel the orientation change with a counter-rotation around
+//                 the new position. Net effect is a translation (P_k - P_S)
+//                 with no orientation change. Reference point is captured per
+//                 source pre-loop and reused across all k for that source.
+ON_Xform ComputePolarXform(double thetaRad, const ON_3dVector& axisUnit,
+                           const ON_3dPoint& center, const ON_3dPoint& referencePoint,
+                           bool rotate)
+{
+    ON_Xform rotation;
+    rotation.Rotation(thetaRad, axisUnit, center);
+
+    if (rotate)
+        return rotation;
+
+    const ON_3dPoint newPt = rotation * referencePoint;
+    ON_Xform counterRotation;
+    counterRotation.Rotation(-thetaRad, axisUnit, newPt);
+    return counterRotation * rotation;
+}
+
+nlohmann::json MakePolarSuccessData(
+    const PolarParams& params,
+    const std::vector<ON_UUID>& createdIds)
+{
+    nlohmann::json idsJson = nlohmann::json::array();
+    for (const ON_UUID& id : createdIds)
+        idsJson.push_back(UuidToString(id));
+
+    nlohmann::json sourceIdsJson = nlohmann::json::array();
+    for (const ON_UUID& id : params.ids)
+        sourceIdsJson.push_back(UuidToString(id));
+
+    return {
+        {"createdCount", static_cast<int>(createdIds.size())},
+        {"sourceIds", sourceIdsJson},
+        {"ids", idsJson},
+        {"mode", "polar"},
+        {"center", Point3dToJson(params.center)},
+        {"axis", Vector3dToJson(params.axis)},
+        {"count", params.count},
+        {"angle", params.angle},
+        {"rotate", params.rotate},
     };
 }
 
@@ -549,6 +661,120 @@ void HandleRectangular(const httplib::Request& req, httplib::Response& res)
         WriteResult wr;
         wr.success = true;
         wr.data = MakeRectangularSuccessData(params, createdIds, plane);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData(ex.code, ex.message));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, MakeErrorData("operation_failed", ex.what()));
+    }
+}
+
+void HandlePolar(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    ScopedDebugArmReset debugArmReset;
+
+    PolarParams params;
+    if (!TryParsePolarParams(body, params, res))
+        return;
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, params]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        // Source pre-flight ALWAYS runs, even at count==1 (so bogus uuids
+        // surface as not_found rather than being silently masked by the
+        // short-circuit). Plan: § /array/polar Resolved DR questions.
+        std::vector<const CRhinoObject*> sources = ResolveSourcesOrThrow(pDoc, params.ids);
+
+        // count==1 short-circuit: no copies, no rotation, axis value never
+        // consumed. Bypasses both the copy loop and degenerate_axis /
+        // angle_zero_with_count validation — those errors only matter when
+        // an actual rotation is computed. Pinned in test (g) of the plan.
+        if (params.count == 1)
+        {
+            WriteResult wr;
+            wr.success = true;
+            wr.data = MakePolarSuccessData(params, /*createdIds=*/{});
+            return wr;
+        }
+
+        // Axis must be non-degenerate before unitization.
+        if (params.axis.Length() < ON_ZERO_TOLERANCE)
+            throw StructuredError("degenerate_axis", "Field 'axis' must be a non-zero vector");
+
+        ON_3dVector axisUnit = params.axis;
+        if (!axisUnit.Unitize())
+            throw StructuredError("degenerate_axis", "Field 'axis' must be a non-zero vector");
+
+        // angle == 0 with count > 1 would stack copies on the source position.
+        // Reject rather than silently produce N overlapping duplicates.
+        if (std::abs(params.angle) < 1e-9)
+            throw StructuredError("angle_zero_with_count",
+                "Field 'angle' must be non-zero when count > 1 (copies would stack on source)");
+
+        // Signed full-circle predicate handles ±360 symmetrically. The signed
+        // angle flows into both branches: +360/count and -360/count both avoid
+        // the source position at k=count-1 (no collision); +180/(count-1) and
+        // -180/(count-1) place the last copy at the signed angle. Plan:
+        // § /array/polar Route/handler.
+        const bool isFullCircle = std::abs(std::abs(params.angle) - 360.0) < 1e-9;
+        const double step = isFullCircle
+            ? (params.angle / static_cast<double>(params.count))
+            : (params.angle / static_cast<double>(params.count - 1));
+
+        // Capture per-source reference points pre-loop (used only when
+        // rotate=false, but cheap to compute and keeps the loop branch-free).
+        std::vector<ON_3dPoint> referencePoints;
+        referencePoints.reserve(sources.size());
+        for (const CRhinoObject* src : sources)
+            referencePoints.push_back(GetPolarReferencePoint(src));
+
+        std::vector<ON_UUID> createdIds;
+        createdIds.reserve(static_cast<size_t>(sources.size()) * static_cast<size_t>(params.count - 1));
+
+        int copyAttemptIndex = 0;
+        {
+            UndoScope undo(pDoc, L"Array Polar");
+
+            for (size_t s = 0; s < sources.size(); ++s)
+            {
+                const CRhinoObject* source = sources[s];
+                const ON_3dPoint& referencePoint = referencePoints[s];
+
+                for (int k = 1; k < params.count; ++k)
+                {
+                    const double thetaRad = (step * static_cast<double>(k)) * (ON_PI / 180.0);
+                    const ON_Xform xform = ComputePolarXform(
+                        thetaRad, axisUnit, params.center, referencePoint, params.rotate);
+                    TransformCopyOrThrow(pDoc, source, xform, createdIds, copyAttemptIndex);
+                }
+            }
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = MakePolarSuccessData(params, createdIds);
         return wr;
     });
 
