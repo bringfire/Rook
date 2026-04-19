@@ -23,14 +23,18 @@ namespace Handlers {
 // POST /annotation/text — Create a 2D text annotation.
 //
 // Required: text (non-empty string).
-// Optional: point ([x,y,z], default origin), height (> 0, default 1.0),
-//           font (string, default document default), bold (bool, default
-//           false), italic (bool, default false),
-//           name / layer / color / visible (strict attribute bundle).
+// Optional: point ([x,y,z], exactly 3 numbers, default [0,0,0]),
+//           height (> 0, default 1.0),
+//           font (string family name, default "Arial"; if the requested
+//                 font cannot be applied, falls back to the document
+//                 default font),
+//           bold (bool, default false), italic (bool, default false),
+//           name / layer / color / visible (strict attribute bundle —
+//           malformed types surface as invalid_input, not silent-drop).
 //
-// Font-characteristic failures fall back to the document default font —
-// the success payload echoes the EFFECTIVE applied typography (font,
-// bold, italic, height) read from the created annotation, not the request.
+// The success payload echoes the EFFECTIVE applied typography (font,
+// bold, italic, height) read from the created annotation, not the
+// request. Font-fallback cases are observable without a follow-up read.
 void HandleText(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers

@@ -80,13 +80,17 @@ void ApplyCommonAttributesStrict(ON_3dmObjectAttributes& attrs,
                                   const nlohmann::json& body,
                                   CRhinoDoc* pDoc)
 {
-    if (body.contains("name") && body["name"].is_string())
+    if (body.contains("name"))
     {
+        if (!body["name"].is_string())
+            throw std::invalid_argument("Field 'name' must be a string");
         attrs.m_name = Utf8ToWide(body["name"].get<std::string>());
     }
 
-    if (body.contains("layer") && body["layer"].is_string())
+    if (body.contains("layer"))
     {
+        if (!body["layer"].is_string())
+            throw std::invalid_argument("Field 'layer' must be a string");
         std::string layerName = body["layer"].get<std::string>();
         auto ref = Rook::Infrastructure::ResolveLayerRef(pDoc, layerName, "layer");
         attrs.m_layer_index = ref.index;
@@ -170,9 +174,9 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
 
     if (body.contains("point"))
     {
-        if (!body["point"].is_array() || body["point"].size() < 3)
+        if (!body["point"].is_array() || body["point"].size() != 3)
         {
-            invalidInput("'point' must be an array of 3 numbers");
+            invalidInput("'point' must be an array of exactly 3 numbers");
             return;
         }
         for (int i = 0; i < 3; ++i)

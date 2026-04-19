@@ -220,6 +220,41 @@ async def test_non_boolean_visible_rejected(fresh_document):
     assert "visible" in envelope["data"]["errorMessage"].lower()
 
 
+async def test_non_string_name_rejected(fresh_document):
+    # Strict attribute handling: malformed `name` type surfaces as
+    # invalid_input, not a successful create with the field silently
+    # dropped.
+    status, envelope = await _post_text_raw({
+        "text": "X",
+        "name": 123,
+    })
+    assert status == 400, f"Expected 400, got {status}: {envelope!r}"
+    _assert_structured_error(envelope, "invalid_input")
+    assert "name" in envelope["data"]["errorMessage"].lower()
+
+
+async def test_non_string_layer_rejected(fresh_document):
+    status, envelope = await _post_text_raw({
+        "text": "X",
+        "layer": {"nested": "object"},
+    })
+    assert status == 400, f"Expected 400, got {status}: {envelope!r}"
+    _assert_structured_error(envelope, "invalid_input")
+    assert "layer" in envelope["data"]["errorMessage"].lower()
+
+
+async def test_overlong_point_rejected(fresh_document):
+    # Schema and contract say point is exactly 3 numbers. Overlong arrays
+    # were previously silently truncated by ParsePoint3d — now rejected.
+    status, envelope = await _post_text_raw({
+        "text": "X",
+        "point": [1.0, 2.0, 0.0, 99.0],
+    })
+    assert status == 400, f"Expected 400, got {status}: {envelope!r}"
+    _assert_structured_error(envelope, "invalid_input")
+    assert "point" in envelope["data"]["errorMessage"].lower()
+
+
 # --- Font fallback -----------------------------------------------------------
 
 
