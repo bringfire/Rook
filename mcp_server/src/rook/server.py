@@ -2332,6 +2332,53 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_dim_linear",
+            description=(
+                "Create a LINEAR dimension between two points, measured along "
+                "a user-specified projection direction. Typed Phase 2 route "
+                "(POST /annotation/dim-linear) — prefer over legacy "
+                "/create?type=DIMENSION_LINEAR. LINEAR (AnnotationType::Rotated) "
+                "measures the PROJECTED distance of (end - start) onto the "
+                "direction vector — contrast with ALIGNED, which measures "
+                "the direct Euclidean distance. Response echoes "
+                "annotationType (read back from the live object) and "
+                "measuredValue (the projection used to build the dim, NOT "
+                "parsed from presentation text)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start": {
+                        "type": "array",
+                        "description": "Start point [x,y,z] (exactly 3 numbers).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "end": {
+                        "type": "array",
+                        "description": "End point [x,y,z] (exactly 3 numbers). Must be distinct from start.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "offset": {
+                        "type": "number",
+                        "description": "Perpendicular offset of the dim line from the start-end midpoint in the dim plane. Sign selects which side.",
+                    },
+                    "direction": {
+                        "type": "array",
+                        "description": "Projection direction [x,y,z] (exactly 3 numbers, default [1,0,0] world X). Must be non-zero.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["start", "end", "offset"]
+            }
+        ),
+        Tool(
             name="rhino_array_linear",
             description=(
                 "Array objects along a direction vector. Typed Phase 1 route "
@@ -9683,6 +9730,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_text":
             result = await call_rhino("/annotation/text", "POST", arguments)
+
+        case "rhino_annotation_dim_linear":
+            result = await call_rhino("/annotation/dim-linear", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)
