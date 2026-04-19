@@ -370,6 +370,15 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create a 2D text annotation (direct-sdk native; preserves annotation-level typography overrides)",
     )
+    routes["create_dim_linear"] = RouteSpec(
+        endpoint="/annotation/dim-linear",
+        required_params=("start", "end", "offset"),
+        optional_params=(
+            "direction",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a LINEAR dimension — measures projected distance of (end-start) onto direction (default world X), NOT direct Euclidean",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(

@@ -321,5 +321,216 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- POST /annotation/dim-linear ----------------------------------------
+
+void HandleDimLinear(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    auto requirePoint = [&](const char* key) -> bool {
+        if (!body.contains(key))
+        {
+            invalidInput(std::string("Missing required field: ") + key);
+            return false;
+        }
+        if (!body[key].is_array() || body[key].size() != 3)
+        {
+            invalidInput(std::string("'") + key + "' must be an array of exactly 3 numbers");
+            return false;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body[key][i].is_number())
+            {
+                invalidInput(std::string("'") + key + "' entries must be numbers");
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!requirePoint("start")) return;
+    if (!requirePoint("end")) return;
+
+    if (!body.contains("offset"))
+    {
+        invalidInput("Missing required field: offset");
+        return;
+    }
+    if (!body["offset"].is_number())
+    {
+        invalidInput("'offset' must be a number");
+        return;
+    }
+
+    if (body.contains("direction"))
+    {
+        if (!body["direction"].is_array() || body["direction"].size() != 3)
+        {
+            invalidInput("'direction' must be an array of exactly 3 numbers");
+            return;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body["direction"][i].is_number())
+            {
+                invalidInput("'direction' entries must be numbers");
+                return;
+            }
+        }
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Linear Dimension");
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        const ON_3dPoint start = ParsePoint3d(body, "start");
+        const ON_3dPoint end = ParsePoint3d(body, "end");
+        const double offset = body["offset"].get<double>();
+
+        // Coincident-point rejection via Unitize-fail, reusing the legacy
+        // CreateLinearDimension factory posture at CreateHandler.cpp:586-587
+        // — no custom tolerance policy.
+        ON_3dVector startToEnd = end - start;
+        if (!startToEnd.Unitize())
+            throw std::invalid_argument("'start' and 'end' must be distinct points");
+
+        // Parse + unitize the user-specified projection direction (default
+        // world X). Same Unitize-fail posture gates zero-length inputs.
+        ON_3dVector projectionDir;
+        if (body.contains("direction"))
+        {
+            projectionDir = ON_3dVector(
+                body["direction"][0].get<double>(),
+                body["direction"][1].get<double>(),
+                body["direction"][2].get<double>());
+        }
+        else
+        {
+            projectionDir = ON_3dVector::XAxis;
+        }
+        if (!projectionDir.Unitize())
+            throw std::invalid_argument("'direction' must be non-zero");
+
+        // LINEAR semantics: measured value is the PROJECTION of (end - start)
+        // onto the user direction. Computed from the inputs here and echoed
+        // in the response — never read back from the dim's PlainText, which
+        // is presentation (dimstyle formatting, rounding, prefixes/suffixes
+        // could corrupt numeric parsing).
+        const ON_3dVector rawDelta = end - start;
+        const double signedProjection = rawDelta * projectionDir;
+        const double measuredValue = std::fabs(signedProjection);
+
+        // Construct the dim plane so its X-axis IS the projection direction.
+        // This orients the dim geometry to read along the user's direction
+        // (LINEAR/Rotated semantics), not along start→end (ALIGNED).
+        ON_3dVector perpDir = ON_CrossProduct(projectionDir, ON_3dVector::ZAxis);
+        if (!perpDir.Unitize())
+        {
+            perpDir = ON_CrossProduct(projectionDir, ON_3dVector::YAxis);
+            if (!perpDir.Unitize())
+                throw std::runtime_error("Failed to construct linear dimension plane");
+        }
+
+        const ON_3dPoint mid = start + 0.5 * (end - start);
+        const ON_3dPoint offsetPoint = mid + offset * perpDir;
+        ON_3dVector planeNormal = ON_CrossProduct(projectionDir, perpDir);
+        if (!planeNormal.Unitize())
+            planeNormal = ON_3dVector::ZAxis;
+
+        // CRhinoDoc has two AddDimLinearObject overloads (rhinoSdkDoc.h:3410
+        // and :3444):
+        //   - The `dimension_line_point` (ON_3dPoint) overload produces an
+        //     ALIGNED dimension (dim line implicit, parallel to ext0→ext1).
+        //   - The `dimension_line` (ON_Line) overload produces a ROTATED /
+        //     LINEAR dimension (dim line explicit, can be at any angle).
+        // PR-2's contract requires LINEAR semantics, so we construct an
+        // explicit dim line parallel to projectionDir and use the second
+        // overload. Empirical verification 2026-04-19: the ON_3dPoint
+        // overload returned AnnotationType::Aligned; the ON_Line overload
+        // returns AnnotationType::Rotated.
+        const ON_Line dimLine(offsetPoint, offsetPoint + projectionDir);
+        const auto dimContext = pDoc->DimStyleContext();
+        auto* obj = pDoc->AddDimLinearObject(
+            start,
+            end,
+            dimLine,
+            planeNormal,
+            &dimContext.CurrentDimStyle(),
+            &attrs);
+        if (!obj)
+            throw std::runtime_error("Failed to create linear dimension");
+
+        pDoc->Redraw();
+
+        // Read back the effective annotationType from the live object. The
+        // AddDimLinearObject API internally chooses LINEAR vs ALIGNED based
+        // on the plane/direction geometry; this echo pins the observed
+        // classification so the PR-2 contract is enforced by the test
+        // suite. If it comes back as "AlignedDimension" for inputs that
+        // LINEAR should handle (direction not parallel to start→end), the
+        // factory needs a different SDK construction — that is a test-red
+        // failure, not a downgraded contract.
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(obj, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(obj))
+        {
+            const ON::AnnotationType at = annotation->AnnotationType();
+            // Mirror the exact string used by GeometryHandler.cpp's
+            // AnnotationTypeToString (line 19-36) so /annotation/dim-linear
+            // and GET /geometry agree on the wire format.
+            switch (at)
+            {
+            case ON::AnnotationType::Aligned:      data["annotationType"] = "AlignedDimension"; break;
+            case ON::AnnotationType::Rotated:      data["annotationType"] = "LinearDimension"; break;
+            default:                                data["annotationType"] = "Annotation"; break;
+            }
+        }
+        data["measuredValue"] = measuredValue;
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
 } // namespace Handlers
 } // namespace Rook

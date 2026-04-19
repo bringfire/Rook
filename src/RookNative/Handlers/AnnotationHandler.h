@@ -20,6 +20,28 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dim-linear — Create a LINEAR dimension between two
+// points, measured along a user-specified projection direction.
+//
+// LINEAR semantics (ON::AnnotationType::Rotated, serialized as
+// "LinearDimension" per GeometryHandler.cpp:30): measures the projected
+// distance of (end - start) onto the `direction` vector. Contrast with
+// ALIGNED (PR-3), which measures the direct Euclidean distance. A
+// horizontal dim of two points differing in both X and Y returns the
+// X-projection, not the slant distance.
+//
+// Required: start ([x,y,z]), end ([x,y,z]), offset (number, perpendicular
+//           distance from the start-end midpoint in the dim plane).
+// Optional: direction ([x,y,z], default [1,0,0] world X; must be
+//           non-zero — Unitize-fail semantics reused from the legacy
+//           factory), name / layer / color / visible (strict bundle).
+//
+// Response echoes annotationType (from the live object's
+// AnnotationType(), post-insertion) plus measuredValue (the projection
+// used to construct the dim — never parsed from PlainText, which is
+// presentation, not contract).
+void HandleDimLinear(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/text — Create a 2D text annotation.
 //
 // Required: text (non-empty string).
