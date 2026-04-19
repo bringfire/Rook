@@ -20,6 +20,47 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dim-angle — Create an angular dimension between two
+// rays from a common vertex (3-point form).
+//
+// Angular semantics: ON::AnnotationType::Angular3pt (wire:
+// "Angular3ptDimension" per Rook::Serializer::AnnotationTypeToString).
+// Empirically verified 2026-04-19: the 3-point ON_DimAngular::Create
+// overload produces Angular3pt, not the bare Angular type (which
+// corresponds to the line-based two-line intersection overload).
+//
+// Required: center, start, end, point — all [x,y,z] with exactly 3 entries.
+//   center: the angle vertex.
+//   start:  endpoint defining the first extension ray from center.
+//   end:    endpoint defining the second extension ray.
+//   point:  interior of the angular dim arc. REQUIRED — load-bearing
+//           for BOTH visual placement AND numeric measurement. Observed
+//           Rhino 8 contract (2026-04-19): ON_DimAngular::Measurement()
+//           honors the span selected by `point`. Placing `point` inside
+//           the principal span returns the principal angle; placing it
+//           in the reflex span (the "other way around") returns the
+//           reflex angle (360° - principal). A right-angle vertex with
+//           `point = [5, 5, 0]` reports 90°; the same vertex with
+//           `point = [-5, -5, 0]` reports 270°. The pinned behavior is
+//           verified by test_point_selects_angular_span.
+// Optional: name / layer / color / visible (strict bundle).
+//
+// Response measuredValue is read from the constructed ON_DimAngular via
+// its SDK Measurement() accessor (converted from radians to degrees).
+// NOT parsed from PlainText (presentation is unsafe for numeric
+// contract) and NOT computed from a pre-committed acos shortcut: Rhino
+// 8's Measurement() honors reflex selection based on `point`, so an
+// acos of the ray dot product would silently disagree with what the
+// dim actually displays whenever `point` sits in the reflex span.
+//
+// `center == start` or `center == end` rejected via Unitize-fail posture.
+// Colinear rays use a three-step fallback for the plane normal:
+// cross(rayA, rayB), then cross(rayA, Z), then cross(rayA, Y). The chain
+// fails only if all three collapse. No X-axis attempt is needed because
+// rayA ∥ X is already handled by the Z attempt. Matches PR-2/PR-3
+// perpendicular-construction rhythm.
+void HandleDimAngle(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/dim-radius — Create a radial dimension measuring the
 // radius of an arc or circle curve.
 //

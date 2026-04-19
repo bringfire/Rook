@@ -405,6 +405,14 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create a diameter dimension on an arc or circle curve. measuredValue = 2·radius.",
     )
+    routes["create_dim_angle"] = RouteSpec(
+        endpoint="/annotation/dim-angle",
+        required_params=("center", "start", "end", "point"),
+        optional_params=(
+            "name", "layer", "color", "visible",
+        ),
+        description="Create an angular dimension from a 3-point contract (center vertex + two extension-ray endpoints + interior dim-arc point). measuredValue in degrees.",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
