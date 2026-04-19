@@ -8,6 +8,32 @@
 namespace Rook {
 namespace Serializer {
 
+// --- Shared enum-to-wire-string mappings ---
+
+// Canonical mapping — promoted 2026-04-19 from static-in-GeometryHandler.cpp
+// per Codex PR #64/#65 review. Four callers at promotion time:
+// GeometryHandler::CaptureGeometryDetail, HandleDimLinear, HandleDimAligned,
+// HandleDimRadius/HandleDimDiameter (PR-4). Keep strings stable — wire
+// contract with agents.
+std::string AnnotationTypeToString(ON::AnnotationType annotationType)
+{
+    switch (annotationType)
+    {
+    case ON::AnnotationType::Text:       return "Text";
+    case ON::AnnotationType::Leader:     return "Leader";
+    case ON::AnnotationType::Aligned:    return "AlignedDimension";
+    case ON::AnnotationType::Angular:    return "AngularDimension";
+    case ON::AnnotationType::Angular3pt: return "Angular3ptDimension";
+    case ON::AnnotationType::Diameter:   return "DiameterDimension";
+    case ON::AnnotationType::Radius:     return "RadialDimension";
+    case ON::AnnotationType::Rotated:    return "LinearDimension";
+    case ON::AnnotationType::Ordinate:   return "OrdinateDimension";
+    case ON::AnnotationType::ArcLen:     return "ArcLengthDimension";
+    case ON::AnnotationType::CenterMark: return "Centermark";
+    default:                             return "Annotation";
+    }
+}
+
 // --- Primitives ---
 
 nlohmann::json SerializeColor(const ColorSnapshot& c)

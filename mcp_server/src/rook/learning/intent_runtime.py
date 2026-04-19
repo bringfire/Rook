@@ -387,6 +387,24 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create an ALIGNED dimension — measures direct Euclidean distance between start and end. No projection direction (use /annotation/dim-linear for that).",
     )
+    routes["create_dim_radius"] = RouteSpec(
+        endpoint="/annotation/dim-radius",
+        required_params=("curveId",),
+        optional_params=(
+            "point",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a radial dimension on an arc or circle curve. measuredValue = arc radius.",
+    )
+    routes["create_dim_diameter"] = RouteSpec(
+        endpoint="/annotation/dim-diameter",
+        required_params=("curveId",),
+        optional_params=(
+            "point",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a diameter dimension on an arc or circle curve. measuredValue = 2·radius.",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(

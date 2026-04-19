@@ -2332,6 +2332,61 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_dim_radius",
+            description=(
+                "Create a radial dimension measuring the radius of an arc "
+                "or circle curve. Typed Phase 2 route (POST /annotation/dim-radius). "
+                "Produces ON::AnnotationType::Radius (wire: 'RadialDimension'). "
+                "Input is a curveId referring to an existing arc or closed-circle "
+                "curve object. Response echoes annotationType and measuredValue "
+                "(the arc radius, from extracted geometry — never PlainText-parsed)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveId": {"type": "string", "description": "GUID of an existing arc or circle curve object."},
+                    "point": {
+                        "type": "array",
+                        "description": "Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveId"]
+            }
+        ),
+        Tool(
+            name="rhino_annotation_dim_diameter",
+            description=(
+                "Create a diameter dimension on an arc or circle curve. Typed "
+                "Phase 2 route (POST /annotation/dim-diameter). Sibling to "
+                "rhino_annotation_dim_radius — same input shape, differs only "
+                "by the produced AnnotationType (Diameter instead of Radius) "
+                "and measuredValue (2·radius)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveId": {"type": "string", "description": "GUID of an existing arc or circle curve object."},
+                    "point": {
+                        "type": "array",
+                        "description": "Dim leader text position [x,y,z] (exactly 3 numbers, default = arc midpoint).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string", "description": "Object color."},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveId"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_dim_aligned",
             description=(
                 "Create an ALIGNED dimension between two points. Typed Phase 2 "
@@ -9776,6 +9831,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_dim_aligned":
             result = await call_rhino("/annotation/dim-aligned", "POST", arguments)
+
+        case "rhino_annotation_dim_radius":
+            result = await call_rhino("/annotation/dim-radius", "POST", arguments)
+
+        case "rhino_annotation_dim_diameter":
+            result = await call_rhino("/annotation/dim-diameter", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)
