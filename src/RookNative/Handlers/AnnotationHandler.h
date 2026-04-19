@@ -48,10 +48,10 @@ namespace Handlers {
 // Response measuredValue is read from the constructed ON_DimAngular via
 // its SDK Measurement() accessor (converted from radians to degrees).
 // NOT parsed from PlainText (presentation is unsafe for numeric
-// contract) and NOT computed from a pre-committed acos shortcut (would
-// drift from the SDK's value if the SDK ever starts honoring reflex
-// selection — in that case the test suite would fail loud, not silently
-// disagree).
+// contract) and NOT computed from a pre-committed acos shortcut: Rhino
+// 8's Measurement() honors reflex selection based on `point`, so an
+// acos of the ray dot product would silently disagree with what the
+// dim actually displays whenever `point` sits in the reflex span.
 //
 // `center == start` or `center == end` rejected via Unitize-fail posture.
 // Colinear rays use a three-step fallback for the plane normal:
