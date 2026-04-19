@@ -2332,6 +2332,46 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_dim_aligned",
+            description=(
+                "Create an ALIGNED dimension between two points. Typed Phase 2 "
+                "route (POST /annotation/dim-aligned). ALIGNED "
+                "(AnnotationType::Aligned) measures the direct Euclidean "
+                "distance between start and end, with the dim plane tilting "
+                "to match the start→end direction — contrast with LINEAR "
+                "(rhino_annotation_dim_linear), which measures the projection "
+                "onto a user direction. A dim between [0,0,0] and [10,5,0] "
+                "returns ~11.18 (slant), not 10.0. Response echoes "
+                "annotationType and measuredValue = (end - start).Length()."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start": {
+                        "type": "array",
+                        "description": "Start point [x,y,z] (exactly 3 numbers).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "end": {
+                        "type": "array",
+                        "description": "End point [x,y,z] (exactly 3 numbers). Must be distinct from start.",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "offset": {
+                        "type": "number",
+                        "description": "Perpendicular offset of the dim line from the start-end midpoint. Sign selects which side.",
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string", "description": "Object color (e.g. '255,128,0' or '#ff8000')."},
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["start", "end", "offset"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_dim_linear",
             description=(
                 "Create a LINEAR dimension between two points, measured along "
@@ -9733,6 +9773,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_dim_linear":
             result = await call_rhino("/annotation/dim-linear", "POST", arguments)
+
+        case "rhino_annotation_dim_aligned":
+            result = await call_rhino("/annotation/dim-aligned", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

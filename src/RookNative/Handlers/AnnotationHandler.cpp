@@ -321,6 +321,188 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- POST /annotation/dim-aligned ---------------------------------------
+
+void HandleDimAligned(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    auto requirePoint = [&](const char* key) -> bool {
+        if (!body.contains(key))
+        {
+            invalidInput(std::string("Missing required field: ") + key);
+            return false;
+        }
+        if (!body[key].is_array() || body[key].size() != 3)
+        {
+            invalidInput(std::string("'") + key + "' must be an array of exactly 3 numbers");
+            return false;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!body[key][i].is_number())
+            {
+                invalidInput(std::string("'") + key + "' entries must be numbers");
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!requirePoint("start")) return;
+    if (!requirePoint("end")) return;
+
+    if (!body.contains("offset"))
+    {
+        invalidInput("Missing required field: offset");
+        return;
+    }
+    if (!body["offset"].is_number())
+    {
+        invalidInput("'offset' must be a number");
+        return;
+    }
+
+    // `direction` is a LINEAR-specific parameter and has no meaning for
+    // ALIGNED (which always measures the direct Euclidean distance with
+    // the dim plane tilting to match start→end). Silently accepting it
+    // would weaken the explicit LINEAR/ALIGNED route split, so reject
+    // with a pointer to the sibling route.
+    if (body.contains("direction"))
+    {
+        invalidInput("'direction' is not accepted by /annotation/dim-aligned — "
+                     "ALIGNED measures direct Euclidean distance. Use "
+                     "/annotation/dim-linear for projection-direction semantics.");
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Aligned Dimension");
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        const ON_3dPoint start = ParsePoint3d(body, "start");
+        const ON_3dPoint end = ParsePoint3d(body, "end");
+        const double offset = body["offset"].get<double>();
+
+        // Coincident-point rejection via Unitize-fail, reusing the legacy
+        // factory posture at CreateHandler.cpp:586-587 — same tolerance
+        // policy (none) as PR-2 for consistency across dim variants.
+        ON_3dVector startToEnd = end - start;
+        if (!startToEnd.Unitize())
+            throw std::invalid_argument("'start' and 'end' must be distinct points");
+
+        // ALIGNED measuredValue is the direct Euclidean distance between
+        // the extension points. Computed from geometry math here and
+        // echoed in the response — never read back from PlainText.
+        const double measuredValue = (end - start).Length();
+
+        // Perpendicular-in-plane derived from startToEnd (the ALIGNED
+        // dim plane is determined by the extension points, not by a
+        // user direction).
+        ON_3dVector perpDir = ON_CrossProduct(startToEnd, ON_3dVector::ZAxis);
+        if (!perpDir.Unitize())
+        {
+            perpDir = ON_CrossProduct(startToEnd, ON_3dVector::YAxis);
+            if (!perpDir.Unitize())
+                throw std::runtime_error("Failed to construct aligned dimension plane");
+        }
+
+        const ON_3dPoint mid = start + 0.5 * (end - start);
+        const ON_3dPoint offsetPoint = mid + offset * perpDir;
+        ON_3dVector planeNormal = ON_CrossProduct(startToEnd, perpDir);
+        if (!planeNormal.Unitize())
+            planeNormal = ON_3dVector::ZAxis;
+
+        // ALIGNED uses the ON_3dPoint `dim_line_point` overload of
+        // AddDimLinearObject (rhinoSdkDoc.h:3410), which PR-2 empirically
+        // verified produces AnnotationType::Aligned. This is the same
+        // overload the legacy /create?type=DIMENSION_LINEAR factory at
+        // CreateHandler.cpp:604 uses — confirming that legacy actually
+        // produces ALIGNED despite the "LINEAR" naming. PR-3 ships this
+        // path as the correct ALIGNED route; PR-2's ON_Line overload
+        // ships as the correct LINEAR route.
+        const auto dimContext = pDoc->DimStyleContext();
+        auto* obj = pDoc->AddDimLinearObject(
+            start,
+            end,
+            offsetPoint,
+            planeNormal,
+            &dimContext.CurrentDimStyle(),
+            &attrs);
+        if (!obj)
+            throw std::runtime_error("Failed to create aligned dimension");
+
+        pDoc->Redraw();
+
+        // Read back the effective annotationType from the live object.
+        // If this comes back as anything other than "AlignedDimension",
+        // the SDK construction path misclassified and the PR-3 contract
+        // is broken (test-red, not downgraded contract).
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(obj, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(obj))
+        {
+            // Third local copy of the ON::AnnotationType → wire-string
+            // mapping (also in GeometryHandler.cpp:19-36 and
+            // HandleDimLinear above). Accepted conscious debt per Codex
+            // 2026-04-19 review of PR-2: promotion to a shared helper
+            // waits for a concrete 4th-caller trigger rather than
+            // speculative extraction. The parked work-queue entry tracks
+            // the trigger.
+            const ON::AnnotationType at = annotation->AnnotationType();
+            switch (at)
+            {
+            case ON::AnnotationType::Aligned:      data["annotationType"] = "AlignedDimension"; break;
+            case ON::AnnotationType::Rotated:      data["annotationType"] = "LinearDimension"; break;
+            default:                                data["annotationType"] = "Annotation"; break;
+            }
+        }
+        data["measuredValue"] = measuredValue;
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
 // --- POST /annotation/dim-linear ----------------------------------------
 
 void HandleDimLinear(const httplib::Request& req, httplib::Response& res)

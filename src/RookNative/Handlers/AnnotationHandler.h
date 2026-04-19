@@ -20,6 +20,28 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/dim-aligned — Create an ALIGNED dimension between
+// two points.
+//
+// ALIGNED semantics (ON::AnnotationType::Aligned, serialized as
+// "AlignedDimension" per GeometryHandler.cpp:25): measures the direct
+// Euclidean distance between start and end, with the dim plane tilting
+// to match the start→end direction. Contrast with LINEAR (PR-2), which
+// measures the projection onto a user-specified direction. A dim
+// between [0,0,0] and [10,5,0] returns ~11.18 (slant), not 10.0.
+//
+// Required: start ([x,y,z]), end ([x,y,z]), offset (number, perpendicular
+//           distance from the midpoint in the dim plane).
+// Optional: name / layer / color / visible (strict bundle).
+// Explicitly rejected: `direction` is invalid_input on this route —
+//   ALIGNED has no projection direction; use /annotation/dim-linear if
+//   you want a projection parameter.
+//
+// Response echoes annotationType (from the live object, post-insertion)
+// plus measuredValue = (end - start).Length() — computed from geometry
+// math, never parsed from PlainText.
+void HandleDimAligned(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/dim-linear — Create a LINEAR dimension between two
 // points, measured along a user-specified projection direction.
 //
