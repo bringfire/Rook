@@ -379,6 +379,156 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- POST /annotation/leader --------------------------------------------
+
+void HandleLeader(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    if (!body.contains("text") || !body["text"].is_string())
+    {
+        invalidInput("Missing required field: text");
+        return;
+    }
+    if (body["text"].get<std::string>().empty())
+    {
+        invalidInput("'text' must be a non-empty string");
+        return;
+    }
+
+    if (!body.contains("points"))
+    {
+        invalidInput("Missing required field: points");
+        return;
+    }
+    if (!body["points"].is_array())
+    {
+        invalidInput("'points' must be an array");
+        return;
+    }
+    if (body["points"].size() < 2)
+    {
+        invalidInput("'points' must contain at least 2 entries (arrow tip + text location)");
+        return;
+    }
+    for (size_t i = 0; i < body["points"].size(); ++i)
+    {
+        const auto& p = body["points"][i];
+        if (!p.is_array() || p.size() != 3)
+        {
+            invalidInput("Each entry in 'points' must be an array of exactly 3 numbers");
+            return;
+        }
+        for (int j = 0; j < 3; ++j)
+        {
+            if (!p[j].is_number())
+            {
+                invalidInput("Entries in 'points' must be numbers");
+                return;
+            }
+        }
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Leader");
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        const std::string text = body["text"].get<std::string>();
+        const ON_wString wideText = Utf8ToWide(text);
+
+        // Collect points into a contiguous buffer for the SDK call.
+        // Worker-thread validation already confirmed shape + types, so
+        // parsing is straightforward. Z-components pass through as-is
+        // to the SDK; what the SDK does with them in the resulting
+        // geometry is not part of Rook's contract. See the handler
+        // header for the full plane-contract note and
+        // test_non_zero_z_input_accepted for the pinned positive
+        // behavior (non-zero Z input produces a valid Leader).
+        std::vector<ON_3dPoint> points;
+        points.reserve(body["points"].size());
+        for (const auto& p : body["points"])
+        {
+            points.emplace_back(
+                p[0].get<double>(),
+                p[1].get<double>(),
+                p[2].get<double>());
+        }
+
+        const auto dimContext = pDoc->DimStyleContext();
+        const ON_DimStyle& currentStyle = dimContext.CurrentDimStyle();
+
+        const CRhinoLeader* leader = pDoc->AddLeaderObject(
+            static_cast<const wchar_t*>(wideText),
+            ON_Plane::World_xy,
+            static_cast<int>(points.size()),
+            points.data(),
+            &currentStyle,
+            &attrs);
+        if (!leader)
+            throw std::runtime_error("Failed to create leader annotation");
+
+        pDoc->Redraw();
+
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(leader, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        if (const auto* annotation = dynamic_cast<const CRhinoAnnotation*>(leader))
+        {
+            data["annotationType"] = Rook::Serializer::AnnotationTypeToString(
+                annotation->AnnotationType());
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", ex.code},
+            {"errorMessage", ex.message},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
 // --- POST /annotation/dim-angle -----------------------------------------
 
 void HandleDimAngle(const httplib::Request& req, httplib::Response& res)

@@ -413,6 +413,14 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create an angular dimension from a 3-point contract (center vertex + two extension-ray endpoints + interior dim-arc point). measuredValue in degrees.",
     )
+    routes["create_leader"] = RouteSpec(
+        endpoint="/annotation/leader",
+        required_params=("text", "points"),
+        optional_params=(
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a leader annotation (text label + polyline). Constructed with ON_Plane::World_xy as the text/dim-style orientation plane; Z behavior of input points in the resulting geometry is SDK-governed and not pinned by Rook's contract.",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(

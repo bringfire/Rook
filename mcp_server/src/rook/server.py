@@ -2332,6 +2332,47 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_leader",
+            description=(
+                "Create a leader annotation (text label + polyline pointing "
+                "at an annotated location). Typed Phase 2 route (POST "
+                "/annotation/leader). First point in `points` is the arrow "
+                "tip; last point is the text anchor; intermediate points "
+                "form polyline bends. Produces ON::AnnotationType::Leader "
+                "(wire: 'Leader'). "
+                "The leader is constructed with ON_Plane::World_xy as the "
+                "text/dim-style orientation plane. Input Z behavior in the "
+                "resulting geometry is SDK-governed and not part of Rook's "
+                "contract (the SDK docstring suggests points are projected "
+                "to the plane, but empirical behavior preserves input Z). "
+                "For explicit 3D or non-axis-aligned leader planes, file a "
+                "feature request for a `plane` parameter. "
+                "No measuredValue field — leaders have no dimensioned "
+                "numeric quantity."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Leader text (non-empty)."},
+                    "points": {
+                        "type": "array",
+                        "description": "Polyline points [[x,y,z], ...] — first is arrow tip, last is text anchor. Minimum 2 points. Input Z behavior in the resulting geometry is SDK-governed, not pinned by Rook's contract.",
+                        "items": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                        "minItems": 2,
+                    },
+                    "name": {"type": "string"},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string"},
+                    "visible": {"type": "boolean"},
+                },
+                "required": ["text", "points"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_dim_angle",
             description=(
                 "Create an angular dimension between two rays from a common "
@@ -9891,6 +9932,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_dim_angle":
             result = await call_rhino("/annotation/dim-angle", "POST", arguments)
+
+        case "rhino_annotation_leader":
+            result = await call_rhino("/annotation/leader", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

@@ -20,6 +20,35 @@ namespace httplib { struct Request; struct Response; }
 namespace Rook {
 namespace Handlers {
 
+// POST /annotation/leader — Create a leader (text label with a polyline
+// pointing at an annotated location).
+//
+// Leader semantics (ON::AnnotationType::Leader, wire: "Leader" per
+// Rook::Serializer::AnnotationTypeToString). First point in `points` is
+// the arrow tip; last point is the text anchor; intermediate points
+// form polyline bends.
+//
+// Plane contract: the leader is constructed with `ON_Plane::World_xy`
+// supplied to `CRhinoDoc::AddLeaderObject` as the text/dim-style
+// orientation plane. Matches the managed implementation at
+// CreateHandler.cs:1185 which also hard-codes World_xy.
+//
+// The SDK docstring at rhinoSdkDoc.h:3190 claims input points "will be
+// projected to the plane," but empirical verification 2026-04-19 shows
+// the resulting leader geometry preserves input Z — a leader built from
+// points at Z=5 and Z=3 does NOT end up at Z=0. The exact Z behavior
+// of input points in the resulting geometry is SDK-governed and is NOT
+// part of Rook's published contract. Callers who need explicit 3D or
+// non-axis-aligned leader planes should file a feature request for a
+// `plane` parameter rather than relying on what the SDK happens to do.
+//
+// Required: text (non-empty string), points (array of [x,y,z] with at
+//           least 2 entries; each point exactly 3 numeric values). No
+//           `measuredValue` field in the response — leaders have no
+//           dimensioned numeric quantity.
+// Optional: name / layer / color / visible (strict bundle).
+void HandleLeader(const httplib::Request& req, httplib::Response& res);
+
 // POST /annotation/dim-angle — Create an angular dimension between two
 // rays from a common vertex (3-point form).
 //
