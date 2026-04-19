@@ -379,6 +379,189 @@ void HandleText(const httplib::Request& req, httplib::Response& res)
     }
 }
 
+// --- POST /annotation/dot -----------------------------------------------
+
+void HandleTextDot(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        nlohmann::json err = {
+            {"errorCode", "invalid_input"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // Worker-thread schema validation (Rule 2).
+
+    if (!body.contains("text") || !body["text"].is_string())
+    {
+        invalidInput("Missing required field: text");
+        return;
+    }
+    if (body["text"].get<std::string>().empty())
+    {
+        invalidInput("'text' must be a non-empty string");
+        return;
+    }
+
+    if (!body.contains("location"))
+    {
+        invalidInput("Missing required field: location");
+        return;
+    }
+    if (!body["location"].is_array() || body["location"].size() != 3)
+    {
+        invalidInput("'location' must be an array of exactly 3 numbers");
+        return;
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!body["location"][i].is_number())
+        {
+            invalidInput("'location' entries must be numbers");
+            return;
+        }
+    }
+
+    if (body.contains("secondaryText") && !body["secondaryText"].is_string())
+    {
+        invalidInput("'secondaryText' must be a string");
+        return;
+    }
+
+    if (body.contains("heightInPoints"))
+    {
+        // JSON integer only — rejects floats (including 24.0), matching
+        // ArrayHandler.cpp:224 posture. If a caller actually wants to
+        // express an integral height, they must send it as a JSON integer.
+        if (!body["heightInPoints"].is_number_integer())
+        {
+            invalidInput("'heightInPoints' must be a JSON integer");
+            return;
+        }
+        const int h = body["heightInPoints"].get<int>();
+        if (h < ON_TextDot::MinimumHeightInPoints)
+        {
+            invalidInput("'heightInPoints' must be >= " +
+                std::to_string(ON_TextDot::MinimumHeightInPoints));
+            return;
+        }
+    }
+
+    if (body.contains("fontFace") && !body["fontFace"].is_string())
+    {
+        invalidInput("'fontFace' must be a string");
+        return;
+    }
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Create Text Dot");
+
+        ON_3dmObjectAttributes attrs;
+        ApplyCommonAttributesStrict(attrs, body, pDoc);
+
+        const std::string text = body["text"].get<std::string>();
+        const ON_3dPoint location = ParsePoint3d(body, "location");
+
+        ON_TextDot dot;
+        dot.SetCenterPoint(location);
+        dot.SetPrimaryText(static_cast<const wchar_t*>(Utf8ToWide(text)));
+
+        if (body.contains("secondaryText"))
+        {
+            const std::string sec = body["secondaryText"].get<std::string>();
+            if (!sec.empty())
+                dot.SetSecondaryText(static_cast<const wchar_t*>(Utf8ToWide(sec)));
+        }
+
+        if (body.contains("heightInPoints"))
+            dot.SetHeightInPoints(body["heightInPoints"].get<int>());
+
+        if (body.contains("fontFace"))
+        {
+            const std::string face = body["fontFace"].get<std::string>();
+            if (!face.empty())
+                dot.SetFontFace(static_cast<const wchar_t*>(Utf8ToWide(face)));
+        }
+
+        CRhinoTextDot* rhinoDot = new CRhinoTextDot(attrs);
+        rhinoDot->SetDot(dot);  // copies the populated dot into the rhino wrapper
+
+        if (!pDoc->AddObject(rhinoDot))
+        {
+            delete rhinoDot;
+            throw StructuredError("operation_failed",
+                "Failed to add text dot to document");
+        }
+
+        pDoc->Redraw();
+
+        // Read back effective values from the live dot geometry (PR-1
+        // posture — echo what was applied, not request params). Dots
+        // aren't ON_Annotation, so there's no annotationType field;
+        // snapshot's top-level `type` field = "TextDot" from
+        // DocumentHelpers.h:127 already identifies the object.
+        //
+        // The text/secondaryText/heightInPoints/fontFace echoes are
+        // load-bearing for the route's contract (verification is
+        // route-response-only — GeometryHandler has no ON_TextDot
+        // branch, so /geometry can't fall back). If the dynamic_cast
+        // fails the response would silently lose those fields, so we
+        // fail loud here instead.
+        ObjectSnapshot snapshot = CaptureObjectSnapshot(rhinoDot, pDoc);
+        nlohmann::json data = Serializer::SerializeObject(snapshot);
+
+        const auto* liveDot = dynamic_cast<const ON_TextDot*>(rhinoDot->Geometry());
+        if (!liveDot)
+            throw StructuredError("operation_failed",
+                "Created text dot did not resolve to ON_TextDot for read-back");
+
+        data["text"] = WideToUtf8(liveDot->PrimaryText());
+        data["secondaryText"] = WideToUtf8(liveDot->SecondaryText());
+        data["heightInPoints"] = liveDot->HeightInPoints();
+        data["fontFace"] = WideToUtf8(liveDot->FontFace());
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", ex.code},
+            {"errorMessage", ex.message},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", ex.what()},
+        };
+        CRookServer::SendErrorData(res, err);
+    }
+}
+
 // --- POST /annotation/leader --------------------------------------------
 
 void HandleLeader(const httplib::Request& req, httplib::Response& res)

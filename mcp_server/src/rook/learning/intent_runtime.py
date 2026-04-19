@@ -421,6 +421,15 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Create a leader annotation (text label + polyline). Constructed with ON_Plane::World_xy as the text/dim-style orientation plane; Z behavior of input points in the resulting geometry is SDK-governed and not pinned by Rook's contract.",
     )
+    routes["create_dot"] = RouteSpec(
+        endpoint="/annotation/dot",
+        required_params=("text", "location"),
+        optional_params=(
+            "secondaryText", "heightInPoints", "fontFace",
+            "name", "layer", "color", "visible",
+        ),
+        description="Create a text dot (camera-facing text label at a point). Height is integer points (screen-relative), not world-space. Response type field = 'TextDot'; no annotationType field (dots are ON_Geometry, not ON_Annotation).",
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(

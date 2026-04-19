@@ -2332,6 +2332,51 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_annotation_dot",
+            description=(
+                "Create a text dot (camera-facing text label anchored at a "
+                "point). Typed Phase 2 route (POST /annotation/dot). Note: "
+                "text dots are NOT annotations in the SDK sense — they are "
+                "ON_Geometry with their own ObjectType (ON::text_dot); the "
+                "response therefore has no annotationType field. The "
+                "snapshot's top-level `type` field is 'TextDot'. Response "
+                "echoes the EFFECTIVE applied text, secondaryText, "
+                "heightInPoints, and fontFace (read from the live dot, not "
+                "request params). Height is in INTEGER POINTS (screen-"
+                "relative), not world-space height."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Primary dot text (non-empty)."},
+                    "location": {
+                        "type": "array",
+                        "description": "Dot center point [x,y,z] (exactly 3 numbers).",
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "secondaryText": {
+                        "type": "string",
+                        "description": "Optional secondary text shown on hover/click in the Rhino UI.",
+                    },
+                    "heightInPoints": {
+                        "type": "integer",
+                        "description": "Text height in integer points (JSON integer only — floats including 24.0 are rejected). Minimum 3, default 14.",
+                        "minimum": 3,
+                    },
+                    "fontFace": {
+                        "type": "string",
+                        "description": "Font face name. Default is 'Arial' (observed Rhino 8 runtime; SDK header is ambiguous between 'Arial' and 'Arial Bold' but the actual default returned by ON_TextDot is 'Arial').",
+                    },
+                    "name": {"type": "string"},
+                    "layer": {"type": "string", "description": "Layer path (must exist)."},
+                    "color": {"type": "string"},
+                    "visible": {"type": "boolean"},
+                },
+                "required": ["text", "location"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_leader",
             description=(
                 "Create a leader annotation (text label + polyline pointing "
@@ -9935,6 +9980,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_leader":
             result = await call_rhino("/annotation/leader", "POST", arguments)
+
+        case "rhino_annotation_dot":
+            result = await call_rhino("/annotation/dot", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)
