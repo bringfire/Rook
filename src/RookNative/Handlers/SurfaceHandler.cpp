@@ -981,5 +981,178 @@ void HandlePatch(const httplib::Request& req, httplib::Response& res)
     DispatchToManagedCreate(body.dump(), res);
 }
 
+// --- POST /surface/network ----------------------------------------------
+//
+// Phase 2 PR-3. NurbsSurface.CreateNetworkSurface — fit a NURBS surface
+// through a network of curves, either auto-detected from a single list
+// (curveIds) or explicit U/V (uCurveIds + vCurveIds). Singular-contract;
+// managed wraps the result via Brep.CreateFromSurface for response-shape
+// parity.
+//
+// Worker-thread validations (all rejections surface as structured errors):
+//   INPUT FORM (XOR — exactly one must be present):
+//     - both `curveIds` and (`uCurveIds` or `vCurveIds`) present
+//       -> input_form_conflict
+//     - explicit side: one of `uCurveIds` / `vCurveIds` present without
+//       the other -> input_form_incomplete
+//     - explicit side: either or both arrays empty -> input_form_incomplete
+//       (empty array is the "missing for XOR" signal)
+//     - neither form present -> invalid_input
+//     - `curveIds` present but non-array or size < 2 -> invalid_input
+//     - UUIDs malformed on any input array -> invalid_input
+//   CONTINUITY:
+//     - present but not integer in {0, 1, 2} -> invalid_continuity
+//     - (factory silently coerces out-of-range values; probe 2026-04-20
+//       showed 1/2/3/-1 all produce identical output — worker rejection
+//       is load-bearing for contract clarity)
+//   TOLERANCES (all three):
+//     - present but non-number or <= 0 -> invalid_input
+//     - (factory silently accepts zero/negative tolerances; probe showed
+//       all-zero tolerances still produce non-null surface)
+//   ATTRIBUTE BUNDLE: syntactic checks per ValidateAttributeBundle.
+//
+// Managed-side validations delegated to CreateHandler.CreateNetworkSrf:
+//   - object existence + curve-class for all curve IDs (via ResolveCurvesStrict)
+//   - factory-null OR non-zero `out error` -> operation_failed with
+//     diagnostic message including the raw error code
+//   - Brep.CreateFromSurface wrap-failure -> operation_failed
+//
+// Real Rhino-side failure cases (empirically verified 2026-04-20):
+// parallel curves without crossing, single curve (worker catches first),
+// disjoint far-apart curves — all return null with error=1. No
+// test_factory_permissive_smoke needed; stable operation_failed paths
+// satisfy the Common Plan amendment at
+// rook_docs/2026-04-17-typed-route-phase1-plan.md:257.
+
+void HandleNetworkSrf(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // --- Input-form XOR detection ---------------------------------------
+    const bool hasCurveIds = body.contains("curveIds");
+    const bool hasU = body.contains("uCurveIds");
+    const bool hasV = body.contains("vCurveIds");
+    const bool hasAnyExplicit = hasU || hasV;
+
+    // Both forms present -> input_form_conflict
+    if (hasCurveIds && hasAnyExplicit)
+    {
+        invalidInput(
+            "Provide either 'curveIds' OR both 'uCurveIds' and 'vCurveIds', not both forms",
+            "input_form_conflict");
+        return;
+    }
+
+    // Neither form present -> invalid_input
+    if (!hasCurveIds && !hasAnyExplicit)
+    {
+        invalidInput("must provide 'curveIds' or both 'uCurveIds' and 'vCurveIds'");
+        return;
+    }
+
+    // Explicit side: both must be present and both must be non-empty.
+    if (hasAnyExplicit)
+    {
+        if (!hasU || !hasV)
+        {
+            invalidInput(
+                "explicit form requires both 'uCurveIds' and 'vCurveIds'",
+                "input_form_incomplete");
+            return;
+        }
+        if (!body["uCurveIds"].is_array() || !body["vCurveIds"].is_array())
+        {
+            invalidInput("'uCurveIds' and 'vCurveIds' must be arrays of UUID strings");
+            return;
+        }
+        if (body["uCurveIds"].size() == 0 || body["vCurveIds"].size() == 0)
+        {
+            invalidInput(
+                "'uCurveIds' and 'vCurveIds' must each contain at least one element",
+                "input_form_incomplete");
+            return;
+        }
+        try {
+            (void)ParseUuids(body, "uCurveIds");
+            (void)ParseUuids(body, "vCurveIds");
+        }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+    else
+    {
+        // Auto-detect form.
+        if (!body["curveIds"].is_array())
+        {
+            invalidInput("'curveIds' must be an array of UUID strings");
+            return;
+        }
+        if (body["curveIds"].size() < 2)
+        {
+            invalidInput("'curveIds' must contain at least 2 elements (auto-detect network)");
+            return;
+        }
+        try { (void)ParseUuids(body, "curveIds"); }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+
+    // --- continuity validation ------------------------------------------
+    if (body.contains("continuity"))
+    {
+        const auto& el = body["continuity"];
+        if (!el.is_number_integer())
+        {
+            invalidInput(
+                "Field 'continuity' must be an integer (0=Position, 1=Tangency, 2=Curvature)",
+                "invalid_continuity");
+            return;
+        }
+        const int c = el.get<int>();
+        if (c < 0 || c > 2)
+        {
+            invalidInput(
+                std::string("Invalid continuity: ") + std::to_string(c)
+                    + ". Must be 0 (Position), 1 (Tangency), or 2 (Curvature).",
+                "invalid_continuity");
+            return;
+        }
+    }
+
+    // --- tolerance validation (all three) -------------------------------
+    auto requirePositiveNumber = [&](const char* fieldName) -> bool {
+        if (!body.contains(fieldName)) return true;
+        const auto& el = body[fieldName];
+        if (!el.is_number())
+        {
+            invalidInput(std::string("Field '") + fieldName + "' must be a number");
+            return false;
+        }
+        if (el.get<double>() <= 0.0)
+        {
+            invalidInput(std::string("Field '") + fieldName + "' must be > 0");
+            return false;
+        }
+        return true;
+    };
+    if (!requirePositiveNumber("edgeTolerance")) return;
+    if (!requirePositiveNumber("interiorTolerance")) return;
+    if (!requirePositiveNumber("angleTolerance")) return;
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "NETWORK_SRF";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
+}
+
 } // namespace Handlers
 } // namespace Rook

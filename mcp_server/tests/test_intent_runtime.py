@@ -376,10 +376,10 @@ class TestRouteTableCompleteness:
         geo_create = CATEGORIES["creation"]
         # 13 NURBS + 5 Phase 1 surface + 3 Phase 1 array + 4 mesh + 3 SubD
         # + 8 Phase 2 annotation family (PR-10 backfill, 2026-04-19)
-        # + 2 Phase 2 surface/curve extension (PR-1 create_edge_srf,
-        #   PR-2 create_patch)
-        # = 38
-        assert len(geo_create) == 38
+        # + 3 Phase 2 surface/curve extension (PR-1 create_edge_srf,
+        #   PR-2 create_patch, PR-3 create_network_srf)
+        # = 39
+        assert len(geo_create) == 39
         for op in geo_create:
             assert router.has_direct_route(op), f"Missing creation op: {op}"
 
