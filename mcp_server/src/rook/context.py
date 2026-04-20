@@ -37,6 +37,11 @@ TOOL_CATEGORIES = {
     "rhino_create_patch": "create",
     # Phase 2 surface/curve extension (PR-3).
     "rhino_create_network_srf": "create",
+    # Phase 2 surface/curve extension (PR-4). Three intent keys →
+    # /curve/boolean with operation discriminator (mirrors brep-boolean).
+    "rhino_curve_boolean_union": "create",
+    "rhino_curve_boolean_difference": "create",
+    "rhino_curve_boolean_intersection": "create",
 
     # Layer category - layer management
     "rhino_layers": "layer",

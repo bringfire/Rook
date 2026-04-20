@@ -401,6 +401,25 @@ def _transform_boolean(args: dict) -> Tuple[str, str, dict]:
     return "/boolean", "POST", a
 
 
+# Phase 2 PR-4 — curve boolean dispatch. Three intent keys share one
+# endpoint with an `operation` discriminator; mirrors the brep-boolean
+# pattern. MCP executor injects `operation` per case arm; the agent-direct
+# path (this module) mirrors that injection via these transforms.
+def _transform_curve_boolean_union(args: dict) -> Tuple[str, str, dict]:
+    a = dict(args); a["operation"] = "union"
+    return "/curve/boolean", "POST", a
+
+
+def _transform_curve_boolean_difference(args: dict) -> Tuple[str, str, dict]:
+    a = dict(args); a["operation"] = "difference"
+    return "/curve/boolean", "POST", a
+
+
+def _transform_curve_boolean_intersection(args: dict) -> Tuple[str, str, dict]:
+    a = dict(args); a["operation"] = "intersection"
+    return "/curve/boolean", "POST", a
+
+
 def _transform_extrude(args: dict) -> Tuple[str, str, dict]:
     a = dict(args)
     a["type"] = "EXTRUDE"
@@ -757,6 +776,9 @@ def _transform_rhino_command(params: dict) -> Tuple[str, str, dict]:
 TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_command":           _transform_rhino_command,
     "rhino_boolean":           _transform_boolean,
+    "rhino_curve_boolean_union":        _transform_curve_boolean_union,
+    "rhino_curve_boolean_difference":   _transform_curve_boolean_difference,
+    "rhino_curve_boolean_intersection": _transform_curve_boolean_intersection,
     "rhino_extrude":           _transform_extrude,
     "rhino_text":              _transform_text,
     "rhino_select_all":        _transform_select_all,

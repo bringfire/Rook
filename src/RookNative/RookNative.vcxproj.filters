@@ -78,6 +78,9 @@
     <ClCompile Include="Handlers\ArrayHandler.cpp">
       <Filter>Handlers</Filter>
     </ClCompile>
+    <ClCompile Include="Infrastructure\ManagedCreateDispatch.cpp">
+      <Filter>Infrastructure</Filter>
+    </ClCompile>
     <ClCompile Include="Interactive\GumballContextBuilder.cpp">
       <Filter>Interactive</Filter>
     </ClCompile>
@@ -135,6 +138,9 @@
       <Filter>Infrastructure</Filter>
     </ClInclude>
     <ClInclude Include="Infrastructure\JsonHelpers.h">
+      <Filter>Infrastructure</Filter>
+    </ClInclude>
+    <ClInclude Include="Infrastructure\ManagedCreateDispatch.h">
       <Filter>Infrastructure</Filter>
     </ClInclude>
     <ClInclude Include="Infrastructure\ObjectDiffTracker.h">

@@ -13,6 +13,7 @@
 // POST /curve/offset            — Offset curve in a plane
 // POST /curve/offset-on-surface — Offset curve along a surface
 // POST /curve/blend             — Phase 2 PR-1: blend between 2 curves (managed-bridge reuse)
+// POST /curve/boolean           — Phase 2 PR-4: boolean union/difference/intersection on closed curves (managed-bridge reuse)
 
 #pragma once
 
@@ -40,6 +41,16 @@ void HandleCurveOffsetOnSurface(const httplib::Request& req, httplib::Response& 
 // managed-bridge reuse via CreateGeometry callback, NOT direct-sdk like
 // the 12 routes above.
 void HandleBlendCurves(const httplib::Request& req, httplib::Response& res);
+
+// POST /curve/boolean — Phase 2 PR-4. Boolean operations on closed
+// planar curves via Curve.CreateBooleanUnion / _Difference /
+// _Intersection. Plural-contract route (factory returns Curve[]).
+// Three intent keys (curve_boolean_{union,difference,intersection})
+// dispatch through this single endpoint with an `operation` discriminator.
+// Second managed-bridge reuse route in this file; PR-4 triggered the
+// promotion of EmitNormalized + DispatchToManagedCreate to
+// Infrastructure/ManagedCreateDispatch.h (third-caller rule).
+void HandleCurveBoolean(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

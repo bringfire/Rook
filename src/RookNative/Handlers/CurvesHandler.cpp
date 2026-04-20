@@ -1,18 +1,25 @@
 // CurvesHandler.cpp
 //
-// Substrate: 12 existing routes are `direct-sdk` native; HandleBlendCurves
-// (PR-1, 2026-04-20 Phase 2 extension) is `managed-bridge (reuse)` via the
-// `CreateGeometry` callback. Per-route substrate is named in each handler's
-// opening comment (Rule 6). This paragraph will be extended in PR-4 when
-// HandleCurveBoolean lands on the same substrate.
+// Substrate: 12 routes are `direct-sdk` native; HandleBlendCurves
+// (PR-1, 2026-04-20 Phase 2 extension) and HandleCurveBoolean (PR-4,
+// 2026-04-20 Phase 2 extension) are `managed-bridge (reuse)` via the
+// `CreateGeometry` callback. Per-route substrate is named in each
+// handler's opening comment (Rule 6). The reusable normalization +
+// dispatch tail (`EmitNormalized`, `DispatchToManagedCreate`) live in
+// `Infrastructure/ManagedCreateDispatch.h` — promoted from
+// `SurfaceHandler.cpp`'s anonymous namespace in PR-4 when
+// HandleCurveBoolean became the third caller (Rule 6
+// promotion-on-third-caller convention).
 //
 // 12 direct-sdk routes:
 //   POST /curve/join, /curve/explode, /curve/divide, /curve/extend,
 //   /curve/trim, /curve/split, /curve/rebuild, /curve/fillet,
 //   /curve/project, /curve/pull, /curve/offset, /curve/offset-on-surface
 //
-// 1 managed-bridge (reuse) route (PR-1):
-//   POST /curve/blend
+// 2 managed-bridge (reuse) routes:
+//   POST /curve/blend    — PR-1 (singular-contract Curve factory)
+//   POST /curve/boolean  — PR-4 (plural-contract Curve[] factory,
+//                          3 intent keys dispatched via `operation`)
 
 #include "stdafx.h"
 #include "Handlers/CurvesHandler.h"
@@ -21,6 +28,7 @@
 #include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/WriteResult.h"
 #include "Infrastructure/ObjectDiffTracker.h"
+#include "Infrastructure/ManagedCreateDispatch.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
 #include "RookServer.h"
@@ -1320,75 +1328,167 @@ void HandleBlendCurves(const httplib::Request& req, httplib::Response& res)
     body["type"] = "BLEND_CRV";
     body["_strictAttributes"] = true;
 
-    // Local mirror of SurfaceHandler's EmitNormalized + DispatchToManagedCreate
-    // pattern. Not shared across handlers today — the helpers live in
-    // SurfaceHandler.cpp's anon namespace. PR-4 will face the same sharing
-    // question with HandleCurveBoolean; promotion to a shared helper fires
-    // on that third caller per Rule 6 promotion-on-third-caller convention.
-    std::string responseJson;
-    int managedStatus = 0;
-    std::string bridgeError;
-    const auto result = InvokeManagedCreateWithBody(body.dump(), responseJson, managedStatus, bridgeError);
+    Rook::Infrastructure::DispatchToManagedCreate(body.dump(), res);
+}
 
-    switch (result)
-    {
-    case ManagedCreateInvokeResult::Ok:
-    {
-        auto parsed = nlohmann::json::parse(responseJson, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_object() || !parsed.contains("success"))
-        {
-            nlohmann::json err = {
-                {"errorCode", "operation_failed"},
-                {"errorMessage", "Managed response could not be parsed"},
-            };
-            CRookServer::SendErrorData(res, err);
-            return;
-        }
-        if (parsed.value("success", false))
-        {
-            res.status = (managedStatus >= 200 && managedStatus < 300) ? managedStatus : 200;
-            const nlohmann::json& data = parsed.value("data", nlohmann::json(nullptr));
-            CRookServer::SendSuccess(res, data);
-            return;
-        }
-        const auto& data = parsed.contains("data") ? parsed["data"] : nlohmann::json("Unknown managed error");
-        if (data.is_object() && data.contains("errorCode"))
-        {
-            CRookServer::SendErrorData(res, data);
-            return;
-        }
-        const std::string message = data.is_string() ? data.get<std::string>() : data.dump();
+// --- POST /curve/boolean -----------------------------------------------
+//
+// Phase 2 PR-4. Three intent keys (curve_boolean_union /
+// curve_boolean_difference / curve_boolean_intersection) dispatch to
+// this ONE endpoint via an `operation` discriminator — mirrors the
+// Phase 1 brep-boolean 4-intent-to-1-endpoint pattern.
+//
+// Substrate: managed-bridge (reuse) via the `CreateGeometry` callback.
+// No ABI bump. Native owns worker-thread schema validation; managed
+// (CreateHandler.CreateCurveBooleanPlural) owns curve resolution,
+// factory dispatch, and {objects: [...]} plural envelope emission via
+// the new InsertCurvesAsPluralResponse helper.
+//
+// Worker-thread validations (all rejections surface as structured errors):
+//   - operation: required string; must be one of
+//       "union" | "difference" | "intersection"
+//   - curveIds: required array of UUID strings
+//       * operation=union        => size >= 2
+//       * operation=difference   => size == 2 (curveA, curveB pair)
+//       * operation=intersection => size == 2 (curveA, curveB pair)
+//   - tolerance: optional positive number (default doc.ModelAbsoluteTolerance
+//     applied managed-side). Factory empirically does NOT silently coerce
+//     non-positive tolerances — it returns an empty Curve[]. Reject on
+//     worker thread for contract clarity and diagnostic specificity.
+//   - attribute bundle: name / layer / color / visible syntactic checks.
+//
+// Managed-side validations delegated to CreateHandler.CreateCurveBooleanPlural:
+//   - curveId object existence + class (Curve) check.
+//   - Factory null OR empty result -> operation_failed with diagnostic
+//     message. Factory produces empty for many reasons (non-coplanar
+//     inputs, open curves, self-intersecting inputs, disjoint
+//     intersection, "fully erased" difference) — no route-specific
+//     error code attempts to classify.
+//
+// Factory error surface: the three `Curve.CreateBoolean*` factories
+// return `Curve[]` with no `out int error` parameter. Empty result
+// (Length==0) is the sole failure signal. Empirically observed failure
+// branches (2026-04-20 probe): non-coplanar pair, open/closed mix,
+// parallel-plane-different-Z pair, zero-length curve, self-intersecting
+// figure-8, disjoint intersection, fully-erased difference
+// (inner - outer), non-positive tolerance. All collapse to
+// `operation_failed` per PR-3 precedent.
+//
+// Factory permissiveness: coincident, tangent-point-touching, and
+// nested (outer containing inner) inputs all succeed. Pinned by
+// test_factory_permissive_smoke (nested union absorbs inner).
+//
+// Explicit non-goals (deferred):
+//   - Region form Curve.CreateBooleanRegions (point-picker schema)
+//   - Difference 1-minuend + N-subtractor overload (asymmetric arity)
+//   - combineRegions flag (region-form parameter)
+//   - InsertGeometryAsPluralResponse generic over GeometryBase subclass
+
+void HandleCurveBoolean(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
         nlohmann::json err = {
-            {"errorCode", "operation_failed"},
+            {"errorCode", code},
             {"errorMessage", message},
         };
         CRookServer::SendErrorData(res, err);
-        return;
-    }
-    case ManagedCreateInvokeResult::Unavailable:
+    };
+
+    // operation: required, string, enum.
+    if (!body.contains("operation"))
     {
-        nlohmann::json err = {
-            {"errorCode", "bridge_unavailable"},
-            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
-        };
-        res.status = 503;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
+        invalidInput("Missing required field 'operation' (union | difference | intersection)");
         return;
     }
-    case ManagedCreateInvokeResult::Failed:
-    default:
+    if (!body["operation"].is_string())
     {
-        nlohmann::json err = {
-            {"errorCode", "operation_failed"},
-            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
-        };
-        res.status = 500;
-        nlohmann::json envelope = {{"success", false}, {"data", err}};
-        res.set_content(envelope.dump(), "application/json");
+        invalidInput("Field 'operation' must be a string");
         return;
     }
+    const std::string operation = body["operation"].get<std::string>();
+    if (!(operation == "union" || operation == "difference" || operation == "intersection"))
+    {
+        invalidInput(
+            std::string("Invalid operation: '") + operation
+                + "'. Must be union, difference, or intersection.",
+            "invalid_operation");
+        return;
     }
+
+    // curveIds: required, array, UUID format per element.
+    if (!body.contains("curveIds") || !body["curveIds"].is_array())
+    {
+        invalidInput("Missing or invalid 'curveIds' (expected array of UUID strings)");
+        return;
+    }
+    const size_t count = body["curveIds"].size();
+    if (operation == "union")
+    {
+        if (count < 2)
+        {
+            invalidInput(
+                std::string("Curve boolean union requires at least 2 curves, got ")
+                    + std::to_string(count),
+                "invalid_curve_count");
+            return;
+        }
+    }
+    else // difference | intersection
+    {
+        if (count != 2)
+        {
+            invalidInput(
+                std::string("Curve boolean ") + operation
+                    + " requires exactly 2 curves, got " + std::to_string(count),
+                "invalid_curve_count");
+            return;
+        }
+    }
+    try { (void)ParseUuids(body, "curveIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // tolerance: optional, positive number.
+    if (body.contains("tolerance"))
+    {
+        if (!body["tolerance"].is_number() || body["tolerance"].get<double>() <= 0.0)
+        {
+            invalidInput("Field 'tolerance' must be a positive number");
+            return;
+        }
+    }
+
+    // Attribute bundle: name / layer / color / visible.
+    if (body.contains("name") && !body["name"].is_string())
+    {
+        invalidInput("Field 'name' must be a string");
+        return;
+    }
+    if (body.contains("layer"))
+    {
+        if (!body["layer"].is_string() || body["layer"].get<std::string>().empty())
+        {
+            invalidInput("Field 'layer' must be a non-empty string");
+            return;
+        }
+    }
+    if (body.contains("visible") && !body["visible"].is_boolean())
+    {
+        invalidInput("Field 'visible' must be a boolean");
+        return;
+    }
+    if (body.contains("color"))
+    {
+        try { (void)ParseColor(body, "color"); }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+
+    body["type"] = "CURVE_BOOLEAN";
+    body["_strictAttributes"] = true;
+
+    Rook::Infrastructure::DispatchToManagedCreate(body.dump(), res);
 }
 
 } // namespace Handlers
