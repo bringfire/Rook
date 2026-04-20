@@ -152,6 +152,9 @@ class ToolRegistry:
         "rhino_usertext_object_get": CATEGORY_MODIFICATION,
         "rhino_usertext_document_set": CATEGORY_MODIFICATION,
         "rhino_usertext_document_get": CATEGORY_STATELESS,
+        # 2026-04-20 delete PR closes the usertext family — both routes mutate.
+        "rhino_usertext_object_delete": CATEGORY_MODIFICATION,
+        "rhino_usertext_document_delete": CATEGORY_MODIFICATION,
         "rhino_block_set_object_names": CATEGORY_MODIFICATION,
         "rhino_block_set_object_names_batch": CATEGORY_MODIFICATION,
         "rhino_block_instances": CATEGORY_MODIFICATION,
@@ -229,6 +232,9 @@ class ToolRegistry:
         "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
         "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
         "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
+        # 2026-04-20 delete PR closes the usertext family.
+        "rhino_usertext_object_delete": ("/usertext/object-delete", "POST"),
+        "rhino_usertext_document_delete": ("/usertext/document-delete", "POST"),
         # Phase 2 surface/curve extension (PR-1 worked example).
         "rhino_create_edge_srf": ("/surface/edge", "POST"),
         "rhino_blend_curves": ("/curve/blend", "POST"),

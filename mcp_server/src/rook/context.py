@@ -127,6 +127,9 @@ TOOL_CATEGORIES = {
     "rhino_usertext_object_get": "document",
     "rhino_usertext_document_set": "document",
     "rhino_usertext_document_get": "document",
+    # 2026-04-20 delete PR closes the usertext family.
+    "rhino_usertext_object_delete": "document",
+    "rhino_usertext_document_delete": "document",
 }
 
 # Ordered list of categories for one-hot encoding

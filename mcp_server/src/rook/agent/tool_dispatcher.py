@@ -214,6 +214,9 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
     "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
     "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
+    # 2026-04-20 delete PR — closes the usertext family.
+    "rhino_usertext_object_delete": ("/usertext/object-delete", "POST"),
+    "rhino_usertext_document_delete": ("/usertext/document-delete", "POST"),
 
     # --- Phase 2 surface/curve extension (PR-1 worked example) ---
     # managed-bridge (reuse) substrate; see

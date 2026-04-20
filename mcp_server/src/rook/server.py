@@ -2989,14 +2989,14 @@ Examples:
                 "non-empty-string} pairs). "
                 "Empty-string values ARE REJECTED with invalid_input — "
                 "OpenNURBS treats attribute SetUserString(k, \"\") as a "
-                "delete sentinel, and delete is out of scope for PR-9. "
-                "A sanctioned delete surface (/usertext/object-delete) "
-                "lands in a follow-up PR. Non-string values (number, "
-                "null, nested object) are also rejected with a "
-                "key-specific invalid_input message "
-                "('userStrings[\\'foo\\'] must be a string'); this "
-                "diverges from the lax legacy block-handler path, which "
-                "silently coerces non-strings to empty strings. "
+                "delete sentinel, so callers must explicitly use "
+                "/usertext/object-delete (rhino_usertext_object_delete) "
+                "to remove a key. Non-string values (number, null, "
+                "nested object) are also rejected with a key-specific "
+                "invalid_input message ('userStrings[\\'foo\\'] must "
+                "be a string'); this diverges from the lax legacy "
+                "block-handler path, which silently coerces non-strings "
+                "to empty strings. "
                 "Empty userStrings ({}) is an idempotent no-op that "
                 "returns the current map without opening an undo record. "
                 "Response: {id, userStrings: {...}} — the FULL "
@@ -3016,7 +3016,7 @@ Examples:
                     },
                     "userStrings": {
                         "type": "object",
-                        "description": "Key/value pairs to write. Values MUST be NON-EMPTY strings — non-string values are rejected with invalid_input, and empty strings are also rejected (OpenNURBS treats attrs.SetUserString(k, \"\") as a delete sentinel; delete is deferred to /usertext/object-delete). Empty object {} at the top level is an idempotent no-op.",
+                        "description": "Key/value pairs to write. Values MUST be NON-EMPTY strings — non-string values are rejected with invalid_input, and empty strings are also rejected (OpenNURBS treats attrs.SetUserString(k, \"\") as a delete sentinel; use rhino_usertext_object_delete to remove keys). Empty object {} at the top level is an idempotent no-op.",
                         "additionalProperties": {"type": "string", "minLength": 1},
                     },
                 },
@@ -3057,9 +3057,10 @@ Examples:
                 "Empty-string values ARE REJECTED with invalid_input — "
                 "OpenNURBS treats pDoc->SetUserString(k, \"\") as a "
                 "delete sentinel at the document level (empirically "
-                "confirmed 2026-04-19); delete is out of scope until "
-                "/usertext/document-delete lands. Non-string values are "
-                "rejected with a key-specific invalid_input message. "
+                "confirmed 2026-04-19), so callers must explicitly use "
+                "/usertext/document-delete (rhino_usertext_document_delete) "
+                "to remove a key. Non-string values are rejected with a "
+                "key-specific invalid_input message. "
                 "Empty userStrings ({}) is an idempotent no-op that "
                 "returns the current map without opening an undo record. "
                 "Response: {userStrings: {...}} — the FULL post-mutation "
@@ -3104,6 +3105,68 @@ Examples:
             inputSchema={
                 "type": "object",
                 "properties": {},
+            },
+        ),
+        Tool(
+            name="rhino_usertext_object_delete",
+            description=(
+                "Remove user-string keys from an object's attribute "
+                "user-string store. Typed Phase 2 route (POST "
+                "/usertext/object-delete). Closes the last missing verb "
+                "in the usertext family — complements /usertext/object-set "
+                "and /usertext/object-get. Idempotent: deleting a key that "
+                "doesn't exist is a success with that key absent from "
+                "`deletedKeys`. Duplicate keys in the request are silently "
+                "deduplicated, preserving first-seen order in the "
+                "`deletedKeys` audit. Empty keys array [] is an idempotent "
+                "no-op. Response: {id, userStrings: {...post-state...}, "
+                "deletedKeys: [...]} where `deletedKeys` lists the requested "
+                "keys that were actually present pre-mutation (derived "
+                "from pre/post state diff, not SDK return values)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "GUID of the object whose user strings to delete.",
+                    },
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "description": "Array of user-string key names to delete. Duplicates deduplicated silently, preserving first-seen order. Empty array is an idempotent no-op.",
+                    },
+                },
+                "required": ["id", "keys"],
+            },
+        ),
+        Tool(
+            name="rhino_usertext_document_delete",
+            description=(
+                "Remove user-string keys from the active document's user-"
+                "string store. Typed Phase 2 route (POST "
+                "/usertext/document-delete). No `id` field (document-level "
+                "scope). Idempotent, deduplicated, and empty-array-no-op "
+                "semantics match /usertext/object-delete. "
+                "Reserved-prefix denylist GATES WRITES here: keys with a "
+                "reserved prefix (e.g. RookBlock::*) are rejected "
+                "WHOLESALE with `reserved_namespace` — NO keys are "
+                "deleted when any reserved-prefix key is in the request. "
+                "The error message anchors callers at the sanctioned "
+                "delete surface (for RookBlock::*: use /block/user-strings "
+                "with action=delete). Reads at both levels remain "
+                "unrestricted for operator diagnostics."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "description": "Array of document user-string key names to delete. Duplicates deduplicated silently, preserving first-seen order. Empty array is an idempotent no-op. Reserved-prefix keys (e.g. RookBlock::*) trigger wholesale rejection.",
+                    },
+                },
+                "required": ["keys"],
             },
         ),
         Tool(
@@ -10512,6 +10575,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_usertext_document_get":
             result = await call_rhino("/usertext/document-get", "POST", arguments)
+
+        case "rhino_usertext_object_delete":
+            result = await call_rhino("/usertext/object-delete", "POST", arguments)
+
+        case "rhino_usertext_document_delete":
+            result = await call_rhino("/usertext/document-delete", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

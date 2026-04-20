@@ -55,11 +55,14 @@ PHASE2_TYPED_ROUTE_INTENTS: list[tuple[str, str, str, str]] = [
     ("create_dim_angle",    "rhino_annotation_dim_angle",    "/annotation/dim-angle",    "creation"),
     ("create_leader",       "rhino_annotation_leader",       "/annotation/leader",       "creation"),
     ("create_dot",          "rhino_annotation_dot",          "/annotation/dot",          "creation"),
-    # User-text family (PR-9 object-level; PR-10 document-level)
-    ("set_object_user_strings",   "rhino_usertext_object_set",   "/usertext/object-set",   "user_text"),
-    ("get_object_user_strings",   "rhino_usertext_object_get",   "/usertext/object-get",   "user_text"),
-    ("set_document_user_strings", "rhino_usertext_document_set", "/usertext/document-set", "user_text"),
-    ("get_document_user_strings", "rhino_usertext_document_get", "/usertext/document-get", "user_text"),
+    # User-text family (PR-9 object-level; PR-10 document-level;
+    # 2026-04-20 delete PR closes the family with the last missing verb).
+    ("set_object_user_strings",      "rhino_usertext_object_set",      "/usertext/object-set",      "user_text"),
+    ("get_object_user_strings",      "rhino_usertext_object_get",      "/usertext/object-get",      "user_text"),
+    ("set_document_user_strings",    "rhino_usertext_document_set",    "/usertext/document-set",    "user_text"),
+    ("get_document_user_strings",    "rhino_usertext_document_get",    "/usertext/document-get",    "user_text"),
+    ("delete_object_user_strings",   "rhino_usertext_object_delete",   "/usertext/object-delete",   "user_text"),
+    ("delete_document_user_strings", "rhino_usertext_document_delete", "/usertext/document-delete", "user_text"),
 ]
 
 
