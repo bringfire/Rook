@@ -2454,8 +2454,11 @@ Examples:
                 "rejects continuity outside {0,1,2} as invalid_continuity; "
                 "rejects any tolerance <= 0 as invalid_input (factory "
                 "silently coerces bad values). Empirically-stable "
-                "operation_failed cases include 2 parallel lines, single "
-                "curve, and disjoint far-apart curves."
+                "operation_failed cases include 2 parallel lines (no "
+                "crossing network) and disjoint far-apart curves; "
+                "single-curve input is rejected at the worker thread as "
+                "invalid_input via the curveIds min-count rule, not as "
+                "operation_failed."
             ),
             inputSchema={
                 "type": "object",
