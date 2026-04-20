@@ -136,6 +136,8 @@ class ToolRegistry:
         "rhino_block_set_object_colors_batch": CATEGORY_MODIFICATION,
         "rhino_block_set_object_user_strings": CATEGORY_MODIFICATION,
         "rhino_block_set_object_user_strings_batch": CATEGORY_MODIFICATION,
+        "rhino_usertext_object_set": CATEGORY_MODIFICATION,
+        "rhino_usertext_object_get": CATEGORY_MODIFICATION,
         "rhino_block_set_object_names": CATEGORY_MODIFICATION,
         "rhino_block_set_object_names_batch": CATEGORY_MODIFICATION,
         "rhino_block_instances": CATEGORY_MODIFICATION,
@@ -209,6 +211,8 @@ class ToolRegistry:
         "rhino_layer_visibility": ("/layer/visibility", "POST"),
         "rhino_layer_lock": ("/layer/lock", "POST"),
         "rhino_layer_current": ("/layer/current", "POST"),
+        "rhino_usertext_object_set": ("/usertext/object-set", "POST"),
+        "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
         # Add more as needed...
     }
 

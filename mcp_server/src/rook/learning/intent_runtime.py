@@ -431,6 +431,30 @@ def _build_route_table() -> dict[str, RouteSpec]:
         description="Create a text dot (camera-facing text label at a point). Height is integer points (screen-relative), not world-space. Response type field = 'TextDot'; no annotationType field (dots are ON_Geometry, not ON_Annotation).",
     )
 
+    # === User text: Phase 2 typed per-object user-string routes ===
+    # Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md (PR-9).
+    routes["set_object_user_strings"] = RouteSpec(
+        endpoint="/usertext/object-set",
+        required_params=("id", "userStrings"),
+        description=(
+            "Write user strings (arbitrary key/value metadata) on a document object. "
+            "Values must be NON-EMPTY strings: empty-string values are rejected with "
+            "invalid_input because OpenNURBS treats attrs.SetUserString(k, \"\") as a "
+            "delete sentinel, and delete is out of scope until /usertext/object-delete "
+            "lands. Non-string values rejected with key-specific invalid_input. Empty "
+            "userStrings {} is an idempotent no-op. Response echoes the full "
+            "post-mutation userStrings map read back from persisted attributes."
+        ),
+    )
+    routes["get_object_user_strings"] = RouteSpec(
+        endpoint="/usertext/object-get",
+        required_params=("id",),
+        description=(
+            "Read all user strings on a document object. Returns {id, userStrings: {...}}; "
+            "empty object {} if the object has no user strings set."
+        ),
+    )
+
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
         endpoint="/mesh/box",
@@ -1193,6 +1217,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "document": ("save_document", "new_document", "set_units"),
     "io": ("import_file", "export_file"),
     "game_export": ("tag_semantic", "validate_export", "game_export"),
+    "user_text": ("set_object_user_strings", "get_object_user_strings"),
 }
 
 
