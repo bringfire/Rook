@@ -215,6 +215,12 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
     "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
 
+    # --- Phase 2 surface/curve extension (PR-1 worked example) ---
+    # managed-bridge (reuse) substrate; see
+    # rook_docs/2026-04-20-phase2-surface-curve-plan.md.
+    "rhino_create_edge_srf": ("/surface/edge", "POST"),
+    "rhino_blend_curves": ("/curve/blend", "POST"),
+
     # --- Intersection (simple) ---
     "rhino_intersect_curve_surface": ("/intersect/curve-surface", "POST"),
     "rhino_intersect_curve_brep":    ("/intersect/curve-brep", "POST"),

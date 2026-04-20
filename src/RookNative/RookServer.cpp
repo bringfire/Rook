@@ -993,6 +993,11 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/curve/offset-on-surface", [this](const httplib::Request& req, httplib::Response& res) {
         HandleCurveOffsetOnSurface(req, res);
     });
+    // Phase 2 PR-1 — managed-bridge reuse (first mixed-substrate route in
+    // CurvesHandler). Plan: rook_docs/2026-04-20-phase2-surface-curve-plan.md
+    m_server->Post("/curve/blend", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleBlendCurves(req, res);
+    });
 
     // Phase 4E: Intersections
     m_server->Post("/intersect/curves", [this](const httplib::Request& req, httplib::Response& res) {
@@ -1058,6 +1063,11 @@ void CRookServer::RegisterRoutes()
     });
     m_server->Post("/surface/revolve", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleRevolve(req, res);
+    });
+    // Phase 2 PR-1 worked example (managed-bridge reuse).
+    // Plan: rook_docs/2026-04-20-phase2-surface-curve-plan.md
+    m_server->Post("/surface/edge", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleEdgeSrf(req, res);
     });
     m_server->Post("/array/linear", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleLinear(req, res);

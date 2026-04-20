@@ -30,6 +30,9 @@ TOOL_CATEGORIES = {
     "rhino_text": "create",
     "rhino_dimension": "create",
     "rhino_block_create": "create",
+    # Phase 2 surface/curve extension (PR-1 worked example).
+    "rhino_create_edge_srf": "create",
+    "rhino_blend_curves": "create",
 
     # Layer category - layer management
     "rhino_layers": "layer",

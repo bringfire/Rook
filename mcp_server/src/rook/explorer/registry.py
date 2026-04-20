@@ -71,6 +71,9 @@ class ToolRegistry:
         "rhino_mesh_cylinder": CATEGORY_CREATION,
         "rhino_mesh_cone": CATEGORY_CREATION,
         "rhino_block_create": CATEGORY_CREATION,
+        # Phase 2 surface/curve extension (PR-1 worked example).
+        "rhino_create_edge_srf": CATEGORY_CREATION,
+        "rhino_blend_curves": CATEGORY_CREATION,
 
         # Modification tools (need objects first)
         "rhino_transform": CATEGORY_MODIFICATION,
@@ -217,6 +220,9 @@ class ToolRegistry:
         "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
         "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
         "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
+        # Phase 2 surface/curve extension (PR-1 worked example).
+        "rhino_create_edge_srf": ("/surface/edge", "POST"),
+        "rhino_blend_curves": ("/curve/blend", "POST"),
         # Add more as needed...
     }
 

@@ -340,6 +340,23 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Revolve a curve around a line axis",
     )
+    # === Creation: Phase 2 surface/curve extension (PR-1 worked example) ===
+    # Plan: rook_docs/2026-04-20-phase2-surface-curve-plan.md
+    routes["create_edge_srf"] = RouteSpec(
+        endpoint="/surface/edge",
+        required_params=("curveIds",),
+        optional_params=("name", "layer", "color", "visible"),
+        description="Create brep from 2-4 boundary curves (Brep.CreateEdgeSurface)",
+    )
+    routes["blend_curves"] = RouteSpec(
+        endpoint="/curve/blend",
+        required_params=("curve1Id", "curve2Id"),
+        optional_params=(
+            "continuity",
+            "name", "layer", "color", "visible",
+        ),
+        description="Blend curve between two curves at given continuity",
+    )
     routes["array_linear"] = RouteSpec(
         endpoint="/array/linear",
         required_params=("ids", "direction", "spacing", "count"),
@@ -1184,6 +1201,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_interpolated_curve", "create_control_point_curve",
         "create_pipe", "create_loft", "create_sweep1", "create_sweep2",
         "create_revolve", "array_linear", "array_rectangular", "array_polar",
+        # Phase 2 surface/curve extension — PR-1 worked example.
+        "create_edge_srf",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",
@@ -1205,6 +1224,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "join_curves", "explode_curve", "divide_curve", "extend_curve",
         "trim_curve", "split_curve", "rebuild_curve", "fillet_curves",
         "project_curve", "pull_curve", "offset_curve", "offset_curve_on_surface",
+        # Phase 2 surface/curve extension — PR-1.
+        "blend_curves",
     ),
     "intersection": (
         "intersect_curves", "intersect_curve_surface", "intersect_curve_brep",

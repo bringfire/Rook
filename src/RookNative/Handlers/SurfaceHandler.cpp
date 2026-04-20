@@ -748,5 +748,71 @@ void HandleRevolve(const httplib::Request& req, httplib::Response& res)
     DispatchToManagedCreate(body.dump(), res);
 }
 
+// --- POST /surface/edge -------------------------------------------------
+//
+// Phase 2 PR-1 worked example. Create a single brep from 2-4 boundary
+// curves via `Brep.CreateEdgeSurface(curves)`. Singular-contract route
+// (bare ObjectSnapshot on success).
+//
+// Worker-thread validation: `curveIds` required array of UUID strings,
+// length in [2, 4]; each element parseable as UUID; attribute bundle
+// syntactic checks. UUID-level rejection happens here; object-existence
+// and is-a-curve validation happen managed-side (via ResolveCurvesStrict)
+// with structured `invalid_input` / `not_found` errors that round-trip
+// through EmitNormalized unchanged.
+//
+// The API-documented arity upper bound is 4; the Rhino `_-EdgeSrf`
+// command UI has been empirically observed to accept 5+ (2026-04-20
+// probe), but `Brep.CreateEdgeSurface` itself is bounded. The typed
+// route enforces the API bound explicitly with route-specific
+// `invalid_curve_count`.
+//
+// Factory permissiveness: `Brep.CreateEdgeSurface` empirically accepts
+// pathological inputs (zero-length, coincident, disjoint, 3D non-planar)
+// and still returns a valid brep. Per the Common Plan permissiveness
+// amendment (`rook_docs/2026-04-17-typed-route-phase1-plan.md:257`, landed
+// 2026-04-20), this route ships with a `test_factory_permissive_smoke`
+// test rather than an operation_failed test.
+//
+// No tolerance parameter — `Brep.CreateEdgeSurface` does not expose one.
+
+void HandleEdgeSrf(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // curveIds: required, array, length in [2, 4].
+    if (!body.contains("curveIds") || !body["curveIds"].is_array())
+    {
+        invalidInput("Missing or invalid 'curveIds' (expected array of UUID strings)");
+        return;
+    }
+    const size_t count = body["curveIds"].size();
+    if (count < 2 || count > 4)
+    {
+        invalidInput(
+            std::string("EdgeSrf requires 2-4 curves, got ") + std::to_string(count),
+            "invalid_curve_count");
+        return;
+    }
+    try { (void)ParseUuids(body, "curveIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "EDGE_SRF";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
+}
+
 } // namespace Handlers
 } // namespace Rook
