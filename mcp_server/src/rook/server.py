@@ -2338,6 +2338,72 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_create_edge_srf",
+            description=(
+                "Create a brep from 2-4 boundary curves via Brep.CreateEdgeSurface. "
+                "Typed Phase 2 route (POST /surface/edge). Singular-contract — returns "
+                "the full ObjectSnapshot on success. Factory is empirically permissive: "
+                "disconnected / coincident / zero-length / 3D non-planar curve sets "
+                "still produce a valid brep (see Common Plan permissiveness note). "
+                "Strict attribute handling: unknown layer / unparseable color / "
+                "non-boolean visible surface as structured invalid_input."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "2 to 4 boundary curve GUIDs.",
+                        "minItems": 2,
+                        "maxItems": 4,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveIds"]
+            }
+        ),
+        Tool(
+            name="rhino_blend_curves",
+            description=(
+                "Create a blend curve between two existing curves at a given "
+                "continuity. Typed Phase 2 route (POST /curve/blend). Uses "
+                "Curve.CreateBlendCurve(curveA, curveB, continuity) — overload 1. "
+                "First /curve/* route on the managed-bridge (reuse) substrate "
+                "(existing /curve/* routes are direct-sdk). Singular-contract — "
+                "returns the full ObjectSnapshot on success, including curve-class "
+                "ObjectSnapshot fields. Factory is empirically permissive; see "
+                "Common Plan permissiveness note. Reverse flags, bulge controls, "
+                "and asymmetric per-end continuity are deferred (not in PR-1 scope)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curve1Id": {"type": "string", "description": "First curve GUID."},
+                    "curve2Id": {"type": "string", "description": "Second curve GUID."},
+                    "continuity": {
+                        "type": "string",
+                        "enum": ["Position", "Tangency", "Curvature"],
+                        "description": "Blend continuity (default 'Tangency'): Position=G0, Tangency=G1, Curvature=G2.",
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curve1Id", "curve2Id"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_text",
             description=(
                 "Create a 2D text annotation with strict attribute handling. Typed "
@@ -10127,6 +10193,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_pipe":
             result = await call_rhino("/surface/pipe", "POST", arguments)
+
+        case "rhino_create_edge_srf":
+            result = await call_rhino("/surface/edge", "POST", arguments)
+
+        case "rhino_blend_curves":
+            result = await call_rhino("/curve/blend", "POST", arguments)
 
         case "rhino_annotation_text":
             result = await call_rhino("/annotation/text", "POST", arguments)

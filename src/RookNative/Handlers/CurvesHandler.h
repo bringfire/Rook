@@ -12,6 +12,7 @@
 // POST /curve/pull              — Pull curve to brep face
 // POST /curve/offset            — Offset curve in a plane
 // POST /curve/offset-on-surface — Offset curve along a surface
+// POST /curve/blend             — Phase 2 PR-1: blend between 2 curves (managed-bridge reuse)
 
 #pragma once
 
@@ -32,6 +33,13 @@ void HandleCurveProject(const httplib::Request& req, httplib::Response& res);
 void HandleCurvePull(const httplib::Request& req, httplib::Response& res);
 void HandleCurveOffset(const httplib::Request& req, httplib::Response& res);
 void HandleCurveOffsetOnSurface(const httplib::Request& req, httplib::Response& res);
+
+// POST /curve/blend — Phase 2 PR-1. Blend between two curves via
+// Curve.CreateBlendCurve (overload 1: curveA, curveB, continuity).
+// Singular-contract route. First mixed-substrate route in this file —
+// managed-bridge reuse via CreateGeometry callback, NOT direct-sdk like
+// the 12 routes above.
+void HandleBlendCurves(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

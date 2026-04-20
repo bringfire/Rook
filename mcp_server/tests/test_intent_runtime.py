@@ -374,8 +374,11 @@ class TestRouteTableCompleteness:
 
     def test_all_geometry_creation_ops(self, router):
         geo_create = CATEGORIES["creation"]
-        # 13 NURBS + 4 mesh + 3 SubD = 20
-        assert len(geo_create) == 20
+        # 13 NURBS + 5 Phase 1 surface + 3 Phase 1 array + 4 mesh + 3 SubD
+        # + 8 Phase 2 annotation family (PR-10 backfill, 2026-04-19)
+        # + 1 Phase 2 surface/curve extension (PR-1, 2026-04-20 — create_edge_srf)
+        # = 37
+        assert len(geo_create) == 37
         for op in geo_create:
             assert router.has_direct_route(op), f"Missing creation op: {op}"
 
@@ -389,7 +392,8 @@ class TestRouteTableCompleteness:
 
     def test_all_curve_ops(self, router):
         curve_ops = CATEGORIES["curves"]
-        assert len(curve_ops) == 12
+        # 12 direct-sdk + 1 managed-bridge (PR-1 blend_curves, 2026-04-20)
+        assert len(curve_ops) == 13
         for op in curve_ops:
             assert router.has_direct_route(op), f"Missing curve op: {op}"
 

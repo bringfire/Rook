@@ -1,10 +1,22 @@
 // CurvesHandler.cpp
 //
-// 12 curve operation routes. Uses direct C++ SDK calls where possible,
-// RunScript with ObjectDiffTracker for complex interactive commands.
+// Substrate: 12 existing routes are `direct-sdk` native; HandleBlendCurves
+// (PR-1, 2026-04-20 Phase 2 extension) is `managed-bridge (reuse)` via the
+// `CreateGeometry` callback. Per-route substrate is named in each handler's
+// opening comment (Rule 6). This paragraph will be extended in PR-4 when
+// HandleCurveBoolean lands on the same substrate.
+//
+// 12 direct-sdk routes:
+//   POST /curve/join, /curve/explode, /curve/divide, /curve/extend,
+//   /curve/trim, /curve/split, /curve/rebuild, /curve/fillet,
+//   /curve/project, /curve/pull, /curve/offset, /curve/offset-on-surface
+//
+// 1 managed-bridge (reuse) route (PR-1):
+//   POST /curve/blend
 
 #include "stdafx.h"
 #include "Handlers/CurvesHandler.h"
+#include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/UndoScope.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Infrastructure/WriteResult.h"
@@ -1201,6 +1213,181 @@ void HandleCurveOffsetOnSurface(const httplib::Request& req, httplib::Response& 
     catch (const std::exception& ex)
     {
         CRookServer::SendError(res, ex.what());
+    }
+}
+
+// ─── POST /curve/blend ──────────────────────────────────────────────
+//
+// Phase 2 PR-1 worked example. Blend between two existing curves at a
+// given continuity via Curve.CreateBlendCurve (overload 1:
+// curveA, curveB, continuity). Singular-contract route (bare
+// ObjectSnapshot on success).
+//
+// Substrate: `managed-bridge (reuse)` via existing CreateGeometry
+// callback (NativeGhBridgeRegistrar.cs:107). New type "BLEND_CRV" in
+// CreateHandler.cs:150 singular switch. Zero ABI bump. **First mixed-
+// substrate route in CurvesHandler.cpp** — the 12 routes above use the
+// direct-sdk substrate; this route and the future /curve/boolean (PR-4)
+// delegate to managed.
+//
+// First strict-attribute creator whose factory returns a Curve (not a
+// Brep) — managed singular path at CreateHandler.cs:246 uses
+// `doc.Objects.Add(geometry, attributes)` (class-agnostic) and
+// RhinoSerializer.SerializeObject handles curves the same as breps.
+// Strict-curve parity pinned by test_blend_curves_live.py (f) + (h).
+//
+// Worker-thread validation: curve1Id + curve2Id UUID format; continuity
+// enum (Position | Tangency | Curvature); attribute bundle. Managed
+// re-validates object-existence and is-a-curve with structured errors
+// that round-trip through EmitNormalized unchanged.
+//
+// Factory permissiveness: Curve.CreateBlendCurve (overload 1) empirically
+// accepts coincident, zero-length, and degenerate inputs (2026-04-20
+// probe against live Rhino). Per Common Plan permissiveness amendment
+// (rook_docs/2026-04-17-typed-route-phase1-plan.md:257), this route
+// ships with a test_factory_permissive_smoke test rather than an
+// operation_failed test.
+//
+// Explicit rejections from PR-1 scope: reverse1/reverse2 (overload 3
+// params), bulgeA/bulgeB (overload 2), asymmetric per-end continuity
+// (overload 3).
+
+void HandleBlendCurves(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // curve1Id / curve2Id: required, UUID format.
+    try { (void)ParseUuid(body, "curve1Id"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    try { (void)ParseUuid(body, "curve2Id"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // continuity: optional enum.
+    if (body.contains("continuity"))
+    {
+        if (!body["continuity"].is_string())
+        {
+            invalidInput(
+                "Field 'continuity' must be a string (Position | Tangency | Curvature)",
+                "invalid_continuity");
+            return;
+        }
+        const std::string cont = body["continuity"].get<std::string>();
+        if (!(cont == "Position" || cont == "Tangency" || cont == "Curvature"))
+        {
+            invalidInput(
+                std::string("Invalid continuity: '") + cont
+                    + "'. Must be Position, Tangency, or Curvature.",
+                "invalid_continuity");
+            return;
+        }
+    }
+
+    // Attribute bundle (name/layer/color/visible) — syntactic checks.
+    if (body.contains("name") && !body["name"].is_string())
+    {
+        invalidInput("Field 'name' must be a string");
+        return;
+    }
+    if (body.contains("layer"))
+    {
+        if (!body["layer"].is_string() || body["layer"].get<std::string>().empty())
+        {
+            invalidInput("Field 'layer' must be a non-empty string");
+            return;
+        }
+    }
+    if (body.contains("visible") && !body["visible"].is_boolean())
+    {
+        invalidInput("Field 'visible' must be a boolean");
+        return;
+    }
+    if (body.contains("color"))
+    {
+        try { (void)ParseColor(body, "color"); }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+
+    body["type"] = "BLEND_CRV";
+    body["_strictAttributes"] = true;
+
+    // Local mirror of SurfaceHandler's EmitNormalized + DispatchToManagedCreate
+    // pattern. Not shared across handlers today — the helpers live in
+    // SurfaceHandler.cpp's anon namespace. PR-4 will face the same sharing
+    // question with HandleCurveBoolean; promotion to a shared helper fires
+    // on that third caller per Rule 6 promotion-on-third-caller convention.
+    std::string responseJson;
+    int managedStatus = 0;
+    std::string bridgeError;
+    const auto result = InvokeManagedCreateWithBody(body.dump(), responseJson, managedStatus, bridgeError);
+
+    switch (result)
+    {
+    case ManagedCreateInvokeResult::Ok:
+    {
+        auto parsed = nlohmann::json::parse(responseJson, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object() || !parsed.contains("success"))
+        {
+            nlohmann::json err = {
+                {"errorCode", "operation_failed"},
+                {"errorMessage", "Managed response could not be parsed"},
+            };
+            CRookServer::SendErrorData(res, err);
+            return;
+        }
+        if (parsed.value("success", false))
+        {
+            res.status = (managedStatus >= 200 && managedStatus < 300) ? managedStatus : 200;
+            const nlohmann::json& data = parsed.value("data", nlohmann::json(nullptr));
+            CRookServer::SendSuccess(res, data);
+            return;
+        }
+        const auto& data = parsed.contains("data") ? parsed["data"] : nlohmann::json("Unknown managed error");
+        if (data.is_object() && data.contains("errorCode"))
+        {
+            CRookServer::SendErrorData(res, data);
+            return;
+        }
+        const std::string message = data.is_string() ? data.get<std::string>() : data.dump();
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+        return;
+    }
+    case ManagedCreateInvokeResult::Unavailable:
+    {
+        nlohmann::json err = {
+            {"errorCode", "bridge_unavailable"},
+            {"errorMessage", "Managed Grasshopper/Rhino bridge is not registered for this Rhino process."},
+        };
+        res.status = 503;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
+    case ManagedCreateInvokeResult::Failed:
+    default:
+    {
+        nlohmann::json err = {
+            {"errorCode", "operation_failed"},
+            {"errorMessage", bridgeError.empty() ? std::string("Managed bridge invocation failed") : bridgeError},
+        };
+        res.status = 500;
+        nlohmann::json envelope = {{"success", false}, {"data", err}};
+        res.set_content(envelope.dump(), "application/json");
+        return;
+    }
     }
 }
 

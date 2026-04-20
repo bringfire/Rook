@@ -166,6 +166,8 @@ namespace Rook.Handlers
                     "REVOLVE" => strictAttributes ? CreateRevolveStrict(doc, request) : CreateRevolve(doc, request),
                     "EXTRUDE" => CreateExtrude(doc, request),
                     "PIPE" => CreatePipe(doc, request, strictAttributes),
+                    "EDGE_SRF" => CreateEdgeSrf(doc, request),
+                    "BLEND_CRV" => CreateBlendCurve(doc, request),
                     "PLANAR_SURFACE" or "PLANARSURFACE" => CreatePlanarSurface(doc, request),
                     // Curve types
                     "INTERPOLATED_CURVE" or "INTERPOLATEDCURVE" or "INTERP_CURVE" => CreateInterpolatedCurve(request),
@@ -1681,6 +1683,84 @@ namespace Rook.Handlers
                 throw new CreateOperationFailedException("RevSurface.ToBrep produced no brep");
 
             return brep;
+        }
+
+        /// <summary>
+        /// POST /surface/edge — Phase 2 PR-1 worked example. Creates a single
+        /// brep from 2–4 boundary curves using Brep.CreateEdgeSurface.
+        ///
+        /// Substrate: managed-bridge reuse via CreateGeometry callback. Native
+        /// has already validated curveIds count (2..4) and UUID format; managed
+        /// re-resolves each id with structured errors.
+        ///
+        /// Factory is empirically permissive (see
+        /// rook_docs/2026-04-20-phase2-surface-curve-plan.md §Acceptance Gate
+        /// #5 — Common Plan amendment landed 2026-04-20). Null return is
+        /// unusual but surfaces as operation_failed for completeness.
+        /// </summary>
+        private Brep? CreateEdgeSrf(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            if (!request.TryGetValue("curveIds", out var idsEl) || idsEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'curveIds' (expected array of UUID strings)");
+
+            var curves = ResolveCurvesStrict(doc, idsEl, "curveIds");
+            if (curves.Count < 2 || curves.Count > 4)
+                throw new CreateInvalidInputException(
+                    $"EdgeSrf requires 2-4 curves, got {curves.Count}",
+                    errorCode: "invalid_curve_count");
+
+            var brep = Brep.CreateEdgeSurface(curves);
+            if (brep == null)
+                throw new CreateOperationFailedException(
+                    "Brep.CreateEdgeSurface produced no result");
+
+            return brep;
+        }
+
+        /// <summary>
+        /// POST /curve/blend — Phase 2 PR-1 worked example. Creates a blend
+        /// curve between two existing curves at a given continuity.
+        ///
+        /// Substrate: managed-bridge reuse via CreateGeometry callback. First
+        /// strict-attribute creator whose factory returns a Curve (not a Brep)
+        /// — serialization parity with brep creators under _strictAttributes
+        /// pinned by test_blend_curves_live.py (f) + (h).
+        ///
+        /// Uses Curve.CreateBlendCurve(curveA, curveB, continuity) — overload
+        /// 1 (simplest). Reverse flags, bulge doubles, and asymmetric per-end
+        /// continuity are deferred per plan-doc §Non-goals.
+        ///
+        /// Factory is empirically permissive (see Common Plan permissiveness
+        /// amendment at rook_docs/2026-04-17-typed-route-phase1-plan.md:257).
+        /// </summary>
+        private Curve? CreateBlendCurve(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            string? id1 = request.TryGetValue("curve1Id", out var id1El) ? id1El.GetString() : null;
+            string? id2 = request.TryGetValue("curve2Id", out var id2El) ? id2El.GetString() : null;
+            var curve1 = ResolveCurveStrict(doc, id1, "curve1Id");
+            var curve2 = ResolveCurveStrict(doc, id2, "curve2Id");
+
+            var continuity = BlendContinuity.Tangency;
+            if (request.TryGetValue("continuity", out var contEl))
+            {
+                var contStr = contEl.GetString();
+                continuity = contStr switch
+                {
+                    "Position" => BlendContinuity.Position,
+                    "Tangency" => BlendContinuity.Tangency,
+                    "Curvature" => BlendContinuity.Curvature,
+                    _ => throw new CreateInvalidInputException(
+                        $"Invalid continuity: '{contStr}'. Must be Position, Tangency, or Curvature.",
+                        errorCode: "invalid_continuity"),
+                };
+            }
+
+            var blend = Curve.CreateBlendCurve(curve1, curve2, continuity);
+            if (blend == null)
+                throw new CreateOperationFailedException(
+                    "Curve.CreateBlendCurve produced no result");
+
+            return blend;
         }
 
         #endregion
