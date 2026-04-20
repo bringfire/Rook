@@ -206,6 +206,12 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_find_instances": ("/block/find-instances", "POST"),
     "rhino_block_objects_detailed": ("/block/objects-detailed", "POST"),
 
+    # --- User text (arbitrary object metadata; Phase 2 PR-9) ---
+    # Document-level and delete routes land in a follow-up PR; /usertext/*
+    # here is object-level set + get only.
+    "rhino_usertext_object_set": ("/usertext/object-set", "POST"),
+    "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
+
     # --- Intersection (simple) ---
     "rhino_intersect_curve_surface": ("/intersect/curve-surface", "POST"),
     "rhino_intersect_curve_brep":    ("/intersect/curve-brep", "POST"),

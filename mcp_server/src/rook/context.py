@@ -107,6 +107,12 @@ TOOL_CATEGORIES = {
     # Knowledge tools - mapped to document category (metadata operations)
     "knowledge_query": "document",
     "knowledge_record": "document",
+
+    # User-text tools - mapped to document category (per-object metadata
+    # operations, same bucket as knowledge-metadata calls above). Phase 2
+    # PR-9 — object-level set + get; document-level routes land in PR-10.
+    "rhino_usertext_object_set": "document",
+    "rhino_usertext_object_get": "document",
 }
 
 # Ordered list of categories for one-hot encoding

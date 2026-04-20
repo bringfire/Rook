@@ -129,6 +129,7 @@
     <ClCompile Include="Handlers\ArrayHandler.cpp" />
     <ClCompile Include="Handlers\SurfaceHandler.cpp" />
     <ClCompile Include="Handlers\AnnotationHandler.cpp" />
+    <ClCompile Include="Handlers\UserTextHandler.cpp" />
     <ClCompile Include="Handlers\MeshHandler.cpp" />
     <ClCompile Include="Handlers\SubDHandler.cpp" />
     <ClCompile Include="Handlers\BlocksHandler.cpp" />
@@ -195,6 +196,7 @@
     <ClInclude Include="Handlers\ArrayHandler.h" />
     <ClInclude Include="Handlers\SurfaceHandler.h" />
     <ClInclude Include="Handlers\AnnotationHandler.h" />
+    <ClInclude Include="Handlers\UserTextHandler.h" />
     <ClInclude Include="Handlers\MeshHandler.h" />
     <ClInclude Include="Handlers\SubDHandler.h" />
     <ClInclude Include="Handlers\BlocksHandler.h" />

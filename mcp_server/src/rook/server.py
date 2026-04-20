@@ -2611,6 +2611,73 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_usertext_object_set",
+            description=(
+                "Write user strings (arbitrary key/value metadata) on a "
+                "document object's attributes. Typed Phase 2 route (POST "
+                "/usertext/object-set). Required: id (uuid of an existing "
+                "object), userStrings (JSON object of {string: "
+                "non-empty-string} pairs). "
+                "Empty-string values ARE REJECTED with invalid_input — "
+                "OpenNURBS treats attribute SetUserString(k, \"\") as a "
+                "delete sentinel, and delete is out of scope for PR-9. "
+                "A sanctioned delete surface (/usertext/object-delete) "
+                "lands in a follow-up PR. Non-string values (number, "
+                "null, nested object) are also rejected with a "
+                "key-specific invalid_input message "
+                "('userStrings[\\'foo\\'] must be a string'); this "
+                "diverges from the lax legacy block-handler path, which "
+                "silently coerces non-strings to empty strings. "
+                "Empty userStrings ({}) is an idempotent no-op that "
+                "returns the current map without opening an undo record. "
+                "Response: {id, userStrings: {...}} — the FULL "
+                "post-mutation map, read back from persisted attributes "
+                "(not a synthesis of the request body), so callers see "
+                "keys set by prior calls without a follow-up read. "
+                "Does NOT accept attribute-bundle inputs (name / layer / "
+                "color / visible); this route mutates the user-string "
+                "store only."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "GUID of an existing document object.",
+                    },
+                    "userStrings": {
+                        "type": "object",
+                        "description": "Key/value pairs to write. Values MUST be NON-EMPTY strings — non-string values are rejected with invalid_input, and empty strings are also rejected (OpenNURBS treats attrs.SetUserString(k, \"\") as a delete sentinel; delete is deferred to /usertext/object-delete). Empty object {} at the top level is an idempotent no-op.",
+                        "additionalProperties": {"type": "string", "minLength": 1},
+                    },
+                },
+                "required": ["id", "userStrings"],
+            },
+        ),
+        Tool(
+            name="rhino_usertext_object_get",
+            description=(
+                "Read all user strings on a document object's attributes. "
+                "Typed Phase 2 route (POST /usertext/object-get). Required: "
+                "id (uuid of an existing object). Response: {id, "
+                "userStrings: {...}} — returns an empty object {} if the "
+                "object has no user strings set. Key enumeration order is "
+                "SDK-governed and not guaranteed stable across Rhino "
+                "versions. Unknown object id surfaces as structured "
+                "not_found."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "GUID of an existing document object.",
+                    },
+                },
+                "required": ["id"],
+            },
+        ),
+        Tool(
             name="rhino_array_linear",
             description=(
                 "Array objects along a direction vector. Typed Phase 1 route "
@@ -9983,6 +10050,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_annotation_dot":
             result = await call_rhino("/annotation/dot", "POST", arguments)
+
+        case "rhino_usertext_object_set":
+            result = await call_rhino("/usertext/object-set", "POST", arguments)
+
+        case "rhino_usertext_object_get":
+            result = await call_rhino("/usertext/object-get", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

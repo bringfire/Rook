@@ -29,6 +29,7 @@
 #include "Handlers/ArrayHandler.h"
 #include "Handlers/SurfaceHandler.h"
 #include "Handlers/AnnotationHandler.h"
+#include "Handlers/UserTextHandler.h"
 #include "Handlers/MeshHandler.h"
 #include "Handlers/SubDHandler.h"
 #include "Handlers/BlocksHandler.h"
@@ -1094,6 +1095,16 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/annotation/dot", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleTextDot(req, res);
     });
+
+    // Phase 2 typed user-text routes (direct-sdk native).
+    // Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md (PR-9).
+    m_server->Post("/usertext/object-set", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextObjectSet(req, res);
+    });
+    m_server->Post("/usertext/object-get", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextObjectGet(req, res);
+    });
+
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
     // to inject a synthetic TransformObject failure at a chosen copy ordinal.
     // Product code MUST NOT call this; public contract is explicitly none.
