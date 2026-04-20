@@ -52,5 +52,16 @@ void HandleRevolve(const httplib::Request& req, httplib::Response& res);
 // rook_docs/2026-04-17-typed-route-phase1-plan.md:257.
 void HandleEdgeSrf(const httplib::Request& req, httplib::Response& res);
 
+// POST /surface/patch — Phase 2 PR-2. Brep.CreatePatch: fit a surface
+// through curves/points/point-clouds, optionally constrained by a
+// starting seed surface. Singular-contract.
+//
+// Dispatch branches on startingSurfaceId presence (overload 3 seeded vs
+// overload 2 no-seed — empirically non-equivalent 2026-04-20).
+// flexibility/surfacePull require startingSurfaceId; rejected otherwise.
+// Worker-thread rejects uSpans/vSpans <= 0, flexibility <= 0, and
+// tolerance <= 0 (factory silently coerces these into garbage surfaces).
+void HandlePatch(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

@@ -2370,6 +2370,76 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_create_patch",
+            description=(
+                "Fit a brep surface through curves / points / point clouds, "
+                "optionally constrained by a starting seed surface. Typed "
+                "Phase 2 route (POST /surface/patch). Singular-contract. "
+                "Dispatches between two RhinoCommon overloads based on "
+                "startingSurfaceId presence — seeded path uses Brep.CreatePatch "
+                "overload 3 (with flexibility / surfacePull), no-seed path "
+                "uses overload 2 (simpler 4-arg form). flexibility and "
+                "surfacePull require startingSurfaceId; they are rejected "
+                "with invalid_input otherwise because the factory's no-seed "
+                "overload ignores them silently. Worker-thread rejects "
+                "uSpans/vSpans <= 0 (invalid_spans), flexibility <= 0 "
+                "(invalid_flexibility), and tolerance <= 0 (invalid_input) "
+                "because the factory silently coerces bad values into "
+                "garbage geometry. geometryIds accepts Curve / Point / "
+                "PointCloud — other classes rejected as invalid_geometry_class. "
+                "startingSurfaceId accepts Surface or single-face Brep "
+                "(auto-extracts UnderlyingSurface); multi-face Brep or "
+                "other classes rejected as invalid_seed_class."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "geometryIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "GUIDs of input Curve / Point / PointCloud objects (min 1).",
+                        "minItems": 1,
+                    },
+                    "startingSurfaceId": {
+                        "type": "string",
+                        "description": "Optional seed surface GUID (Surface or single-face Brep). Enables flexibility / surfacePull.",
+                    },
+                    "uSpans": {
+                        "type": "integer",
+                        "description": "U-direction span count (> 0, default 10).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "vSpans": {
+                        "type": "integer",
+                        "description": "V-direction span count (> 0, default 10).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "flexibility": {
+                        "type": "number",
+                        "description": "Seed-fit flexibility (> 0, default 1.0). Requires startingSurfaceId.",
+                        "exclusiveMinimum": 0,
+                    },
+                    "surfacePull": {
+                        "type": "number",
+                        "description": "Seed-fit pull strength (any real, default 1.0; factory-governed semantics). Requires startingSurfaceId.",
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Fit tolerance (> 0, default doc.ModelAbsoluteTolerance).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["geometryIds"]
+            }
+        ),
+        Tool(
             name="rhino_blend_curves",
             description=(
                 "Create a blend curve between two existing curves at a given "
@@ -10196,6 +10266,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_edge_srf":
             result = await call_rhino("/surface/edge", "POST", arguments)
+
+        case "rhino_create_patch":
+            result = await call_rhino("/surface/patch", "POST", arguments)
 
         case "rhino_blend_curves":
             result = await call_rhino("/curve/blend", "POST", arguments)

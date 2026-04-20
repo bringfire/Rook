@@ -74,6 +74,8 @@ class ToolRegistry:
         # Phase 2 surface/curve extension (PR-1 worked example).
         "rhino_create_edge_srf": CATEGORY_CREATION,
         "rhino_blend_curves": CATEGORY_CREATION,
+        # Phase 2 surface/curve extension (PR-2).
+        "rhino_create_patch": CATEGORY_CREATION,
 
         # Modification tools (need objects first)
         "rhino_transform": CATEGORY_MODIFICATION,
@@ -223,6 +225,8 @@ class ToolRegistry:
         # Phase 2 surface/curve extension (PR-1 worked example).
         "rhino_create_edge_srf": ("/surface/edge", "POST"),
         "rhino_blend_curves": ("/curve/blend", "POST"),
+        # Phase 2 surface/curve extension (PR-2).
+        "rhino_create_patch": ("/surface/patch", "POST"),
         # Add more as needed...
     }
 

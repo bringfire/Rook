@@ -814,5 +814,172 @@ void HandleEdgeSrf(const httplib::Request& req, httplib::Response& res)
     DispatchToManagedCreate(body.dump(), res);
 }
 
+// --- POST /surface/patch ------------------------------------------------
+//
+// Phase 2 PR-2. Brep.CreatePatch — fit a surface through
+// curves/points/point-clouds, optionally seeded by a starting surface.
+// Singular-contract route.
+//
+// Worker-thread validations (all rejections surface as structured errors):
+//   - geometryIds: required array of UUIDs (min 1 element); each
+//     UUID-format checked.
+//   - startingSurfaceId: optional UUID string; object-existence + class
+//     check deferred to managed ResolveSeedSurfaceStrict.
+//   - uSpans/vSpans: optional positive integers (default 10). Factory
+//     silently coerces zero, so reject here as invalid_spans.
+//   - flexibility: optional positive number (default 1.0). Factory
+//     silently coerces negatives, so reject here as invalid_flexibility.
+//   - surfacePull: optional number (default 1.0). Type-check only —
+//     factory accepts any real without observable coercion (2026-04-20
+//     probe: values 0, -1, 100, 1e-10 all produced identical output).
+//   - tolerance: optional positive number (default doc.ModelAbsoluteTolerance).
+//     Factory silently accepts zero but produces ~50% larger surfaces;
+//     reject here as invalid_input (matches Pipe's tolerance rule).
+//   - Dependency rule: flexibility / surfacePull require startingSurfaceId.
+//     Rejected with invalid_input — factory silently inert in the no-seed
+//     path, so the route rejects to keep the user model honest.
+//   - Attribute bundle (name/layer/color/visible): syntactic checks.
+//
+// Managed-side validations delegated to CreateHandler.CreatePatch:
+//   - geometryIds object existence; accepted geometry classes are
+//     Curve / Point / PointCloud (factory accepts more; route pre-filters
+//     for contract clarity).
+//   - startingSurfaceId accepted classes: Surface or single-face Brep
+//     (auto-extracts UnderlyingSurface; rejects multi-face Brep and
+//     non-Surface/non-Brep inputs as invalid_seed_class).
+//
+// Real Rhino-side failure case: single-point-only input empirically
+// returns null (2026-04-20 probe). Satisfies Common Plan amendment at
+// rook_docs/2026-04-17-typed-route-phase1-plan.md:257 — no
+// test_factory_permissive_smoke needed.
+
+void HandlePatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    auto invalidInput = [&](const std::string& message, const char* code = "invalid_input") {
+        nlohmann::json err = {
+            {"errorCode", code},
+            {"errorMessage", message},
+        };
+        CRookServer::SendErrorData(res, err);
+    };
+
+    // geometryIds: required, array, min 1 element, UUID format per element.
+    if (!body.contains("geometryIds") || !body["geometryIds"].is_array())
+    {
+        invalidInput("Missing or invalid 'geometryIds' (expected array of UUID strings)");
+        return;
+    }
+    if (body["geometryIds"].size() < 1)
+    {
+        invalidInput("Patch requires at least 1 input geometry");
+        return;
+    }
+    try { (void)ParseUuids(body, "geometryIds"); }
+    catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+
+    // startingSurfaceId: optional, UUID format if present.
+    const bool hasSeed = body.contains("startingSurfaceId");
+    if (hasSeed)
+    {
+        if (!body["startingSurfaceId"].is_string()
+            || body["startingSurfaceId"].get<std::string>().empty())
+        {
+            invalidInput("Field 'startingSurfaceId' must be a non-empty UUID string");
+            return;
+        }
+        try { (void)ParseUuid(body, "startingSurfaceId"); }
+        catch (const std::invalid_argument& ex) { invalidInput(ex.what()); return; }
+    }
+
+    // uSpans / vSpans: optional positive integers.
+    auto requirePositiveInt = [&](const char* fieldName) -> bool {
+        if (!body.contains(fieldName)) return true;
+        const auto& el = body[fieldName];
+        if (!el.is_number_integer())
+        {
+            invalidInput(
+                std::string("Field '") + fieldName + "' must be a positive integer",
+                "invalid_spans");
+            return false;
+        }
+        if (el.get<int>() <= 0)
+        {
+            invalidInput(
+                std::string("Field '") + fieldName + "' must be > 0",
+                "invalid_spans");
+            return false;
+        }
+        return true;
+    };
+    if (!requirePositiveInt("uSpans")) return;
+    if (!requirePositiveInt("vSpans")) return;
+
+    // flexibility: optional positive number.
+    if (body.contains("flexibility"))
+    {
+        const auto& el = body["flexibility"];
+        if (!el.is_number())
+        {
+            invalidInput("Field 'flexibility' must be a number", "invalid_flexibility");
+            return;
+        }
+        if (el.get<double>() <= 0.0)
+        {
+            invalidInput("Field 'flexibility' must be > 0", "invalid_flexibility");
+            return;
+        }
+    }
+
+    // surfacePull: optional number. Type-check only.
+    if (body.contains("surfacePull") && !body["surfacePull"].is_number())
+    {
+        invalidInput("Field 'surfacePull' must be a number");
+        return;
+    }
+
+    // tolerance: optional positive number.
+    if (body.contains("tolerance"))
+    {
+        const auto& el = body["tolerance"];
+        if (!el.is_number())
+        {
+            invalidInput("Field 'tolerance' must be a number");
+            return;
+        }
+        if (el.get<double>() <= 0.0)
+        {
+            invalidInput("Field 'tolerance' must be > 0");
+            return;
+        }
+    }
+
+    // Dependency rule: flexibility / surfacePull require startingSurfaceId.
+    if (!hasSeed)
+    {
+        if (body.contains("flexibility"))
+        {
+            invalidInput(
+                "'flexibility' requires 'startingSurfaceId' (has no effect on the no-seed code path)");
+            return;
+        }
+        if (body.contains("surfacePull"))
+        {
+            invalidInput(
+                "'surfacePull' requires 'startingSurfaceId' (has no effect on the no-seed code path)");
+            return;
+        }
+    }
+
+    if (!ValidateAttributeBundle(body, invalidInput)) return;
+
+    body["type"] = "PATCH";
+    body["_strictAttributes"] = true;
+
+    DispatchToManagedCreate(body.dump(), res);
+}
+
 } // namespace Handlers
 } // namespace Rook
