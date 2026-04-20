@@ -206,11 +206,14 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_find_instances": ("/block/find-instances", "POST"),
     "rhino_block_objects_detailed": ("/block/objects-detailed", "POST"),
 
-    # --- User text (arbitrary object metadata; Phase 2 PR-9) ---
-    # Document-level and delete routes land in a follow-up PR; /usertext/*
-    # here is object-level set + get only.
+    # --- User text (arbitrary metadata; Phase 2 PR-9 + PR-10) ---
+    # Object-level (PR-9) and document-level (PR-10 — adds reserved-prefix
+    # denylist on document-set writes). Delete routes for both levels
+    # land in a follow-up PR.
     "rhino_usertext_object_set": ("/usertext/object-set", "POST"),
     "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
+    "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
+    "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
 
     # --- Intersection (simple) ---
     "rhino_intersect_curve_surface": ("/intersect/curve-surface", "POST"),

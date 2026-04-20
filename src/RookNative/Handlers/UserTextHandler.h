@@ -1,30 +1,40 @@
 // UserTextHandler.h
 //
-// Phase 2 typed user-text routes. Established by PR-9
-// (/usertext/object-set + /usertext/object-get). PR-10 extends this
-// handler with document-level routes (/usertext/document-set +
-// /usertext/document-get) and activates the reserved-prefix denylist on
-// the document write.
+// Phase 2 typed user-text routes.
+//   - PR-9 established /usertext/object-set + /usertext/object-get
+//     on per-object ON_3dmObjectAttributes user strings.
+//   - PR-10 extends this handler with document-level routes
+//     (/usertext/document-set + /usertext/document-get), activates
+//     the reserved-prefix denylist on the document write, and
+//     introduces the first Phase 2 route-local error code
+//     (reserved_namespace).
 //
 // Substrate: direct-sdk (native C++) — see UserTextHandler.cpp header
-// for the full Rule 6 rationale (per plan:
-// rook_docs/2026-04-19-typed-route-phase2-plan.md §"Worked Example:
-// /usertext/object-set").
+// for the full Rule 6 rationale. Not re-declared for PR-10 per the
+// PR-9 plan's acceptance gate #1 ("PR-10 should extend the same
+// handler without re-declaring substrate").
 //
 // Family convention: object-level routes operate on an object's
 // ON_3dmObjectAttributes user-string store via SetUserString /
-// GetUserString / GetUserStringKeys; document-level routes (PR-10)
-// operate on CRhinoDoc user strings via the same verbs. Object-level
-// routes are NOT gated by the reserved-prefix denylist (attributes are
-// per-object storage with no cross-subsystem namespace contract); only
-// document-level writes are gated.
+// GetUserString / GetUserStringKeys; document-level routes operate on
+// CRhinoDoc user strings via the same verbs. Object-level routes are
+// NOT gated by the reserved-prefix denylist (attributes are per-object
+// storage with no cross-subsystem namespace contract); only
+// document-level WRITES are gated. Reads remain unrestricted at both
+// levels so operators can inspect reserved keys for diagnostics.
 //
-// Delete is out of scope for PR-9. Empty-string values are REJECTED
-// (invalid_input) to prevent sneak-delete through the set route — the
-// SDK treats attrs.SetUserString(key, "") as a delete sentinel, so
-// accepting empty strings would silently deliver delete semantics
-// before the explicit /usertext/object-delete surface is designed.
-// A follow-up route introduces the sanctioned delete path.
+// Delete is out of scope for PR-9 AND PR-10. Empty-string values are
+// REJECTED (invalid_input) at both levels to prevent sneak-delete
+// through the set routes — empirical verification 2026-04-19:
+//   - Attribute level: attrs.SetUserString(key, "") deletes the key.
+//   - Document level:  pDoc->SetUserString(key, "") ALSO deletes the
+//     key (probed via RhinoDoc.Strings.SetString(k, "") which maps
+//     directly to the native call: count drops 1→0, GetValue returns
+//     None, key absent from enumeration).
+// Accepting empty strings at either level would silently deliver
+// delete semantics before the explicit /usertext/object-delete and
+// /usertext/document-delete routes are designed. A follow-up PR
+// introduces the sanctioned delete paths.
 
 #pragma once
 
@@ -87,6 +97,70 @@ void HandleUserTextObjectSet(const httplib::Request& req, httplib::Response& res
 // Error codes: invalid_input (missing/malformed id), not_found
 // (unknown object id — structured via StructuredError).
 void HandleUserTextObjectGet(const httplib::Request& req, httplib::Response& res);
+
+// POST /usertext/document-set — Write user strings (arbitrary
+// key/value metadata) on the active document. Document-level scope:
+// no `id` field in the request or response.
+//
+// Required: userStrings (JSON object of {string: non-empty-string}
+//           pairs — empty-string values are rejected, see below).
+//
+// Empty userStrings ({}): idempotent no-op. Returns the document's
+// current user-string map unchanged, without opening an UndoScope or
+// calling Redraw (declared no-ops leave no fingerprint).
+//
+// Empty-string value ({"key": ""}): REJECTED with invalid_input and
+// a key-specific message. OpenNURBS treats pDoc->SetUserString(k, "")
+// as a delete sentinel at the document level (empirically confirmed
+// 2026-04-19); rejecting at the handler avoids a sneak-delete path
+// through /usertext/document-set until the explicit
+// /usertext/document-delete surface lands.
+//
+// Reserved-prefix denylist (WRITES ONLY — document-get is
+// unrestricted): keys whose prefix matches any entry in
+// UserTextHandler.cpp's kReservedPrefixes table are REJECTED with
+// the new route-local error code `reserved_namespace`. The error
+// message names the offending prefix, the subsystem that owns it,
+// and where possible points the caller at the sanctioned alternative.
+// Current table:
+//   - "RookBlock::" — owned by block-definition metadata
+//     (BlocksHandler); callers should use /block/user-strings.
+// Reads (/usertext/document-get, /usertext/object-get) bypass the
+// denylist so operators can inspect reserved keys for diagnostics.
+//
+// Rejection is WHOLESALE: the handler validates EVERY key in the
+// request map before opening an UndoScope or calling SetUserString.
+// A mixed map like {allowed: "v", "RookBlock::X": "v"} fails with
+// reserved_namespace on the reserved key AND does not write the
+// allowed key either. This prevents silent partial-success footguns
+// and matches the validate-before-mutate rhythm from PR-9.
+//
+// Response: {userStrings: {...}} — full post-mutation map read back
+// via pDoc->GetUserStringKeys. No `id` field (plan acceptance gate
+// #2: "Object routes echo `id`; doc routes do not").
+//
+// Error codes: invalid_input (missing/malformed userStrings,
+// non-object userStrings, non-string value, empty-string value),
+// reserved_namespace (key prefix is reserved — first-match
+// short-circuit, error message names the prefix and owner),
+// operation_failed (pDoc->SetUserString returned false).
+void HandleUserTextDocumentSet(const httplib::Request& req, httplib::Response& res);
+
+// POST /usertext/document-get — Read all user strings on the active
+// document. No id field; scope is the active document.
+//
+// Body: accepts empty body (no content) AND empty JSON object `{}`.
+// ParseBodyAndDocSn already normalizes empty bodies to `{}`.
+//
+// Response: {userStrings: {...}} — ALL keys, including any reserved-
+// prefix keys present in the document. Reads are deliberately
+// unrestricted so operators can inspect reserved namespaces for
+// diagnostics. No `id` field.
+//
+// Error codes: base set only — operation_failed is unreachable for
+// a pure read, so in practice this route returns success or nothing
+// meaningful to classify.
+void HandleUserTextDocumentGet(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

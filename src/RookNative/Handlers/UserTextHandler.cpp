@@ -1,8 +1,10 @@
 // UserTextHandler.cpp
 //
 // Phase 2 typed user-text routes. See plan:
-//   rook_docs/2026-04-19-typed-route-phase2-plan.md §"Worked Example:
-//   /usertext/object-set" (PR-9).
+//   rook_docs/2026-04-19-typed-route-phase2-plan.md
+//   §"Worked Example: /usertext/object-set" (PR-9) +
+//   PR-10 extension block (/usertext/document-* + reserved-prefix
+//   denylist + `reserved_namespace` error code).
 //
 // Substrate: direct-sdk (native C++).
 //   - Native owns: HTTP entry, JSON parse, schema validation, attribute
@@ -30,21 +32,34 @@
 // BlocksHandler.cpp:2550-2551. Callers that want lax coercion can
 // continue to use the block-specific routes; /usertext/* is strict.
 //
-// Empty-string values are ALSO rejected with invalid_input. Empirical
-// finding 2026-04-19: ON_3dmObjectAttributes::SetUserString(key, "")
-// treats the empty string as a delete sentinel — the key is removed
-// from the attribute user-string store, not persisted with an empty
-// value. This matches the OpenNURBS document-level delete convention
-// (pDoc->SetUserString(k, nullptr) at BlocksHandler.cpp:3090) but
-// conflicts with PR-9's plan-doc scope, which defers delete to a
-// follow-up /usertext/object-delete route. Rather than silently
-// deliver delete semantics through the set surface — with different
-// response/error contracts from the eventual explicit delete route —
-// PR-9 rejects empty-string values at the handler and requires
-// callers to wait for the sanctioned delete surface. If a caller has
-// a legitimate need to store empty-string values, the right response
-// is to design an opt-in flag on a future revision; until then,
-// empty strings are out of contract.
+// Empty-string values are ALSO rejected with invalid_input at BOTH
+// levels (object and document). Empirical findings 2026-04-19:
+//   - Attribute level: ON_3dmObjectAttributes::SetUserString(key, "")
+//     treats the empty string as a delete sentinel — the key is
+//     removed from the attribute user-string store, not persisted.
+//   - Document level: pDoc->SetUserString(key, "") has the SAME
+//     delete behavior (probed via RhinoDoc.Strings.SetString(k, "")
+//     during the PR-10 empirical pre-flight: count dropped 1→0,
+//     GetValue returned None, key absent from enumeration).
+// Accepting empty-string writes at either level would silently
+// deliver delete semantics through the set surfaces before the
+// explicit /usertext/object-delete and /usertext/document-delete
+// routes are designed — with different response/error contracts
+// from what the eventual delete routes will provide. PR-9 and PR-10
+// both reject empty strings at the handler and require callers to
+// wait for the sanctioned delete surface.
+//
+// Reserved-prefix denylist (PR-10, /usertext/document-set only):
+// document-level writes reject keys whose prefix matches any entry
+// in kReservedPrefixes (anon-namespace constant table). Violations
+// surface the route-local error code `reserved_namespace` with a
+// message that names the offending prefix, the subsystem that owns
+// it, and where possible the sanctioned alternative. Rejection is
+// WHOLESALE: all keys are validated BEFORE any SetUserString call,
+// so a mixed map cannot produce partial writes. Object-level writes
+// are NOT gated (per-object attribute storage has no cross-subsystem
+// namespace contract today). Reads at both levels are unrestricted
+// so operators can inspect reserved keys for diagnostics.
 //
 // Response echo policy: success payloads for /usertext/object-set are
 // the EFFECTIVE post-mutation user-string map, read back from the live
@@ -119,10 +134,18 @@ const CRhinoObject* LookupObjectStrict(const ON_UUID& id, CRhinoDoc* pDoc)
 //   - non-object type
 //   - any non-string value (key-specific message)
 //   - any empty-string value (key-specific message — empty strings
-//     would delete the key via SDK convention, and delete is out of
-//     scope for PR-9; see file-header comment)
+//     would delete the key via SDK convention at BOTH the attribute
+//     and document level; delete is out of scope for PR-9/PR-10; see
+//     file-header comment)
 // Empty object {} is accepted — callers use it as an idempotent no-op.
-void ValidateUserStringsObjectStrict(const nlohmann::json& body)
+//
+// `deleteRouteHint` is the name of the sanctioned delete route the
+// caller should wait for (e.g. "/usertext/object-delete" for object
+// routes, "/usertext/document-delete" for document routes). Appended
+// to the empty-string error message so callers see the right
+// forward-reference.
+void ValidateUserStringsObjectStrict(const nlohmann::json& body,
+                                     const char* deleteRouteHint)
 {
     if (!body.contains("userStrings"))
         throw std::invalid_argument("Missing required field: userStrings");
@@ -139,10 +162,66 @@ void ValidateUserStringsObjectStrict(const nlohmann::json& body)
         if (it.value().get<std::string>().empty())
         {
             throw std::invalid_argument(
-                "userStrings['" + it.key() + "'] must be non-empty "
+                std::string("userStrings['") + it.key() + "'] must be non-empty "
                 "(empty-string values delete the key under the SDK "
                 "contract; delete is not yet supported — wait for "
-                "/usertext/object-delete)");
+                + deleteRouteHint + ")");
+        }
+    }
+}
+
+// Reserved-prefix denylist table for document-level user-string writes.
+// Only /usertext/document-set gates on this — object-level writes and
+// both read routes are unrestricted.
+//
+// First-match short-circuit: when a key matches multiple prefixes (not
+// expected today but possible if the table grows), the first matching
+// entry is the one surfaced in the error message. Consistent with
+// PR-9's first-offender validation style on non-string/empty-string.
+struct ReservedPrefix
+{
+    const char* prefix;
+    const char* owner;
+    const char* redirect;  // sanctioned alternative route, or empty
+};
+
+static constexpr ReservedPrefix kReservedPrefixes[] = {
+    {"RookBlock::",
+     "block-definition metadata (BlocksHandler)",
+     "/block/user-strings"},
+    // Future Rook*:: reservations append here as they appear.
+};
+
+// Validate no key in `userStrings` has a reserved prefix. Throws
+// StructuredError("reserved_namespace", ...) on first violation so
+// the top-level catch emits the route-local error code rather than
+// collapsing to invalid_input. Rejection is WHOLESALE at the caller:
+// this runs on the worker thread BEFORE UndoScope / SetUserString,
+// so a mixed map cannot produce partial writes. Assumes caller has
+// already run ValidateUserStringsObjectStrict so keys are known to
+// be strings mapping to non-empty strings.
+void ValidateNoReservedPrefixes(const nlohmann::json& body)
+{
+    for (auto it = body["userStrings"].begin(); it != body["userStrings"].end(); ++it)
+    {
+        const std::string& key = it.key();
+        for (const auto& entry : kReservedPrefixes)
+        {
+            const size_t plen = std::strlen(entry.prefix);
+            if (key.size() < plen) continue;
+            if (key.compare(0, plen, entry.prefix) != 0) continue;
+
+            std::string msg = "Key prefix '";
+            msg += entry.prefix;
+            msg += "' is reserved for ";
+            msg += entry.owner;
+            if (entry.redirect && *entry.redirect)
+            {
+                msg += "; use ";
+                msg += entry.redirect;
+                msg += " instead";
+            }
+            throw StructuredError("reserved_namespace", std::move(msg));
         }
     }
 }
@@ -161,6 +240,24 @@ nlohmann::json SerializeUserStringsFromAttributes(const ON_3dmObjectAttributes& 
     {
         ON_wString value;
         if (attrs.GetUserString(keys[i], value))
+            userStrings[WideToUtf8(keys[i])] = WideToUtf8(value);
+    }
+    return userStrings;
+}
+
+// Serialize every user string on `pDoc` into a JSON object. Doc-level
+// analog of SerializeUserStringsFromAttributes; uses the CRhinoDoc
+// GetUserStringKeys / GetUserString API that matches the block-handler
+// document-user-strings read path at BlocksHandler.cpp:3032-3047.
+nlohmann::json SerializeUserStringsFromDoc(const CRhinoDoc* pDoc)
+{
+    nlohmann::json userStrings = nlohmann::json::object();
+    ON_ClassArray<ON_wString> keys;
+    pDoc->GetUserStringKeys(keys);
+    for (int i = 0; i < keys.Count(); ++i)
+    {
+        ON_wString value;
+        if (pDoc->GetUserString(keys[i], value))
             userStrings[WideToUtf8(keys[i])] = WideToUtf8(value);
     }
     return userStrings;
@@ -207,7 +304,7 @@ void HandleUserTextObjectSet(const httplib::Request& req, httplib::Response& res
 
     try
     {
-        ValidateUserStringsObjectStrict(body);
+        ValidateUserStringsObjectStrict(body, "/usertext/object-delete");
     }
     catch (const std::invalid_argument& ex)
     {
@@ -342,6 +439,145 @@ void HandleUserTextObjectGet(const httplib::Request& req, httplib::Response& res
     catch (const std::invalid_argument& ex)
     {
         invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+// --- POST /usertext/document-set ----------------------------------------
+
+void HandleUserTextDocumentSet(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        EmitStructuredError(res, "invalid_input", message);
+    };
+
+    // Worker-thread schema validation (Rule 2). Base shape/value
+    // checks first, then reserved-prefix denylist — both run BEFORE
+    // UI-thread dispatch, per Codex scope pass directive. Atomic
+    // wholesale rejection: no partial writes when any key fails.
+
+    try
+    {
+        ValidateUserStringsObjectStrict(body, "/usertext/document-delete");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+        return;
+    }
+
+    try
+    {
+        ValidateNoReservedPrefixes(body);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+        return;
+    }
+
+    const bool isNoOp = body["userStrings"].empty();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, body, isNoOp]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        // Declared-no-op path: empty userStrings returns the current
+        // persisted map without mutation. Skip UndoScope and Redraw so
+        // no-ops leave no fingerprint in the undo stack. Read still
+        // runs on the UI thread per the Rhino threading contract.
+        if (isNoOp)
+        {
+            WriteResult wr;
+            wr.success = true;
+            wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+            return wr;
+        }
+
+        UndoScope undo(pDoc, L"Set Document User Strings");
+
+        for (auto it = body["userStrings"].begin(); it != body["userStrings"].end(); ++it)
+        {
+            const bool ok = pDoc->SetUserString(
+                Utf8ToWide(it.key()),
+                Utf8ToWide(it.value().get<std::string>()));
+            if (!ok)
+                throw StructuredError("operation_failed",
+                    std::string("Failed to set document user string '")
+                    + it.key() + "'");
+        }
+
+        pDoc->Redraw();
+
+        // Read back the persisted map after mutation. Doc-level
+        // analog of the LookupObject-after-ModifyObjectAttributes
+        // rhythm in the object-set handler: response echoes what is
+        // actually persisted, not what was requested.
+        WriteResult wr;
+        wr.success = true;
+        wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+// --- POST /usertext/document-get ----------------------------------------
+
+void HandleUserTextDocumentGet(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)body;  // document-get takes no input fields; body accepted
+                 // but unused (empty body and `{}` both work per
+                 // ParseBodyAndDocSn normalization).
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
     }
     catch (const std::exception& ex)
     {

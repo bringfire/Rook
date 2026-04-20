@@ -1097,12 +1097,20 @@ void CRookServer::RegisterRoutes()
     });
 
     // Phase 2 typed user-text routes (direct-sdk native).
-    // Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md (PR-9).
+    // Plan: rook_docs/2026-04-19-typed-route-phase2-plan.md
+    // (PR-9: object-level; PR-10: document-level + reserved-prefix
+    // denylist + reserved_namespace error code).
     m_server->Post("/usertext/object-set", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleUserTextObjectSet(req, res);
     });
     m_server->Post("/usertext/object-get", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleUserTextObjectGet(req, res);
+    });
+    m_server->Post("/usertext/document-set", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextDocumentSet(req, res);
+    });
+    m_server->Post("/usertext/document-get", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextDocumentGet(req, res);
     });
 
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests

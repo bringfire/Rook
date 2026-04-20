@@ -138,6 +138,8 @@ class ToolRegistry:
         "rhino_block_set_object_user_strings_batch": CATEGORY_MODIFICATION,
         "rhino_usertext_object_set": CATEGORY_MODIFICATION,
         "rhino_usertext_object_get": CATEGORY_MODIFICATION,
+        "rhino_usertext_document_set": CATEGORY_MODIFICATION,
+        "rhino_usertext_document_get": CATEGORY_STATELESS,
         "rhino_block_set_object_names": CATEGORY_MODIFICATION,
         "rhino_block_set_object_names_batch": CATEGORY_MODIFICATION,
         "rhino_block_instances": CATEGORY_MODIFICATION,
@@ -213,6 +215,8 @@ class ToolRegistry:
         "rhino_layer_current": ("/layer/current", "POST"),
         "rhino_usertext_object_set": ("/usertext/object-set", "POST"),
         "rhino_usertext_object_get": ("/usertext/object-get", "POST"),
+        "rhino_usertext_document_set": ("/usertext/document-set", "POST"),
+        "rhino_usertext_document_get": ("/usertext/document-get", "POST"),
         # Add more as needed...
     }
 

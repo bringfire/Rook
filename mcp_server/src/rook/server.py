@@ -1529,17 +1529,58 @@ Use this before any Rhino operations to ensure Rhino is available. Safe to call 
         ),
         Tool(
             name="rhino_select",
-            description="Select objects by their IDs or by layer.",
+            description=(
+                "Select objects by IDs, layer, name, wildcard name pattern, "
+                "or bounding-box volume. All predicates are additive filters "
+                "within a single call; the handler accepts multiple predicates "
+                "and intersects them. "
+                "Name predicates: `name` is exact-match (case-insensitive); "
+                "`namePattern` is wildcard (`*` / `?`) — both present in the "
+                "same request is rejected with invalid_input (semantically "
+                "overlapping predicates on the same field; caller confusion). "
+                "Bounding-box predicates: nested `bbox: {min:[x,y,z], "
+                "max:[x,y,z]}` is the router-advertised shape; legacy flat "
+                "`bboxMin`/`bboxMax` are accepted for backwards compatibility. "
+                "Flat takes precedence when both are present."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "ids": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of object GUIDs to select"
+                        "description": "List of object GUIDs to select."
                     },
-                    "layer": {"type": "string", "description": "Select all objects on this layer"},
-                    "clear": {"type": "boolean", "description": "Clear existing selection first (default true)"}
+                    "layer": {"type": "string", "description": "Select all objects on this layer."},
+                    "name": {
+                        "type": "string",
+                        "description": "Exact-match name predicate (case-insensitive). Mutually exclusive with namePattern — both in one request → invalid_input.",
+                    },
+                    "namePattern": {
+                        "type": "string",
+                        "description": "Wildcard name pattern (* and ?). Legacy predicate — mutually exclusive with `name`.",
+                    },
+                    "bbox": {
+                        "type": "object",
+                        "description": "Bounding-box filter (router-advertised shape). `min` and `max` each [x,y,z].",
+                        "properties": {
+                            "min": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                            "max": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                        },
+                    },
+                    "bboxMin": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3, "maxItems": 3,
+                        "description": "Legacy flat bbox min [x,y,z]. Takes precedence over nested `bbox` when both present.",
+                    },
+                    "bboxMax": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3, "maxItems": 3,
+                        "description": "Legacy flat bbox max [x,y,z].",
+                    },
+                    "clear": {"type": "boolean", "description": "Clear existing selection first (default true)."}
                 },
                 "required": []
             }
@@ -2675,6 +2716,66 @@ Examples:
                     },
                 },
                 "required": ["id"],
+            },
+        ),
+        Tool(
+            name="rhino_usertext_document_set",
+            description=(
+                "Write user strings (arbitrary key/value metadata) on the "
+                "active document. Typed Phase 2 route (POST "
+                "/usertext/document-set). Required: userStrings (JSON "
+                "object of {string: non-empty-string} pairs). No `id` "
+                "field (document-level scope). "
+                "Empty-string values ARE REJECTED with invalid_input — "
+                "OpenNURBS treats pDoc->SetUserString(k, \"\") as a "
+                "delete sentinel at the document level (empirically "
+                "confirmed 2026-04-19); delete is out of scope until "
+                "/usertext/document-delete lands. Non-string values are "
+                "rejected with a key-specific invalid_input message. "
+                "Empty userStrings ({}) is an idempotent no-op that "
+                "returns the current map without opening an undo record. "
+                "Response: {userStrings: {...}} — the FULL post-mutation "
+                "map read back from pDoc->GetUserStringKeys (no `id` "
+                "field, per plan acceptance gate #2). "
+                "Reserved-prefix denylist (WRITES ONLY): keys whose "
+                "prefix is reserved — currently 'RookBlock::' (owned by "
+                "block-definition metadata; use /block/user-strings "
+                "instead) — are rejected with the route-local error "
+                "code `reserved_namespace`. Rejection is WHOLESALE: a "
+                "mixed map containing any reserved-prefix key does NOT "
+                "write the allowed keys either. Reads (/usertext/"
+                "document-get, /usertext/object-get) are unrestricted "
+                "so operators can inspect reserved keys for diagnostics."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "userStrings": {
+                        "type": "object",
+                        "description": "Key/value pairs to write on the active document. Values MUST be NON-EMPTY strings. Keys starting with reserved prefixes (currently 'RookBlock::') are rejected with reserved_namespace. Empty object {} at the top level is an idempotent no-op.",
+                        "additionalProperties": {"type": "string", "minLength": 1},
+                    },
+                },
+                "required": ["userStrings"],
+            },
+        ),
+        Tool(
+            name="rhino_usertext_document_get",
+            description=(
+                "Read all user strings on the active document. Typed "
+                "Phase 2 route (POST /usertext/document-get). No input "
+                "fields required (document-level scope). Response: "
+                "{userStrings: {...}} — all keys, including any with "
+                "reserved prefixes (reads are unrestricted so operators "
+                "can inspect reserved namespaces for diagnostics). "
+                "Returns an empty object {} if the document has no user "
+                "strings set. Key enumeration order is SDK-governed and "
+                "not guaranteed stable across Rhino versions. No `id` "
+                "field (document-level scope)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
             },
         ),
         Tool(
@@ -10056,6 +10157,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_usertext_object_get":
             result = await call_rhino("/usertext/object-get", "POST", arguments)
+
+        case "rhino_usertext_document_set":
+            result = await call_rhino("/usertext/document-set", "POST", arguments)
+
+        case "rhino_usertext_document_get":
+            result = await call_rhino("/usertext/document-get", "POST", arguments)
 
         case "rhino_array_linear":
             result = await call_rhino("/array/linear", "POST", arguments)

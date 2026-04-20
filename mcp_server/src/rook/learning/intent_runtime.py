@@ -454,6 +454,33 @@ def _build_route_table() -> dict[str, RouteSpec]:
             "empty object {} if the object has no user strings set."
         ),
     )
+    routes["set_document_user_strings"] = RouteSpec(
+        endpoint="/usertext/document-set",
+        required_params=("userStrings",),
+        description=(
+            "Write user strings (arbitrary key/value metadata) on the active document. "
+            "Values must be NON-EMPTY strings: empty-string values are rejected with "
+            "invalid_input (OpenNURBS treats pDoc->SetUserString(k, \"\") as a delete "
+            "sentinel; delete is out of scope until /usertext/document-delete lands). "
+            "Reserved-prefix denylist on WRITES ONLY: keys starting with 'RookBlock::' "
+            "(owned by block-definition metadata; use /block/user-strings instead) are "
+            "rejected with the route-local error code `reserved_namespace`. Rejection is "
+            "WHOLESALE — a mixed map with any reserved key does not write the allowed "
+            "keys either. Empty userStrings {} is an idempotent no-op. Response echoes "
+            "the full post-mutation userStrings map read back from pDoc->GetUserStringKeys "
+            "(no `id` field — document-level scope)."
+        ),
+    )
+    routes["get_document_user_strings"] = RouteSpec(
+        endpoint="/usertext/document-get",
+        required_params=(),
+        description=(
+            "Read all user strings on the active document. No input fields. Response: "
+            "{userStrings: {...}} — includes any keys with reserved prefixes so operators "
+            "can inspect reserved namespaces for diagnostics (reads are unrestricted). "
+            "Empty object {} if the document has no user strings set. No `id` field."
+        ),
+    )
 
     # === Creation: mesh primitives ===
     routes["create_mesh_box"] = RouteSpec(
@@ -1160,6 +1187,13 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",
+        # Phase 2 annotation family (PR-1..PR-7). Backfilled in PR-10
+        # so the four-surface Phase 2 coverage audit can assert category
+        # membership strictly, matching the PR #61 Phase 1 pattern.
+        "create_text",
+        "create_dim_linear", "create_dim_aligned",
+        "create_dim_radius", "create_dim_diameter", "create_dim_angle",
+        "create_leader", "create_dot",
     ),
     "transform": ("move", "rotate", "scale", "mirror", "copy", "delete"),
     "boolean": (
@@ -1217,7 +1251,10 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "document": ("save_document", "new_document", "set_units"),
     "io": ("import_file", "export_file"),
     "game_export": ("tag_semantic", "validate_export", "game_export"),
-    "user_text": ("set_object_user_strings", "get_object_user_strings"),
+    "user_text": (
+        "set_object_user_strings", "get_object_user_strings",
+        "set_document_user_strings", "get_document_user_strings",
+    ),
 }
 
 
