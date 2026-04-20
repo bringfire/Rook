@@ -482,3 +482,106 @@ async def test_curve_boolean_factory_permissive_smoke(fresh_document):
         f"Nested union should yield exactly 1 curve (outer envelope), "
         f"got {len(objs)}: {envelope!r}"
     )
+
+
+# --- Operation-injection pins through MCP tool executor -------------------
+#
+# Codex review: the raw /curve/boolean tests above never exercise the
+# three `rhino_curve_boolean_*` MCP tools, so a copy/paste bug in the
+# executor injection (e.g. `rhino_curve_boolean_difference -> "union"`)
+# would pass every existing test. These three pins route through
+# `_mcp_tool_executor` and use discriminating geometry (disjoint
+# circles) where each operation has a distinct observable outcome:
+#   - union of 2 disjoint closed curves → Length=2 (both kept)
+#   - difference of 2 disjoint → Length=1 (minuend unchanged)
+#   - intersection of 2 disjoint → empty → operation_failed
+# A wrong injection for any tool would fail the specific assertion,
+# not a generic success check.
+
+
+async def test_mcp_tool_curve_boolean_union_injects_union(fresh_document):
+    """Pin: rhino_curve_boolean_union MCP tool dispatches with
+    operation='union'. Discriminating geometry: 2 disjoint circles →
+    union returns 2 curves (both kept, not merged). If this tool were
+    mapped to intersection, the call would return operation_failed; if
+    mapped to difference, it would return 1 curve."""
+    from rook.server import _mcp_tool_executor
+
+    a = await _create_circle_xy([0, 200, 0], 3, "InjUnionA")
+    b = await _create_circle_xy([20, 200, 0], 3, "InjUnionB")
+    res = await _mcp_tool_executor(
+        "rhino_curve_boolean_union",
+        {"curveIds": [a, b]},
+    )
+    assert not _is_error(res), (
+        f"rhino_curve_boolean_union on disjoint circles failed — if injection "
+        f"is wrong the tool may have mapped to intersection (operation_failed) "
+        f"or difference (1 curve). Result: {res!r}"
+    )
+    objs = res.get("objects")
+    assert isinstance(objs, list) and len(objs) == 2, (
+        f"Disjoint union must yield 2 curves (both kept). If this returns 1, "
+        f"tool mapped to difference; if this raises operation_failed, tool "
+        f"mapped to intersection. Result: {res!r}"
+    )
+
+
+async def test_mcp_tool_curve_boolean_difference_injects_difference(fresh_document):
+    """Pin: rhino_curve_boolean_difference MCP tool dispatches with
+    operation='difference'. Discriminating geometry: 2 disjoint circles
+    → difference(A, B) leaves A unchanged (Length=1). Union would
+    return 2; intersection would return operation_failed."""
+    from rook.server import _mcp_tool_executor
+
+    a = await _create_circle_xy([0, 210, 0], 3, "InjDiffA")
+    b = await _create_circle_xy([20, 210, 0], 3, "InjDiffB")
+    res = await _mcp_tool_executor(
+        "rhino_curve_boolean_difference",
+        {"curveIds": [a, b]},
+    )
+    assert not _is_error(res), (
+        f"rhino_curve_boolean_difference on disjoint circles failed — if "
+        f"injection is wrong the tool may have mapped to intersection "
+        f"(operation_failed). Result: {res!r}"
+    )
+    objs = res.get("objects")
+    assert isinstance(objs, list) and len(objs) == 1, (
+        f"Disjoint difference(A,B) must yield 1 curve (A unchanged). If this "
+        f"returns 2, tool mapped to union. Result: {res!r}"
+    )
+
+
+async def test_mcp_tool_curve_boolean_intersection_injects_intersection(fresh_document):
+    """Pin: rhino_curve_boolean_intersection MCP tool dispatches with
+    operation='intersection'. Discriminating geometry: 2 disjoint
+    circles → intersection is empty → operation_failed. Union would
+    return 2 curves; difference would return 1."""
+    a = await _create_circle_xy([0, 220, 0], 3, "InjIntxA")
+    b = await _create_circle_xy([20, 220, 0], 3, "InjIntxB")
+
+    # Uses the raw executor (not _mcp_tool_executor) so we can assert
+    # the structured error shape directly. _mcp_tool_executor wraps
+    # failures but the envelope shape still comes through.
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_curve_boolean_intersection",
+        {"curveIds": [a, b]},
+    )
+    assert _is_error(res), (
+        f"rhino_curve_boolean_intersection on disjoint circles should return "
+        f"operation_failed (empty intersection per plural contract). If this "
+        f"returned success with 2 objects, tool mapped to union; if 1 object, "
+        f"tool mapped to difference. Result: {res!r}"
+    )
+    # Deeper assertion: the error code is operation_failed (the signal
+    # the factory returned empty), not a validation error code like
+    # invalid_operation (which would mean the wrong string got injected
+    # but was rejected downstream).
+    data = res.get("data") if isinstance(res, dict) else None
+    if isinstance(data, dict):
+        assert data.get("errorCode") == "operation_failed", (
+            f"Expected errorCode='operation_failed' for disjoint intersection, "
+            f"got {data.get('errorCode')!r}. If it's 'invalid_operation', the "
+            f"injected string was wrong. Full result: {res!r}"
+        )

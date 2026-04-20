@@ -270,6 +270,58 @@ def test_extension_inventory_covers_all_campaign_routes_in_route_table() -> None
     )
 
 
+# -- Operation-injection pins for the three curve-boolean MCP tools -------
+#
+# Three `rhino_curve_boolean_*` tools share one endpoint with an
+# `operation` discriminator. The injection fires on two surfaces:
+#   1. MCP executor case arms in server.py (exercised by the live tests
+#      `test_mcp_tool_curve_boolean_*_injects_*` in
+#      test_curve_boolean_live.py via discriminating disjoint geometry)
+#   2. Agent-direct TRANSFORM_FUNCTIONS in tool_dispatcher.py (pinned
+#      here as pure unit — no Rhino required)
+# A copy/paste mistake on either surface (e.g. `_difference -> "union"`)
+# would be silent without these pins.
+
+
+@pytest.mark.parametrize("tool_name,expected_operation", [
+    ("rhino_curve_boolean_union",        "union"),
+    ("rhino_curve_boolean_difference",   "difference"),
+    ("rhino_curve_boolean_intersection", "intersection"),
+])
+def test_agent_transform_injects_correct_operation(
+    tool_name: str, expected_operation: str
+) -> None:
+    """Unit pin: TRANSFORM_FUNCTIONS[tool] returns payload with the
+    correct `operation` field. Catches copy/paste errors in the agent-
+    direct injection surface (tool_dispatcher.py). Pure unit — no
+    Rhino, no network.
+    """
+    from rook.agent.tool_dispatcher import TRANSFORM_FUNCTIONS
+
+    assert tool_name in TRANSFORM_FUNCTIONS, (
+        f"{tool_name!r} has no TRANSFORM_FUNCTIONS entry — agent-direct "
+        f"path cannot dispatch it."
+    )
+
+    transform = TRANSFORM_FUNCTIONS[tool_name]
+    endpoint, method, outgoing = transform({"curveIds": ["dummy1", "dummy2"]})
+
+    assert endpoint == "/curve/boolean", (
+        f"{tool_name!r}: transform returned wrong endpoint {endpoint!r}, "
+        f"expected '/curve/boolean'."
+    )
+    assert method == "POST"
+    assert outgoing.get("operation") == expected_operation, (
+        f"{tool_name!r}: transform injected operation={outgoing.get('operation')!r}, "
+        f"expected {expected_operation!r}. This is the exact copy/paste "
+        f"mistake the pin exists to catch."
+    )
+    # Defensive: verify original argument keys survived.
+    assert outgoing.get("curveIds") == ["dummy1", "dummy2"], (
+        f"{tool_name!r}: transform mangled curveIds: {outgoing!r}"
+    )
+
+
 def test_extension_inventory_covers_all_executor_campaign_endpoints() -> None:
     """Every campaign endpoint appearing in a call_rhino() invocation in
     server.py must have a corresponding RouteSpec AND an inventory entry.
