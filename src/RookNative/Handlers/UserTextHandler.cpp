@@ -86,7 +86,10 @@
 #include "RookServer.h"
 
 #include <nlohmann/json.hpp>
+#include <set>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 namespace Rook {
 namespace Handlers {
@@ -219,6 +222,99 @@ void ValidateNoReservedPrefixes(const nlohmann::json& body)
             {
                 msg += "; use ";
                 msg += entry.redirect;
+                msg += " instead";
+            }
+            throw StructuredError("reserved_namespace", std::move(msg));
+        }
+    }
+}
+
+// Validate `keys` is a JSON array of non-empty strings, and build an
+// ordered deduped vector preserving first-seen request order. Used by
+// both /usertext/object-delete and /usertext/document-delete.
+//
+// Design points:
+//   - First-seen order (NOT sorted) — the deletedKeys audit field
+//     reflects the order the caller asked for, which is a cleaner
+//     contract than sorted (Codex scope review 2026-04-20).
+//   - Silent dedupe — `["a", "a", "b"]` resolves to `["a", "b"]`.
+//     Duplicate keys aren't meaningful in delete semantics and
+//     rejecting them would add friction to plausible caller patterns
+//     (builder-style accumulation). Easy to tighten later.
+//   - Empty array `[]` is accepted — the caller uses it as an
+//     idempotent no-op (parallel to set routes' empty userStrings {}).
+//     The handler short-circuits before opening an UndoScope.
+//
+// Throws std::invalid_argument (mapped to invalid_input) on:
+//   - missing `keys` field
+//   - non-array type
+//   - any non-string element (index-specific message)
+//   - any empty-string element (index-specific message)
+std::vector<std::string> ValidateKeysArrayStrict(const nlohmann::json& body)
+{
+    if (!body.contains("keys"))
+        throw std::invalid_argument("Missing required field: keys");
+    if (!body["keys"].is_array())
+        throw std::invalid_argument("'keys' must be an array of strings");
+
+    std::vector<std::string> requestedUnique;
+    std::unordered_set<std::string> seen;
+    const auto& arr = body["keys"];
+    for (size_t i = 0; i < arr.size(); ++i)
+    {
+        if (!arr[i].is_string())
+        {
+            throw std::invalid_argument(
+                std::string("keys[") + std::to_string(i) + "] must be a string");
+        }
+        const std::string key = arr[i].get<std::string>();
+        if (key.empty())
+        {
+            throw std::invalid_argument(
+                std::string("keys[") + std::to_string(i) + "] must be non-empty");
+        }
+        if (seen.insert(key).second)
+            requestedUnique.push_back(key);
+    }
+    return requestedUnique;
+}
+
+// Validate no element in `keys` has a reserved prefix. Delete-side
+// analog of ValidateNoReservedPrefixes (which operates on the
+// userStrings map). Throws StructuredError("reserved_namespace", ...)
+// on first violation; rejection is wholesale (runs on the worker
+// thread BEFORE UndoScope / SetUserString).
+//
+// `actionHint` anchors the error message to the delete-specific
+// surface on the sanctioned route. For RookBlock:: this expands to
+// "/block/user-strings with action=delete" rather than just
+// "/block/user-strings" — matches the mutation semantics the caller
+// actually wants.
+void ValidateNoReservedPrefixesInKeys(
+    const std::vector<std::string>& keys,
+    const char* actionHint)
+{
+    for (const std::string& key : keys)
+    {
+        for (const auto& entry : kReservedPrefixes)
+        {
+            const size_t plen = std::strlen(entry.prefix);
+            if (key.size() < plen) continue;
+            if (key.compare(0, plen, entry.prefix) != 0) continue;
+
+            std::string msg = "Key prefix '";
+            msg += entry.prefix;
+            msg += "' is reserved for ";
+            msg += entry.owner;
+            if (entry.redirect && *entry.redirect)
+            {
+                msg += "; use ";
+                msg += entry.redirect;
+                if (actionHint && *actionHint)
+                {
+                    msg += " with ";
+                    msg += actionHint;
+                }
                 msg += " instead";
             }
             throw StructuredError("reserved_namespace", std::move(msg));
@@ -522,6 +618,339 @@ void HandleUserTextDocumentSet(const httplib::Request& req, httplib::Response& r
         WriteResult wr;
         wr.success = true;
         wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+// --- POST /usertext/object-delete ---------------------------------------
+//
+// Delete N user-string keys from an object's attribute user-string
+// store. Uses the empty-string delete sentinel characterized by
+// test_usertext_object_live.py:194 — ON_3dmObjectAttributes::
+// SetUserString(key, "") removes the key rather than persisting an
+// empty value. Contract-internal derivation of deletedKeys (pre/post
+// diff) means the handler does NOT depend on SDK return-value
+// semantics for the delete path.
+//
+// Request: {id: uuid, keys: [string, ...]}
+//   - keys array deduplicated silently, preserving first-seen order
+//   - empty keys [] is an idempotent no-op (skips UndoScope, returns
+//     current state with deletedKeys: [])
+//
+// Response: {id, userStrings: {...post-state...}, deletedKeys: [...]}
+//   - deletedKeys reflects caller's first-seen order of unique keys
+//     that were actually present pre-mutation and absent post-mutation
+//   - Requested keys not present pre-mutation → NOT in deletedKeys
+//     (idempotent delete — asking to remove a non-existent key is
+//     not an error)
+//
+// Error codes: invalid_input (missing/malformed id or keys,
+// non-string/empty keys element), not_found (unknown id),
+// operation_failed (ModifyObjectAttributes returned false).
+
+void HandleUserTextObjectDelete(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        EmitStructuredError(res, "invalid_input", message);
+    };
+
+    ON_UUID id;
+    try
+    {
+        id = ParseUuid(body, "id");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+        return;
+    }
+
+    std::vector<std::string> requestedUnique;
+    try
+    {
+        requestedUnique = ValidateKeysArrayStrict(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+        return;
+    }
+
+    const bool isNoOp = requestedUnique.empty();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, id, requestedUnique, isNoOp]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        const CRhinoObject* obj = LookupObjectStrict(id, pDoc);
+
+        // Declared-no-op: empty keys means "report current state." Skip
+        // UndoScope and Redraw so no-ops leave no fingerprint.
+        if (isNoOp)
+        {
+            WriteResult wr;
+            wr.success = true;
+            wr.data["id"] = UuidToString(id);
+            wr.data["userStrings"] =
+                SerializeUserStringsFromAttributes(obj->Attributes());
+            wr.data["deletedKeys"] = nlohmann::json::array();
+            return wr;
+        }
+
+        // Snapshot pre-state key-set for the deletedKeys audit. We only
+        // need set-membership, not values, so iterate the attribute
+        // user-string keys once.
+        ON_ClassArray<ON_wString> preKeys;
+        obj->Attributes().GetUserStringKeys(preKeys);
+        std::set<std::string> preSet;
+        for (int i = 0; i < preKeys.Count(); ++i)
+            preSet.insert(WideToUtf8(preKeys[i]));
+
+        UndoScope undo(pDoc, L"Delete Object User Strings");
+
+        ON_3dmObjectAttributes attrs = obj->Attributes();
+        for (const std::string& key : requestedUnique)
+        {
+            // Empty-string sentinel deletes the key at the attribute
+            // level. Characterized by test_usertext_object_live.py:194.
+            attrs.SetUserString(Utf8ToWide(key), L"");
+        }
+
+        if (!pDoc->ModifyObjectAttributes(CRhinoObjRef(obj), attrs))
+            throw StructuredError("operation_failed",
+                "Failed to modify object attributes");
+
+        pDoc->Redraw();
+
+        // Post-state from a fresh lookup — mirrors set rhythm.
+        const CRhinoObject* updated = pDoc->LookupObject(id);
+        if (!updated)
+            throw StructuredError("operation_failed",
+                "Object disappeared after ModifyObjectAttributes");
+
+        ON_ClassArray<ON_wString> postKeys;
+        updated->Attributes().GetUserStringKeys(postKeys);
+        std::set<std::string> postSet;
+        for (int i = 0; i < postKeys.Count(); ++i)
+            postSet.insert(WideToUtf8(postKeys[i]));
+
+        // Failure detection: a key that was present pre-mutation and
+        // remains present post-mutation is a FAILED delete. Surface
+        // as operation_failed — NOT silently omitted from deletedKeys
+        // (which would make "delete failed" indistinguishable from
+        // "key was absent before the call"). Codex review 2026-04-20.
+        std::vector<std::string> survivedExisting;
+        for (const std::string& key : requestedUnique)
+        {
+            if (preSet.count(key) && postSet.count(key))
+                survivedExisting.push_back(key);
+        }
+        if (!survivedExisting.empty())
+        {
+            std::string msg = "Delete failed for key(s): ";
+            for (size_t i = 0; i < survivedExisting.size(); ++i)
+            {
+                if (i > 0) msg += ", ";
+                msg += "'" + survivedExisting[i] + "'";
+            }
+            msg += " (requested keys still present after mutation)";
+            throw StructuredError("operation_failed", std::move(msg));
+        }
+
+        // deletedKeys = requested ∩ (pre \ post), iterated in
+        // requestedUnique order to preserve first-seen ordering.
+        nlohmann::json deletedKeys = nlohmann::json::array();
+        for (const std::string& key : requestedUnique)
+        {
+            if (preSet.count(key) && !postSet.count(key))
+                deletedKeys.push_back(key);
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["id"] = UuidToString(id);
+        wr.data["userStrings"] =
+            SerializeUserStringsFromAttributes(updated->Attributes());
+        wr.data["deletedKeys"] = std::move(deletedKeys);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+    }
+    catch (const std::exception& ex)
+    {
+        EmitStructuredError(res, "operation_failed", ex.what());
+    }
+}
+
+// --- POST /usertext/document-delete -------------------------------------
+//
+// Delete N user-string keys from the active document's user-string
+// store. Uses the empty-string delete sentinel characterized by
+// test_usertext_document_live.py:11 — pDoc->SetUserString(k, "")
+// removes the key rather than persisting an empty value.
+// Contract-internal derivation of deletedKeys (pre/post diff) means
+// the handler does NOT depend on SDK return-value semantics.
+//
+// Request: {keys: [string, ...]}  (no id field — document-level scope)
+//   - keys array deduplicated silently, preserving first-seen order
+//   - empty keys [] is an idempotent no-op
+//
+// Reserved-prefix denylist applies here (writes are gated). Keys with
+// a reserved prefix (e.g. "RookBlock::") are rejected wholesale with
+// `reserved_namespace`; the error message anchors the caller at the
+// sanctioned delete surface: "use /block/user-strings with
+// action=delete instead" (see BlocksHandler.cpp:3080 for the actual
+// delete handler that owns that prefix).
+//
+// Response: {userStrings: {...post-state...}, deletedKeys: [...]}
+//   - Caller-order audit via pre/post diff — same shape as
+//     object-delete minus the id field (acceptance gate #2).
+
+void HandleUserTextDocumentDelete(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    auto invalidInput = [&](const std::string& message) {
+        EmitStructuredError(res, "invalid_input", message);
+    };
+
+    std::vector<std::string> requestedUnique;
+    try
+    {
+        requestedUnique = ValidateKeysArrayStrict(body);
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        invalidInput(ex.what());
+        return;
+    }
+
+    try
+    {
+        // Anchor the redirect message to the DELETE action on the
+        // sanctioned route, not just the route itself. The route
+        // parameter-multiplexes get/set/delete via `action` — delete
+        // callers should be pointed at the delete action specifically
+        // (BlocksHandler.cpp:3080 is where that action is handled).
+        ValidateNoReservedPrefixesInKeys(requestedUnique, "action=delete");
+    }
+    catch (const StructuredError& ex)
+    {
+        EmitStructuredError(res, ex.code.c_str(), ex.message);
+        return;
+    }
+
+    const bool isNoOp = requestedUnique.empty();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, requestedUnique, isNoOp]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        if (isNoOp)
+        {
+            WriteResult wr;
+            wr.success = true;
+            wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+            wr.data["deletedKeys"] = nlohmann::json::array();
+            return wr;
+        }
+
+        // Snapshot pre-state key-set for the deletedKeys audit.
+        ON_ClassArray<ON_wString> preKeys;
+        pDoc->GetUserStringKeys(preKeys);
+        std::set<std::string> preSet;
+        for (int i = 0; i < preKeys.Count(); ++i)
+            preSet.insert(WideToUtf8(preKeys[i]));
+
+        UndoScope undo(pDoc, L"Delete Document User Strings");
+
+        for (const std::string& key : requestedUnique)
+        {
+            // Empty-string sentinel deletes at the document level too.
+            // Characterized by test_usertext_document_live.py:11 and
+            // documented in UserTextHandler.h:26-37.
+            (void)pDoc->SetUserString(Utf8ToWide(key), L"");
+        }
+
+        pDoc->Redraw();
+
+        ON_ClassArray<ON_wString> postKeys;
+        pDoc->GetUserStringKeys(postKeys);
+        std::set<std::string> postSet;
+        for (int i = 0; i < postKeys.Count(); ++i)
+            postSet.insert(WideToUtf8(postKeys[i]));
+
+        // Failure detection: requested key present pre AND post =
+        // failed delete. Surface as operation_failed. See
+        // HandleUserTextObjectDelete for rationale (Codex 2026-04-20).
+        std::vector<std::string> survivedExisting;
+        for (const std::string& key : requestedUnique)
+        {
+            if (preSet.count(key) && postSet.count(key))
+                survivedExisting.push_back(key);
+        }
+        if (!survivedExisting.empty())
+        {
+            std::string msg = "Delete failed for key(s): ";
+            for (size_t i = 0; i < survivedExisting.size(); ++i)
+            {
+                if (i > 0) msg += ", ";
+                msg += "'" + survivedExisting[i] + "'";
+            }
+            msg += " (requested keys still present after mutation)";
+            throw StructuredError("operation_failed", std::move(msg));
+        }
+
+        nlohmann::json deletedKeys = nlohmann::json::array();
+        for (const std::string& key : requestedUnique)
+        {
+            if (preSet.count(key) && !postSet.count(key))
+                deletedKeys.push_back(key);
+        }
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["userStrings"] = SerializeUserStringsFromDoc(pDoc);
+        wr.data["deletedKeys"] = std::move(deletedKeys);
         return wr;
     });
 

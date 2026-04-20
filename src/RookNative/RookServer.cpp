@@ -1138,6 +1138,15 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/usertext/document-get", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleUserTextDocumentGet(req, res);
     });
+    // Phase 2 usertext delete (2026-04-20, usertext-delete PR).
+    // Closes the usertext family — the empty-string rejection forward-
+    // references from set routes now point at real, shipped surfaces.
+    m_server->Post("/usertext/object-delete", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextObjectDelete(req, res);
+    });
+    m_server->Post("/usertext/document-delete", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleUserTextDocumentDelete(req, res);
+    });
 
     // INTERNAL / TEST-ONLY. Not an MCP tool. Used by live-Rhino array tests
     // to inject a synthetic TransformObject failure at a chosen copy ordinal.

@@ -23,18 +23,23 @@
 // document-level WRITES are gated. Reads remain unrestricted at both
 // levels so operators can inspect reserved keys for diagnostics.
 //
-// Delete is out of scope for PR-9 AND PR-10. Empty-string values are
-// REJECTED (invalid_input) at both levels to prevent sneak-delete
-// through the set routes — empirical verification 2026-04-19:
-//   - Attribute level: attrs.SetUserString(key, "") deletes the key.
-//   - Document level:  pDoc->SetUserString(key, "") ALSO deletes the
-//     key (probed via RhinoDoc.Strings.SetString(k, "") which maps
-//     directly to the native call: count drops 1→0, GetValue returns
-//     None, key absent from enumeration).
-// Accepting empty strings at either level would silently deliver
-// delete semantics before the explicit /usertext/object-delete and
-// /usertext/document-delete routes are designed. A follow-up PR
-// introduces the sanctioned delete paths.
+// Delete (2026-04-20 PR, usertext-delete) adds the sanctioned delete
+// surfaces: /usertext/object-delete + /usertext/document-delete.
+// Uses the empty-string sentinel characterized in-tree:
+//   - Attribute level: test_usertext_object_live.py:194
+//     (attrs.SetUserString(key, "") removes the key)
+//   - Document level: test_usertext_document_live.py:11
+//     (pDoc->SetUserString(k, "") same behavior)
+// Set routes CONTINUE to reject empty-string values so callers must
+// use the explicit delete routes to remove a key — that rejection
+// surfaces the forward-reference to the correct delete route in the
+// error message. deletedKeys in the delete response is derived from
+// pre/post-state diff, not SDK return values.
+//
+// Reserved-prefix denylist gates document-level WRITES (both set and
+// delete). Delete errors anchor the redirect at the sanctioned
+// delete action on /block/user-strings (see BlocksHandler.cpp:3080
+// for that route's delete action handler).
 
 #pragma once
 
@@ -161,6 +166,75 @@ void HandleUserTextDocumentSet(const httplib::Request& req, httplib::Response& r
 // a pure read, so in practice this route returns success or nothing
 // meaningful to classify.
 void HandleUserTextDocumentGet(const httplib::Request& req, httplib::Response& res);
+
+// POST /usertext/object-delete — Remove N user-string keys from an
+// object's attribute user-string store.
+//
+// Required: id (uuid-string of a document object), keys (JSON array
+//           of non-empty strings — the keys to delete).
+//
+// Empty keys ([]): idempotent no-op. Returns the object's current
+// user-string map unchanged with `deletedKeys: []`. No UndoScope.
+//
+// Duplicate keys: silently deduplicated, preserving FIRST-SEEN
+// request order. Request `["b", "a", "b"]` resolves to `["b", "a"]`
+// for processing; `deletedKeys` reflects that order when both are
+// present. Rationale: delete of a key twice is semantically a no-op
+// on the second pass; rejecting duplicates would add friction to
+// plausible builder-style caller patterns.
+//
+// Idempotent delete: requesting deletion of a key not present
+// pre-mutation is NOT an error. Such keys are absent from
+// `deletedKeys`. Callers asking "did anything actually change?"
+// check `deletedKeys.length > 0`, not the response envelope.
+//
+// Delete sentinel: attrs.SetUserString(key, "") per the empirical
+// characterization pinned by test_usertext_object_live.py:194.
+//
+// Response: {id, userStrings: {...post-state...}, deletedKeys: [...]}
+//   - `userStrings` is the FULL post-mutation user-string map read
+//     back via LookupObject-after-ModifyObjectAttributes (mirrors
+//     the object-set echo rhythm).
+//   - `deletedKeys` is derived from pre/post state diff intersected
+//     with the request — no dependency on SDK return-value semantics.
+//     Order is caller-first-seen.
+//
+// Error codes: invalid_input (missing/malformed id or keys,
+// non-string/empty keys element), not_found (unknown id),
+// operation_failed (ModifyObjectAttributes returned false).
+void HandleUserTextObjectDelete(const httplib::Request& req, httplib::Response& res);
+
+// POST /usertext/document-delete — Remove N user-string keys from
+// the active document's user-string store.
+//
+// Required: keys (JSON array of non-empty strings). No `id` field
+// (document-level scope, per acceptance gate #2).
+//
+// Duplicate keys / idempotent delete / empty-keys no-op: identical
+// to /usertext/object-delete — see that route's docs.
+//
+// Delete sentinel: pDoc->SetUserString(key, "") per the empirical
+// characterization pinned by test_usertext_document_live.py:11.
+//
+// Reserved-prefix denylist: document-level WRITES are gated.
+// Requests containing any key with a reserved prefix (e.g.
+// "RookBlock::") are rejected WHOLESALE with `reserved_namespace`;
+// no keys — reserved or otherwise — are deleted. The error message
+// names the offending prefix, the owning subsystem, and the
+// sanctioned delete surface with action hint (e.g. "use
+// /block/user-strings with action=delete instead"). See
+// BlocksHandler.cpp:3080 for that route's delete-action handler.
+//
+// Response: {userStrings: {...post-state...}, deletedKeys: [...]}
+//   - No `id` field (document scope).
+//   - Same pre/post-diff derivation of `deletedKeys` as the object
+//     route; caller-first-seen order preserved.
+//
+// Error codes: invalid_input (missing/malformed keys, non-string or
+// empty element), reserved_namespace (key prefix is reserved —
+// first-match short-circuit, error message names the prefix and
+// redirect), operation_failed (unexpected SDK failure).
+void HandleUserTextDocumentDelete(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

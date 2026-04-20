@@ -484,10 +484,10 @@ def _build_route_table() -> dict[str, RouteSpec]:
             "Write user strings (arbitrary key/value metadata) on a document object. "
             "Values must be NON-EMPTY strings: empty-string values are rejected with "
             "invalid_input because OpenNURBS treats attrs.SetUserString(k, \"\") as a "
-            "delete sentinel, and delete is out of scope until /usertext/object-delete "
-            "lands. Non-string values rejected with key-specific invalid_input. Empty "
-            "userStrings {} is an idempotent no-op. Response echoes the full "
-            "post-mutation userStrings map read back from persisted attributes."
+            "delete sentinel — use /usertext/object-delete to remove a key. Non-string "
+            "values rejected with key-specific invalid_input. Empty userStrings {} is "
+            "an idempotent no-op. Response echoes the full post-mutation userStrings "
+            "map read back from persisted attributes."
         ),
     )
     routes["get_object_user_strings"] = RouteSpec(
@@ -505,7 +505,7 @@ def _build_route_table() -> dict[str, RouteSpec]:
             "Write user strings (arbitrary key/value metadata) on the active document. "
             "Values must be NON-EMPTY strings: empty-string values are rejected with "
             "invalid_input (OpenNURBS treats pDoc->SetUserString(k, \"\") as a delete "
-            "sentinel; delete is out of scope until /usertext/document-delete lands). "
+            "sentinel — use /usertext/document-delete to remove a key). "
             "Reserved-prefix denylist on WRITES ONLY: keys starting with 'RookBlock::' "
             "(owned by block-definition metadata; use /block/user-strings instead) are "
             "rejected with the route-local error code `reserved_namespace`. Rejection is "
@@ -523,6 +523,33 @@ def _build_route_table() -> dict[str, RouteSpec]:
             "{userStrings: {...}} — includes any keys with reserved prefixes so operators "
             "can inspect reserved namespaces for diagnostics (reads are unrestricted). "
             "Empty object {} if the document has no user strings set. No `id` field."
+        ),
+    )
+    routes["delete_object_user_strings"] = RouteSpec(
+        endpoint="/usertext/object-delete",
+        required_params=("id", "keys"),
+        description=(
+            "Remove user-string keys from an object's attribute user-string store. "
+            "Closes the usertext family (complements set + get). Idempotent: deleting "
+            "a key that doesn't exist is a success with that key absent from "
+            "`deletedKeys`. Duplicate keys silently deduplicated, preserving first-seen "
+            "order in the audit. Empty `keys: []` is an idempotent no-op. Response: "
+            "{id, userStrings: {...post-state...}, deletedKeys: [...]} where "
+            "deletedKeys reflects the caller's first-seen order of unique requested "
+            "keys that were actually present pre-mutation."
+        ),
+    )
+    routes["delete_document_user_strings"] = RouteSpec(
+        endpoint="/usertext/document-delete",
+        required_params=("keys",),
+        description=(
+            "Remove user-string keys from the active document's user-string store. "
+            "No `id` field (document-level scope). Same idempotent / deduplicated / "
+            "empty-array-no-op semantics as /usertext/object-delete. Reserved-prefix "
+            "denylist GATES WRITES: keys with 'RookBlock::' prefix are rejected "
+            "WHOLESALE with `reserved_namespace` — the error message anchors callers "
+            "at /block/user-strings with action=delete (no keys are deleted when any "
+            "reserved-prefix key is present in the request)."
         ),
     )
 
@@ -1326,6 +1353,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "user_text": (
         "set_object_user_strings", "get_object_user_strings",
         "set_document_user_strings", "get_document_user_strings",
+        # 2026-04-20 delete PR closes the family.
+        "delete_object_user_strings", "delete_document_user_strings",
     ),
 }
 
