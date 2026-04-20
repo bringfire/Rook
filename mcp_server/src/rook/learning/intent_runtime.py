@@ -348,6 +348,18 @@ def _build_route_table() -> dict[str, RouteSpec]:
         optional_params=("name", "layer", "color", "visible"),
         description="Create brep from 2-4 boundary curves (Brep.CreateEdgeSurface)",
     )
+    routes["create_patch"] = RouteSpec(
+        endpoint="/surface/patch",
+        required_params=("geometryIds",),
+        optional_params=(
+            "startingSurfaceId",
+            "uSpans", "vSpans",
+            "flexibility", "surfacePull",
+            "tolerance",
+            "name", "layer", "color", "visible",
+        ),
+        description="Fit brep surface through curves/points/clouds (Brep.CreatePatch)",
+    )
     routes["blend_curves"] = RouteSpec(
         endpoint="/curve/blend",
         required_params=("curve1Id", "curve2Id"),
@@ -1203,6 +1215,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_revolve", "array_linear", "array_rectangular", "array_polar",
         # Phase 2 surface/curve extension — PR-1 worked example.
         "create_edge_srf",
+        # Phase 2 surface/curve extension — PR-2.
+        "create_patch",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

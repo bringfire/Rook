@@ -219,6 +219,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # managed-bridge (reuse) substrate; see
     # rook_docs/2026-04-20-phase2-surface-curve-plan.md.
     "rhino_create_edge_srf": ("/surface/edge", "POST"),
+    "rhino_create_patch": ("/surface/patch", "POST"),
     "rhino_blend_curves": ("/curve/blend", "POST"),
 
     # --- Intersection (simple) ---

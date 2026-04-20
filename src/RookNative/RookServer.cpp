@@ -1069,6 +1069,11 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/surface/edge", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleEdgeSrf(req, res);
     });
+    // Phase 2 PR-2 (managed-bridge reuse). Dispatches between overload 2
+    // (no-seed) and overload 3 (seeded) based on startingSurfaceId.
+    m_server->Post("/surface/patch", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandlePatch(req, res);
+    });
     m_server->Post("/array/linear", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleLinear(req, res);
     });

@@ -168,6 +168,7 @@ namespace Rook.Handlers
                     "PIPE" => CreatePipe(doc, request, strictAttributes),
                     "EDGE_SRF" => CreateEdgeSrf(doc, request),
                     "BLEND_CRV" => CreateBlendCurve(doc, request),
+                    "PATCH" => CreatePatch(doc, request),
                     "PLANAR_SURFACE" or "PLANARSURFACE" => CreatePlanarSurface(doc, request),
                     // Curve types
                     "INTERPOLATED_CURVE" or "INTERPOLATEDCURVE" or "INTERP_CURVE" => CreateInterpolatedCurve(request),
@@ -1385,6 +1386,112 @@ namespace Rook.Handlers
         }
 
         /// <summary>
+        /// Heterogeneous single-id resolver for routes that accept a whitelist
+        /// of geometry classes (e.g. Patch: curves / points / point clouds).
+        /// Throws CreateInvalidInputException with `invalid_geometry_class` if
+        /// the geometry exists but is not in the accepted-class set. Throws
+        /// `not_found` / `invalid_input` for missing ids or bad UUIDs,
+        /// matching the ResolveCurveStrict error taxonomy.
+        /// </summary>
+        private GeometryBase ResolveGeometryStrict(
+            RhinoDoc doc, string? id, string fieldName, Type[] acceptedTypes,
+            string invalidClassCode = "invalid_geometry_class")
+        {
+            if (string.IsNullOrEmpty(id))
+                throw new CreateInvalidInputException($"Missing or empty {fieldName}");
+            if (!Guid.TryParse(id, out var guid))
+                throw new CreateInvalidInputException($"Invalid UUID for {fieldName}: {id}");
+            var obj = doc.Objects.FindId(guid);
+            if (obj == null)
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id} not found in document", errorCode: "not_found");
+            var geom = obj.Geometry;
+            if (geom == null)
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id} has no geometry", errorCode: "not_found");
+
+            var geomType = geom.GetType();
+            foreach (var t in acceptedTypes)
+            {
+                if (t.IsAssignableFrom(geomType))
+                    return geom;
+            }
+
+            var accepted = string.Join("/", acceptedTypes.Select(t => t.Name));
+            throw new CreateInvalidInputException(
+                $"{fieldName} {id} is {geomType.Name}; expected one of: {accepted}",
+                errorCode: invalidClassCode);
+        }
+
+        /// <summary>
+        /// List form of ResolveGeometryStrict. Per-element errors identify the
+        /// array slot (e.g. `geometryIds[2]`).
+        /// </summary>
+        private List<GeometryBase> ResolveGeometriesStrict(
+            RhinoDoc doc, JsonElement arrayEl, string arrayFieldName,
+            Type[] acceptedTypes, string invalidClassCode = "invalid_geometry_class")
+        {
+            var items = new List<GeometryBase>();
+            int i = 0;
+            foreach (var el in arrayEl.EnumerateArray())
+            {
+                var id = el.GetString();
+                items.Add(ResolveGeometryStrict(
+                    doc, id, $"{arrayFieldName}[{i}]", acceptedTypes, invalidClassCode));
+                i++;
+            }
+            return items;
+        }
+
+        /// <summary>
+        /// Seed-surface resolver for /surface/patch (and any future route that
+        /// needs a Surface reference). In Rhino 8, raw Surface objects are
+        /// rare at the doc level — most surfaces are stored as single-face
+        /// Breps (e.g. AddPlaneSurface returns a 1-face Brep). This resolver
+        /// handles both:
+        ///   - raw Surface/NurbsSurface/PlaneSurface → returned directly
+        ///   - single-face Brep → UnderlyingSurface() extracted from Face[0]
+        ///   - multi-face Brep → rejected with invalid_seed_class
+        ///   - anything else (Curve/Point/Mesh/...) → rejected with invalid_seed_class
+        /// </summary>
+        private Surface ResolveSeedSurfaceStrict(RhinoDoc doc, string? id, string fieldName)
+        {
+            if (string.IsNullOrEmpty(id))
+                throw new CreateInvalidInputException($"Missing or empty {fieldName}");
+            if (!Guid.TryParse(id, out var guid))
+                throw new CreateInvalidInputException($"Invalid UUID for {fieldName}: {id}");
+            var obj = doc.Objects.FindId(guid);
+            if (obj == null)
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id} not found in document", errorCode: "not_found");
+            var geom = obj.Geometry;
+
+            if (geom is Surface directSurface)
+                return directSurface;
+
+            if (geom is Brep brep)
+            {
+                if (brep.Faces.Count == 1)
+                {
+                    var underlying = brep.Faces[0].UnderlyingSurface();
+                    if (underlying != null)
+                        return underlying;
+                    throw new CreateInvalidInputException(
+                        $"{fieldName} {id}: single-face Brep has no UnderlyingSurface",
+                        errorCode: "invalid_seed_class");
+                }
+                throw new CreateInvalidInputException(
+                    $"{fieldName} {id}: Brep has {brep.Faces.Count} faces; seed must be a Surface or single-face Brep",
+                    errorCode: "invalid_seed_class");
+            }
+
+            var geomTypeName = geom?.GetType().Name ?? "unknown";
+            throw new CreateInvalidInputException(
+                $"{fieldName} {id} is {geomTypeName}; seed must be a Surface or single-face Brep",
+                errorCode: "invalid_seed_class");
+        }
+
+        /// <summary>
         /// Atomic insert-and-build for the plural contract. Adds every
         /// non-null brep from `breps` to the document with the given
         /// attributes, throwing CreateOperationFailedException on any failure
@@ -1761,6 +1868,96 @@ namespace Rook.Handlers
                     "Curve.CreateBlendCurve produced no result");
 
             return blend;
+        }
+
+        /// <summary>
+        /// POST /surface/patch — Phase 2 PR-2. Creates a brep fit through
+        /// curves / points / point clouds, optionally constrained by a
+        /// starting seed surface.
+        ///
+        /// Substrate: managed-bridge reuse via CreateGeometry callback.
+        /// Native validates numeric ranges, seed dependency rule, attribute
+        /// bundle; managed resolves object IDs with class-aware strict
+        /// resolvers and dispatches to Brep.CreatePatch.
+        ///
+        /// DISPATCH BRANCH (empirically pinned 2026-04-20):
+        ///   - startingSurfaceId PRESENT  -> overload 3 (seeded)
+        ///   - startingSurfaceId ABSENT   -> overload 2 (no-seed)
+        /// These overloads produce materially different surfaces on identical
+        /// non-seed inputs (overload 3 with null seed extrapolates past the
+        /// bbox; overload 2 fits within). Matching user intent requires the
+        /// branch.
+        ///
+        /// CONTRACT NOTES:
+        ///   - flexibility / surfacePull require startingSurfaceId (factory
+        ///     silently coerces without seed; route rejects as invalid_input
+        ///     to keep user model honest).
+        ///   - uSpans / vSpans must be positive integers (factory silently
+        ///     coerces zero; route rejects as invalid_spans).
+        ///   - flexibility must be > 0 (factory silently accepts negatives;
+        ///     route rejects as invalid_flexibility).
+        ///   - surfacePull is unconstrained beyond type-check (factory
+        ///     accepts any real without observable coercion).
+        ///   - tolerance must be > 0 (factory silently accepts zero but
+        ///     produces ~50% larger surfaces; route rejects as invalid_input).
+        ///   - geometryIds accepts Curve / Point / PointCloud (factory
+        ///     accepts more but route pre-filters for contract clarity).
+        /// </summary>
+        private Brep? CreatePatch(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            if (!request.TryGetValue("geometryIds", out var idsEl) || idsEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'geometryIds' (expected array of UUID strings)");
+
+            var acceptedGeom = new[] { typeof(Curve), typeof(Rhino.Geometry.Point), typeof(PointCloud) };
+            var geometries = ResolveGeometriesStrict(doc, idsEl, "geometryIds", acceptedGeom);
+            if (geometries.Count < 1)
+                throw new CreateInvalidInputException(
+                    "geometryIds must contain at least one element");
+
+            // Defaults (native has already validated numeric bounds on worker thread).
+            int uSpans = GetInt(request, "uSpans") ?? 10;
+            int vSpans = GetInt(request, "vSpans") ?? 10;
+            double flexibility = GetDouble(request, "flexibility") ?? 1.0;
+            double surfacePull = GetDouble(request, "surfacePull") ?? 1.0;
+            double tolerance = GetDouble(request, "tolerance") ?? doc.ModelAbsoluteTolerance;
+
+            bool hasSeedId = request.TryGetValue("startingSurfaceId", out var seedEl)
+                && seedEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrEmpty(seedEl.GetString());
+
+            Brep? result;
+            if (hasSeedId)
+            {
+                // Seeded path -> overload 3.
+                var seed = ResolveSeedSurfaceStrict(doc, seedEl.GetString(), "startingSurfaceId");
+                var fixEdges = new bool[] { false, false, false, false };
+                result = Brep.CreatePatch(
+                    geometries, seed, uSpans, vSpans,
+                    /* trim */ false, /* tangency */ false,
+                    /* pointSpacing */ 0.0,
+                    flexibility, surfacePull,
+                    fixEdges, tolerance);
+            }
+            else
+            {
+                // No-seed path -> overload 2. flexibility / surfacePull
+                // dependency rule enforced native-side; managed doesn't
+                // re-check because they're silently inert here anyway.
+                result = Brep.CreatePatch(geometries, uSpans, vSpans, tolerance);
+            }
+
+            if (result == null)
+                throw new CreateOperationFailedException(
+                    "Brep.CreatePatch produced no result");
+
+            return result;
+        }
+
+        private int? GetInt(Dictionary<string, JsonElement> request, string key)
+        {
+            if (!request.TryGetValue(key, out var el)) return null;
+            if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v)) return v;
+            return null;
         }
 
         #endregion

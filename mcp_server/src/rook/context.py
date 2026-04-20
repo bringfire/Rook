@@ -33,6 +33,8 @@ TOOL_CATEGORIES = {
     # Phase 2 surface/curve extension (PR-1 worked example).
     "rhino_create_edge_srf": "create",
     "rhino_blend_curves": "create",
+    # Phase 2 surface/curve extension (PR-2).
+    "rhino_create_patch": "create",
 
     # Layer category - layer management
     "rhino_layers": "layer",
