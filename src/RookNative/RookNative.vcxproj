@@ -109,6 +109,7 @@
     <ClCompile Include="Handlers\CreateHandler.cpp" />
     <ClCompile Include="Handlers\GeometryOpsHandler.cpp" />
     <ClCompile Include="Infrastructure\LayerHelpers.cpp" />
+    <ClCompile Include="Infrastructure\ManagedCreateDispatch.cpp" />
     <ClCompile Include="Handlers\LayerOpsHandler.cpp" />
     <ClCompile Include="Handlers\SelectionHandler.cpp" />
     <ClCompile Include="Handlers\ViewportHandler.cpp" />
@@ -179,6 +180,7 @@
     <ClInclude Include="Infrastructure\LayerHelpers.h" />
     <ClInclude Include="Infrastructure\UndoScope.h" />
     <ClInclude Include="Infrastructure\JsonHelpers.h" />
+    <ClInclude Include="Infrastructure\ManagedCreateDispatch.h" />
     <ClInclude Include="Infrastructure\ObjectDiffTracker.h" />
     <ClInclude Include="Infrastructure\WriteResult.h" />
     <ClInclude Include="Handlers\GroupsHandler.h" />

@@ -2551,6 +2551,121 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_curve_boolean_union",
+            description=(
+                "Boolean UNION of closed planar curves. Typed Phase 2 route "
+                "(POST /curve/boolean with operation='union'). Uses "
+                "Curve.CreateBooleanUnion. Accepts 2 or more closed coplanar "
+                "curves; returns {objects: [ObjectSnapshot, ...]} (plural "
+                "contract — even when the factory returns a single envelope "
+                "curve, the response is wrapped). Factory produces empty for "
+                "non-coplanar, open, self-intersecting, or degenerate inputs; "
+                "empty result surfaces as operation_failed with a diagnostic "
+                "message — no route-specific error code classifies the cause "
+                "further. Non-positive tolerance rejected on worker thread as "
+                "invalid_input. Region form (Curve.CreateBooleanRegions) is "
+                "deferred."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "description": "Array of 2+ closed planar curve GUIDs.",
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Boolean tolerance (default doc.ModelAbsoluteTolerance). Must be > 0.",
+                    },
+                    "name": {"type": "string", "description": "Object name (applied to every output curve)."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveIds"]
+            }
+        ),
+        Tool(
+            name="rhino_curve_boolean_difference",
+            description=(
+                "Boolean DIFFERENCE of 2 closed planar curves (curveA minus "
+                "curveB). Typed Phase 2 route (POST /curve/boolean with "
+                "operation='difference'). Uses "
+                "Curve.CreateBooleanDifference(curveA, curveB, tol) — pair "
+                "form; the 1-minuend + N-subtractor overload is deferred. "
+                "curveIds must be length exactly 2; element 0 is the minuend, "
+                "element 1 is the subtractor. Plural-contract response. Fully "
+                "erased cases (minuend entirely inside subtractor) surface "
+                "as operation_failed per plural-contract atomicity."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Exactly 2 closed planar curve GUIDs: [minuend, subtractor].",
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Boolean tolerance (default doc.ModelAbsoluteTolerance). Must be > 0.",
+                    },
+                    "name": {"type": "string", "description": "Object name (applied to every output curve)."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveIds"]
+            }
+        ),
+        Tool(
+            name="rhino_curve_boolean_intersection",
+            description=(
+                "Boolean INTERSECTION of 2 closed planar curves. Typed Phase 2 "
+                "route (POST /curve/boolean with operation='intersection'). "
+                "Uses Curve.CreateBooleanIntersection(curveA, curveB, tol). "
+                "curveIds must be length exactly 2 (no N-way intersection "
+                "factory exists). Plural-contract response. Disjoint inputs "
+                "(no overlap) surface as operation_failed per plural-contract "
+                "atomicity — the response contract does not accept empty "
+                "{objects: []} success envelopes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Exactly 2 closed planar curve GUIDs.",
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Boolean tolerance (default doc.ModelAbsoluteTolerance). Must be > 0.",
+                    },
+                    "name": {"type": "string", "description": "Object name (applied to every output curve)."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "required": ["curveIds"]
+            }
+        ),
+        Tool(
             name="rhino_annotation_text",
             description=(
                 "Create a 2D text annotation with strict attribute handling. Typed "
@@ -10352,6 +10467,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_blend_curves":
             result = await call_rhino("/curve/blend", "POST", arguments)
+
+        case "rhino_curve_boolean_union":
+            result = await call_rhino("/curve/boolean", "POST", {**arguments, "operation": "union"})
+
+        case "rhino_curve_boolean_difference":
+            result = await call_rhino("/curve/boolean", "POST", {**arguments, "operation": "difference"})
+
+        case "rhino_curve_boolean_intersection":
+            result = await call_rhino("/curve/boolean", "POST", {**arguments, "operation": "intersection"})
 
         case "rhino_annotation_text":
             result = await call_rhino("/annotation/text", "POST", arguments)

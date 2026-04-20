@@ -393,8 +393,11 @@ class TestRouteTableCompleteness:
 
     def test_all_curve_ops(self, router):
         curve_ops = CATEGORIES["curves"]
-        # 12 direct-sdk + 1 managed-bridge (PR-1 blend_curves, 2026-04-20)
-        assert len(curve_ops) == 13
+        # 12 direct-sdk + 4 managed-bridge (Phase 2 surface/curve extension):
+        #   PR-1 blend_curves (singular-contract)
+        #   PR-4 curve_boolean_{union,difference,intersection} (plural-contract;
+        #        three intents share /curve/boolean via operation discriminator)
+        assert len(curve_ops) == 16
         for op in curve_ops:
             assert router.has_direct_route(op), f"Missing curve op: {op}"
 

@@ -138,6 +138,7 @@ namespace Rook.Handlers
                         "LOFT" => CreateLoftPlural(doc, request),
                         "SWEEP1" => CreateSweep1Plural(doc, request),
                         "SWEEP2" => CreateSweep2Plural(doc, request),
+                        "CURVE_BOOLEAN" => CreateCurveBooleanPlural(doc, request),
                         _ => null
                     };
                     if (pluralResult != null)
@@ -1542,6 +1543,55 @@ namespace Rook.Handlers
             };
         }
 
+        /// <summary>
+        /// Plural-curve analog of InsertBrepsAsPluralResponse. Parallel, not
+        /// generalized, per Phase 2 PR-4 scope — generalization to
+        /// InsertGeometryAsPluralResponse&lt;T&gt; is a deferred third-caller
+        /// hygiene item.
+        ///
+        /// The caller must have already rejected empty/null `curves` with its
+        /// route-specific operation_failed message before calling this helper.
+        ///
+        /// ATOMICITY: any failure inside this loop MUST throw — never return —
+        /// to preserve the "one UndoScope per request" contract. Matches
+        /// InsertBrepsAsPluralResponse rhythm exactly.
+        /// </summary>
+        private ApiResponse InsertCurvesAsPluralResponse(
+            RhinoDoc doc, Curve[] curves, ObjectAttributes attributes, string factoryName)
+        {
+            var snapshots = new List<Dictionary<string, object?>>();
+            foreach (var curve in curves)
+            {
+                if (curve == null) continue;
+                var guid = doc.Objects.AddCurve(curve, attributes);
+                if (guid == Guid.Empty)
+                    throw new CreateOperationFailedException(
+                        $"Failed to add curve to document during {factoryName} insert");
+                var rhinoObj = doc.Objects.FindId(guid);
+                if (rhinoObj != null)
+                    snapshots.Add(RhinoSerializer.SerializeObject(rhinoObj));
+                else
+                    snapshots.Add(new Dictionary<string, object?> { ["id"] = guid.ToString() });
+            }
+
+            // Guard against the pathological case where the factory returns
+            // a non-empty array containing only nulls: the pre-loop check
+            // passes (Length > 0), but every entry is skipped here, leaving
+            // snapshots empty. Normalize to operation_failed per plural contract.
+            if (snapshots.Count == 0)
+                throw new CreateOperationFailedException(
+                    $"{factoryName} produced no insertable curves");
+
+            return new ApiResponse
+            {
+                Success = true,
+                Data = new Dictionary<string, object>
+                {
+                    ["objects"] = snapshots,
+                },
+            };
+        }
+
         private ApiResponse CreateLoftPlural(RhinoDoc doc, Dictionary<string, JsonElement> request)
         {
             // --- Pre-insert validation: curve resolution ---
@@ -1720,6 +1770,108 @@ namespace Rook.Handlers
                     "SweepTwoRail produced no geometry");
 
             return InsertBrepsAsPluralResponse(doc, breps, attributes, "SweepTwoRail");
+        }
+
+        /// <summary>
+        /// POST /curve/boolean — Phase 2 PR-4. Plural-contract curve boolean
+        /// dispatch. Three intent keys (curve_boolean_union /
+        /// curve_boolean_difference / curve_boolean_intersection) dispatch
+        /// through one endpoint with an `operation` discriminator —
+        /// mirrors the Phase 1 brep-boolean pattern
+        /// (intent_runtime.py :615-622).
+        ///
+        /// Substrate: managed-bridge reuse via CreateGeometry callback.
+        /// Reached via the plural dispatch table when native
+        /// HandleCurveBoolean injects `type="CURVE_BOOLEAN"` +
+        /// `_strictAttributes=true`.
+        ///
+        /// Native has already validated:
+        ///   - operation ∈ {union, difference, intersection}
+        ///   - curveIds array + per-op cardinality (union ≥ 2, diff/intx == 2)
+        ///   - curveIds UUID format
+        ///   - tolerance &gt; 0 if present
+        ///   - attribute bundle syntactic checks
+        ///
+        /// Managed responsibilities:
+        ///   - Curve resolution with class-strict rejection (not_found /
+        ///     invalid_input via ResolveCurvesStrict).
+        ///   - Factory dispatch per operation.
+        ///   - Null OR empty Curve[] → operation_failed. Factory produces
+        ///     empty for many reasons (non-coplanar inputs, open curves,
+        ///     self-intersecting inputs, disjoint intersection, fully-erased
+        ///     difference, non-positive tolerance). No route-specific error
+        ///     code attempts to classify — see PR-3 error-code collapse
+        ///     precedent.
+        ///
+        /// Overload selection (2026-04-20 empirical probe):
+        ///   - Curve.CreateBooleanUnion(curves, tol)
+        ///   - Curve.CreateBooleanDifference(curveA, curveB, tol) pair form
+        ///     (multi-subtractor overload deferred per plan-doc §Non-goals)
+        ///   - Curve.CreateBooleanIntersection(curveA, curveB, tol)
+        ///
+        /// Factory permissiveness (2026-04-20 probe):
+        ///   - Coincident, tangent, and nested inputs all succeed.
+        ///   - Union of nested outer+inner absorbs inner into outer envelope.
+        ///   - Difference of outer minus inner yields 2 curves (outer with
+        ///     hole) — pins the plural helper's multi-output branch.
+        /// </summary>
+        private ApiResponse CreateCurveBooleanPlural(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // --- Pre-dispatch: operation + curve resolution ---
+            var operation = request.TryGetValue("operation", out var opEl) && opEl.ValueKind == JsonValueKind.String
+                ? (opEl.GetString() ?? "")
+                : "";
+            // Native has already validated enum membership; belt-and-suspenders.
+            if (!(operation == "union" || operation == "difference" || operation == "intersection"))
+                throw new CreateInvalidInputException(
+                    $"Invalid operation: '{operation}'", errorCode: "invalid_operation");
+
+            if (!request.TryGetValue("curveIds", out var curveIdsEl) || curveIdsEl.ValueKind != JsonValueKind.Array)
+                throw new CreateInvalidInputException("Missing or invalid 'curveIds'");
+
+            var curves = ResolveCurvesStrict(doc, curveIdsEl, "curveIds");
+
+            // Native-thread already enforced per-op cardinality; belt-and-suspenders.
+            if (operation == "union" && curves.Count < 2)
+                throw new CreateInvalidInputException(
+                    $"Curve boolean union requires at least 2 curves, got {curves.Count}",
+                    errorCode: "invalid_curve_count");
+            if (operation != "union" && curves.Count != 2)
+                throw new CreateInvalidInputException(
+                    $"Curve boolean {operation} requires exactly 2 curves, got {curves.Count}",
+                    errorCode: "invalid_curve_count");
+
+            double tolerance = GetDouble(request, "tolerance") ?? doc.ModelAbsoluteTolerance;
+
+            // --- Attribute bundle (strict) — built before any insert ---
+            var attributes = BuildAttributesStrict(doc, request);
+
+            // --- Factory dispatch ---
+            Curve[]? result;
+            string factoryName;
+            switch (operation)
+            {
+                case "union":
+                    result = Curve.CreateBooleanUnion(curves, tolerance);
+                    factoryName = "Curve.CreateBooleanUnion";
+                    break;
+                case "difference":
+                    result = Curve.CreateBooleanDifference(curves[0], curves[1], tolerance);
+                    factoryName = "Curve.CreateBooleanDifference";
+                    break;
+                case "intersection":
+                default:
+                    result = Curve.CreateBooleanIntersection(curves[0], curves[1], tolerance);
+                    factoryName = "Curve.CreateBooleanIntersection";
+                    break;
+            }
+
+            if (result == null || result.Length == 0)
+                throw new CreateOperationFailedException(
+                    $"{factoryName} produced no result (inputs may be open, "
+                    + "non-coplanar, or otherwise unsuitable for boolean operation)");
+
+            return InsertCurvesAsPluralResponse(doc, result, attributes, factoryName);
         }
 
         /// <summary>

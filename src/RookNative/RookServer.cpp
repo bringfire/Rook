@@ -998,6 +998,12 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/curve/blend", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleBlendCurves(req, res);
     });
+    // Phase 2 PR-4 — managed-bridge reuse; plural-contract Curve[]
+    // factory. Three intent keys (curve_boolean_{union,difference,intersection})
+    // dispatch here with an `operation` discriminator.
+    m_server->Post("/curve/boolean", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleCurveBoolean(req, res);
+    });
 
     // Phase 4E: Intersections
     m_server->Post("/intersect/curves", [this](const httplib::Request& req, httplib::Response& res) {

@@ -707,6 +707,22 @@ def _build_route_table() -> dict[str, RouteSpec]:
         description="Offset curve on surface",
     )
 
+    # === Curve boolean operations (Phase 2 PR-4) ===
+    # Three intent keys → one endpoint with `operation` discriminator;
+    # mirrors the brep-boolean pattern above. Factory-side cardinality
+    # differs per op (union ≥ 2, diff/intersection == 2) but expressing
+    # that in RouteSpec would require per-op required_params shapes;
+    # instead the native handler rejects cardinality violations as
+    # invalid_curve_count.
+    for curve_bool_op in ("union", "difference", "intersection"):
+        routes[f"curve_boolean_{curve_bool_op}"] = RouteSpec(
+            endpoint="/curve/boolean",
+            base_params={"operation": curve_bool_op},
+            required_params=("curveIds",),
+            optional_params=("tolerance", "name", "layer", "color", "visible"),
+            description=f"Curve boolean {curve_bool_op}",
+        )
+
     # === Intersection operations ===
     routes["intersect_curves"] = RouteSpec(
         endpoint="/intersect/curves",
@@ -1257,6 +1273,10 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "project_curve", "pull_curve", "offset_curve", "offset_curve_on_surface",
         # Phase 2 surface/curve extension — PR-1.
         "blend_curves",
+        # Phase 2 surface/curve extension — PR-4 (three intents share
+        # /curve/boolean; mirrors the brep-boolean pattern).
+        "curve_boolean_union", "curve_boolean_difference",
+        "curve_boolean_intersection",
     ),
     "intersection": (
         "intersect_curves", "intersect_curve_surface", "intersect_curve_brep",

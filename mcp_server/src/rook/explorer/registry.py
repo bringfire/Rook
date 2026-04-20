@@ -78,6 +78,11 @@ class ToolRegistry:
         "rhino_create_patch": CATEGORY_CREATION,
         # Phase 2 surface/curve extension (PR-3).
         "rhino_create_network_srf": CATEGORY_CREATION,
+        # Phase 2 surface/curve extension (PR-4). Three intent keys →
+        # /curve/boolean with operation discriminator (mirrors brep-boolean).
+        "rhino_curve_boolean_union": CATEGORY_CREATION,
+        "rhino_curve_boolean_difference": CATEGORY_CREATION,
+        "rhino_curve_boolean_intersection": CATEGORY_CREATION,
 
         # Modification tools (need objects first)
         "rhino_transform": CATEGORY_MODIFICATION,
@@ -231,6 +236,13 @@ class ToolRegistry:
         "rhino_create_patch": ("/surface/patch", "POST"),
         # Phase 2 surface/curve extension (PR-3).
         "rhino_create_network_srf": ("/surface/network", "POST"),
+        # Phase 2 surface/curve extension (PR-4). Three intent keys share
+        # /curve/boolean with operation discriminator — HTTP_MAPPINGS
+        # advertises the endpoint uniformly for all 3 tool names; the
+        # executor + tool_dispatcher transforms inject the operation.
+        "rhino_curve_boolean_union": ("/curve/boolean", "POST"),
+        "rhino_curve_boolean_difference": ("/curve/boolean", "POST"),
+        "rhino_curve_boolean_intersection": ("/curve/boolean", "POST"),
         # Add more as needed...
     }
 
