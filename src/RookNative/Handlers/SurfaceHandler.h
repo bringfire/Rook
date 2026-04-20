@@ -63,5 +63,18 @@ void HandleEdgeSrf(const httplib::Request& req, httplib::Response& res);
 // tolerance <= 0 (factory silently coerces these into garbage surfaces).
 void HandlePatch(const httplib::Request& req, httplib::Response& res);
 
+// POST /surface/network — Phase 2 PR-3. NurbsSurface.CreateNetworkSurface
+// via auto-detect (curveIds) or explicit (uCurveIds + vCurveIds) input
+// forms. Singular-contract; output wrapped via Brep.CreateFromSurface.
+// Single continuity param applied to all 4 slots of the explicit overload
+// (asymmetric per-direction-per-end continuity deferred).
+//
+// Worker-thread rejects: both forms present (input_form_conflict),
+// one-sided explicit (input_form_incomplete), empty explicit arrays,
+// neither form, curveIds < 2, continuity outside {0,1,2}
+// (invalid_continuity), and any tolerance <= 0 (factory silently
+// coerces these).
+void HandleNetworkSrf(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

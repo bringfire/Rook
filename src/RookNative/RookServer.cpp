@@ -1074,6 +1074,11 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/surface/patch", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandlePatch(req, res);
     });
+    // Phase 2 PR-3 (managed-bridge reuse). NurbsSurface.CreateNetworkSurface
+    // auto-detect vs explicit U/V; result wrapped via Brep.CreateFromSurface.
+    m_server->Post("/surface/network", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleNetworkSrf(req, res);
+    });
     m_server->Post("/array/linear", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleLinear(req, res);
     });

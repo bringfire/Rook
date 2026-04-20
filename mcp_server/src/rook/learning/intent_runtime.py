@@ -360,6 +360,21 @@ def _build_route_table() -> dict[str, RouteSpec]:
         ),
         description="Fit brep surface through curves/points/clouds (Brep.CreatePatch)",
     )
+    # PR-3 has XOR input form — required_params captures neither cleanly.
+    # Router treats it as "no required params"; the native handler enforces
+    # the XOR rule (curveIds OR uCurveIds+vCurveIds) with structured errors.
+    routes["create_network_srf"] = RouteSpec(
+        endpoint="/surface/network",
+        required_params=(),
+        optional_params=(
+            "curveIds",
+            "uCurveIds", "vCurveIds",
+            "continuity",
+            "edgeTolerance", "interiorTolerance", "angleTolerance",
+            "name", "layer", "color", "visible",
+        ),
+        description="Fit NURBS surface through curve network (NurbsSurface.CreateNetworkSurface)",
+    )
     routes["blend_curves"] = RouteSpec(
         endpoint="/curve/blend",
         required_params=("curve1Id", "curve2Id"),
@@ -1217,6 +1232,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "create_edge_srf",
         # Phase 2 surface/curve extension — PR-2.
         "create_patch",
+        # Phase 2 surface/curve extension — PR-3.
+        "create_network_srf",
         "create_mesh_box", "create_mesh_sphere", "create_mesh_cylinder",
         "create_mesh_cone", "create_subd_box", "create_subd_sphere",
         "create_subd_cylinder",

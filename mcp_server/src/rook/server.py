@@ -2440,6 +2440,83 @@ Examples:
             }
         ),
         Tool(
+            name="rhino_create_network_srf",
+            description=(
+                "Fit a NURBS surface through a network of curves. Typed "
+                "Phase 2 route (POST /surface/network). Singular-contract; "
+                "result is wrapped as a single-face Brep for response-shape "
+                "parity with other /surface/* creators. Two input forms (XOR): "
+                "'curveIds' auto-detects U/V partitioning from a single list "
+                "(min 2 curves); or explicit 'uCurveIds' + 'vCurveIds' (each "
+                "min 1) fixes the U/V direction. Single 'continuity' param "
+                "applied uniformly on the explicit form (asymmetric "
+                "per-direction-per-end continuity deferred). Worker-thread "
+                "rejects continuity outside {0,1,2} as invalid_continuity; "
+                "rejects any tolerance <= 0 as invalid_input (factory "
+                "silently coerces bad values). Empirically-stable "
+                "operation_failed cases include 2 parallel lines (no "
+                "crossing network) and disjoint far-apart curves; "
+                "single-curve input is rejected at the worker thread as "
+                "invalid_input via the curveIds min-count rule, not as "
+                "operation_failed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Auto-detect form: curve GUIDs forming a network (min 2).",
+                        "minItems": 2,
+                    },
+                    "uCurveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Explicit form: U-direction curves (min 1). Requires vCurveIds.",
+                        "minItems": 1,
+                    },
+                    "vCurveIds": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Explicit form: V-direction curves (min 1). Requires uCurveIds.",
+                        "minItems": 1,
+                    },
+                    "continuity": {
+                        "type": "integer",
+                        "description": "Edge continuity: 0=Position, 1=Tangency (default), 2=Curvature.",
+                        "minimum": 0,
+                        "maximum": 2,
+                    },
+                    "edgeTolerance": {
+                        "type": "number",
+                        "description": "Edge-matching tolerance (> 0, default doc.ModelAbsoluteTolerance).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "interiorTolerance": {
+                        "type": "number",
+                        "description": "Interior-fit tolerance (> 0, default doc.ModelAbsoluteTolerance).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "angleTolerance": {
+                        "type": "number",
+                        "description": "Angle tolerance in radians (> 0, default doc.ModelAngleToleranceRadians).",
+                        "exclusiveMinimum": 0,
+                    },
+                    "name": {"type": "string", "description": "Object name."},
+                    "layer": {"type": "string", "description": "Layer path (must exist in document)."},
+                    "color": {
+                        "type": ["string", "array", "object"],
+                        "description": "Object color — accepts hex string '#rrggbb', array [r,g,b] (ints 0-255), or object {r,g,b}.",
+                    },
+                    "visible": {"type": "boolean", "description": "Object visibility (default true)."},
+                },
+                "oneOf": [
+                    {"required": ["curveIds"]},
+                    {"required": ["uCurveIds", "vCurveIds"]},
+                ],
+            }
+        ),
+        Tool(
             name="rhino_blend_curves",
             description=(
                 "Create a blend curve between two existing curves at a given "
@@ -10269,6 +10346,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_create_patch":
             result = await call_rhino("/surface/patch", "POST", arguments)
+
+        case "rhino_create_network_srf":
+            result = await call_rhino("/surface/network", "POST", arguments)
 
         case "rhino_blend_curves":
             result = await call_rhino("/curve/blend", "POST", arguments)

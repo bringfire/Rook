@@ -169,6 +169,7 @@ namespace Rook.Handlers
                     "EDGE_SRF" => CreateEdgeSrf(doc, request),
                     "BLEND_CRV" => CreateBlendCurve(doc, request),
                     "PATCH" => CreatePatch(doc, request),
+                    "NETWORK_SRF" => CreateNetworkSrf(doc, request),
                     "PLANAR_SURFACE" or "PLANARSURFACE" => CreatePlanarSurface(doc, request),
                     // Curve types
                     "INTERPOLATED_CURVE" or "INTERPOLATEDCURVE" or "INTERP_CURVE" => CreateInterpolatedCurve(request),
@@ -1958,6 +1959,88 @@ namespace Rook.Handlers
             if (!request.TryGetValue(key, out var el)) return null;
             if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v)) return v;
             return null;
+        }
+
+        /// <summary>
+        /// POST /surface/network — Phase 2 PR-3. NurbsSurface.CreateNetworkSurface
+        /// via two RhinoCommon overloads:
+        ///   - auto-detect (6-arg): curves, continuity, edgeTol, interiorTol,
+        ///     angleTol, out error
+        ///   - explicit U/V (10-arg): uCurves, uContStart, uContEnd, vCurves,
+        ///     vContStart, vContEnd, edgeTol, interiorTol, angleTol, out error
+        ///
+        /// Managed branches on which input form is present (XOR already
+        /// enforced native-side). Single `continuity` param applied to all
+        /// four slots in the explicit overload — asymmetric per-direction-per-end
+        /// continuity deferred per plan-doc §Non-goals.
+        ///
+        /// Output is NurbsSurface; wrapped in Brep.CreateFromSurface for
+        /// response-shape parity with other /surface/* routes (Rule 5).
+        ///
+        /// Error handling: factory's `out int error` is essentially binary
+        /// (0 success / non-zero failure) across probed inputs. Error-code
+        /// mapping is opaque — we surface the raw code in the message for
+        /// diagnostic traceability rather than enumerate.
+        /// </summary>
+        private Brep? CreateNetworkSrf(RhinoDoc doc, Dictionary<string, JsonElement> request)
+        {
+            // Native has already validated XOR (curveIds vs uCurveIds/vCurveIds),
+            // array presence, continuity range, tolerance positivity, and
+            // curveIds min-count. Managed re-resolves for structured errors.
+
+            // Separate TryGetValue calls so the compiler can prove the
+            // out-vars are unconditionally assigned before the branch below.
+            bool hasCurveIdsKey = request.TryGetValue("curveIds", out var curveIdsEl);
+            bool hasUKey = request.TryGetValue("uCurveIds", out var uEl);
+            bool hasVKey = request.TryGetValue("vCurveIds", out var vEl);
+            bool hasAutoForm = hasCurveIdsKey && curveIdsEl.ValueKind == JsonValueKind.Array;
+            bool hasExplicitForm = hasUKey && uEl.ValueKind == JsonValueKind.Array
+                && hasVKey && vEl.ValueKind == JsonValueKind.Array;
+
+            int continuity = GetInt(request, "continuity") ?? 1;
+            double edgeTol = GetDouble(request, "edgeTolerance") ?? doc.ModelAbsoluteTolerance;
+            double interiorTol = GetDouble(request, "interiorTolerance") ?? doc.ModelAbsoluteTolerance;
+            double angleTol = GetDouble(request, "angleTolerance") ?? doc.ModelAngleToleranceRadians;
+
+            NurbsSurface? nurbs;
+            int error;
+
+            if (hasExplicitForm)
+            {
+                var uCurves = ResolveCurvesStrict(doc, uEl, "uCurveIds");
+                var vCurves = ResolveCurvesStrict(doc, vEl, "vCurveIds");
+                // Apply single continuity to all four slots (PR-3 scope).
+                nurbs = NurbsSurface.CreateNetworkSurface(
+                    uCurves, continuity, continuity,
+                    vCurves, continuity, continuity,
+                    edgeTol, interiorTol, angleTol,
+                    out error);
+            }
+            else if (hasAutoForm)
+            {
+                var curves = ResolveCurvesStrict(doc, curveIdsEl, "curveIds");
+                nurbs = NurbsSurface.CreateNetworkSurface(
+                    curves, continuity,
+                    edgeTol, interiorTol, angleTol,
+                    out error);
+            }
+            else
+            {
+                // Belt-and-suspenders — native should have rejected this already.
+                throw new CreateInvalidInputException(
+                    "must provide 'curveIds' or both 'uCurveIds' and 'vCurveIds'");
+            }
+
+            if (nurbs == null || error != 0)
+                throw new CreateOperationFailedException(
+                    $"CreateNetworkSurface failed (error code: {error})");
+
+            var brep = Brep.CreateFromSurface(nurbs);
+            if (brep == null)
+                throw new CreateOperationFailedException(
+                    "Brep.CreateFromSurface returned null for NetworkSurface result");
+
+            return brep;
         }
 
         #endregion

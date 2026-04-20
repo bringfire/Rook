@@ -76,6 +76,8 @@ class ToolRegistry:
         "rhino_blend_curves": CATEGORY_CREATION,
         # Phase 2 surface/curve extension (PR-2).
         "rhino_create_patch": CATEGORY_CREATION,
+        # Phase 2 surface/curve extension (PR-3).
+        "rhino_create_network_srf": CATEGORY_CREATION,
 
         # Modification tools (need objects first)
         "rhino_transform": CATEGORY_MODIFICATION,
@@ -227,6 +229,8 @@ class ToolRegistry:
         "rhino_blend_curves": ("/curve/blend", "POST"),
         # Phase 2 surface/curve extension (PR-2).
         "rhino_create_patch": ("/surface/patch", "POST"),
+        # Phase 2 surface/curve extension (PR-3).
+        "rhino_create_network_srf": ("/surface/network", "POST"),
         # Add more as needed...
     }
 
