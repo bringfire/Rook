@@ -2580,7 +2580,25 @@ void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& 
             // silently destroyed rotation (Codex review of PR #77).
             ON_Xform newXform = BuildResetScaleXform(oldXform);
 
-            pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+            // Check DeleteObject return value — if deletion fails but
+            // CreateInstanceObject later succeeds, the document is
+            // left with duplicate instances AND the handler would
+            // report success with the wrong oldInstanceId (Codex
+            // review of PR #77 rotation-fixup round). Surface
+            // recreate_failed BEFORE attempting the recreate.
+            // Stronger-recreate-semantics pattern per BlocksHandler.cpp:657.
+            const bool deleted = pDoc->DeleteObject(
+                CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+            if (!deleted)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "recreate_failed"},
+                    {"message", "Failed to delete original instance before recreate"},
+                });
+                continue;
+            }
 
             CRhinoInstanceObject* pNewInst =
                 pDoc->m_instance_definition_table.CreateInstanceObject(
@@ -2592,6 +2610,7 @@ void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& 
                     {"id", echoId},
                     {"success", false},
                     {"error", "recreate_failed"},
+                    {"message", "CreateInstanceObject returned null after delete"},
                 });
                 continue;
             }
@@ -2663,7 +2682,17 @@ void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res)
         // silently destroyed rotation (Codex review of PR #77).
         ON_Xform newXform = BuildResetScaleXform(oldXform);
 
-        pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+        // Check DeleteObject return value — if deletion fails but
+        // CreateInstanceObject later succeeds, the document is left
+        // with duplicate instances AND the handler returns success
+        // with the wrong oldInstanceId (Codex review of PR #77
+        // rotation-fixup round). Fail loudly BEFORE recreating.
+        // Stronger-recreate-semantics pattern per BlocksHandler.cpp:657.
+        const bool deleted = pDoc->DeleteObject(
+            CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+        if (!deleted)
+            throw std::runtime_error(
+                "Failed to delete original instance before reset-scale recreate");
 
         CRhinoInstanceObject* pNewInst =
             pDoc->m_instance_definition_table.CreateInstanceObject(
