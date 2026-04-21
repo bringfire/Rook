@@ -1009,6 +1009,183 @@ def _normalize_gh_guid_list(value: Any) -> list[str]:
     return []
 
 
+# Language config for the unified `gh_create_script` helper. Keyed on the
+# `language` discriminator accepted by the MCP tool. See the
+# 2026-04-21 gh-script-component-routing design-pass memo §PR-2.
+_GH_SCRIPT_LANGUAGE_CONFIGS: dict[str, dict[str, str]] = {
+    "python": {
+        # RhinoCode Python 3 Script component GUID
+        "guid": "719467e6-7cf5-4848-99b0-c5dd57e5442c",
+        "default_name": "Python 3 Script",
+        "component_label": "Python 3 Script",
+    },
+    "csharp": {
+        # RhinoCode C# Script component GUID
+        "guid": "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7",
+        "default_name": "C# Script",
+        "component_label": "C# Script",
+    },
+}
+
+_GH_SCRIPT_VALID_LANGUAGES: tuple[str, ...] = tuple(_GH_SCRIPT_LANGUAGE_CONFIGS.keys())
+
+
+async def _execute_gh_create_script(
+    language: Any,
+    arguments: dict[str, Any],
+    port: int,
+    *,
+    tool_name: str = "gh_create_script",
+) -> dict[str, Any]:
+    """Create a Grasshopper script component (Python 3 or C#) in one transaction.
+
+    Creates the component by fixed RhinoCode GUID, configures pins, injects
+    code (with language-appropriate preamble / wrapper), and reads back any
+    compilation errors. Unified implementation that backs the `gh_create_script`
+    MCP tool and the `gh_create_python_script` / `gh_create_csharp_script`
+    aliases — all three dispatchers call this helper.
+
+    The `tool_name` keyword arg is used only in the generic exception wrapper
+    so alias callers see their historical prefix
+    (`gh_create_python_script failed: ...` / `gh_create_csharp_script failed: ...`)
+    on unexpected errors, preserving pre-PR-2 alias back-compat at the
+    failure surface as well as the success surface.
+
+    Contract (response shape, all entry points):
+        success:
+            {"success": True, "data": {
+                "component_guid": str,
+                "pins_in": list[dict],
+                "pins_out": list[dict],
+                "position": {"x": number, "y": number},
+                "name": str,                     # echo or default_name
+                "code_length": int,              # length of prepared full script
+                "compilation_errors": [...],     # only if present
+                "warning": str,                  # only if compilation_errors present
+            }}
+        failure:
+            {"success": False, "data": <diagnostic string>}
+
+    Ambiguity posture: `language` missing / not in {"python","csharp"} returns
+    structured invalid_input naming both valid choices; no silent default.
+    """
+    if language not in _GH_SCRIPT_LANGUAGE_CONFIGS:
+        received = repr(language) if language is not None else "None"
+        return {
+            "success": False,
+            "data": (
+                "Invalid or missing 'language'. "
+                "Choose 'python' or 'csharp' "
+                f"(received: {received})."
+            ),
+        }
+
+    config = _GH_SCRIPT_LANGUAGE_CONFIGS[language]
+
+    code = arguments.get("code")
+    if not code:
+        return {"success": False, "data": "Missing required parameter: code"}
+
+    name = arguments.get("name")
+    x = arguments.get("x", 200)
+    y = arguments.get("y", 200)
+
+    try:
+        pin_defs_in = _normalize_gh_script_pins(
+            arguments.get("pins_in", []),
+            default_optional=True,
+        )
+        pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
+        if not pin_defs_in and not pin_defs_out:
+            raise ValueError("Must provide at least pins_in or pins_out")
+
+        # Language-specific code preparation
+        if language == "python":
+            preamble = _build_gh_python_preamble(pin_defs_in)
+            full_script = preamble + code
+        else:  # csharp
+            full_script = _build_gh_csharp_wrapper(code, pin_defs_in, pin_defs_out)
+
+        # Step 1: Create the component by fixed RhinoCode GUID.
+        create_result = await call_rhino(
+            "/gh/create-component", "POST",
+            {"guid": config["guid"], "x": x, "y": y},
+            port=port,
+        )
+        if not create_result.get("success"):
+            return {
+                "success": False,
+                "data": f"Failed to create {config['component_label']} component: {create_result.get('data')}",
+            }
+
+        cdata = create_result["data"]
+        component_guid = str(cdata.get("guid") or cdata.get("Guid"))
+
+        # Step 2: Configure pins.
+        params_payload: dict[str, Any] = {
+            "guid": component_guid,
+            "inputs": _gh_script_pin_defs_to_payload(pin_defs_in),
+            "outputs": _gh_script_pin_defs_to_payload(pin_defs_out),
+        }
+        if name:
+            params_payload["nick"] = name
+
+        params_result = await call_rhino(
+            "/gh/script-params", "POST",
+            params_payload,
+            port=port,
+        )
+        if not params_result.get("success"):
+            return {
+                "success": False,
+                "data": f"Component created but pin config failed: {params_result.get('data')}",
+            }
+
+        # Step 3: Inject the script.
+        script_result = await call_rhino(
+            "/gh/script", "POST",
+            {"guid": component_guid, "script": full_script},
+            port=port,
+        )
+        if not script_result.get("success"):
+            return {
+                "success": False,
+                "data": f"Component created but script injection failed: {script_result.get('data')}",
+            }
+
+        # Step 4: Check for compilation errors (brief settle delay for GH solve).
+        await asyncio.sleep(0.3)
+        errors_result = await call_rhino(
+            "/gh/errors", "GET", {}, port=port,
+        )
+        component_errors: list[Any] = []
+        if errors_result.get("success"):
+            edata = errors_result.get("data", {})
+            for err in edata.get("errors", []):
+                if err.get("guid") == component_guid:
+                    component_errors = err.get("errors", [])
+                    break
+
+        result: dict[str, Any] = {
+            "success": True,
+            "data": {
+                "component_guid": component_guid,
+                "pins_in": pin_defs_in,
+                "pins_out": pin_defs_out,
+                "position": {"x": x, "y": y},
+                "name": name or config["default_name"],
+                "code_length": len(full_script),
+            },
+        }
+        if component_errors:
+            result["data"]["compilation_errors"] = component_errors
+            result["data"]["warning"] = "Component placed but has compilation errors"
+        return result
+
+    except Exception as exc:
+        return {"success": False, "data": f"{tool_name} failed: {exc}"}
+
+
 async def _execute_gh_set_script_pins(arguments: dict[str, Any], port: int) -> dict[str, Any]:
     guid = arguments.get("guid")
     if not guid:
@@ -6410,6 +6587,11 @@ this tool provides. This tool is the correct substrate.""",
             name="gh_create_python_script",
             description="""Create a Python 3 Script component on the GH canvas with custom pins and code.
 
+Convenience alias for `gh_create_script(language="python", ...)` — kept for
+back-compat. New callers should prefer `gh_create_script` with an explicit
+`language` argument; both paths share the same implementation and response
+shape.
+
 Single-shot tool: creates the component, configures input/output pins, writes the script,
 and triggers recompilation — all in one call.
 
@@ -6450,6 +6632,11 @@ Example:
         Tool(
             name="gh_create_csharp_script",
             description="""Create a RhinoCode C# Script component on the GH canvas with custom pins and code.
+
+Convenience alias for `gh_create_script(language="csharp", ...)` — kept for
+back-compat. New callers should prefer `gh_create_script` with an explicit
+`language` argument; both paths share the same implementation and response
+shape.
 
 Single-shot tool: creates the component, configures input/output pins, writes the script,
 and triggers recompilation — all in one call.
@@ -6495,6 +6682,74 @@ Example (body code):
                     "y": {"type": "number", "description": "Canvas Y position (default: 200)"},
                 },
                 "required": ["code", "pins_in", "pins_out"],
+            }
+        ),
+        Tool(
+            name="gh_create_script",
+            description="""Create a Grasshopper script component (Python 3 or C#) on the canvas with custom pins and code.
+
+Unified single-shot tool: creates the component by its fixed RhinoCode GUID,
+configures input/output pins, writes the script, and triggers recompilation —
+all in one call. Replaces the sibling tools `gh_create_python_script` /
+`gh_create_csharp_script`, which remain as back-compat aliases that delegate
+to this tool.
+
+The `language` argument is REQUIRED — no default. If omitted or invalid, the
+tool returns a structured invalid_input error naming both valid choices.
+This enforces the language-disambiguation policy at the API boundary, not
+just in persona prompts.
+
+Language selection:
+- `language: "python"` — RhinoCode Python 3 Script component. Pins use a
+  generated coercion preamble so geometry references resolve to native types.
+- `language: "csharp"` — RhinoCode C# Script component. Pin types always
+  arrive as `object`; user code must cast (e.g. `Convert.ToDouble(R)`).
+  Body-only code is auto-wrapped in a Script_Instance class; full classes
+  containing `class Script_Instance` or `void RunScript` pass through.
+
+Pins may be provided either as legacy "Name:Type" strings or rich pin objects
+with access/optional/description metadata.
+Common types: string, int, float, double, bool, Point3d, Vector3d, Curve, Surface, Brep, Mesh, Line, Plane, Circle, Box.
+
+Example (Python):
+{
+  "language": "python",
+  "code": "import Rhino.Geometry as rg\\na = rg.Point3d(x, y, 0)",
+  "pins_in": ["x:float", "y:float"],
+  "pins_out": ["a:Point3d"],
+  "name": "Grid Point"
+}
+
+Example (C#):
+{
+  "language": "csharp",
+  "code": "var r = Convert.ToDouble(R);\\nA = new Rhino.Geometry.Circle(Rhino.Geometry.Plane.WorldXY, r);",
+  "pins_in": ["R:double"],
+  "pins_out": ["A:Circle"],
+  "name": "Parametric Circle"
+}""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "language": {
+                        "type": "string",
+                        "enum": list(_GH_SCRIPT_VALID_LANGUAGES),
+                        "description": "Script language — 'python' (RhinoCode Python 3) or 'csharp' (RhinoCode C#). Required; no default.",
+                    },
+                    "code": {"type": "string", "description": "Script source code — Python 3 or C# per the chosen language"},
+                    "pins_in": {
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Input pin definitions as "Name:Type" strings or pin objects, e.g. ["x:float", {"name": "pts", "type": "Point3d", "access": "list"}]',
+                    },
+                    "pins_out": {
+                        **_GH_SCRIPT_PIN_ARRAY_SCHEMA,
+                        "description": 'Output pin definitions as "Name:Type" strings or pin objects, e.g. ["a:Point3d"]',
+                    },
+                    "name": {"type": "string", "description": "Display name for the component (default: language-appropriate — 'Python 3 Script' or 'C# Script')"},
+                    "x": {"type": "number", "description": "Canvas X position (default: 200)"},
+                    "y": {"type": "number", "description": "Canvas Y position (default: 200)"},
+                },
+                "required": ["language", "code"],
             }
         ),
         Tool(
@@ -8151,12 +8406,13 @@ Example: Get info for Sphere and Loft:
 
 Owns generic component creation (sliders, math, geometry primitives, data
 manipulation, etc.). Does NOT own script components — programmable
-components (Python, C#) belong to `gh_create_python_script` /
-`gh_create_csharp_script`, which create by fixed component GUID and invoke
-a transactional create/set-pins/inject-code/check-errors pipeline that
-this intent tool cannot replicate safely.
+components (Python, C#) belong to `gh_create_script(language=...)`
+(or its `gh_create_python_script` / `gh_create_csharp_script` back-compat
+aliases), which create by fixed component GUID and invoke a transactional
+create/set-pins/inject-code/check-errors pipeline that this intent tool
+cannot replicate safely.
 
-For script-component work, call the dedicated create tools directly —
+For script-component work, call the dedicated create tool directly —
 do not route through this tool.
 
 It automatically:
@@ -11817,112 +12073,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )
 
         case "gh_create_python_script":
-            py_code = arguments.get("code")
-            py_name = arguments.get("name")
-            py_x = arguments.get("x", 200)
-            py_y = arguments.get("y", 200)
+            # Alias for gh_create_script(language="python"). Delegates to the
+            # shared helper for single-source implementation; session history
+            # preserves the alias action name for audit continuity, and
+            # tool_name is threaded so unexpected-exception wrappers keep the
+            # historical alias-specific prefix.
+            result = await _execute_gh_create_script(
+                "python", arguments, port,
+                tool_name="gh_create_python_script",
+            )
             component_guid = None
-
-            if not py_code:
-                result = {"success": False, "data": "Missing required parameter: code"}
-            else:
-                try:
-                    py_pin_defs_in = _normalize_gh_script_pins(
-                        arguments.get("pins_in", []),
-                        default_optional=True,
-                    )
-                    py_pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
-                    if not py_pin_defs_in and not py_pin_defs_out:
-                        raise ValueError("Must provide at least pins_in or pins_out")
-
-                    # Python 3 Script component GUID (RhinoCode)
-                    PY3_GUID = "719467e6-7cf5-4848-99b0-c5dd57e5442c"
-
-                    # ── Auto-generate coercion preamble ──────────────────────
-                    # GH Python 3 Script pins are Generic Data. Geometry types
-                    # arrive as System.Guid references; numbers may be GH
-                    # wrappers. This preamble converts every input to its
-                    # declared native type so the user's code just works.
-                    preamble = _build_gh_python_preamble(py_pin_defs_in)
-                    full_script = preamble + py_code
-
-                    # Step 1: Create the Python 3 Script component
-                    create_result = await call_rhino(
-                        "/gh/create-component", "POST",
-                        {"guid": PY3_GUID, "x": py_x, "y": py_y},
-                        port=port,
-                    )
-                    if not create_result.get("success"):
-                        result = {
-                            "success": False,
-                            "data": f"Failed to create Python 3 Script component: {create_result.get('data')}",
-                        }
-                    else:
-                        cdata = create_result["data"]
-                        component_guid = str(cdata.get("guid") or cdata.get("Guid"))
-
-                        params_payload: dict = {
-                            "guid": component_guid,
-                            "inputs": _gh_script_pin_defs_to_payload(py_pin_defs_in),
-                            "outputs": _gh_script_pin_defs_to_payload(py_pin_defs_out),
-                        }
-                        if py_name:
-                            params_payload["nick"] = py_name
-
-                        params_result = await call_rhino(
-                            "/gh/script-params", "POST",
-                            params_payload,
-                            port=port,
-                        )
-                        if not params_result.get("success"):
-                            result = {
-                                "success": False,
-                                "data": f"Component created but pin config failed: {params_result.get('data')}",
-                            }
-                        else:
-                            # Step 3: Write the script (with preamble)
-                            script_result = await call_rhino(
-                                "/gh/script", "POST",
-                                {"guid": component_guid, "script": full_script},
-                                port=port,
-                            )
-                            if not script_result.get("success"):
-                                result = {
-                                    "success": False,
-                                    "data": f"Component created but script injection failed: {script_result.get('data')}",
-                                }
-                            else:
-                                # Step 4: Check for compilation errors
-                                await asyncio.sleep(0.3)
-                                errors_result = await call_rhino(
-                                    "/gh/errors", "GET", {}, port=port,
-                                )
-                                component_errors = []
-                                if errors_result.get("success"):
-                                    edata = errors_result.get("data", {})
-                                    for err in edata.get("errors", []):
-                                        if err.get("guid") == component_guid:
-                                            component_errors = err.get("errors", [])
-                                            break
-
-                                result = {
-                                    "success": True,
-                                    "data": {
-                                        "component_guid": component_guid,
-                                        "pins_in": py_pin_defs_in,
-                                        "pins_out": py_pin_defs_out,
-                                        "position": {"x": py_x, "y": py_y},
-                                        "name": py_name or "Python 3 Script",
-                                        "code_length": len(full_script),
-                                    },
-                                }
-                                if component_errors:
-                                    result["data"]["compilation_errors"] = component_errors
-                                    result["data"]["warning"] = "Component placed but has compilation errors"
-
-                except Exception as e:
-                    result = {"success": False, "data": f"gh_create_python_script failed: {str(e)}"}
-
+            if result.get("success") and isinstance(result.get("data"), dict):
+                component_guid = result["data"].get("component_guid")
             await _record_gh_to_session(
                 action="gh_create_python_script",
                 params={k: v for k, v in arguments.items() if k != "code"},  # Don't log full code
@@ -11932,109 +12094,36 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             )
 
         case "gh_create_csharp_script":
-            cs_code = arguments.get("code")
-            cs_name = arguments.get("name")
-            cs_x = arguments.get("x", 200)
-            cs_y = arguments.get("y", 200)
+            # Alias for gh_create_script(language="csharp"). Delegates to the
+            # shared helper; action name preserved for audit continuity and
+            # tool_name threaded so unexpected-exception wrappers keep the
+            # historical alias-specific prefix.
+            result = await _execute_gh_create_script(
+                "csharp", arguments, port,
+                tool_name="gh_create_csharp_script",
+            )
             component_guid = None
-
-            if not cs_code:
-                result = {"success": False, "data": "Missing required parameter: code"}
-            else:
-                try:
-                    cs_pin_defs_in = _normalize_gh_script_pins(
-                        arguments.get("pins_in", []),
-                        default_optional=True,
-                    )
-                    cs_pin_defs_out = _normalize_gh_script_pins(arguments.get("pins_out", []))
-                    if not cs_pin_defs_in and not cs_pin_defs_out:
-                        raise ValueError("Must provide at least pins_in or pins_out")
-
-                    # RhinoCode C# Script component GUID
-                    CS3_GUID = "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7"
-
-                    # Wrap user code in Script_Instance boilerplate if needed
-                    full_script = _build_gh_csharp_wrapper(cs_code, cs_pin_defs_in, cs_pin_defs_out)
-
-                    # Step 1: Create the C# Script component
-                    create_result = await call_rhino(
-                        "/gh/create-component", "POST",
-                        {"guid": CS3_GUID, "x": cs_x, "y": cs_y},
-                        port=port,
-                    )
-                    if not create_result.get("success"):
-                        result = {
-                            "success": False,
-                            "data": f"Failed to create C# Script component: {create_result.get('data')}",
-                        }
-                    else:
-                        cdata = create_result["data"]
-                        component_guid = str(cdata.get("guid") or cdata.get("Guid"))
-
-                        params_payload: dict = {
-                            "guid": component_guid,
-                            "inputs": _gh_script_pin_defs_to_payload(cs_pin_defs_in),
-                            "outputs": _gh_script_pin_defs_to_payload(cs_pin_defs_out),
-                        }
-                        if cs_name:
-                            params_payload["nick"] = cs_name
-
-                        params_result = await call_rhino(
-                            "/gh/script-params", "POST",
-                            params_payload,
-                            port=port,
-                        )
-                        if not params_result.get("success"):
-                            result = {
-                                "success": False,
-                                "data": f"Component created but pin config failed: {params_result.get('data')}",
-                            }
-                        else:
-                            # Step 3: Write the script
-                            script_result = await call_rhino(
-                                "/gh/script", "POST",
-                                {"guid": component_guid, "script": full_script},
-                                port=port,
-                            )
-                            if not script_result.get("success"):
-                                result = {
-                                    "success": False,
-                                    "data": f"Component created but script injection failed: {script_result.get('data')}",
-                                }
-                            else:
-                                # Step 4: Check for compilation errors
-                                await asyncio.sleep(0.3)
-                                errors_result = await call_rhino(
-                                    "/gh/errors", "GET", {}, port=port,
-                                )
-                                component_errors = []
-                                if errors_result.get("success"):
-                                    edata = errors_result.get("data", {})
-                                    for err in edata.get("errors", []):
-                                        if err.get("guid") == component_guid:
-                                            component_errors = err.get("errors", [])
-                                            break
-
-                                result = {
-                                    "success": True,
-                                    "data": {
-                                        "component_guid": component_guid,
-                                        "pins_in": cs_pin_defs_in,
-                                        "pins_out": cs_pin_defs_out,
-                                        "position": {"x": cs_x, "y": cs_y},
-                                        "name": cs_name or "C# Script",
-                                        "code_length": len(full_script),
-                                    },
-                                }
-                                if component_errors:
-                                    result["data"]["compilation_errors"] = component_errors
-                                    result["data"]["warning"] = "Component placed but has compilation errors"
-
-                except Exception as e:
-                    result = {"success": False, "data": f"gh_create_csharp_script failed: {str(e)}"}
-
+            if result.get("success") and isinstance(result.get("data"), dict):
+                component_guid = result["data"].get("component_guid")
             await _record_gh_to_session(
                 action="gh_create_csharp_script",
+                params={k: v for k, v in arguments.items() if k != "code"},
+                result=result,
+                port=port,
+                components_created=[component_guid] if component_guid else [],
+            )
+
+        case "gh_create_script":
+            # Unified entry point: language discriminator required. Ambiguity is
+            # resolved at the API boundary (schema enum + helper redundant check)
+            # — see 2026-04-21 gh-script-component-routing design-pass memo §PR-2.
+            language = arguments.get("language")
+            result = await _execute_gh_create_script(language, arguments, port)
+            component_guid = None
+            if result.get("success") and isinstance(result.get("data"), dict):
+                component_guid = result["data"].get("component_guid")
+            await _record_gh_to_session(
+                action="gh_create_script",
                 params={k: v for k, v in arguments.items() if k != "code"},
                 result=result,
                 port=port,

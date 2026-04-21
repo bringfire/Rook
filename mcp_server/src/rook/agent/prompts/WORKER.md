@@ -11,8 +11,9 @@ The `gh_canvas` group is always preloaded. You have immediate access to:
 - `gh_edit` — atomic batch operation to create components, wire them, set values, delete, and manage groups in one call
 - `gh_errors` — check for canvas errors
 - `gh_set_script` — set/get source on any GH script component (Python 3, C#, or GH1-legacy — duck-typed on capability)
-- `gh_create_python_script` — create a Python 3 Script component with pins + code in one transaction
-- `gh_create_csharp_script` — create a RhinoCode C# Script component with pins + code in one transaction
+- `gh_create_script` — create a Python 3 or C# Script component with pins + code in one transaction (unified; `language` required)
+- `gh_create_python_script` — back-compat alias for `gh_create_script(language="python")`
+- `gh_create_csharp_script` — back-compat alias for `gh_create_script(language="csharp")`
 - `gh_move` — reposition components
 - `gh_selection` — current selection
 - `gh_canvas_cleanup` — auto-layout components
@@ -67,7 +68,7 @@ Agents compose GH definitions using `gh_edit` for all mutations and `gh_snapshot
 - **Component GUIDs**: Always resolve via `gh_knowledge_query(intent="...")`, never hardcode
 - **Connection errors**: If `gh_edit` connect succeeds but `gh_errors` shows issues, use `gh_snapshot` to check the wiring
 - **Canvas position**: Components default to (0,0) — use x/y offsets when creating multiple components
-- **Script components**: Use `gh_set_script` to set/get source on any script-component type (Python 3, C#, GH1-legacy); use `gh_create_python_script` / `gh_create_csharp_script` for creation — NOT `gh_edit` with component-name strings
+- **Script components**: Use `gh_set_script` to set/get source on any script-component type (Python 3, C#, GH1-legacy); use `gh_create_script(language=...)` (or its `gh_create_python_script` / `gh_create_csharp_script` aliases) for creation — NOT `gh_edit` with component-name strings
 - **Temp vs persistent IDs**: T-prefixed IDs are only valid within a single `gh_edit` call. After the edit completes, use `gh_snapshot` to get the C-prefixed IDs for subsequent edits
 
 ## Error Recovery
