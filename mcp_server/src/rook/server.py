@@ -286,12 +286,27 @@ async def _mcp_tool_executor(tool_name: str, params: dict) -> dict:
     This is the canonical tool executor shared by spawn_agent and
     plan_and_execute. It converts MCP TextContent responses back
     to plain dicts that the agent loop expects.
+
+    Failure envelopes: call_tool formats failures as `Error: <str>` or
+    `Error: <json>`. When the trailing payload parses as JSON (e.g. the
+    PR-3 gh_execute_intent handoff response, which carries structured
+    fields like `handoff_required` / `recommended_tool` /
+    `recommended_language`), return the parsed dict so agent callers can
+    branch on those markers without re-parsing the text. When it doesn't
+    parse, return the raw string — same surface as before this change.
     """
     try:
         result = await call_tool(tool_name, params)
         if isinstance(result, list) and result:
             content = result[0]
             text = getattr(content, "text", str(content))
+            if text.startswith("Error: "):
+                remainder = text[len("Error: "):]
+                try:
+                    parsed = json.loads(remainder)
+                except (json.JSONDecodeError, TypeError):
+                    return {"success": False, "data": remainder}
+                return {"success": False, "data": parsed}
             try:
                 return json.loads(text)
             except (json.JSONDecodeError, TypeError):
@@ -1028,6 +1043,136 @@ _GH_SCRIPT_LANGUAGE_CONFIGS: dict[str, dict[str, str]] = {
 }
 
 _GH_SCRIPT_VALID_LANGUAGES: tuple[str, ...] = tuple(_GH_SCRIPT_LANGUAGE_CONFIGS.keys())
+
+
+# Reverse map: fixed RhinoCode script-component GUID → (language, alias tool
+# name). Used by `_check_script_component_handoff` to refuse
+# `gh_execute_intent` resolutions that would silently bypass the
+# `gh_create_script` transactional create/set-pins/inject-code pipeline.
+# See 2026-04-21 gh-script-component-routing design-pass memo §PR-3.
+#
+# Narrow set: ONLY the two RhinoCode types that `gh_create_script` can
+# actually instantiate by fixed GUID. GH1-legacy types
+# (`GhPythonComponent`, `Component_CSNET_Script`) are deliberately
+# absent — the modern dedicated tools don't instantiate them, so a
+# handoff would be misleading. GUIDs stored lowercase; lookup lowercases
+# the input to match.
+_GH_SCRIPT_COMPONENT_CREATION_MAP: dict[str, dict[str, str]] = {
+    _GH_SCRIPT_LANGUAGE_CONFIGS["python"]["guid"].lower(): {
+        "language": "python",
+        "tool": "gh_create_script",
+        "alias": "gh_create_python_script",
+    },
+    _GH_SCRIPT_LANGUAGE_CONFIGS["csharp"]["guid"].lower(): {
+        "language": "csharp",
+        "tool": "gh_create_script",
+        "alias": "gh_create_csharp_script",
+    },
+}
+
+
+class _GhScriptHandoffRequired(Exception):
+    """Control-flow exception raised when `gh_execute_intent` would create
+    a script component via `/gh/create-component`. Carries the structured
+    handoff response; caught at the `gh_execute_intent` case-arm's outer
+    try/except boundary and returned verbatim as the tool result.
+
+    Exception-based bypass chosen over boolean-guard sprinkles because the
+    batch-execution block downstream of the check is ~500 lines with
+    tail-dependent locals (`wiring_results`, `values_applied`, etc.) whose
+    initialization lives inside the batch/fallback branches. A single
+    raise keeps the flow surgical; the matching except is the only
+    new pattern at the tail.
+    """
+
+    def __init__(self, response: dict[str, Any]):
+        super().__init__(response.get("data", "handoff_required"))
+        self.response = response
+
+
+def _check_script_component_handoff(
+    components: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Return a structured handoff-required response if any resolved
+    component matches a modern-dedicated script-creation path, else None.
+
+    Called by the `gh_execute_intent` case-arm on the final list of
+    components about to be dispatched — post-resolution (whether DSPy or
+    fallback), pre-dispatch. If the resolver (or fallback) selected a
+    RhinoCode Python 3 or C# Script component, `gh_execute_intent` would
+    otherwise create it via `/gh/create-component` and skip the
+    transactional create/set-pins/inject-code/check-errors pipeline that
+    `gh_create_script` provides. Refusing with a structured response
+    points the caller at the correct tool without auto-dispatching (the
+    caller supplies the `code` / `pins_in` / `pins_out` the intent
+    resolver doesn't produce).
+
+    Args:
+        components: Iterable of component-info dicts, each with a "guid"
+            key. Scans in order; first match wins. None / empty returns
+            None (no handoff needed).
+
+    Returns:
+        Structured handoff response dict on match, else None. Shape:
+            {
+                "success": False,
+                "data": <human-readable diagnostic string>,
+                "handoff_required": True,
+                "component_guid": <matched guid, lowercase>,
+                "recommended_tool": "gh_create_script",
+                "recommended_language": "python" | "csharp",
+                "alias_tool": "gh_create_python_script" | "gh_create_csharp_script",
+            }
+    """
+    if components is None:
+        return None
+    for comp in components:
+        if not isinstance(comp, dict):
+            continue
+        guid_raw = comp.get("guid")
+        if not isinstance(guid_raw, str) or not guid_raw:
+            continue
+        mapping = _GH_SCRIPT_COMPONENT_CREATION_MAP.get(guid_raw.lower())
+        if mapping is None:
+            continue
+        language = mapping["language"]
+        tool = mapping["tool"]
+        alias = mapping["alias"]
+        message = (
+            f"handoff_required: intent resolved to a {language} script "
+            f"component ({guid_raw}). Call "
+            f"{tool}(language=\"{language}\", ...) — not "
+            f"gh_execute_intent. The dedicated tool invokes the "
+            f"transactional create/set-pins/inject-code/check-errors "
+            f"pipeline that gh_execute_intent cannot replicate safely."
+        )
+        # Structured dict payload in `data` so the per-tool dispatcher
+        # can JSON-serialize it (call_tool formats dict-data on failure
+        # as `Error: {<json>}`). The `message` field carries the
+        # human-readable description; the sibling fields
+        # (handoff_required, component_guid, recommended_tool,
+        # recommended_language, alias_tool) are the structured
+        # machine-consumable markers.
+        #
+        # The top-level `_is_handoff` sentinel marks this result as a
+        # routing correction (NOT a true execution failure) so
+        # `_record_observation` can skip metrics recording and
+        # `call_tool`'s formatter can pop it before serialization,
+        # keeping it out of the response text. Precedent: `_metrics_extra`
+        # and `_injection_meta` use the same top-level-underscore convention.
+        return {
+            "success": False,
+            "_is_handoff": True,
+            "data": {
+                "handoff_required": True,
+                "message": message,
+                "component_guid": guid_raw.lower(),
+                "recommended_tool": tool,
+                "recommended_language": language,
+                "alias_tool": alias,
+            },
+        }
+    return None
 
 
 async def _execute_gh_create_script(
@@ -10226,8 +10371,16 @@ def _record_observation(
     """Build an Observation from call context and record to MetricsStore.
 
     Must never raise — all exceptions are caught and logged.
+
+    PR-3: results marked `_is_handoff=True` (gh_execute_intent routing
+    corrections) are skipped entirely — they are not execution failures
+    and must not inflate per-tool failure counts / success rates. The
+    sentinel is popped elsewhere before serialization; this check is a
+    defensive read.
     """
     try:
+        if result.get("_is_handoff"):
+            return
         from .learning.metrics_store import Observation, get_metrics_store
 
         args = arguments or {}
@@ -15119,6 +15272,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                                 x = base_x + (i * spacing)
                                 all_positioned.append((comp, x, base_y))
 
+                        # PR-3: Script-component handoff check. Refuses to
+                        # create modern RhinoCode Python 3 / C# Script
+                        # components via /gh/create-component and points the
+                        # caller at gh_create_script. Must run post-resolution
+                        # (both DSPy and fallback) and pre-dispatch. See
+                        # rook_docs/2026-04-21-gh-script-component-routing-
+                        # design-pass.md §PR-3.
+                        _handoff_response = _check_script_component_handoff(
+                            [comp for comp, _, _ in all_positioned]
+                        )
+                        if _handoff_response is not None:
+                            raise _GhScriptHandoffRequired(_handoff_response)
+
                         # ─── Batch execution via gh_edit ───────────────────────
                         # Assemble a single gh_edit document (create + connect +
                         # set_values) instead of N sequential HTTP calls. This
@@ -15641,6 +15807,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                         except Exception as session_error:
                             logger.warning(f"Failed to record to session: {session_error}")
 
+                except _GhScriptHandoffRequired as handoff:
+                    # PR-3: Intent would have instantiated a RhinoCode script
+                    # component via /gh/create-component, which skips the
+                    # transactional pipeline gh_create_script provides.
+                    # Return the structured handoff response verbatim; do
+                    # not track as a failure (it's a routing correction, not
+                    # an execution error) and do not run observation/session
+                    # recording (no component was created).
+                    result = handoff.response
                 except Exception as e:
                     # Don't overwrite low-confidence rejection messages
                     if not low_confidence_rejected:
@@ -16840,12 +17015,23 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     _duration_ms = (_time.perf_counter() - _t0) * 1000
     _record_observation(_tool_name, arguments, result, _duration_ms, injection_meta)
     result.pop("_metrics_extra", None)  # Clean up internal key before serialization
+    # PR-3: strip the handoff sentinel before serialization so it does
+    # not leak into the caller-visible response text. `_record_observation`
+    # already consumed its semantic meaning above.
+    result.pop("_is_handoff", None)
 
-    # Format response
+    # Format response. For failures, preserve structured dict payloads
+    # (e.g. PR-3's gh_execute_intent handoff response) as JSON instead of
+    # stringifying via Python's default `str(dict)` repr — keeps the
+    # structured fields parseable on the caller side.
     if result.get("success"):
         text = json.dumps(result.get("data"), indent=2)
     else:
-        text = f"Error: {result.get('data', 'Unknown error')}"
+        _data_val = result.get("data", "Unknown error")
+        if isinstance(_data_val, dict):
+            text = f"Error: {json.dumps(_data_val, indent=2)}"
+        else:
+            text = f"Error: {_data_val}"
 
     return [TextContent(type="text", text=text)]
 
