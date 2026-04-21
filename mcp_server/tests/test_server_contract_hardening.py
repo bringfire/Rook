@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -432,6 +433,238 @@ async def test_gh_set_script_pins_merges_existing_component_params(monkeypatch, 
     assert payload["data"]["pins_in"][0]["access"] == "list"
     assert payload["data"]["pins_out"][0]["name"] == "JoinedResult"
     assert payload["data"]["pins_out"][0]["description"] == "Joined result"
+
+
+# --- #41 coverage gaps for gh_set_script_pins ----------------------------
+# Each test below uses a `_make_component_mock` helper to return a controlled
+# params payload on `/gh/component`, then asserts either the payload shape
+# of a resulting `/gh/script-params` POST (positive path) or the absence of
+# one (rejection path). See https://github.com/bringfire/Rook/issues/41.
+
+
+def _make_component_mock(inputs: list[dict], outputs: list[dict] | None = None):
+    """Return a (fake_call_rhino, routes_called) tuple.
+
+    `routes_called` is a list of (route, method, payload) tuples that the
+    individual test asserts on. The mock ignores all routes other than
+    /gh/component and /gh/script-params — any other call raises to surface
+    test-surface drift loudly.
+    """
+    if outputs is None:
+        outputs = [
+            {"index": 0, "name": "out", "nickName": "out", "access": "item"},
+        ]
+    routes_called: list[tuple[str, str, Any]] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes_called.append((route, method, payload))
+        if route == "/gh/component":
+            return {
+                "success": True,
+                "data": {
+                    "guid": "script-guid",
+                    "nickName": "Script",
+                    "params": {"inputs": inputs, "outputs": outputs},
+                },
+            }
+        if route == "/gh/script-params":
+            return {
+                "success": True,
+                "data": {"Guid": "script-guid", "Inputs": len(inputs), "Outputs": len(outputs)},
+            }
+        raise AssertionError(f"Unexpected route: {route}")
+
+    return fake_call_rhino, routes_called
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_rejects_invalid_access_on_output_updates(monkeypatch, patched_server):
+    """Gap #1 — Python pre-validator rejects invalid access BEFORE the
+    mutation POST. Routed through `output_updates` because the live suite
+    already covers input-side symmetrically; `_normalize_gh_script_pin_access`
+    is shared across directions so this pin covers the normalizer branch
+    with complementary coverage.
+    """
+    fake_call_rhino, routes = _make_component_mock(
+        inputs=[{"index": 0, "name": "X", "nickName": "X", "access": "item"}],
+        outputs=[
+            {"index": 0, "name": "out", "nickName": "out", "access": "item"},
+            {"index": 1, "name": "Result", "nickName": "Result", "access": "item"},
+        ],
+    )
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "script-guid",
+            "output_updates": [{"current_name": "Result", "access": "bogus"}],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert "Invalid pin access 'bogus'" in payload["data"]
+    component_reads = [r for r in routes if r[0] == "/gh/component"]
+    script_params_writes = [r for r in routes if r[0] == "/gh/script-params"]
+    assert len(component_reads) == 1, f"expected 1 /gh/component read, got {routes!r}"
+    assert not script_params_writes, f"no /gh/script-params POST expected, got {routes!r}"
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_current_name_nick_collision_first_wins(monkeypatch, patched_server):
+    """Gap #2 — current_name lookup accepts either pin.name or pin.nick, and
+    returns the first index-order match. Pins this behavior explicitly since
+    the issue flagged it as un-asserted (see `_apply_gh_script_pin_updates`
+    loop at server.py:725-731). First-match-wins on name-or-nick is the
+    current contract; tightening to name-only or raising on collision would
+    be a separate behavior-change PR.
+    """
+    fake_call_rhino, _ = _make_component_mock(
+        inputs=[
+            # Two pins where the second one's `name` collides with the first's `nick`.
+            {"index": 0, "name": "Alpha", "nickName": "X", "access": "item"},
+            {"index": 1, "name": "X", "nickName": "Beta", "access": "item"},
+        ],
+    )
+    script_params_payloads: list[dict] = []
+
+    async def recording_call_rhino(route, method="GET", payload=None, port=None):
+        result = await fake_call_rhino(route, method, payload, port)
+        if route == "/gh/script-params":
+            script_params_payloads.append(payload)
+        return result
+
+    monkeypatch.setattr(server, "call_rhino", recording_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "script-guid",
+            "input_updates": [{"current_name": "X", "name": "Renamed"}],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert len(script_params_payloads) == 1
+    inputs = script_params_payloads[0]["inputs"]
+    # First-match-wins: pin at index 0 has nick="X", so current_name="X" hits
+    # it before the literal name="X" at index 1. The rename applies to [0].
+    assert inputs[0]["name"] == "Renamed"
+    assert inputs[0]["current_name"] == "Alpha"
+    assert inputs[0]["nick"] == "X"
+    # Second pin is untouched.
+    assert inputs[1]["name"] == "X"
+    assert inputs[1].get("current_name") is None or inputs[1]["current_name"] == "X"
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_multi_rename_in_one_call(monkeypatch, patched_server):
+    """Gap #3 — two independent renames in a single call both round-trip."""
+    fake_call_rhino, _ = _make_component_mock(
+        inputs=[
+            {"index": 0, "name": "A", "nickName": "A", "access": "item"},
+            {"index": 1, "name": "B", "nickName": "B", "access": "item"},
+        ],
+    )
+    script_params_payloads: list[dict] = []
+
+    async def recording_call_rhino(route, method="GET", payload=None, port=None):
+        result = await fake_call_rhino(route, method, payload, port)
+        if route == "/gh/script-params":
+            script_params_payloads.append(payload)
+        return result
+
+    monkeypatch.setattr(server, "call_rhino", recording_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "script-guid",
+            "input_updates": [
+                {"current_name": "A", "name": "A2"},
+                {"current_name": "B", "name": "B2"},
+            ],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert len(script_params_payloads) == 1
+    inputs = script_params_payloads[0]["inputs"]
+    assert inputs[0]["name"] == "A2" and inputs[0]["current_name"] == "A"
+    assert inputs[1]["name"] == "B2" and inputs[1]["current_name"] == "B"
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_no_op_rename_preserves_current_name(monkeypatch, patched_server):
+    """Gap #4 — `current_name == name` is valid and idempotent. The payload
+    must still carry `current_name` because the C# handler uses it as the
+    lookup key for wire re-attachment (see `GrasshopperHandler.cs:1262-1265`);
+    dropping it in the no-op case would break reconnection.
+    """
+    fake_call_rhino, _ = _make_component_mock(
+        inputs=[
+            {"index": 0, "name": "X", "nickName": "X", "access": "item"},
+        ],
+    )
+    script_params_payloads: list[dict] = []
+
+    async def recording_call_rhino(route, method="GET", payload=None, port=None):
+        result = await fake_call_rhino(route, method, payload, port)
+        if route == "/gh/script-params":
+            script_params_payloads.append(payload)
+        return result
+
+    monkeypatch.setattr(server, "call_rhino", recording_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "script-guid",
+            "input_updates": [{"current_name": "X", "name": "X"}],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert len(script_params_payloads) == 1
+    inputs = script_params_payloads[0]["inputs"]
+    assert inputs[0]["name"] == "X"
+    assert inputs[0]["current_name"] == "X", (
+        "no-op rename must still carry current_name for C# lookup-key correctness"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_pins_typo_current_name_raises_structured_error(monkeypatch, patched_server):
+    """Gap #5 — unresolvable `current_name` raises a clear error and does NOT
+    POST to /gh/script-params. Component read at /gh/component still happens
+    (resolution runs AFTER the read); the contract is "no mutating call."
+    """
+    fake_call_rhino, routes = _make_component_mock(
+        inputs=[
+            {"index": 0, "name": "X", "nickName": "X", "access": "item"},
+        ],
+    )
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_set_script_pins",
+        {
+            "guid": "script-guid",
+            "input_updates": [{"current_name": "DoesNotExist", "name": "Y"}],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert "targets missing pin 'DoesNotExist'" in payload["data"]
+    component_reads = [r for r in routes if r[0] == "/gh/component"]
+    script_params_writes = [r for r in routes if r[0] == "/gh/script-params"]
+    assert len(component_reads) == 1, f"expected 1 /gh/component read, got {routes!r}"
+    assert not script_params_writes, f"no /gh/script-params POST expected, got {routes!r}"
 
 
 @pytest.mark.asyncio
