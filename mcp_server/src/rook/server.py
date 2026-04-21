@@ -6378,15 +6378,25 @@ Use this to discover installed plugins and available component types.""",
         ),
         Tool(
             name="gh_set_script",
-            description="""Set or read the source code on a Python 3 Script component.
+            description="""Set or read the source code on a Grasshopper script component.
 
-To SET a script: pass guid + script (the full Python source code).
-To GET the current script: pass only guid (omit script).
+To SET: pass guid + script (the source code — Python, C#, or GH1-legacy syntax
+depending on the target component's runtime).
+To GET: pass only guid (omit script).
 
-The component must be a Python 3 Script (Py3) component.
+Accepts any script component: RhinoCode Python 3 Script, RhinoCode C# Script,
+GH1-legacy GhPython, GH1-legacy C#/.NET Script. The handler duck-types on
+capability (SetSource/TryGetSource for RhinoCode, ScriptSource property for
+GH1-legacy) — language is inferred from the component's type, not claimed
+by the caller.
+
 After setting, automatically triggers ExpireSolution so outputs recompute.
 
-Prefer this over rhino_execute workarounds for script components.""",
+Prefer this over `rhino_execute` for ALL GH script source/pin work.
+`rhino_execute` runs Python via RhinoCode's RunPythonScript in-process —
+it can technically reach GH via Grasshopper namespace imports, but the
+result is unstructured, unsupported, and bypasses the capability detection
+this tool provides. This tool is the correct substrate.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -8137,13 +8147,26 @@ Example: Get info for Sphere and Loft:
         ),
         Tool(
             name="gh_execute_intent",
-            description="""Execute a Grasshopper intent - create components and wire them together.
+            description="""Execute a Grasshopper intent - create and wire generic component graphs.
 
-This is the ONLY tool for creating GH components. All component creation MUST go through this tool.
+Owns generic component creation (sliders, math, geometry primitives, data
+manipulation, etc.). Does NOT own script components — programmable
+components (Python, C#) belong to `gh_create_python_script` /
+`gh_create_csharp_script`, which create by fixed component GUID and invoke
+a transactional create/set-pins/inject-code/check-errors pipeline that
+this intent tool cannot replicate safely.
+
+For script-component work, call the dedicated create tools directly —
+do not route through this tool.
+
 It automatically:
 1. Queries the knowledge system for matching components (with gotchas and correct GUIDs)
 2. Creates components using learned knowledge
 3. Returns warnings about known pitfalls
+
+Availability: excluded from worker-mode preload per tool_groups.py — worker
+agents should compose via `gh_canvas` tools, which includes the dedicated
+script creation tools.
 
 OPTIONAL PLANNING (Phase 4):
 For complex intents, you can submit an execution plan. Plans help organize multi-step work
