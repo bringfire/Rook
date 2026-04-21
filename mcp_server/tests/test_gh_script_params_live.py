@@ -99,11 +99,22 @@ async def _create_upstream_panel(content: str = "42") -> str:
     return guid
 
 
-async def _wire(source_guid: str, target_guid: str, target_param: str) -> None:
-    """Wire source.output[0] -> target.input[target_param] via raw HTTP.
+async def _wire(
+    source_guid: str,
+    target_guid: str,
+    *,
+    target_param: str | None = None,
+    source_param: str | None = None,
+) -> None:
+    """Wire source.output -> target.input via raw HTTP.
 
     `gh_connect` is not a registered MCP tool; the wiring route lives on the
     companion directly as POST /gh/connect (see GrasshopperHandler.cs:5193).
+
+    `source_param` is required when the source is a multi-output component
+    (e.g. the script's second output "Result"). `target_param` can be omitted
+    when the target is a simple IGH_Param (panel/slider) — GetParam
+    (GrasshopperHandler.cs:5822) returns the component itself.
     """
     from rook.bridge import get_rhino_host
 
@@ -111,15 +122,14 @@ async def _wire(source_guid: str, target_guid: str, target_param: str) -> None:
     if base_url is None:
         pytest.skip("Native plugin not discoverable; skipping live test.")
 
+    body: dict[str, Any] = {"sourceGuid": source_guid, "targetGuid": target_guid}
+    if target_param is not None:
+        body["targetParam"] = target_param
+    if source_param is not None:
+        body["sourceParam"] = source_param
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{base_url}/gh/connect",
-            json={
-                "sourceGuid": source_guid,
-                "targetGuid": target_guid,
-                "targetParam": target_param,
-            },
-        )
+        resp = await client.post(f"{base_url}/gh/connect", json=body)
     envelope = resp.json()
     assert envelope.get("success") is True, f"POST /gh/connect failed: {envelope!r}"
 
@@ -197,11 +207,57 @@ async def _setup_wired_script() -> tuple[str, tuple[tuple[tuple[str, int], ...],
     """
     script_guid = await _create_python_script()
     panel_guid = await _create_upstream_panel()
-    await _wire(panel_guid, script_guid, "X")
+    await _wire(panel_guid, script_guid, target_param="X")
     sig = _connections_signature(await _get_connections(script_guid))
     input_sig, _ = sig
     assert input_sig and input_sig[0][1] >= 1, (
         f"test setup failed — wire did not land; initial signature was {sig!r}"
+    )
+    return script_guid, sig
+
+
+async def _setup_wired_script_with_downstream_recipient() -> tuple[str, tuple[tuple[tuple[str, int], ...], tuple[tuple[str, int], ...]]]:
+    """Create script + upstream panel + downstream panel, wire BOTH directions,
+    return (script_guid, signature_before).
+
+    The script's "Result" output is wired to a second panel so that `Outputs`
+    has at least one entry with Recipients.Count >= 1. Covers Codex's
+    residual-risk note from PR #79: invalid `outputs` payloads are guarded
+    structurally by the same `ValidateScriptPinDef` pre-validation loop as
+    `inputs`, but the existing 11 live tests only prove the invariant on the
+    input side.
+
+    Fails loud if either wire fails to land — same pattern as _setup_wired_script.
+    """
+    from rook.server import _mcp_tool_executor
+
+    script_guid = await _create_python_script()
+    upstream_guid = await _create_upstream_panel("upstream")
+    # Second panel positioned to the right so it doesn't overlap the upstream.
+    downstream_res = await _mcp_tool_executor(
+        "gh_create_panel",
+        {"content": "downstream", "x": 500, "y": 100},
+    )
+    assert not _is_error(downstream_res), f"downstream panel create failed: {downstream_res!r}"
+    downstream_guid = _get_guid(downstream_res)
+    assert isinstance(downstream_guid, str) and downstream_guid, (
+        f"no guid in downstream panel: {downstream_res!r}"
+    )
+
+    await _wire(upstream_guid, script_guid, target_param="X")
+    # Script has two outputs: the default "out" print stream at index 0,
+    # then "Result" at index 1. Wire the "Result" output -> downstream panel
+    # (panel is a simple IGH_Param, so omit targetParam — GetParam returns
+    # the panel itself per GrasshopperHandler.cs:5843).
+    await _wire(script_guid, downstream_guid, source_param="Result")
+
+    sig = _connections_signature(await _get_connections(script_guid))
+    input_sig, output_sig = sig
+    assert input_sig and input_sig[0][1] >= 1, (
+        f"test setup failed — input wire did not land; initial signature was {sig!r}"
+    )
+    assert output_sig and any(name == "Result" and count >= 1 for name, count in output_sig), (
+        f"test setup failed — output wire did not land; initial output_sig was {output_sig!r}"
     )
     return script_guid, sig
 
@@ -363,4 +419,21 @@ async def test_valid_set_script_pins_still_succeeds(fresh_document):
     )
     assert after_inputs[0][1] >= 1, (
         f"wire was dropped on valid rename; after_inputs={after_inputs!r}"
+    )
+
+
+async def test_bogus_access_on_outputs_rejected_without_mutation(fresh_document):
+    """#41 Codex residual-risk bundle — prove the output-side destructive path
+    is guarded symmetric to inputs. Structurally already the case (the
+    ValidateScriptPinDef pre-validation loop iterates `outputs` the same way
+    it iterates `inputs`), but the existing 11 tests all probe the input side.
+    This 12th case wires script.Result -> downstream panel, sends an invalid
+    `outputs` payload, and asserts the downstream wire survived.
+    """
+    guid, before = await _setup_wired_script_with_downstream_recipient()
+    await _assert_rejected_without_mutation(
+        guid,
+        before,
+        {"guid": guid, "outputs": [{"name": "Result", "access": "bogus"}]},
+        "invalid access",
     )
