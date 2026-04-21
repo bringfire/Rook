@@ -598,7 +598,11 @@ def _gh_script_pin_defs_to_payload(pin_defs: list[dict[str, Any]]) -> list[dict[
     payload: list[dict[str, Any]] = []
     for pin in pin_defs:
         entry = {"name": pin["name"]}
-        for key in ("current_name", "nick", "access", "optional", "description", "hidden"):
+        # "type" is forward-compat: the C# /gh/script-params handler currently ignores
+        # it (RhinoCode script components use generic object params), but future
+        # consumers — param subclass selection, Chirp metadata cache, round-trip
+        # preservation from /gh/component reads — need it in the payload. See #38.
+        for key in ("type", "current_name", "nick", "access", "optional", "description", "hidden"):
             if key in pin:
                 entry[key] = pin[key]
         payload.append(entry)
