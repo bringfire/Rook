@@ -1021,6 +1021,52 @@ namespace Rook.Handlers
             }
         }
 
+        // Pre-validates a script pin definition BEFORE any destructive component
+        // mutation. Mirrors the runtime checks in TryApplyScriptPinDefinition plus
+        // the JSON type checks that were previously implicit (and threw post-unregister).
+        // See issue #39. Existing error text for pre-existing branches is preserved.
+        private static string? ValidateScriptPinDef(JsonElement pinDef, int idx, string direction)
+        {
+            if (pinDef.ValueKind != JsonValueKind.Object)
+                return $"{direction} pin at index {idx} must be an object";
+
+            if (!pinDef.TryGetProperty("name", out var nameEl))
+                return "Pin definition is missing 'name'";
+            if (nameEl.ValueKind != JsonValueKind.String)
+                return $"{direction} pin at index {idx}: 'name' must be a string";
+            var name = nameEl.GetString();
+            if (string.IsNullOrWhiteSpace(name))
+                return "Pin definition has an empty 'name'";
+
+            if (pinDef.TryGetProperty("nick", out var nickEl)
+                && nickEl.ValueKind != JsonValueKind.String
+                && nickEl.ValueKind != JsonValueKind.Null)
+                return $"{direction} pin '{name}': 'nick' must be a string when present";
+
+            if (pinDef.TryGetProperty("current_name", out var currentNameEl)
+                && currentNameEl.ValueKind != JsonValueKind.String
+                && currentNameEl.ValueKind != JsonValueKind.Null)
+                return $"{direction} pin '{name}': 'current_name' must be a string when present";
+
+            if (pinDef.TryGetProperty("access", out var accessEl))
+            {
+                if (accessEl.ValueKind != JsonValueKind.String && accessEl.ValueKind != JsonValueKind.Null)
+                    return $"{direction} pin '{name}': 'access' must be a string when present";
+                var accessText = accessEl.GetString()?.Trim().ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(accessText)
+                    && accessText != "item" && accessText != "single"
+                    && accessText != "list" && accessText != "tree")
+                    return $"Invalid access '{accessText}' for pin '{name}'";
+            }
+
+            if (pinDef.TryGetProperty("description", out var descriptionEl)
+                && descriptionEl.ValueKind != JsonValueKind.String
+                && descriptionEl.ValueKind != JsonValueKind.Null)
+                return $"{direction} pin '{name}': 'description' must be a string when present";
+
+            return null;
+        }
+
         private static bool TryApplyScriptPinDefinition(
             object param,
             JsonElement pinDef,
@@ -1131,6 +1177,8 @@ namespace Rook.Handlers
 
                 if (!root.TryGetProperty("guid", out var guidEl))
                     return new ApiResponse { Success = false, Data = "Missing guid parameter" };
+                if (guidEl.ValueKind != JsonValueKind.String)
+                    return new ApiResponse { Success = false, Data = "'guid' must be a string" };
 
                 var guid = guidEl.GetString()!;
                 var obj = FindObjectById(gh.Document, guid);
@@ -1218,6 +1266,45 @@ namespace Rook.Handlers
                 int droppedInputSourceCount = 0;
                 int restoredOutputRecipientCount = 0;
                 int droppedOutputRecipientCount = 0;
+
+                // Pre-validate all user-provided JSON BEFORE any destructive mutation.
+                // See issue #39 — previously, invalid fields (non-string name/access/nick/
+                // current_name/description or non-array inputs/outputs) threw inside the
+                // unregister→reregister loops below, leaving the component stripped and
+                // surfacing as a generic "ScriptParams failed" via the top-level catch.
+                // Now: all shape + value checks run first; any failure returns
+                // Success=false with the component untouched.
+                if (root.TryGetProperty("nick", out var rootNickEl)
+                    && rootNickEl.ValueKind != JsonValueKind.String
+                    && rootNickEl.ValueKind != JsonValueKind.Null)
+                    return new ApiResponse { Success = false, Data = "'nick' must be a string when present" };
+
+                if (root.TryGetProperty("inputs", out var preInputsEl))
+                {
+                    if (preInputsEl.ValueKind != JsonValueKind.Array)
+                        return new ApiResponse { Success = false, Data = "'inputs' must be an array when present" };
+                    int pinIdx = 0;
+                    foreach (var pinDef in preInputsEl.EnumerateArray())
+                    {
+                        var err = ValidateScriptPinDef(pinDef, pinIdx, "input");
+                        if (err != null)
+                            return new ApiResponse { Success = false, Data = err };
+                        pinIdx++;
+                    }
+                }
+                if (root.TryGetProperty("outputs", out var preOutputsEl))
+                {
+                    if (preOutputsEl.ValueKind != JsonValueKind.Array)
+                        return new ApiResponse { Success = false, Data = "'outputs' must be an array when present" };
+                    int pinIdx = 0;
+                    foreach (var pinDef in preOutputsEl.EnumerateArray())
+                    {
+                        var err = ValidateScriptPinDef(pinDef, pinIdx, "output");
+                        if (err != null)
+                            return new ApiResponse { Success = false, Data = err };
+                        pinIdx++;
+                    }
+                }
 
                 // Remove all existing inputs (iterate backwards)
                 var inputs = inputProp.GetValue(paramsObj);
