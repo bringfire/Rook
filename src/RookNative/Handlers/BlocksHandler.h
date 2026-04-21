@@ -54,6 +54,7 @@ void HandleBlockInstances(const httplib::Request& req, httplib::Response& res);
 void HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& res);
 void HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Response& res);
 void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res);
+void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& res);
 void HandleBlockSetInstanceProperties(const httplib::Request& req, httplib::Response& res);
 void HandleBlockSetInstanceVisibility(const httplib::Request& req, httplib::Response& res);
 void HandleBlockTransformInstance(const httplib::Request& req, httplib::Response& res);

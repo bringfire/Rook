@@ -1308,6 +1308,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -1440,6 +1447,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -1572,6 +1586,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -1683,6 +1704,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -1796,6 +1824,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 
@@ -3333,6 +3368,13 @@ namespace Rook.Handlers
                     return new ApiResponse { Success = false, Data = "Request body required" };
 
                 var request = JsonSerializer.Deserialize<JsonElement>(body);
+                // Envelope guard (inherited from PR #21): JsonElement.TryGetProperty
+                // throws InvalidOperationException on non-object kinds (array / string /
+                // number / bool / null). Without this check, a malformed body falls into
+                // the outer try/catch and surfaces as a generic wrapper message rather
+                // than the intended shape-error contract.
+                if (request.ValueKind != JsonValueKind.Object)
+                    return new ApiResponse { Success = false, Data = "Request body must be a JSON object" };
                 if (!request.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
                     return new ApiResponse { Success = false, Data = "'items' array required" };
 

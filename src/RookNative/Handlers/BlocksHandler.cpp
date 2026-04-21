@@ -61,6 +61,53 @@ static std::string GetLayerFullPath(CRhinoDoc* pDoc, int layerIdx)
     return WideToUtf8(fullPath);
 }
 
+// Decompose an instance xform into its translation and rotation
+// components and return a new xform with scale reset to identity
+// while translation + rotation are preserved. The public tool
+// contract for /block/reset-scale{,-batch} is "reset scale to
+// 1,1,1" — NOT "reset to identity orientation at the origin."
+// An earlier version of both handlers extracted only translation,
+// silently destroying rotation on every rotated block instance
+// (flagged Codex 2026-04-20 review of PR #77).
+//
+// Column-length decomposition: the 3x3 linear part's columns
+// encode per-axis rotation*scale. Dividing each column by its
+// length produces an orthonormal rotation, which is recombined
+// with the original translation.
+//
+// Reflection caveat: if oldXform includes reflection (e.g. mirror),
+// column-length drops the sign — the result is pure rotation with
+// determinant +1 rather than rotation*reflection (-1). That's
+// consistent with the "reset scale" contract since reflection is
+// a form of scaling; callers who want to preserve reflection can't
+// use this route.
+//
+// Degenerate-scale guard: if any column has zero length (degenerate
+// scale along that axis, shouldn't happen from Rhino's UI but
+// possible via scripted insert), fall back to translation-only
+// rather than producing NaN rows. This matches the legacy
+// behavior on that edge case.
+static ON_Xform BuildResetScaleXform(const ON_Xform& oldXform)
+{
+    const ON_3dVector translation(oldXform[0][3], oldXform[1][3], oldXform[2][3]);
+
+    const double sx = ON_3dVector(oldXform[0][0], oldXform[1][0], oldXform[2][0]).Length();
+    const double sy = ON_3dVector(oldXform[0][1], oldXform[1][1], oldXform[2][1]).Length();
+    const double sz = ON_3dVector(oldXform[0][2], oldXform[1][2], oldXform[2][2]).Length();
+
+    if (sx <= ON_EPSILON || sy <= ON_EPSILON || sz <= ON_EPSILON)
+        return ON_Xform::TranslationTransformation(translation);
+
+    ON_Xform result = ON_Xform::IdentityTransformation;
+    result[0][0] = oldXform[0][0] / sx; result[1][0] = oldXform[1][0] / sx; result[2][0] = oldXform[2][0] / sx;
+    result[0][1] = oldXform[0][1] / sy; result[1][1] = oldXform[1][1] / sy; result[2][1] = oldXform[2][1] / sy;
+    result[0][2] = oldXform[0][2] / sz; result[1][2] = oldXform[1][2] / sz; result[2][2] = oldXform[2][2] / sz;
+    result[0][3] = translation.x;
+    result[1][3] = translation.y;
+    result[2][3] = translation.z;
+    return result;
+}
+
 static std::vector<ON_UUID> ParseInstanceIds(const nlohmann::json& body)
 {
     std::vector<ON_UUID> ids;
@@ -2409,6 +2456,220 @@ void HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Respo
     catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
 }
 
+// POST /block/reset-scale-batch
+//
+// Batch variant of /block/reset-scale. Accepts `ids: [uuid-str, ...]`
+// and resets each instance's scale to 1.0 in a single UndoScope.
+//
+// Reference pattern: HandleBlockReplaceInstanceBatch (per-item raw
+// UUID validation, best-effort loop with per-element error records,
+// request-order preserved in response). Deliberate divergences from
+// the ParseInstanceIds family (HandleBlockSetInstanceProperties):
+//   - empty `ids: []` is an idempotent success no-op (not invalid_input)
+//   - malformed/non-string elements produce per-item `invalid_id`
+//     records with the raw value echoed (not silently dropped)
+//
+// GUID-preservation contract (matches single-instance + batch siblings;
+// documented at BlocksHandler.cs:3314): CreateInstanceObject called
+// with a copied ON_3dmObjectAttributes preserves the original
+// `m_uuid`. Response field `newInstanceId == oldInstanceId` by design;
+// fields preserved for parity with the single-instance route.
+// Duplicate id in request: both iterations succeed (second finds the
+// recreated instance at the same UUID).
+//
+// Error codes (match HandleBlockReplaceInstanceBatch):
+//   invalid_id      — element is not a string, or string is not a UUID
+//   not_found       — UUID valid but no object at that id
+//   not_instance    — object exists but is not a CRhinoInstanceObject
+//   recreate_failed — CreateInstanceObject returned null
+
+void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    if (body.is_null())
+    {
+        CRookServer::SendError(res, "Request body required");
+        return;
+    }
+    if (!body.contains("ids") || !body["ids"].is_array())
+    {
+        CRookServer::SendError(res, "'ids' array required");
+        return;
+    }
+
+    const nlohmann::json ids = body["ids"];
+    const bool isNoOp = ids.empty();
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, ids, isNoOp]() -> WriteResult
+    {
+        // Declared-no-op: empty `ids: []` returns a success envelope
+        // without opening an UndoScope or calling Redraw, so no-ops
+        // leave no fingerprint in the undo stack. Matches the rhythm
+        // at UserTextHandler.cpp:710 for /usertext/*-delete. Codex
+        // review of PR #77 flagged that the no-op path was still
+        // opening UndoScope + Redraw unconditionally, violating the
+        // documented no-op contract.
+        if (isNoOp)
+        {
+            // Resolve the doc to fail-fast on dispatch setup, but
+            // don't touch it — the return shape is constant.
+            (void)ResolveDoc(docSn);
+            WriteResult wr;
+            wr.success = true;
+            wr.data["modifiedCount"] = 0;
+            wr.data["instances"] = nlohmann::json::array();
+            return wr;
+        }
+
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+        UndoScope undo(pDoc, L"Batch Reset Block Scale");
+
+        nlohmann::json instances = nlohmann::json::array();
+        int modifiedCount = 0;
+
+        for (const auto& el : ids)
+        {
+            // Echo value for the per-item `id` field: whatever the
+            // caller sent (string or not) is mirrored so they can
+            // correlate by index even on parse failure. Matches
+            // HandleBlockReplaceInstanceBatch's echoId rhythm.
+            nlohmann::json echoId = el.is_null() ? nlohmann::json(nullptr) : el;
+
+            if (!el.is_string())
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "invalid_id"},
+                });
+                continue;
+            }
+
+            const std::string idStr = el.get<std::string>();
+            ON_UUID instanceId = ON_UuidFromString(Utf8ToWide(idStr));
+            if (ON_UuidIsNil(instanceId))
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "invalid_id"},
+                });
+                continue;
+            }
+
+            const CRhinoObject* obj = pDoc->LookupObject(instanceId);
+            if (!obj)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "not_found"},
+                });
+                continue;
+            }
+
+            const CRhinoInstanceObject* pInstObj = CRhinoInstanceObject::Cast(obj);
+            if (!pInstObj)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "not_instance"},
+                });
+                continue;
+            }
+
+            ON_Xform oldXform = pInstObj->InstanceXform();
+            const CRhinoInstanceDefinition* pDef = pInstObj->InstanceDefinition();
+            if (!pDef)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "recreate_failed"},
+                });
+                continue;
+            }
+            int idefIndex = pDef->Index();
+            ON_3dmObjectAttributes attrs = pInstObj->Attributes();
+
+            // Preserve translation + rotation; reset per-axis scale to
+            // 1.0. Earlier code here used translation only, which
+            // silently destroyed rotation (Codex review of PR #77).
+            ON_Xform newXform = BuildResetScaleXform(oldXform);
+
+            // Check DeleteObject return value — if deletion fails but
+            // CreateInstanceObject later succeeds, the document is
+            // left with duplicate instances AND the handler would
+            // report success with the wrong oldInstanceId (Codex
+            // review of PR #77 rotation-fixup round). Surface
+            // recreate_failed BEFORE attempting the recreate.
+            // Stronger-recreate-semantics pattern per BlocksHandler.cpp:657.
+            const bool deleted = pDoc->DeleteObject(
+                CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+            if (!deleted)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "recreate_failed"},
+                    {"message", "Failed to delete original instance before recreate"},
+                });
+                continue;
+            }
+
+            CRhinoInstanceObject* pNewInst =
+                pDoc->m_instance_definition_table.CreateInstanceObject(
+                    idefIndex, newXform, &attrs, nullptr, false, false, true);
+
+            if (!pNewInst)
+            {
+                instances.push_back({
+                    {"id", echoId},
+                    {"success", false},
+                    {"error", "recreate_failed"},
+                    {"message", "CreateInstanceObject returned null after delete"},
+                });
+                continue;
+            }
+
+            // GUID-preservation contract: CreateInstanceObject honors
+            // attrs.m_uuid (copied from the deleted instance), so
+            // newInstanceId equals oldInstanceId. Both fields kept for
+            // shape parity with the single-instance route.
+            const std::string oldIdStr = UuidToString(instanceId);
+            const std::string newIdStr = UuidToString(pNewInst->Attributes().m_uuid);
+
+            instances.push_back({
+                {"id", echoId},
+                {"success", true},
+                {"oldInstanceId", oldIdStr},
+                {"newInstanceId", newIdStr},
+                {"scale", {1.0, 1.0, 1.0}},
+            });
+            modifiedCount++;
+        }
+
+        pDoc->Redraw();
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data["modifiedCount"] = modifiedCount;
+        wr.data["instances"] = std::move(instances);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success) CRookServer::SendSuccess(res, result.data);
+        else CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
+}
+
 // POST /block/reset-scale
 void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res)
 {
@@ -2436,10 +2697,22 @@ void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res)
         int idefIndex = pDef->Index();
         ON_3dmObjectAttributes attrs = pInstObj->Attributes();
 
-        ON_3dVector translation(oldXform[0][3], oldXform[1][3], oldXform[2][3]);
-        ON_Xform newXform = ON_Xform::TranslationTransformation(translation);
+        // Preserve translation + rotation; reset per-axis scale to
+        // 1.0. Earlier code here used translation only, which
+        // silently destroyed rotation (Codex review of PR #77).
+        ON_Xform newXform = BuildResetScaleXform(oldXform);
 
-        pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+        // Check DeleteObject return value — if deletion fails but
+        // CreateInstanceObject later succeeds, the document is left
+        // with duplicate instances AND the handler returns success
+        // with the wrong oldInstanceId (Codex review of PR #77
+        // rotation-fixup round). Fail loudly BEFORE recreating.
+        // Stronger-recreate-semantics pattern per BlocksHandler.cpp:657.
+        const bool deleted = pDoc->DeleteObject(
+            CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
+        if (!deleted)
+            throw std::runtime_error(
+                "Failed to delete original instance before reset-scale recreate");
 
         CRhinoInstanceObject* pNewInst =
             pDoc->m_instance_definition_table.CreateInstanceObject(

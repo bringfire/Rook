@@ -1104,6 +1104,21 @@ def _build_route_table() -> dict[str, RouteSpec]:
         optional_params=("mode",),
         description="Reset a block instance's scale to 1.0",
     )
+    routes["reset_block_instance_scale_batch"] = RouteSpec(
+        endpoint="/block/reset-scale-batch",
+        required_params=("ids",),
+        description=(
+            "Batch variant of reset_block_instance_scale. Resets many instances' "
+            "scales to 1,1,1 in a single UndoScope. Per-element best-effort: "
+            "malformed UUIDs, unknown ids, and non-instance objects produce per-"
+            "element error records without aborting the batch. GUIDs are "
+            "preserved (oldInstanceId == newInstanceId per successful entry) — "
+            "matches the single-instance route + existing batch-family contract. "
+            "Empty `ids: []` is an idempotent success no-op. Response shape: "
+            "{modifiedCount, instances: [{id, success, ...}, ...]} with request "
+            "order preserved."
+        ),
+    )
     routes["link_block"] = RouteSpec(
         endpoint="/block/link",
         required_params=("path", "name"),
@@ -1335,7 +1350,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "purge_blocks",
         "replace_block_geometry", "replace_block_object_geometry",
         "transform_block_object",
-        "replace_block_instance", "replace_block_instance_batch", "reset_block_instance_scale",
+        "replace_block_instance", "replace_block_instance_batch",
+        "reset_block_instance_scale", "reset_block_instance_scale_batch",
         "link_block", "unlink_block", "refresh_block",
         "find_block_instances", "block_objects_detailed",
         "set_block_instance_visibility",

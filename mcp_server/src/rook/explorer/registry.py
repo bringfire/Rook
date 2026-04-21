@@ -161,6 +161,7 @@ class ToolRegistry:
         "rhino_block_replace_instance": CATEGORY_MODIFICATION,
         "rhino_block_replace_instance_batch": CATEGORY_MODIFICATION,
         "rhino_block_reset_scale": CATEGORY_MODIFICATION,
+        "rhino_block_reset_scale_batch": CATEGORY_MODIFICATION,
         "rhino_block_link": CATEGORY_MODIFICATION,
         "rhino_block_refresh": CATEGORY_MODIFICATION,
         "rhino_block_unlink": CATEGORY_MODIFICATION,
@@ -249,6 +250,10 @@ class ToolRegistry:
         "rhino_curve_boolean_union": ("/curve/boolean", "POST"),
         "rhino_curve_boolean_difference": ("/curve/boolean", "POST"),
         "rhino_curve_boolean_intersection": ("/curve/boolean", "POST"),
+        # Block instance reset-scale — single-instance was missing from
+        # HTTP_MAPPINGS (pre-existing gap); batch PR #77 backfills both.
+        "rhino_block_reset_scale": ("/block/reset-scale", "POST"),
+        "rhino_block_reset_scale_batch": ("/block/reset-scale-batch", "POST"),
         # Add more as needed...
     }
 
