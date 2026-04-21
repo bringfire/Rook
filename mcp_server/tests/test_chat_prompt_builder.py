@@ -71,3 +71,10 @@ def test_persona_prompt_script_tool_language_is_capability_accurate(persona):
     assert "gh_create_csharp_script" in prompt, (
         f"{persona}: missing gh_create_csharp_script"
     )
+    # PR-2: unified gh_create_script tool is now primary; aliases remain for
+    # back-compat. Persona prompts must advertise the unified tool so agents
+    # can reach for the canonical discriminator-param entry point first.
+    assert "gh_create_script" in prompt, (
+        f"{persona}: missing gh_create_script (unified tool, PR-2) — "
+        "see rook_docs/2026-04-21-gh-script-component-routing-design-pass.md §PR-2"
+    )

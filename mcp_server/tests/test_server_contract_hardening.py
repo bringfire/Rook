@@ -1292,3 +1292,348 @@ async def test_gh_execute_intent_description_does_not_claim_only_tool():
     assert "All component creation MUST go through this tool" not in desc, (
         "gh_execute_intent description reintroduces MUST-go-through claim"
     )
+
+
+# ---------- gh_create_script — unified tool contract (PR-2) ----------
+# Anchors for 2026-04-21 gh-script-component-routing design-pass memo §PR-2.
+# The unified tool collapses gh_create_python_script / gh_create_csharp_script
+# onto a single discriminator-param tool; aliases remain for back-compat.
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_inputSchema_enforces_language():
+    """Load-bearing PR-2 contract test. The `language` argument must be
+    enforced at the API boundary via inputSchema (enum + required), not
+    just mentioned in description prose — a prose-only guarantee allows
+    structural drift where the description reads correctly but callers
+    are no longer blocked from omitting or mis-setting the language.
+    """
+    tools = await server.list_tools()
+    gh_create_script = next((t for t in tools if t.name == "gh_create_script"), None)
+    assert gh_create_script is not None, "gh_create_script tool missing from registered tools"
+
+    schema = gh_create_script.inputSchema
+    props = schema.get("properties", {})
+    assert "language" in props, "gh_create_script schema missing 'language' property"
+
+    language_schema = props["language"]
+    assert language_schema.get("enum") == ["python", "csharp"], (
+        f"gh_create_script language enum must be ['python', 'csharp']; got {language_schema.get('enum')!r}"
+    )
+
+    required = schema.get("required", [])
+    assert "language" in required, "gh_create_script must require 'language'"
+    assert "code" in required, "gh_create_script must require 'code'"
+
+    # Prose-level courtesy assertion — redundant with schema but keeps
+    # description aligned so casual reads of the tool catalog match reality.
+    desc = gh_create_script.description
+    assert "python" in desc and "csharp" in desc, (
+        "gh_create_script description must mention both languages"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_rejects_missing_language(monkeypatch, patched_server):
+    """Handler-level defense-in-depth. Schema-level enum enforcement is the
+    primary gate, but the handler also rejects at runtime so callers that
+    bypass schema validation (direct helper invocation, stale MCP clients)
+    see a structured invalid_input naming both valid choices.
+
+    The assertion checks no component-creation HTTP call fires; session-
+    recording HTTP calls (`/gh/document`) are expected and not asserted on.
+    """
+    routes_called: list[str] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes_called.append(route)
+        # /gh/document is the session-context probe — benign, allow it
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "unknown.gh", "path": ""}}
+        raise AssertionError(
+            f"Missing-language rejection must not hit the create pipeline; got route {route!r}"
+        )
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "code": "a = 1",
+            "pins_in": ["x:float"],
+            "pins_out": ["a:int"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert "language" in payload["data"].lower()
+    assert "python" in payload["data"]
+    assert "csharp" in payload["data"]
+    # Component-creation routes must not be called on invalid-language path.
+    for forbidden in ("/gh/create-component", "/gh/script-params", "/gh/script", "/gh/errors"):
+        assert forbidden not in routes_called, (
+            f"{forbidden} was called during rejection path; routes={routes_called!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_rejects_invalid_language(monkeypatch, patched_server):
+    """Unknown language values must be rejected with the same structured
+    message as omission — no silent fallback to python-as-default.
+    """
+    routes_called: list[str] = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        routes_called.append(route)
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "unknown.gh", "path": ""}}
+        raise AssertionError(
+            f"Invalid-language rejection must not hit the create pipeline; got route {route!r}"
+        )
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "rust",
+            "code": "fn main() {}",
+            "pins_in": ["x:float"],
+            "pins_out": ["a:int"],
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert "python" in payload["data"] and "csharp" in payload["data"]
+    for forbidden in ("/gh/create-component", "/gh/script-params", "/gh/script", "/gh/errors"):
+        assert forbidden not in routes_called, (
+            f"{forbidden} was called during rejection path; routes={routes_called!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_python_delegates_to_py3_guid(monkeypatch, patched_server):
+    """Unified tool with language='python' must route through the same
+    pipeline as the gh_create_python_script alias — fixed PY3 GUID,
+    auto-generated coercion preamble prepended to user code.
+    """
+    recorded_calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_calls.append((route, method, payload))
+        if route == "/gh/create-component":
+            assert payload["guid"] == "719467e6-7cf5-4848-99b0-c5dd57e5442c"
+            return {"success": True, "data": {"guid": "py-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "py-guid", "Inputs": 1, "Outputs": 1}}
+        if route == "/gh/script":
+            assert "# ── Auto-generated GH input coercion" in payload["script"]
+            return {"success": True, "data": {"Guid": "py-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "python",
+            "code": "a = Pts",
+            "pins_in": [{"name": "Pts", "type": "Point3d", "access": "list"}],
+            "pins_out": ["a:Point3d"],
+            "name": "Unified Py",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["component_guid"] == "py-guid"
+    assert payload["data"]["name"] == "Unified Py"
+    assert any(route == "/gh/create-component" for route, _, _ in recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_csharp_delegates_to_cs3_guid(monkeypatch, patched_server):
+    """Unified tool with language='csharp' must route through the same
+    pipeline as the gh_create_csharp_script alias — fixed CS3 GUID and
+    Script_Instance wrapper applied to body code.
+    """
+    recorded_calls = []
+
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        recorded_calls.append((route, method, payload))
+        if route == "/gh/create-component":
+            assert payload["guid"] == "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7"
+            return {"success": True, "data": {"guid": "cs-guid"}}
+        if route == "/gh/script-params":
+            return {"success": True, "data": {"Guid": "cs-guid", "Inputs": 1, "Outputs": 1}}
+        if route == "/gh/script":
+            assert "class Script_Instance" in payload["script"]
+            assert "private void RunScript(object R, ref object A)" in payload["script"]
+            return {"success": True, "data": {"Guid": "cs-guid"}}
+        if route == "/gh/errors":
+            return {"success": True, "data": {"errors": []}}
+        raise AssertionError(f"Unexpected route: {route}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {
+            "language": "csharp",
+            "code": "A = Convert.ToDouble(R);",
+            "pins_in": [{"name": "R", "type": "double"}],
+            "pins_out": [{"name": "A", "type": "double"}],
+            "name": "Unified CS",
+        },
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is True
+    assert payload["data"]["component_guid"] == "cs-guid"
+    assert payload["data"]["name"] == "Unified CS"
+    assert any(route == "/gh/create-component" for route, _, _ in recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_alias_response_shape_bytewise_matches(monkeypatch, patched_server):
+    """Alias back-compat proof. Extracting the shared _execute_gh_create_script
+    helper must NOT change the response shape or values of the existing
+    gh_create_python_script / gh_create_csharp_script tools. This test
+    runs each alias and the unified tool with identical arguments against
+    an identical mock HTTP stub and asserts the response payloads (minus
+    language-specific default `name`, when no explicit name given) match.
+    """
+
+    def make_fake_call_rhino(guid: str):
+        async def fake(route, method="GET", payload=None, port=None):
+            if route == "/gh/create-component":
+                return {"success": True, "data": {"guid": guid}}
+            if route == "/gh/script-params":
+                return {"success": True, "data": {"Guid": guid, "Inputs": 1, "Outputs": 1}}
+            if route == "/gh/script":
+                return {"success": True, "data": {"Guid": guid}}
+            if route == "/gh/errors":
+                return {"success": True, "data": {"errors": []}}
+            raise AssertionError(f"Unexpected route: {route}")
+        return fake
+
+    shared_args = {
+        "code": "a = 1",
+        "pins_in": [{"name": "x", "type": "float"}],
+        "pins_out": [{"name": "a", "type": "int"}],
+        "name": "ParityTest",
+    }
+
+    # Python path parity: gh_create_python_script vs gh_create_script(language=python)
+    monkeypatch.setattr(server, "call_rhino", make_fake_call_rhino("py-parity"))
+    alias_py = _decode_response(await server.call_tool("gh_create_python_script", dict(shared_args)))
+    unified_py = _decode_response(await server.call_tool(
+        "gh_create_script", {**shared_args, "language": "python"}
+    ))
+    assert alias_py["success"] is True and unified_py["success"] is True
+    assert sorted(alias_py["data"].keys()) == sorted(unified_py["data"].keys()), (
+        "Unified Python path response keys drifted from gh_create_python_script alias"
+    )
+    for key in alias_py["data"]:
+        assert alias_py["data"][key] == unified_py["data"][key], (
+            f"Python path value drift on key {key!r}: "
+            f"alias={alias_py['data'][key]!r} unified={unified_py['data'][key]!r}"
+        )
+
+    # C# path parity: gh_create_csharp_script vs gh_create_script(language=csharp)
+    monkeypatch.setattr(server, "call_rhino", make_fake_call_rhino("cs-parity"))
+    alias_cs = _decode_response(await server.call_tool("gh_create_csharp_script", dict(shared_args)))
+    unified_cs = _decode_response(await server.call_tool(
+        "gh_create_script", {**shared_args, "language": "csharp"}
+    ))
+    assert alias_cs["success"] is True and unified_cs["success"] is True
+    assert sorted(alias_cs["data"].keys()) == sorted(unified_cs["data"].keys()), (
+        "Unified C# path response keys drifted from gh_create_csharp_script alias"
+    )
+    for key in alias_cs["data"]:
+        assert alias_cs["data"][key] == unified_cs["data"][key], (
+            f"C# path value drift on key {key!r}: "
+            f"alias={alias_cs['data'][key]!r} unified={unified_cs['data'][key]!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_python_script_alias_preserves_error_prefix(monkeypatch, patched_server):
+    """Alias back-compat on the FAILURE surface. Pre-PR-2, unexpected
+    exceptions inside the Python creation path surfaced with the prefix
+    `gh_create_python_script failed: ...`. After helper extraction, callers
+    that pattern-match on the alias prefix (log scrapers, error-routing
+    rules) must continue to see it. Forces a helper-internal raise by
+    providing empty pins_in + empty pins_out.
+    """
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "unknown.gh", "path": ""}}
+        raise AssertionError(f"No create-pipeline call should fire; got {route!r}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_python_script",
+        {"code": "a = 1", "pins_in": [], "pins_out": []},
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"].startswith("gh_create_python_script failed: "), (
+        f"Alias exception prefix drifted; got: {payload['data']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_csharp_script_alias_preserves_error_prefix(monkeypatch, patched_server):
+    """Symmetric alias back-compat on the C# failure surface — pinning the
+    historical `gh_create_csharp_script failed: ...` prefix after helper
+    extraction.
+    """
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "unknown.gh", "path": ""}}
+        raise AssertionError(f"No create-pipeline call should fire; got {route!r}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_csharp_script",
+        {"code": "A = R;", "pins_in": [], "pins_out": []},
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"].startswith("gh_create_csharp_script failed: "), (
+        f"Alias exception prefix drifted; got: {payload['data']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gh_create_script_unified_uses_unified_error_prefix(monkeypatch, patched_server):
+    """Symmetric with the two alias tests above, but on the unified tool —
+    confirms the default `tool_name="gh_create_script"` is actually applied
+    when the unified tool is dispatched directly.
+    """
+    async def fake_call_rhino(route, method="GET", payload=None, port=None):
+        if route == "/gh/document":
+            return {"success": True, "data": {"name": "unknown.gh", "path": ""}}
+        raise AssertionError(f"No create-pipeline call should fire; got {route!r}")
+
+    monkeypatch.setattr(server, "call_rhino", fake_call_rhino)
+
+    response = await server.call_tool(
+        "gh_create_script",
+        {"language": "python", "code": "a = 1", "pins_in": [], "pins_out": []},
+    )
+    payload = _decode_response(response)
+
+    assert payload["success"] is False
+    assert payload["data"].startswith("gh_create_script failed: "), (
+        f"Unified tool exception prefix drifted; got: {payload['data']!r}"
+    )

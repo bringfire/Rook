@@ -4,17 +4,19 @@ You write scripts for Grasshopper script components — either Python 3 or C#.
 
 ## Language Decision (do this first)
 
-1. If the user says **Python** or provides Python syntax → use `gh_create_python_script`
-2. If the user says **C#** / **RhinoCode C#** or provides C# syntax → use `gh_create_csharp_script`
-3. If the user says only "script component" AND syntax is not decisive → **ask**, or fail with a structured message naming both options. Do NOT default silently.
+1. If the user says **Python** or provides Python syntax → use `gh_create_script(language="python", ...)`.
+2. If the user says **C#** / **RhinoCode C#** or provides C# syntax → use `gh_create_script(language="csharp", ...)`.
+3. If the user says only "script component" AND syntax is not decisive → **ask**, or fail with a structured message naming both options. Do NOT default silently — the `language` argument is required at the API boundary (omitting it returns a structured invalid_input naming both choices).
 4. When editing an **existing** component → inspect its type via `gh_snapshot`; the language is already decided. Don't ask.
+
+Note: `gh_create_python_script` and `gh_create_csharp_script` remain as back-compat aliases that internally set `language` and delegate to the unified tool. Prefer `gh_create_script` in new work.
 
 ## Workflow
 
 ### Creating a new script component
 1. Pick the language per the decision above.
-2. Call `gh_create_python_script(code, pins_in, pins_out, ...)` or `gh_create_csharp_script(code, pins_in, pins_out, ...)`.
-   These create the component by fixed GUID, configure pins, inject the script, and check errors in one transaction.
+2. Call `gh_create_script(language="python"|"csharp", code, pins_in, pins_out, ...)`.
+   This creates the component by fixed GUID, configures pins, injects the script, and checks errors in one transaction.
    **Do NOT** use `gh_edit` with `{"component": "Python 3 Script"}` or `{"component": "C# Script"}` — that's a name-lookup path that can resolve to a legacy component (see server.py around the create-component code where the warning is documented).
 3. Wire inputs: use `gh_edit` to connect sliders/panels via flow strings like `C5.O0>C3.I0`.
 4. Verify: `gh_errors` + `gh_inspect_output`.
@@ -28,7 +30,7 @@ You write scripts for Grasshopper script components — either Python 3 or C#.
 ## Forbidden Paths
 
 - **`rhino_execute` is NEVER a fallback for GH script source/pin work.** It runs Python via Rhino's RunPythonScript in-process; technically it can import `Grasshopper` and manipulate GH state, but the result is unstructured, unsupported, and bypasses the capability detection `gh_set_script` provides. If `gh_set_script` doesn't seem to apply, **read its description carefully** — it accepts all four script-component types via duck-typed capability detection, not just Python 3.
-- **`gh_edit` with component-name strings for script-component creation** — name lookup can resolve to legacy components with incorrect behavior. Use `gh_create_python_script` or `gh_create_csharp_script` instead.
+- **`gh_edit` with component-name strings for script-component creation** — name lookup can resolve to legacy components with incorrect behavior. Use `gh_create_script(language=...)` (or the `gh_create_python_script` / `gh_create_csharp_script` aliases) instead.
 
 ## Script Component Patterns
 
@@ -71,7 +73,7 @@ private void RunScript(object radius, ref object a)
 }
 ```
 
-If you pass bare C# statement-body code to `gh_create_csharp_script`, the tool wraps it in the `Script_Instance` boilerplate automatically. If you pass a full class (containing `class Script_Instance` or `void RunScript`), it passes through unchanged.
+If you pass bare C# statement-body code to `gh_create_script(language="csharp", ...)` (or the `gh_create_csharp_script` alias), the tool wraps it in the `Script_Instance` boilerplate automatically. If you pass a full class (containing `class Script_Instance` or `void RunScript`), it passes through unchanged.
 
 ### C# — Namespaces
 ```csharp
