@@ -1324,6 +1324,17 @@ async def test_gh_create_script_inputSchema_enforces_language():
     required = schema.get("required", [])
     assert "language" in required, "gh_create_script must require 'language'"
     assert "code" in required, "gh_create_script must require 'code'"
+    # Pins are NOT required at the schema level — the helper accepts
+    # source-only or sink-only scripts (at-least-one-non-empty check in
+    # _execute_gh_create_script). Requiring pins_in + pins_out at the
+    # schema boundary would structurally block valid configurations the
+    # implementation supports.
+    assert "pins_in" not in required, (
+        "gh_create_script schema must not require pins_in — helper accepts sink-only scripts"
+    )
+    assert "pins_out" not in required, (
+        "gh_create_script schema must not require pins_out — helper accepts source-only scripts"
+    )
 
     # Prose-level courtesy assertion — redundant with schema but keeps
     # description aligned so casual reads of the tool catalog match reality.

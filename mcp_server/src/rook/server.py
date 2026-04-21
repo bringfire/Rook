@@ -6749,7 +6749,7 @@ Example (C#):
                     "x": {"type": "number", "description": "Canvas X position (default: 200)"},
                     "y": {"type": "number", "description": "Canvas Y position (default: 200)"},
                 },
-                "required": ["language", "code", "pins_in", "pins_out"],
+                "required": ["language", "code"],
             }
         ),
         Tool(
@@ -8406,12 +8406,13 @@ Example: Get info for Sphere and Loft:
 
 Owns generic component creation (sliders, math, geometry primitives, data
 manipulation, etc.). Does NOT own script components — programmable
-components (Python, C#) belong to `gh_create_python_script` /
-`gh_create_csharp_script`, which create by fixed component GUID and invoke
-a transactional create/set-pins/inject-code/check-errors pipeline that
-this intent tool cannot replicate safely.
+components (Python, C#) belong to `gh_create_script(language=...)`
+(or its `gh_create_python_script` / `gh_create_csharp_script` back-compat
+aliases), which create by fixed component GUID and invoke a transactional
+create/set-pins/inject-code/check-errors pipeline that this intent tool
+cannot replicate safely.
 
-For script-component work, call the dedicated create tools directly —
+For script-component work, call the dedicated create tool directly —
 do not route through this tool.
 
 It automatically:
