@@ -1245,3 +1245,50 @@ def test_runtime_cast_failure_survives_grasshopper_import_failure():
     assert ghenv.Component.runtime_messages == [], (
         f"no runtime messages expected without Grasshopper stub, got {ghenv.Component.runtime_messages!r}"
     )
+
+
+# ---------- GH script-component routing — MCP description regressions ----------
+# Anchor against the drift strings that misrouted an agent to rhino_execute
+# on 2026-04-21. See rook_docs/2026-04-21-gh-script-component-routing-
+# design-pass.md §PR-1.
+
+
+@pytest.mark.asyncio
+async def test_gh_set_script_description_does_not_claim_py3_only():
+    """Drift regression — gh_set_script must not advertise Py3-only when the
+    handler duck-types on capability and accepts four component types.
+    """
+    tools = await server.list_tools()
+    gh_set_script = next((t for t in tools if t.name == "gh_set_script"), None)
+    assert gh_set_script is not None, "gh_set_script tool missing from registered tools"
+
+    desc = gh_set_script.description
+    assert "must be a Python 3 Script" not in desc, (
+        "gh_set_script description reintroduces Py3-only categorical gate — "
+        "see rook_docs/2026-04-21-gh-script-component-routing-design-pass.md"
+    )
+    assert "the full Python source code" not in desc, (
+        "gh_set_script description reintroduces Python-only source framing — "
+        "handler accepts C# source on RhinoCode/GH1 C# components too"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gh_execute_intent_description_does_not_claim_only_tool():
+    """Drift regression — gh_execute_intent must not claim exclusive ownership
+    of GH component creation when gh_create_python_script and
+    gh_create_csharp_script are dedicated creation tools AND gh_execute_intent
+    is excluded from worker-mode preload per tool_groups.py.
+    """
+    tools = await server.list_tools()
+    gh_execute_intent = next((t for t in tools if t.name == "gh_execute_intent"), None)
+    assert gh_execute_intent is not None, "gh_execute_intent tool missing from registered tools"
+
+    desc = gh_execute_intent.description
+    assert "This is the ONLY tool for creating GH components" not in desc, (
+        "gh_execute_intent description reintroduces ONLY-tool claim — false per "
+        "gh_create_python_script / gh_create_csharp_script + tool_groups.py:37 exclusion"
+    )
+    assert "All component creation MUST go through this tool" not in desc, (
+        "gh_execute_intent description reintroduces MUST-go-through claim"
+    )

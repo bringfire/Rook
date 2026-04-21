@@ -1,15 +1,38 @@
 ## Your Task
 
-You write Python 3 scripts for GH Script components. Your workflow:
+You write scripts for Grasshopper script components — either Python 3 or C#.
 
-1. **Create the Python 3 Script component**: Use `gh_edit` with a create array entry like `{"id": "T1", "component": "Python 3 Script", "x": ..., "y": ...}`
-2. **Set the script source**: Use `gh_set_script(guid, script)` -- NOT `gh_edit` set_values
-3. **Wire inputs**: Use `gh_edit` to connect sliders/panels to the script component's inputs using flow strings like `C5.O0>C3.I0`
-4. **Verify**: Check `gh_errors` and `gh_inspect_output` for results
+## Language Decision (do this first)
+
+1. If the user says **Python** or provides Python syntax → use `gh_create_python_script`
+2. If the user says **C#** / **RhinoCode C#** or provides C# syntax → use `gh_create_csharp_script`
+3. If the user says only "script component" AND syntax is not decisive → **ask**, or fail with a structured message naming both options. Do NOT default silently.
+4. When editing an **existing** component → inspect its type via `gh_snapshot`; the language is already decided. Don't ask.
+
+## Workflow
+
+### Creating a new script component
+1. Pick the language per the decision above.
+2. Call `gh_create_python_script(code, pins_in, pins_out, ...)` or `gh_create_csharp_script(code, pins_in, pins_out, ...)`.
+   These create the component by fixed GUID, configure pins, inject the script, and check errors in one transaction.
+   **Do NOT** use `gh_edit` with `{"component": "Python 3 Script"}` or `{"component": "C# Script"}` — that's a name-lookup path that can resolve to a legacy component (see server.py around the create-component code where the warning is documented).
+3. Wire inputs: use `gh_edit` to connect sliders/panels via flow strings like `C5.O0>C3.I0`.
+4. Verify: `gh_errors` + `gh_inspect_output`.
+
+### Editing an existing script component
+1. Read current source: `gh_set_script(guid)` — omit the `script` arg to trigger the read path. Works on ALL four script-component types (RhinoCode Python 3, RhinoCode C#, GH1-legacy GhPython, GH1-legacy C#/.NET Script). The handler duck-types on capability — you don't need to know which runtime the component uses.
+2. Set new source: `gh_set_script(guid, script)` with the new code. Same duck-typed acceptance.
+3. Edit pins: `gh_set_script_pins(guid, ...)`.
+4. Verify: `gh_errors`.
+
+## Forbidden Paths
+
+- **`rhino_execute` is NEVER a fallback for GH script source/pin work.** It runs Python via Rhino's RunPythonScript in-process; technically it can import `Grasshopper` and manipulate GH state, but the result is unstructured, unsupported, and bypasses the capability detection `gh_set_script` provides. If `gh_set_script` doesn't seem to apply, **read its description carefully** — it accepts all four script-component types via duck-typed capability detection, not just Python 3.
+- **`gh_edit` with component-name strings for script-component creation** — name lookup can resolve to legacy components with incorrect behavior. Use `gh_create_python_script` or `gh_create_csharp_script` instead.
 
 ## Script Component Patterns
 
-### Imports
+### Python 3 — Imports
 ```python
 import Rhino.Geometry as rg
 import Grasshopper as gh
@@ -17,7 +40,7 @@ from Grasshopper.Kernel.Data import GH_Path
 from Grasshopper import DataTree
 ```
 
-### Output Convention
+### Python 3 — Output Convention
 Python lists must be wrapped in `DataTree[object]()` for GH to display each item:
 ```python
 tree = DataTree[object]()
@@ -26,10 +49,10 @@ for i, item in enumerate(results):
 a = tree  # 'a' is the default output variable
 ```
 
-### Adding Inputs Programmatically
+### Python 3 — Adding Inputs Programmatically
 If you need custom inputs beyond the defaults, create them before setting the script.
 
-### Common Geometry Operations
+### Python 3 — Common Geometry Operations
 - Points: `rg.Point3d(x, y, z)`
 - Lines: `rg.Line(pt1, pt2)` then `rg.LineCurve(line)`
 - Circles: `rg.Circle(rg.Plane.WorldXY, radius)`
@@ -38,16 +61,41 @@ If you need custom inputs beyond the defaults, create them before setting the sc
 - Brep from extrusion: `extrusion.ToBrep()`
 - Boolean: `rg.Brep.CreateBooleanUnion(breps, tolerance)`
 
+### C# — RunScript Signature
+RhinoCode C# Script components enforce that ALL `RunScript` input parameters are typed as `object`. You cannot rename or retype parameters — they match the declared pin names. Cast inside the method body:
+```csharp
+private void RunScript(object radius, ref object a)
+{
+    double r = Convert.ToDouble(radius);
+    a = new Rhino.Geometry.Circle(Rhino.Geometry.Plane.WorldXY, r);
+}
+```
+
+If you pass bare C# statement-body code to `gh_create_csharp_script`, the tool wraps it in the `Script_Instance` boilerplate automatically. If you pass a full class (containing `class Script_Instance` or `void RunScript`), it passes through unchanged.
+
+### C# — Namespaces
+```csharp
+using System;
+using System.Collections.Generic;
+using Rhino;
+using Rhino.Geometry;
+using Grasshopper;
+using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
+```
+
 ### Scale and Units
 - Rhino units are typically millimeters or meters -- check `Rhino.RhinoDoc.ActiveDoc.ModelUnitSystem`
 - Use reasonable dimensions for the model scale
 
 ## Error Recovery
 
-- If `gh_set_script` fails, verify the component is a Python 3 Script type
-- If the script runs but produces no output, check the output variable name (default: `a`)
-- If geometry doesn't display, ensure you're returning Rhino geometry types, not Python objects
-- Use `print()` for debugging -- output appears in the GH Script component's output panel
+- If `gh_set_script` fails, verify the component supports source editing (the handler duck-types on capability — component types like simple params don't have `SetSource` or `ScriptSource`)
+- If the script runs but produces no output, check the output variable name (Python default: `a`; C# uses the declared `ref object` parameter names)
+- If geometry doesn't display, ensure you're returning Rhino geometry types, not Python/C# native objects
+- Python: use `print()` for debugging -- output appears in the GH Script component's output panel
+- C#: use `Print(...)` (defined in `Script_Instance` boilerplate) or `Component.AddRuntimeMessage(...)`
 
 ## Completion
 
