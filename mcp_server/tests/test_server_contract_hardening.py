@@ -887,6 +887,73 @@ def test_python_preamble_helpers_guard_bounds_and_use_path_driven_iteration():
     assert "for _p, _b in zip(_vd.Paths, _vd.Branches):" in preamble
 
 
+# ---------- #50 cast-failure warning emission ----------
+# Closes GitHub issue #50 — previously a curve wired into a numeric pin
+# silently returned cast(0) with no signal. Now a Warning is emitted on
+# the component on the first failure per pin per solve. Warning emission
+# is defensive: wrapped in try/except so it can never break the solve.
+
+
+def _assert_warn_helper_present(preamble: str) -> None:
+    """The warning emitter is a shared helper; all three extract helpers call it."""
+    assert "def _gh_cast_warn(_i, _cast, _v):" in preamble
+    assert "import Grasshopper as _gh" in preamble
+    assert "GH_RuntimeMessageLevel.Warning" in preamble
+    assert "ghenv.Component.AddRuntimeMessage" in preamble
+    assert "except Exception: pass" in preamble, "warning emission must never break the solve"
+
+
+def test_python_preamble_item_access_emits_cast_warning_hook():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "n", "type": "float", "access": "item"}]
+    )
+    _assert_warn_helper_present(preamble)
+    # Per-pin first-failure flag in _gh_extract_one; warn helper invoked on bad cast.
+    assert "_warned = False" in preamble
+    assert "if not _warned: _gh_cast_warn(_i, _cast, _v); _warned = True" in preamble
+
+
+def test_python_preamble_list_access_emits_cast_warning_hook():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "vals", "type": "float", "access": "list"}]
+    )
+    _assert_warn_helper_present(preamble)
+    assert "_warned = False" in preamble
+    # The list helper has both a None→cast(0) branch (unchanged) and a
+    # cast-failure branch (now warned). Only the failure branch calls the warner.
+    assert "if not _warned: _gh_cast_warn(_i, _cast, _v); _warned = True" in preamble
+
+
+def test_python_preamble_tree_access_emits_cast_warning_hook():
+    preamble = server._build_gh_python_preamble(
+        [{"name": "vals", "type": "float", "access": "tree"}]
+    )
+    _assert_warn_helper_present(preamble)
+    # Tree helper also gets its own _warned flag — per-pin-per-solve granularity.
+    # Tree's Grasshopper import is also used for DataTree[object]; the warn helper
+    # re-imports inside its own try block independently.
+    assert "_warned = False" in preamble
+
+
+def test_python_preamble_non_numeric_pin_never_invokes_warn_helper():
+    """Defense-in-depth check: the warn helper is shared infrastructure (always
+    emitted in the helper block). For a non-numeric pin, the per-pin call line
+    passes no cast arg, so the `if _cast is not None` guard is False at runtime
+    and the `_gh_cast_warn` branch is unreachable. Asserts the per-pin line has
+    no cast arg, which is the static proof of non-invocation.
+    """
+    preamble = server._build_gh_python_preamble(
+        [{"name": "c", "type": "Curve", "access": "item"}]
+    )
+    # Warn helper is part of the shared block — still emitted.
+    _assert_warn_helper_present(preamble)
+    # But the per-pin extract call passes no cast, so the warn branch is dead.
+    assert "c = _gh_extract_one(0)" in preamble
+    assert "c = _gh_extract_one(0," not in preamble, (
+        "Curve pin must call _gh_extract_one without a cast argument"
+    )
+
+
 # ---------- Runtime semantics tests ----------
 # These execute the generated preamble against a mock ghenv to verify behavior,
 # not just emitted source strings. Covers cast failure handling, mixed-type
@@ -933,6 +1000,12 @@ class _MockParams:
 class _MockComponent:
     def __init__(self, inputs):
         self.Params = _MockParams(inputs)
+        # Collects all AddRuntimeMessage calls as (level, message) tuples.
+        # Used by #50 cast-warning runtime tests to assert emission count + content.
+        self.runtime_messages: list[tuple[Any, str]] = []
+
+    def AddRuntimeMessage(self, level, message):
+        self.runtime_messages.append((level, message))
 
 
 class _MockGhEnv:
@@ -1067,3 +1140,108 @@ def test_runtime_mixed_pins_use_correct_indices():
     ns = _exec_preamble(pins, [_MockInput(vd_a), _MockInput(vd_b)])
     assert ns["a"] == ["curve_x"]
     assert ns["b"] == 42.0
+
+
+# ---------- #50 cast-warning runtime tests ----------
+# Unlike the string-inspection tests above, these actually EXECUTE the preamble
+# to verify AddRuntimeMessage fires with the right level/message on a cast
+# failure — and fires exactly once per pin per solve.
+
+
+import sys
+import types as _types_for_gh_stub
+
+
+def _install_grasshopper_stub(monkeypatch):
+    """Put a minimal Grasshopper.Kernel.GH_RuntimeMessageLevel.Warning in sys.modules.
+
+    The preamble's `_gh_cast_warn` does `import Grasshopper as _gh` inside a
+    try/except, then reads `_gh.Kernel.GH_RuntimeMessageLevel.Warning`. With
+    this stub in place, the warning emission path succeeds and lands in
+    _MockComponent.runtime_messages.
+    """
+    warning_sentinel = "GH_WARNING"
+    level_mod = _types_for_gh_stub.SimpleNamespace(Warning=warning_sentinel)
+    kernel_mod = _types_for_gh_stub.SimpleNamespace(GH_RuntimeMessageLevel=level_mod)
+    gh_mod = _types_for_gh_stub.SimpleNamespace(Kernel=kernel_mod)
+    monkeypatch.setitem(sys.modules, "Grasshopper", gh_mod)
+    return warning_sentinel
+
+
+def test_runtime_list_cast_failure_emits_exactly_one_warning(monkeypatch):
+    """First cast failure in a list emits one warning; subsequent failures in the
+    same solve do not re-warn. Per-pin, first-failure-only granularity.
+    """
+    warning_level = _install_grasshopper_stub(monkeypatch)
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    # Three bad values in a row — would have emitted 3 warnings without the flag.
+    vd = _MockVolatileData({"p0": [
+        _MockWrapper("bad1"), _MockWrapper("bad2"), _MockWrapper("bad3"), _MockWrapper(5.0),
+    ]})
+    mock_input = _MockInput(vd)
+
+    preamble = server._build_gh_python_preamble(pins)
+    ghenv = _MockGhEnv([mock_input])
+    ns = {"ghenv": ghenv, "vals": None}
+    exec(compile(preamble, "<preamble>", "exec"), ns)
+
+    # Values still substitute to float(0) — behavior unchanged.
+    assert ns["vals"] == [0.0, 0.0, 0.0, 5.0]
+    # Exactly one warning emitted, at Warning level, with pin index + cast target.
+    assert len(ghenv.Component.runtime_messages) == 1, (
+        f"expected exactly one warning, got {ghenv.Component.runtime_messages!r}"
+    )
+    level, message = ghenv.Component.runtime_messages[0]
+    assert level == warning_level, f"expected Warning level, got {level!r}"
+    assert "Pin 0" in message
+    assert "cast to float failed" in message
+    assert "type str" in message, f"expected source-type hint in message: {message!r}"
+
+
+def test_runtime_item_cast_failure_emits_one_warning(monkeypatch):
+    """Item access: single-value coercion still emits a warning when the only
+    candidate fails to cast.
+    """
+    warning_level = _install_grasshopper_stub(monkeypatch)
+    pins = [{"name": "n", "type": "float", "access": "item"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper("not_a_number")]})
+    mock_input = _MockInput(vd)
+
+    preamble = server._build_gh_python_preamble(pins)
+    ghenv = _MockGhEnv([mock_input])
+    ns = {"ghenv": ghenv, "n": None}
+    exec(compile(preamble, "<preamble>", "exec"), ns)
+
+    assert ns["n"] == 0.0  # fallback preserved
+    assert len(ghenv.Component.runtime_messages) == 1
+    level, message = ghenv.Component.runtime_messages[0]
+    assert level == warning_level
+    assert "cast to float failed" in message
+
+
+def test_runtime_cast_failure_survives_grasshopper_import_failure():
+    """Defensive: when `Grasshopper` can't be imported (e.g. outside a GH solve),
+    the cast-failure path must still substitute cast(0) correctly and not raise.
+    Warning emission is best-effort and silently skipped.
+
+    This matches the pre-existing test_runtime_list_cast_failure_falls_back_to_
+    numeric_default expectation — preserved exactly after PR #50's added warning
+    emission — but documents the try/except guard intentionally.
+    """
+    # Deliberately NO Grasshopper stub. The preamble's try/except wraps the
+    # import + AddRuntimeMessage call, so failure is swallowed.
+    pins = [{"name": "vals", "type": "float", "access": "list"}]
+    vd = _MockVolatileData({"p0": [_MockWrapper("bad"), _MockWrapper(2.0)]})
+    mock_input = _MockInput(vd)
+
+    preamble = server._build_gh_python_preamble(pins)
+    ghenv = _MockGhEnv([mock_input])
+    ns = {"ghenv": ghenv, "vals": None}
+    # Must NOT raise.
+    exec(compile(preamble, "<preamble>", "exec"), ns)
+
+    assert ns["vals"] == [0.0, 2.0]
+    # Warning emission failed silently — no messages recorded.
+    assert ghenv.Component.runtime_messages == [], (
+        f"no runtime messages expected without Grasshopper stub, got {ghenv.Component.runtime_messages!r}"
+    )
