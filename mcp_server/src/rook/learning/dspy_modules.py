@@ -1216,6 +1216,40 @@ class GHIntentResolver(dspy.Module):
         ]
         pool = explicit_matches or candidates
 
+        # C# modern-over-legacy preference. When the concept is
+        # csharp_script and the intent does NOT explicitly cue legacy,
+        # prefer the modern RhinoCode C# Script; on legacy cues, prefer
+        # legacy. Runs before the generic sort_key so name-token
+        # heuristics don't flip the signal. Scoped to csharp_script
+        # only per the 2026-04-21 parked follow-up — Python preference
+        # is not in scope for this PR.
+        if concept == "csharp_script":
+            # Cue against the normalized intent — _normalize_component_text
+            # strips punctuation including ".", so ".NET" becomes "net"
+            # (verified via probe 2026-04-21). Match against both "dotnet"
+            # (preserved) and " net " (word-bounded, to avoid matching
+            # substrings like "internet"/"network").
+            legacy_cues_substring = ("legacy", "dotnet", "gh1")
+            legacy_cues_word = (" net ",)
+            padded = f" {normalized_intent} "
+            wants_legacy = (
+                any(cue in normalized_intent for cue in legacy_cues_substring)
+                or any(cue in padded for cue in legacy_cues_word)
+            )
+
+            def _is_legacy(candidate: dict) -> bool:
+                c_tokens = cls._candidate_name_tokens(candidate)
+                return "legacy" in c_tokens or "dotnet" in c_tokens
+
+            modern = [c for c in pool if not _is_legacy(c)]
+            legacy = [c for c in pool if _is_legacy(c)]
+            if wants_legacy and legacy:
+                pool = legacy
+            elif modern:
+                pool = modern
+            # else: fall through on empty-modern with no legacy cue —
+            # existing sort_key handles the remaining pool as-is.
+
         def sort_key(candidate: dict) -> tuple[int, int, int, int]:
             normalized_name = cls._candidate_normalized_name(candidate)
             tokens = cls._candidate_name_tokens(candidate)
@@ -1246,6 +1280,28 @@ class GHIntentResolver(dspy.Module):
         tokens = cls._candidate_name_tokens(candidate)
         if not tokens:
             return ""
+        # C# script-family unification: modern RhinoCode "C# Script" and
+        # GH1-legacy "DotNET C# Script (LEGACY)" must share a concept
+        # bucket so _select_preferred_candidate_for_concept can compare
+        # them as alternatives. The default first-token logic below
+        # puts them in "c" vs "dotnet" respectively — which never get
+        # compared. See the 2026-04-21 follow-up parked under "Prefer
+        # modern RhinoCode C# Script over legacy ComponentLegacyCsScript".
+        #
+        # Scoped strictly to C# variants. Python families (Python 3 /
+        # GhPython / IronPython 2) are NOT unified here — Python 3
+        # already ranks correctly today and unifying them would be
+        # an untested behavior change.
+        if "script" in tokens:
+            looks_csharp = ("csharp" in tokens) or (
+                "c" in tokens
+                and "python" not in tokens
+                and "vb" not in tokens
+                and "ironpython" not in tokens
+                and "ghpython" not in tokens
+            )
+            if looks_csharp:
+                return "csharp_script"
         if "slider" in tokens:
             return "slider"
         if "toggle" in tokens:
