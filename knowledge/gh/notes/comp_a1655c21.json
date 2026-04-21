@@ -9,7 +9,10 @@
   "keywords": [
     "ironpython 2 script",
     "ironpython",
-    "2",
+    "ipy",
+    "python2",
+    "legacy",
+    "gh1",
     "script",
     "scripting"
   ],
@@ -19,8 +22,9 @@
   ],
   "trigger_intents": [
     "ironpython 2 script",
-    "iron",
-    "python",
+    "ironpython",
+    "ipy",
+    "python2",
     "script"
   ],
   "trigger_symptoms": [],

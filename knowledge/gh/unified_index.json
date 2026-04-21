@@ -5028,12 +5028,11 @@
     "ironpython": [
       "comp_a1655c21"
     ],
-    "iron": [
+    "ipy": [
       "comp_a1655c21"
     ],
-    "python": [
-      "comp_a1655c21",
-      "comp_de846cdf"
+    "python2": [
+      "comp_a1655c21"
     ],
     "diamond": [
       "comp_a204d663",
@@ -5666,6 +5665,9 @@
       "comp_de14089e",
       "tutorial_0202adf1",
       "tutorial_89a22380"
+    ],
+    "python": [
+      "comp_de846cdf"
     ],
     "fragment": [
       "comp_dfb40a0b"
@@ -23601,7 +23603,6 @@
     ],
     "2": [
       "comp_44e67b14",
-      "comp_a1655c21",
       "comp_c315151d"
     ],
     "swap columns": [
@@ -25544,6 +25545,20 @@
     "ironpython": [
       "comp_a1655c21"
     ],
+    "ipy": [
+      "comp_a1655c21"
+    ],
+    "python2": [
+      "comp_a1655c21"
+    ],
+    "legacy": [
+      "comp_a1655c21",
+      "comp_e953e26a"
+    ],
+    "gh1": [
+      "comp_a1655c21",
+      "comp_e953e26a"
+    ],
     "diamond panels": [
       "comp_a204d663",
       "teaching_97771130",
@@ -26891,12 +26906,6 @@
       "comp_e953e26a"
     ],
     "dotnet": [
-      "comp_e953e26a"
-    ],
-    "legacy": [
-      "comp_e953e26a"
-    ],
-    "gh1": [
       "comp_e953e26a"
     ],
     "(legacy)": [
