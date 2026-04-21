@@ -303,6 +303,118 @@ async def test_batch_ids_not_array(fresh_document):
     assert envelope.get("success") is False
 
 
+async def test_single_preserves_rotation_on_rotated_instance(fresh_document):
+    """Single-instance companion to the batch test below. Fix bundled
+    in the batch PR because BuildResetScaleXform is shared between
+    both routes — any regression in the shared helper would surface
+    via either test, but having both routes pinned prevents handler-
+    level wrapping code from silently diverging."""
+    await _seed_scaled_block("ResetRotatedSingle", scale=2.0, point=[30, 90, 0])
+    # Delete the auto-inserted instance and re-insert with explicit rotation.
+    rotated_inst = await _block_insert(
+        "ResetRotatedSingle", [30, 90, 0], scale=2.0, rotation_degrees=45.0
+    )
+
+    res = await _mcp_tool_executor(
+        "rhino_block_reset_scale",
+        {"id": rotated_inst},
+    )
+    assert not _is_error(res), f"single reset-scale failed: {res!r}"
+
+    post_bbox = await _mcp_tool_executor("rhino_measure_bbox", {"id": rotated_inst})
+    assert not _is_error(post_bbox), f"bbox post-reset failed: {post_bbox!r}"
+    min_pt = post_bbox.get("min") or post_bbox.get("bbox", {}).get("min")
+    max_pt = post_bbox.get("max") or post_bbox.get("bbox", {}).get("max")
+    assert min_pt is not None and max_pt is not None
+
+    x_extent = max_pt[0] - min_pt[0]
+    assert x_extent > 1.2, (
+        f"Single-instance rotation-preservation contract violated — "
+        f"X extent {x_extent:.4f} suggests rotation was destroyed. "
+        f"Post-bbox: {post_bbox!r}"
+    )
+    assert x_extent < 1.5, (
+        f"Single-instance scale-reset contract violated — X extent "
+        f"{x_extent:.4f} > 1.5. Post-bbox: {post_bbox!r}"
+    )
+
+
+async def test_batch_preserves_rotation_on_rotated_instance(fresh_document):
+    """Pins Codex #77-review finding 1: reset-scale MUST preserve
+    rotation. Earlier code extracted only translation from oldXform,
+    silently zeroing rotation on every rotated block instance — a
+    behavioral regression since the public contract is "reset scale
+    to 1,1,1", not "reset to identity orientation."
+
+    Insert a block at 45° rotation with scale 2.0, batch-reset, and
+    verify the rotation is preserved (the recreated instance's bbox
+    is NOT axis-aligned at the origin it would be if rotation were
+    destroyed). Scale IS reset: bbox dimensions match the definition's
+    unit cube rather than the scaled 2x.
+    """
+    inst = await _seed_scaled_block(
+        "ResetRotatedA",
+        scale=2.0,
+        point=[0, 90, 0],
+    )
+    # Retarget: reinsert with an explicit rotation that won't match
+    # identity. _block_insert accepts rotation_degrees — delete the
+    # already-inserted instance first, then re-insert with rotation.
+    await _mcp_tool_executor("rhino_delete", {"ids": [inst]})
+    rotated_inst = await _block_insert(
+        "ResetRotatedA", [0, 90, 0], scale=2.0, rotation_degrees=45.0
+    )
+
+    # Measure bbox pre-reset: the rotated scaled instance has a larger
+    # bbox than the unit cube because rotation expands the axis-aligned
+    # bbox of a scaled box.
+    pre_bbox = await _mcp_tool_executor("rhino_measure_bbox", {"id": rotated_inst})
+    assert not _is_error(pre_bbox), f"bbox pre-reset failed: {pre_bbox!r}"
+
+    status, envelope = await _post_reset_scale_batch_raw({"ids": [rotated_inst]})
+    assert status == 200
+    data = _assert_batch_success(envelope)
+    assert data["modifiedCount"] == 1
+
+    # The reset instance still reports scale [1,1,1] per the response
+    # contract. Crucially, its bbox is NOT a pristine axis-aligned
+    # unit cube — that would prove rotation was destroyed. The bbox
+    # of a rotated unit cube has equal X and Y extents that are each
+    # √2 for a 45° rotation (diagonal). If rotation were destroyed,
+    # bbox would be [0,0,0]..[1,1,1] — a pure axis-aligned unit cube
+    # at the insertion point.
+    post_bbox = await _mcp_tool_executor("rhino_measure_bbox", {"id": rotated_inst})
+    assert not _is_error(post_bbox), f"bbox post-reset failed: {post_bbox!r}"
+
+    min_pt = post_bbox.get("min") or post_bbox.get("bbox", {}).get("min")
+    max_pt = post_bbox.get("max") or post_bbox.get("bbox", {}).get("max")
+    assert min_pt is not None and max_pt is not None, (
+        f"Could not extract bbox min/max: {post_bbox!r}"
+    )
+
+    # 45°-rotated unit cube has X and Y extents of √2 ≈ 1.414. An
+    # axis-aligned unit cube has extent 1.0. Any extent > 1.2 proves
+    # rotation survived.
+    x_extent = max_pt[0] - min_pt[0]
+    y_extent = max_pt[1] - min_pt[1]
+    assert x_extent > 1.2, (
+        f"Rotation-preservation contract violated — X extent {x_extent:.4f} "
+        f"suggests axis-aligned unit cube (rotation was destroyed). "
+        f"Expected ~√2 ≈ 1.414 for a 45°-rotated unit cube. "
+        f"Post-bbox: {post_bbox!r}"
+    )
+    assert y_extent > 1.2, (
+        f"Rotation-preservation contract violated — Y extent {y_extent:.4f} "
+        f"suggests axis-aligned unit cube. Post-bbox: {post_bbox!r}"
+    )
+    # Scale IS reset: extent ≤ √2 × 1 = 1.415, well under the
+    # pre-reset ~2√2 ≈ 2.83 that a 2x-scaled 45°-rotated cube had.
+    assert x_extent < 1.5, (
+        f"Scale-reset contract violated — X extent {x_extent:.4f} > 1.5 "
+        f"suggests scale was not reset. Post-bbox: {post_bbox!r}"
+    )
+
+
 async def test_batch_request_order_mixed_outcomes(fresh_document):
     """["good-A", "bad-uuid", "good-B"] — response instances[]
     mirrors request-index order: success / invalid_id / success.

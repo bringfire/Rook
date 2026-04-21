@@ -250,6 +250,10 @@ class ToolRegistry:
         "rhino_curve_boolean_union": ("/curve/boolean", "POST"),
         "rhino_curve_boolean_difference": ("/curve/boolean", "POST"),
         "rhino_curve_boolean_intersection": ("/curve/boolean", "POST"),
+        # Block instance reset-scale — single-instance was missing from
+        # HTTP_MAPPINGS (pre-existing gap); batch PR #77 backfills both.
+        "rhino_block_reset_scale": ("/block/reset-scale", "POST"),
+        "rhino_block_reset_scale_batch": ("/block/reset-scale-batch", "POST"),
         # Add more as needed...
     }
 

@@ -61,6 +61,53 @@ static std::string GetLayerFullPath(CRhinoDoc* pDoc, int layerIdx)
     return WideToUtf8(fullPath);
 }
 
+// Decompose an instance xform into its translation and rotation
+// components and return a new xform with scale reset to identity
+// while translation + rotation are preserved. The public tool
+// contract for /block/reset-scale{,-batch} is "reset scale to
+// 1,1,1" — NOT "reset to identity orientation at the origin."
+// An earlier version of both handlers extracted only translation,
+// silently destroying rotation on every rotated block instance
+// (flagged Codex 2026-04-20 review of PR #77).
+//
+// Column-length decomposition: the 3x3 linear part's columns
+// encode per-axis rotation*scale. Dividing each column by its
+// length produces an orthonormal rotation, which is recombined
+// with the original translation.
+//
+// Reflection caveat: if oldXform includes reflection (e.g. mirror),
+// column-length drops the sign — the result is pure rotation with
+// determinant +1 rather than rotation*reflection (-1). That's
+// consistent with the "reset scale" contract since reflection is
+// a form of scaling; callers who want to preserve reflection can't
+// use this route.
+//
+// Degenerate-scale guard: if any column has zero length (degenerate
+// scale along that axis, shouldn't happen from Rhino's UI but
+// possible via scripted insert), fall back to translation-only
+// rather than producing NaN rows. This matches the legacy
+// behavior on that edge case.
+static ON_Xform BuildResetScaleXform(const ON_Xform& oldXform)
+{
+    const ON_3dVector translation(oldXform[0][3], oldXform[1][3], oldXform[2][3]);
+
+    const double sx = ON_3dVector(oldXform[0][0], oldXform[1][0], oldXform[2][0]).Length();
+    const double sy = ON_3dVector(oldXform[0][1], oldXform[1][1], oldXform[2][1]).Length();
+    const double sz = ON_3dVector(oldXform[0][2], oldXform[1][2], oldXform[2][2]).Length();
+
+    if (sx <= ON_EPSILON || sy <= ON_EPSILON || sz <= ON_EPSILON)
+        return ON_Xform::TranslationTransformation(translation);
+
+    ON_Xform result = ON_Xform::IdentityTransformation;
+    result[0][0] = oldXform[0][0] / sx; result[1][0] = oldXform[1][0] / sx; result[2][0] = oldXform[2][0] / sx;
+    result[0][1] = oldXform[0][1] / sy; result[1][1] = oldXform[1][1] / sy; result[2][1] = oldXform[2][1] / sy;
+    result[0][2] = oldXform[0][2] / sz; result[1][2] = oldXform[1][2] / sz; result[2][2] = oldXform[2][2] / sz;
+    result[0][3] = translation.x;
+    result[1][3] = translation.y;
+    result[2][3] = translation.z;
+    return result;
+}
+
 static std::vector<ON_UUID> ParseInstanceIds(const nlohmann::json& body)
 {
     std::vector<ON_UUID> ids;
@@ -2528,8 +2575,10 @@ void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& 
             int idefIndex = pDef->Index();
             ON_3dmObjectAttributes attrs = pInstObj->Attributes();
 
-            ON_3dVector translation(oldXform[0][3], oldXform[1][3], oldXform[2][3]);
-            ON_Xform newXform = ON_Xform::TranslationTransformation(translation);
+            // Preserve translation + rotation; reset per-axis scale to
+            // 1.0. Earlier code here used translation only, which
+            // silently destroyed rotation (Codex review of PR #77).
+            ON_Xform newXform = BuildResetScaleXform(oldXform);
 
             pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
 
@@ -2609,8 +2658,10 @@ void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res)
         int idefIndex = pDef->Index();
         ON_3dmObjectAttributes attrs = pInstObj->Attributes();
 
-        ON_3dVector translation(oldXform[0][3], oldXform[1][3], oldXform[2][3]);
-        ON_Xform newXform = ON_Xform::TranslationTransformation(translation);
+        // Preserve translation + rotation; reset per-axis scale to
+        // 1.0. Earlier code here used translation only, which
+        // silently destroyed rotation (Codex review of PR #77).
+        ON_Xform newXform = BuildResetScaleXform(oldXform);
 
         pDoc->DeleteObject(CRhinoObjRef(pDoc->RuntimeSerialNumber(), instanceId));
 
