@@ -184,6 +184,7 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     "rhino_block_replace_instance": ("/block/replace-instance", "POST"),
     "rhino_block_replace_instance_batch": ("/block/replace-instance-batch", "POST"),
     "rhino_block_reset_scale":  ("/block/reset-scale", "POST"),
+    "rhino_block_reset_scale_batch": ("/block/reset-scale-batch", "POST"),
     "rhino_block_link":         ("/block/link", "POST"),
     "rhino_block_refresh":      ("/block/refresh", "POST"),
     "rhino_block_unlink":       ("/block/unlink", "POST"),

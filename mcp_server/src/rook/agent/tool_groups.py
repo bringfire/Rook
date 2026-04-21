@@ -144,7 +144,7 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_block_transform_object", "rhino_block_transform_object_batch",
         "rhino_block_transform_instance_batch",
         "rhino_block_replace_instance", "rhino_block_replace_instance_batch",
-        "rhino_block_reset_scale", "rhino_block_nested",
+        "rhino_block_reset_scale", "rhino_block_reset_scale_batch", "rhino_block_nested",
         "rhino_block_link", "rhino_block_unlink", "rhino_block_refresh",
         "rhino_block_rebase",
         "rhino_block_rebase_recursive",

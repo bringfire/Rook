@@ -161,6 +161,7 @@ class ToolRegistry:
         "rhino_block_replace_instance": CATEGORY_MODIFICATION,
         "rhino_block_replace_instance_batch": CATEGORY_MODIFICATION,
         "rhino_block_reset_scale": CATEGORY_MODIFICATION,
+        "rhino_block_reset_scale_batch": CATEGORY_MODIFICATION,
         "rhino_block_link": CATEGORY_MODIFICATION,
         "rhino_block_refresh": CATEGORY_MODIFICATION,
         "rhino_block_unlink": CATEGORY_MODIFICATION,

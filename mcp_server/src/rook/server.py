@@ -4001,6 +4001,37 @@ Examples:
                 "required": ["id"]
             }
         ),
+        Tool(
+            name="rhino_block_reset_scale_batch",
+            description=(
+                "Batch variant of rhino_block_reset_scale. Resets multiple "
+                "block instances' scales to 1,1,1 in a single UndoScope. "
+                "Per-element best-effort: malformed UUIDs, unknown ids, and "
+                "non-instance objects produce per-element error records "
+                "without aborting the batch. GUIDs are preserved across "
+                "the delete+recreate — `oldInstanceId == newInstanceId` "
+                "for every successful entry, matching the single-instance "
+                "route and the broader batch-family contract. Duplicate "
+                "ids in the request process twice (second occurrence "
+                "resets the recreated instance again). Empty `ids: []` is "
+                "an idempotent success no-op (deliberate fork from the "
+                "ParseInstanceIds family's empty-input rejection). "
+                "Response: {modifiedCount, instances: [...]} with "
+                "request-order preserved; per-element `error` codes: "
+                "invalid_id / not_found / not_instance / recreate_failed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Array of block instance GUIDs to reset. Empty array is an idempotent no-op. Non-string or malformed UUID elements produce per-element invalid_id records without aborting the batch.",
+                    },
+                },
+                "required": ["ids"],
+            },
+        ),
         # Linked Block Operations (Phase 4)
         Tool(
             name="rhino_block_link",
@@ -10750,6 +10781,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_block_reset_scale":
             result = await call_rhino("/block/reset-scale", "POST", arguments)
+
+        case "rhino_block_reset_scale_batch":
+            result = await call_rhino("/block/reset-scale-batch", "POST", arguments)
 
         # Linked Block Operations (Phase 4)
         case "rhino_block_link":

@@ -270,6 +270,7 @@ private:
     void HandleBlockReplaceInstance(const httplib::Request& req, httplib::Response& res);
     void HandleBlockReplaceInstanceBatch(const httplib::Request& req, httplib::Response& res);
     void HandleBlockResetScale(const httplib::Request& req, httplib::Response& res);
+    void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& res);
     void HandleBlockLink(const httplib::Request& req, httplib::Response& res);
     void HandleBlockRefresh(const httplib::Request& req, httplib::Response& res);
     void HandleBlockUnlink(const httplib::Request& req, httplib::Response& res);
