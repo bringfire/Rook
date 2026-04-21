@@ -1,0 +1,79 @@
+{
+  "note_id": "comp_21019ccf",
+  "note_type": "component",
+  "name": "C# Script",
+  "brief": "C# Script (RhinoCode) | Modern .NET scripting for Rhino 8+",
+  "version": "1.0",
+  "created": "2026-04-21T00:00:00Z",
+  "context": "Grasshopper component: C# Script (RhinoCode). Modern C# scripting component for Rhino 8+; succeeds the GH1-legacy DotNET C# Script. Invoked by gh_create_script(language=\"csharp\") — creates the component by this fixed GUID and routes through the transactional create/set-pins/inject-code/check-errors pipeline. Not the same as the GH1 DotNET C# Script (LEGACY) component (GUID 88c3f2b5-...).",
+  "keywords": [
+    "c# script",
+    "csharp",
+    "csharp script",
+    "rhinocode",
+    "rhinocode csharp",
+    "rhinocode c# script",
+    "script",
+    "scripting"
+  ],
+  "category": "scripting",
+  "tags": [
+    "scripting",
+    "rhinocode"
+  ],
+  "trigger_intents": [
+    "c# script",
+    "csharp",
+    "csharp script",
+    "rhinocode c#",
+    "rhinocode c# script",
+    "script"
+  ],
+  "trigger_symptoms": [],
+  "components": [
+    "C# Script"
+  ],
+  "solution_principle": "Modern RhinoCode C# scripting component for Rhino 8+",
+  "anti_patterns": [],
+  "preconditions": [],
+  "postconditions": [],
+  "links": [
+    "comp_3c3e5309",
+    "comp_3ba0db2b",
+    "comp_68943b30",
+    "comp_de846cdf",
+    "comp_a1655c21",
+    "comp_e953e26a"
+  ],
+  "times_used": 0,
+  "times_succeeded": 0,
+  "retrieval_count": 0,
+  "last_accessed": null,
+  "last_verified": null,
+  "citations": [],
+  "created_from": "manual",
+  "last_evolved": null,
+  "evolved_by": [],
+  "evolution_history": [],
+  "type_data": {
+    "guid": "b6ba1144-02d6-4a2d-b53c-ec62e290eeb7",
+    "category": "scripting",
+    "inputs": {
+      "X": "Generic Data",
+      "Y": "Generic Data"
+    },
+    "outputs": {
+      "out": "Text",
+      "A": "Generic Data"
+    },
+    "typical_wiring": [],
+    "similar_to": [
+      "079bd9bd-54a0-41d4-98af-db999015f63d",
+      "88c3f2b5-27f7-48a2-9528-1397fad62b93",
+      "97aa26ef-88ae-4ba6-98a6-ed6ddeca11d1",
+      "719467e6-7cf5-4848-99b0-c5dd57e5442c"
+    ],
+    "usage_count": 0,
+    "stable_key": "maths|script|c# script"
+  }
+}
