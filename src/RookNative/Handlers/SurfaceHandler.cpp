@@ -554,13 +554,12 @@ void HandleSweep2(const httplib::Request& req, httplib::Response& res)
 // (gated on _strictAttributes) resolves the curve, builds the axis line,
 // converts angles to radians, and invokes RevSurface.Create + ToBrep.
 //
-// The plan lists `curve_intersects_axis` as a route-specific error code.
-// PR-4 ships this as a DEFERRED PLAN-CODE: detection requires geometric
-// curve-line intersection checks (feasible via Intersection.CurveLine but
-// tolerance-sensitive without a deterministic fixture). Factory failures
-// — including the curve-crosses-axis case — classify as operation_failed
-// in PR-4. The code itself remains in the plan's taxonomy; a future PR
-// replaces the fallthrough with real geometric detection.
+// curve_intersects_axis is detected on the managed side in
+// CreateRevolveStrict (Phase 3 PR-1, 2026-04-21). The native path here
+// does not reproduce the check — it dispatches with _strictAttributes=true,
+// and the managed method runs the detection before RevSurface.Create.
+// See rook_docs/2026-04-21-typed-route-phase3-pr1-plan.md for the
+// detection rule + tolerance rationale.
 //
 // tolerance deliberately omitted from the schema: RevSurface.ToBrep()
 // takes no tolerance parameter, same API limitation as Loft's

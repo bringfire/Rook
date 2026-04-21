@@ -315,14 +315,83 @@ async def test_revolve_envelope_singular_shape(fresh_document):
     assert "id" in data
 
 
-# --- Deferred classification documentation ---------------------------------
-#
-# `curve_intersects_axis` is a DEFERRED PLAN-CODE in Phase 1. Detection
-# requires geometric curve-line intersection (Intersection.CurveLine) with
-# tolerance-sensitive handling. In PR-4, a curve that crosses the revolution
-# axis surfaces as `operation_failed` if RevSurface.Create returns null — or
-# may silently produce self-intersecting geometry that's valid from Rhino's
-# perspective. Without a deterministic fixture that forces the factory to
-# produce a classifiable failure, no live test asserts the classification
-# here. A future PR replaces the fallthrough with real geometric detection;
-# at that point this note can be replaced with an actual test.
+# --- curve_intersects_axis detection (Phase 3 PR-1, 2026-04-21) ------------
+# Phase 1 deferred `curve_intersects_axis` — detection was documented as
+# needing geometric curve-line intersection with tolerance-sensitive handling,
+# and until Phase 3 PR-1 a curve that crossed the revolution axis would
+# silently produce self-intersecting geometry with `success: true` (empirically
+# verified via Probe 1 Case 1.2 on 2026-04-21). The detection check now runs
+# in CreateHandler.CreateRevolveStrict BEFORE RevSurface.Create, using
+# parameter-space classification of Intersection.CurveLine events. See
+# rook_docs/2026-04-21-typed-route-phase3-pr1-plan.md for the full rule.
+
+
+async def _create_polyline(points: list[list[float]], name: str) -> str:
+    """Helper: create a polyline through the given points, return its id."""
+    from rook.server import _mcp_tool_executor
+
+    res = await _mcp_tool_executor(
+        "rhino_create",
+        {"type": "POLYLINE", "points": points, "name": name},
+    )
+    assert not _is_error(res), f"rhino_create POLYLINE failed: {res!r}"
+    return res["id"]
+
+
+async def test_revolve_curve_crosses_axis_interior(fresh_document):
+    """Line profile crossing Z axis interior → curve_intersects_axis.
+
+    Promotes Probe 1 Case 1.2 (2026-04-21) to a regression test. Before PR-1
+    this payload returned success: true with a self-intersecting brep — no
+    diagnostic signal for the caller. PR-1 pre-validates via
+    Intersection.CurveLine and rejects interior crossings.
+    """
+    # Line from (-2,0,3) to (2,0,7) — crosses the Z axis at (0,0,5).
+    profile = await _create_line([-2, 400, 3], [2, 400, 7], "RevCrossAxisProfile")
+    status, envelope = await _post_revolve_raw({
+        "curveId": profile,
+        "axisStart": [0, 400, 0],
+        "axisEnd": [0, 400, 10],
+    })
+    _assert_structured_error(envelope, "curve_intersects_axis")
+
+
+async def test_revolve_polyline_crosses_axis_twice_rejected(fresh_document):
+    """Polyline with two interior axis crossings → curve_intersects_axis.
+
+    Pins the detection loop's "first-hit-wins" semantics — the first interior
+    event discovered causes rejection; the rest of the event list is not
+    scanned. Polyline via (2,0,0) → (-2,0,5) → (2,0,10) crosses the Z axis
+    at (0,0,2.5) and (0,0,7.5), both interior.
+    """
+    profile = await _create_polyline(
+        [[2, 450, 0], [-2, 450, 5], [2, 450, 10]],
+        "RevPolylineCrossAxis",
+    )
+    status, envelope = await _post_revolve_raw({
+        "curveId": profile,
+        "axisStart": [0, 450, 0],
+        "axisEnd": [0, 450, 10],
+    })
+    _assert_structured_error(envelope, "curve_intersects_axis")
+
+
+async def test_revolve_endpoint_on_axis_still_accepted(fresh_document):
+    """Line profile with endpoint ON axis → still accepts (legal cone-with-pole).
+
+    CRITICAL REGRESSION FLOOR. Guards against tolerance-too-loose →
+    misclassifying endpoint-touch as interior-crossing. Promotes Probe 1
+    Case 1.1 (2026-04-21). The parameter-space classifier checks ParameterA
+    vs Curve.Domain.{Min,Max} with RhinoMath.ZeroTolerance — if this check
+    regresses, vase-profile geometry (anchored on the axis at one end)
+    starts failing.
+    """
+    # Line from (0,0,0) [ON Z axis] to (5,0,5). Start point on axis, end
+    # point off. Revolving 360° produces a cone-with-pole at the origin.
+    profile = await _create_line([0, 500, 0], [5, 500, 5], "RevEndpointOnAxis")
+    status, envelope = await _post_revolve_raw({
+        "curveId": profile,
+        "axisStart": [0, 500, 0],
+        "axisEnd": [0, 500, 10],
+    })
+    _assert_singular_success(envelope)
