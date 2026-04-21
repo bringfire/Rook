@@ -47,9 +47,23 @@ pytestmark = [pytest.mark.requires_rhino, pytest.mark.asyncio]
 
 
 def _get_guid(result: Any) -> str | None:
+    """Extract a guid from a GH tool response. Schemas vary across MCP tools:
+    `gh_create_python_script` returns `component_guid`, `gh_create_panel`
+    returns `guid`, and some wrap inside `data`. Accept any.
+    """
     if not isinstance(result, dict):
         return None
-    return result.get("guid") or result.get("Guid") or (result.get("data") or {}).get("guid")
+    for key in ("component_guid", "guid", "Guid"):
+        val = result.get(key)
+        if isinstance(val, str) and val:
+            return val
+    data = result.get("data")
+    if isinstance(data, dict):
+        for key in ("component_guid", "guid", "Guid"):
+            val = data.get(key)
+            if isinstance(val, str) and val:
+                return val
+    return None
 
 
 async def _create_python_script() -> str:
@@ -86,17 +100,28 @@ async def _create_upstream_panel(content: str = "42") -> str:
 
 
 async def _wire(source_guid: str, target_guid: str, target_param: str) -> None:
-    """Wire source.output[0] -> target.input[target_param]."""
-    from rook.server import _mcp_tool_executor
+    """Wire source.output[0] -> target.input[target_param] via raw HTTP.
 
-    res = await _mcp_tool_executor(
-        "gh_connect",
-        {"sourceGuid": source_guid, "targetGuid": target_guid, "targetParam": target_param},
-    )
-    assert not _is_error(res), f"gh_connect failed: {res!r}"
-    assert res.get("connected") is True or (res.get("data") or {}).get("connected") is True, (
-        f"gh_connect did not confirm connection: {res!r}"
-    )
+    `gh_connect` is not a registered MCP tool; the wiring route lives on the
+    companion directly as POST /gh/connect (see GrasshopperHandler.cs:5193).
+    """
+    from rook.bridge import get_rhino_host
+
+    base_url = get_rhino_host()
+    if base_url is None:
+        pytest.skip("Native plugin not discoverable; skipping live test.")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{base_url}/gh/connect",
+            json={
+                "sourceGuid": source_guid,
+                "targetGuid": target_guid,
+                "targetParam": target_param,
+            },
+        )
+    envelope = resp.json()
+    assert envelope.get("success") is True, f"POST /gh/connect failed: {envelope!r}"
 
 
 async def _get_connections(guid: str) -> dict[str, Any]:
@@ -136,27 +161,31 @@ async def _post_script_params_raw(body: Any) -> tuple[int, dict[str, Any]]:
 def _connections_signature(conns: dict[str, Any]) -> tuple[tuple[tuple[str, int], ...], tuple[tuple[str, int], ...]]:
     """Extract ((input_name, source_count), ...) and same for outputs.
 
-    Uses PascalCase keys per `GetConnections` response shape
-    (src/Rook/Handlers/GrasshopperHandler.cs:2107-2114). Only pins with
-    Sources.Count > 0 (inputs) or Recipients.Count > 0 (outputs) are emitted
-    by the handler, so a mutation that strips a wired pin would drop its
-    entry from the list and change the signature.
+    IMPORTANT: The JSON wire format is camelCase — `inputs`/`outputs`/`paramName`/
+    `sources`/`recipients`. The C# anonymous type uses PascalCase (Inputs/
+    ParamName/Sources) but ASP.NET's default serializer applies
+    `JsonNamingPolicy.CamelCase`, lowercasing the first letter. Verified
+    empirically via probe 2026-04-21 — do not trust the C# source casing.
+
+    Only pins with Sources.Count > 0 / Recipients.Count > 0 are emitted by
+    the handler (GrasshopperHandler.cs:2105 / 2140), so a mutation that
+    strips a wired pin would drop its entry and change the signature.
     """
-    inputs = conns.get("Inputs") or []
-    outputs = conns.get("Outputs") or []
+    inputs = conns.get("inputs") or []
+    outputs = conns.get("outputs") or []
 
     def _pairs(items: list[Any], count_key: str) -> tuple[tuple[str, int], ...]:
         out: list[tuple[str, int]] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
-            name = item.get("ParamName")
+            name = item.get("paramName")
             conn_list = item.get(count_key) or []
             if isinstance(name, str):
                 out.append((name, len(conn_list) if isinstance(conn_list, list) else 0))
         return tuple(out)
 
-    return _pairs(inputs, "Sources"), _pairs(outputs, "Recipients")
+    return _pairs(inputs, "sources"), _pairs(outputs, "recipients")
 
 
 async def _setup_wired_script() -> tuple[str, tuple[tuple[tuple[str, int], ...], tuple[tuple[str, int], ...]]]:
