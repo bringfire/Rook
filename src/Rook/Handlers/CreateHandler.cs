@@ -6,6 +6,7 @@ using System.Text.Json;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
+using Rhino.Geometry.Intersect;
 using Rhino.Display;
 using Rook.Serialization;
 
@@ -1890,12 +1891,13 @@ namespace Rook.Handlers
         ///   - axis_degenerate / angle_invalid rejections (legacy silently
         ///     accepts any input)
         ///
-        /// `curve_intersects_axis` is a DEFERRED PLAN-CODE: detection needs
-        /// geometric curve-line intersection (feasible via
-        /// Intersection.CurveLine but tolerance-sensitive). Factory failures
-        /// — including the curve-crosses-axis case — classify as
-        /// operation_failed in PR-4. A future PR replaces the fallthrough
-        /// with real detection.
+        /// `curve_intersects_axis` detects interior crossings of the revolution
+        /// axis by the profile curve via Intersection.CurveLine. Endpoints on
+        /// the axis are permitted (vase profile with pole). Phase 3 PR-1
+        /// (2026-04-21) replaced the earlier fallthrough with real detection —
+        /// RevSurface.Create emits invalid-but-successful geometry for
+        /// interior-crossing profiles (empirically verified 2026-04-21), so
+        /// this check is the only diagnostic signal the caller receives.
         /// </summary>
         private Brep? CreateRevolveStrict(RhinoDoc doc, Dictionary<string, JsonElement> request)
         {
@@ -1929,6 +1931,35 @@ namespace Rook.Handlers
                     errorCode: "angle_invalid");
 
             var axis = new Line(axisStart.Value, axisEnd.Value);
+
+            // Phase 3 PR-1: detect curve-crosses-axis interior before
+            // RevSurface.Create produces silent invalid geometry. Endpoints
+            // lying on the axis are legal (vase profiles anchored on the pole);
+            // only interior crossings reject. Parameter-space classification
+            // via event.ParameterA vs Curve.Domain endpoints. See
+            // rook_docs/2026-04-21-typed-route-phase3-pr1-plan.md §Detection Rule.
+            var axisIntersectTol = doc.ModelAbsoluteTolerance * 10.0;
+            var intersectionEvents = Intersection.CurveLine(
+                curve, axis, axisIntersectTol, axisIntersectTol);
+            if (intersectionEvents != null)
+            {
+                var curveDomain = curve.Domain;
+                foreach (var evt in intersectionEvents)
+                {
+                    double t = evt.ParameterA;
+                    bool atStart = Math.Abs(t - curveDomain.Min) <= RhinoMath.ZeroTolerance;
+                    bool atEnd = Math.Abs(t - curveDomain.Max) <= RhinoMath.ZeroTolerance;
+                    if (!atStart && !atEnd)
+                    {
+                        throw new CreateInvalidInputException(
+                            "Profile curve crosses the revolution axis at an interior point; "
+                            + "only endpoint contacts are permitted (e.g. profiles anchored "
+                            + "on the axis at one end).",
+                            errorCode: "curve_intersects_axis");
+                    }
+                }
+            }
+
             var startRad = RhinoMath.ToRadians(startAngleDeg);
             var endRad = RhinoMath.ToRadians(endAngleDeg);
 
