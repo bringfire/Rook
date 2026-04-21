@@ -1250,6 +1250,34 @@ class GHIntentResolver(dspy.Module):
             # else: fall through on empty-modern with no legacy cue —
             # existing sort_key handles the remaining pool as-is.
 
+        # Python modern-over-legacy preference. Symmetric to the C#
+        # branch above but scoped to python_script. Default to modern
+        # Python 3; route to IronPython 2 only on explicit legacy cues.
+        # Substring cues include "python2" (no-space spelling) and
+        # "ipy"; word-bounded cues cover " python 2 " / " py2 " /
+        # " iron python " to avoid collision with substrings like
+        # "I have 2 python scripts" or similar. GhPython is not in
+        # scope — see _component_concept_key docstring.
+        if concept == "python_script":
+            py_legacy_cues_substring = ("ironpython", "python2", "ipy", "legacy", "gh1")
+            py_legacy_cues_word = (" python 2 ", " py2 ", " iron python ")
+            padded = f" {normalized_intent} "
+            py_wants_legacy = (
+                any(cue in normalized_intent for cue in py_legacy_cues_substring)
+                or any(cue in padded for cue in py_legacy_cues_word)
+            )
+
+            def _is_legacy_python(candidate: dict) -> bool:
+                c_tokens = cls._candidate_name_tokens(candidate)
+                return "ironpython" in c_tokens or "legacy" in c_tokens
+
+            modern_py = [c for c in pool if not _is_legacy_python(c)]
+            legacy_py = [c for c in pool if _is_legacy_python(c)]
+            if py_wants_legacy and legacy_py:
+                pool = legacy_py
+            elif modern_py:
+                pool = modern_py
+
         def sort_key(candidate: dict) -> tuple[int, int, int, int]:
             normalized_name = cls._candidate_normalized_name(candidate)
             tokens = cls._candidate_name_tokens(candidate)
@@ -1280,18 +1308,20 @@ class GHIntentResolver(dspy.Module):
         tokens = cls._candidate_name_tokens(candidate)
         if not tokens:
             return ""
-        # C# script-family unification: modern RhinoCode "C# Script" and
-        # GH1-legacy "DotNET C# Script (LEGACY)" must share a concept
-        # bucket so _select_preferred_candidate_for_concept can compare
-        # them as alternatives. The default first-token logic below
-        # puts them in "c" vs "dotnet" respectively — which never get
-        # compared. See the 2026-04-21 follow-up parked under "Prefer
-        # modern RhinoCode C# Script over legacy ComponentLegacyCsScript".
+        # Script-family unification: modern and legacy variants of the
+        # same script language must share a concept bucket so
+        # _select_preferred_candidate_for_concept can compare them as
+        # alternatives. The default first-token logic below keys by
+        # first regex token and never compares cross-variant names.
         #
-        # Scoped strictly to C# variants. Python families (Python 3 /
-        # GhPython / IronPython 2) are NOT unified here — Python 3
-        # already ranks correctly today and unifying them would be
-        # an untested behavior change.
+        # C# (PR-86): RhinoCode "C# Script" vs GH1-legacy "DotNET C#
+        #   Script (LEGACY)" unified under "csharp_script".
+        # Python (Python-follow-up): RhinoCode "Python 3 Script" vs
+        #   GH1-legacy "IronPython 2 Script" unified under
+        #   "python_script". GhPython is intentionally NOT included —
+        #   no component note exists for it today, so it never enters
+        #   the candidate pool. Revisit only if a GhPython component
+        #   note is added and its creation identity is settled.
         if "script" in tokens:
             looks_csharp = ("csharp" in tokens) or (
                 "c" in tokens
@@ -1302,6 +1332,9 @@ class GHIntentResolver(dspy.Module):
             )
             if looks_csharp:
                 return "csharp_script"
+            looks_python = ("python" in tokens) or ("ironpython" in tokens)
+            if looks_python and "vb" not in tokens:
+                return "python_script"
         if "slider" in tokens:
             return "slider"
         if "toggle" in tokens:

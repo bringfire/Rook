@@ -6,13 +6,16 @@ Covers the two resolver-side changes:
 2. `_select_preferred_candidate_for_concept` prefers modern by default,
    legacy only on explicit legacy cues.
 
-Python concept-key behavior is explicitly pinned as UNCHANGED (Python
-variants are out of scope for this PR — Python 3 already ranks correctly
-today; unifying GhPython/IronPython would be an untested behavior change).
+Python family preference was intentionally deferred at PR-86 time. The
+Python follow-up (separate PR) covers `python_script` unification and
+modern-over-legacy preference. This file's `test_preference_non_csharp_concept_is_not_rewritten`
+still exercises a Python candidate against a non-csharp concept as a
+regression floor — Python-specific unification tests live in
+test_dspy_resolver_python_ranking.py.
 
 See rook_docs/work-queue.md "Prefer modern RhinoCode C# Script over legacy
-ComponentLegacyCsScript for C# GH intents" and the 2026-04-21 follow-up
-plan that produced this fix.
+ComponentLegacyCsScript for C# GH intents" (PR-86) and the Python
+follow-up that extended the same three-layer pattern for Python variants.
 """
 
 from __future__ import annotations
@@ -38,16 +41,10 @@ _MODERN_PY = {
     "name": "Python 3 Script",
     "family": "scripting",
 }
-_GHPYTHON = {
-    "guid": "410755b1-224a-4c1e-a407-bf32fb45ea7e",
-    "name": "GhPython Script",
-    "family": "scripting",
-}
-_IRONPYTHON = {
-    "guid": "97aa26ef-88ae-4ba6-98a6-ed6ddeca11d1",
-    "name": "IronPython 2 Script",
-    "family": "scripting",
-}
+# Note: Python family unification + preference is covered in
+# test_dspy_resolver_python_ranking.py (Python follow-up PR). This file
+# only references _MODERN_PY as a regression floor for the
+# non-csharp-concept branch of _select_preferred_candidate_for_concept.
 _VB = {
     "guid": "079bd9bd-54a0-41d4-98af-db999015f63d",
     "name": "VB Script",
@@ -66,24 +63,6 @@ def test_concept_key_modern_csharp_is_csharp_script():
 
 def test_concept_key_legacy_csharp_is_csharp_script():
     assert GHIntentResolver._component_concept_key(_LEGACY_CS) == "csharp_script"
-
-
-def test_concept_key_python_variants_unchanged():
-    """Python concept-key behavior is out of scope for this PR. Pin that
-    the three Python variants still return their original concept keys
-    (first-token "python" / "ghpython" / "ironpython"). If someone later
-    unifies them under `python_script`, that should be a separate PR with
-    its own behavioral tests.
-    """
-    assert GHIntentResolver._component_concept_key(_MODERN_PY) == "python"
-    # GhPython and IronPython tokenize to non-"python" first tokens.
-    ghp_key = GHIntentResolver._component_concept_key(_GHPYTHON)
-    iron_key = GHIntentResolver._component_concept_key(_IRONPYTHON)
-    # The specific value doesn't matter; what matters is they're NOT
-    # "csharp_script" (regression guardrail — the new C# branch must not
-    # accidentally swallow Python variants).
-    assert ghp_key != "csharp_script"
-    assert iron_key != "csharp_script"
 
 
 def test_concept_key_vb_script_is_not_csharp_script():
