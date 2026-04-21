@@ -2499,10 +2499,30 @@ void HandleBlockResetScaleBatch(const httplib::Request& req, httplib::Response& 
     }
 
     const nlohmann::json ids = body["ids"];
+    const bool isNoOp = ids.empty();
 
     auto future = CMainThreadDispatcher::Instance().Dispatch(
-        [docSn, ids]() -> WriteResult
+        [docSn, ids, isNoOp]() -> WriteResult
     {
+        // Declared-no-op: empty `ids: []` returns a success envelope
+        // without opening an UndoScope or calling Redraw, so no-ops
+        // leave no fingerprint in the undo stack. Matches the rhythm
+        // at UserTextHandler.cpp:710 for /usertext/*-delete. Codex
+        // review of PR #77 flagged that the no-op path was still
+        // opening UndoScope + Redraw unconditionally, violating the
+        // documented no-op contract.
+        if (isNoOp)
+        {
+            // Resolve the doc to fail-fast on dispatch setup, but
+            // don't touch it — the return shape is constant.
+            (void)ResolveDoc(docSn);
+            WriteResult wr;
+            wr.success = true;
+            wr.data["modifiedCount"] = 0;
+            wr.data["instances"] = nlohmann::json::array();
+            return wr;
+        }
+
         CRhinoDoc* pDoc = ResolveDoc(docSn);
         UndoScope undo(pDoc, L"Batch Reset Block Scale");
 

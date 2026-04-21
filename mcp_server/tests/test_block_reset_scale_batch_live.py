@@ -254,12 +254,56 @@ async def test_batch_non_instance_object_per_item(fresh_document):
 
 async def test_batch_empty_ids_is_idempotent_noop(fresh_document):
     """`ids: []` → success no-op. Explicit fork from ParseInstanceIds
-    which rejects empty input at BlocksHandler.cpp:2480."""
+    which rejects empty input at BlocksHandler.cpp:2480.
+
+    Also pins the stricter "no fingerprint" contract flagged by Codex
+    review of PR #77: an empty-ids request must NOT open an UndoScope
+    and must NOT call Redraw. Verified here by reading the document's
+    undo-record count before and after the no-op; equal counts prove
+    the handler short-circuited before the UndoScope RAII. Matches
+    the rhythm at UserTextHandler.cpp:710 for /usertext/*-delete.
+    """
+    # Pin the no-op contract: empty `ids: []` must NOT open UndoScope
+    # or call Redraw. Measured via Rhino's NextUndoRecordSerialNumber,
+    # which advances once per BeginUndoRecord.
+    #
+    # Baseline caveat (verified empirically 2026-04-20): every
+    # `rhino_execute` call advances the serial by 1 because the
+    # scripting host wraps each script in an undo scope. So the
+    # contract-correct delta across "[probe1, handler, probe2]" is
+    # exactly 1 — only from probe2's own scope. Delta ≥ 2 would prove
+    # the handler between the probes opened a scope too. Delta ==
+    # baseline-from-probe-alone is the load-bearing check.
+    probe_code = (
+        "import Rhino\n"
+        "print(Rhino.RhinoDoc.ActiveDoc.NextUndoRecordSerialNumber)\n"
+    )
+
+    async def _probe_serial() -> int:
+        res = await _mcp_tool_executor("rhino_execute", {"code": probe_code})
+        assert not _is_error(res), f"undo serial probe failed: {res!r}"
+        return int((res.get("output") or "0").strip().splitlines()[-1])
+
+    pre_serial = await _probe_serial()
+
     status, envelope = await _post_reset_scale_batch_raw({"ids": []})
     assert status == 200
     data = _assert_batch_success(envelope)
     assert data["modifiedCount"] == 0
     assert data["instances"] == []
+
+    post_serial = await _probe_serial()
+    delta = post_serial - pre_serial
+    # Expected: 1 (only from post_probe's own rhino_execute scope).
+    # If the handler had opened its own UndoScope, delta would be ≥ 2.
+    assert delta == 1, (
+        f"No-op contract violated: NextUndoRecordSerialNumber advanced "
+        f"{pre_serial} -> {post_serial} (delta {delta}); expected exactly 1 "
+        f"(from the post-probe's own rhino_execute scope). Delta ≥ 2 means "
+        f"the handler opened an UndoScope despite the empty-input "
+        f"short-circuit. Fix: UserTextHandler.cpp:710 rhythm — return "
+        f"before UndoScope+Redraw (Codex PR #77 review)."
+    )
 
 
 async def test_batch_duplicate_id_both_succeed(fresh_document):
