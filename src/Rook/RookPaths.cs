@@ -25,5 +25,11 @@ namespace Rook
         /// Path to the Rook settings JSON file under <see cref="SettingsRoot"/>.
         /// </summary>
         public static string SettingsFile => Path.Combine(SettingsRoot, "settings.json");
+
+        /// <summary>
+        /// Persistent artifact root under <c>%APPDATA%\Rook\artifacts</c>.
+        /// Lazily created by <c>ArtifactStore</c> on first write.
+        /// </summary>
+        public static string ArtifactsRoot => Path.Combine(SettingsRoot, "artifacts");
     }
 }
