@@ -9,16 +9,34 @@ records compact observations, and computes advisory summaries for:
 - Downstream knowledge analytics
 
 It intentionally does not mutate router coverage or execution policy.
+
+Persistence: `persist_substrate_observation` appends one JSONL line per
+routed tool call to `knowledge/substrate_observations.jsonl`. This enables
+historical hotspot scans across sessions; the in-memory summaries returned
+by `summarize_substrate_observations` remain unchanged and session-scoped.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Iterable, List
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 PROMOTABLE_SUBSTRATES = frozenset({"known_command"})
 INTERACTIVE_SUBSTRATES = frozenset({"interactive"})
+
+
+def _default_persist_path() -> Path:
+    """Resolve the canonical substrate-observations JSONL path (lazy import)."""
+    from ..runtime_paths import resolve_writable_knowledge_path
+    return resolve_writable_knowledge_path("substrate_observations.jsonl")
 
 
 @dataclass
@@ -99,6 +117,110 @@ def extract_substrate_observation(
         verified=verified,
         task_id=task_id,
     )
+
+
+def _compact_error(result: dict[str, Any], max_len: int = 120) -> str:
+    """Derive a compact error string from a tool result.
+
+    Mirrors the metrics_store fallback posture: prefer top-level `error`,
+    then nested `data.error`, then stringified `data`. Returns empty string
+    when the call succeeded or when no error payload is available.
+    """
+    if not isinstance(result, dict):
+        return ""
+    if result.get("success", False):
+        return ""
+
+    top_err = result.get("error")
+    if isinstance(top_err, str) and top_err:
+        return top_err[:max_len]
+
+    data = result.get("data")
+    if isinstance(data, dict):
+        nested_err = data.get("error")
+        if isinstance(nested_err, str) and nested_err:
+            return nested_err[:max_len]
+
+    if data:
+        return str(data)[:max_len]
+    return ""
+
+
+def persist_substrate_observation(
+    observation: "SubstrateObservation",
+    *,
+    error: str = "",
+    session_id: str = "",
+    path: Optional[Path] = None,
+) -> None:
+    """Append one JSONL line for a substrate observation.
+
+    Best-effort — any I/O or serialization failure is logged and swallowed.
+    Never raises, so telemetry can never break tool execution.
+
+    Schema per line (key order stable for greppability):
+        timestamp, session_id, tool, operation, route_taken,
+        success, verified, error
+
+    Args:
+        observation: The SubstrateObservation returned by
+            `extract_substrate_observation`.
+        error: Compact error string (use `_compact_error(result)` at call site).
+        session_id: Stable conversation/session identifier when available;
+            empty string when the call site has no session handle.
+        path: Override for the JSONL file path (primarily for tests).
+    """
+    try:
+        target = path if path is not None else _default_persist_path()
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id or observation.task_id or "",
+            "tool": observation.tool,
+            "operation": observation.operation or observation.tool,
+            "route_taken": observation.route_taken,
+            "success": bool(observation.success),
+            "verified": observation.verified,
+            "error": error,
+        }
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False))
+            fh.write("\n")
+            fh.flush()
+    except Exception as exc:
+        logger.warning(
+            "substrate_observations persist failed for tool=%s: %s",
+            getattr(observation, "tool", "?"),
+            exc,
+        )
+
+
+def load_substrate_observations_jsonl(
+    path: Optional[Path] = None,
+) -> List[dict[str, Any]]:
+    """Read back persisted substrate observations (best-effort).
+
+    Returns an empty list when the file is absent or unreadable.
+    Malformed lines are skipped silently (JSONL is append-only, partial
+    writes should be rare but not fatal to analysis).
+    """
+    target = path if path is not None else _default_persist_path()
+    if not target.exists():
+        return []
+    records: List[dict[str, Any]] = []
+    try:
+        with target.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError as exc:
+        logger.warning("substrate_observations read failed: %s", exc)
+    return records
 
 
 def summarize_substrate_observations(

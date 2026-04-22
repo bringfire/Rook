@@ -10374,13 +10374,15 @@ def _record_observation(
 
     PR-3: results marked `_is_handoff=True` (gh_execute_intent routing
     corrections) are skipped entirely — they are not execution failures
-    and must not inflate per-tool failure counts / success rates. The
-    sentinel is popped elsewhere before serialization; this check is a
-    defensive read.
+    and must not inflate per-tool failure counts / success rates, nor land
+    as substrate observations (they're routing redirects, not routed
+    executions). One top-of-function gate covers both paths. The sentinel
+    is popped elsewhere before serialization; this check is a defensive read.
     """
+    if isinstance(result, dict) and result.get("_is_handoff"):
+        return
+
     try:
-        if result.get("_is_handoff"):
-            return
         from .learning.metrics_store import Observation, get_metrics_store
 
         args = arguments or {}
@@ -10446,6 +10448,28 @@ def _record_observation(
         get_metrics_store().record(obs)
     except Exception as e:
         logger.warning(f"Metrics capture skipped for {tool_name}: {e}")
+
+    # Substrate-observation persistence (MCP-direct capture). Independently
+    # best-effort — runs outside the metrics try/except so a metrics failure
+    # does not silently drop substrate telemetry. Handoff results were
+    # already filtered at the top-of-function gate above; no re-check needed.
+    try:
+        if isinstance(result, dict):
+            from .agent.substrate_analytics import (
+                _compact_error as _substrate_compact_error,
+                extract_substrate_observation,
+                persist_substrate_observation,
+            )
+            substrate_obs = extract_substrate_observation(tool_name, result)
+            if substrate_obs is not None:
+                persist_substrate_observation(
+                    substrate_obs,
+                    error=_substrate_compact_error(result),
+                )
+    except Exception as substrate_exc:
+        logger.debug(
+            f"Substrate persistence skipped for {tool_name}: {substrate_exc}"
+        )
 
 
 # =============================================================================
