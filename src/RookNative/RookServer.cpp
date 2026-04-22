@@ -1344,6 +1344,21 @@ void CRookServer::RegisterRoutes()
     m_server->Post("/block/array-instances", [this](const httplib::Request& req, httplib::Response& res) {
         HandleBlockArrayInstancesRoute(req, res);
     });
+    // Exotic-capability promotion: first typed route promoted from a user-authored
+    // Rhino script (DistributeBlocksAlongCurve.py). Doctrine:
+    //   rook_docs/2026-04-22-exotic-capability-promotion-plan.md
+    // Scope:
+    //   rook_docs/2026-04-22-exotic-capability-pr1-scope.md
+    m_server->Post("/block/distribute-along-curve", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleBlockDistributeAlongCurve(req, res);
+    });
+    // Internal, test-only. Env-gated by ROOK_ENABLE_DEBUG_ROUTES=1. Arms a
+    // one-shot synthetic failure for the Nth CreateInstanceObject attempt in
+    // the next /block/distribute-along-curve request. Used to verify explicit
+    // mid-loop rollback. Not exposed as an MCP tool.
+    m_server->Post("/block/_debug/fail-next-instance", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleBlockDebugFailNextInstance(req, res);
+    });
     m_server->Post("/block/set-object-colors", [this](const httplib::Request& req, httplib::Response& res) {
         HandleManagedBlockSetObjectColors(req, res);
     });

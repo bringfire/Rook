@@ -20,12 +20,15 @@
 
 #include <set>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <random>
+#include <sstream>
 #include <unordered_map>
 #include <variant>
 
@@ -5974,6 +5977,835 @@ void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib
         else CRookServer::SendErrorData(res, result.data);
     }
     catch (const std::exception& ex) { CRookServer::SendError(res, ex.what()); }
+}
+
+// ─── Distribute Along Curve ─────────────────────────────────────────
+//
+// POST /block/distribute-along-curve
+//
+// Substrate: direct-sdk native C++. Block instance creation via
+// m_instance_definition_table.CreateInstanceObject — the same path used by
+// HandleBlockArrayInstances above. No bridge crossing, no ABI bump.
+//
+// Atomicity contract:
+//   - One UndoScope per request groups the operation into a single undo
+//     record.
+//   - UndoScope is NOT transactional rollback. On mid-loop failure the
+//     handler explicitly deletes any instances created earlier in the
+//     request, then throws operation_failed. Matches the ArrayHandler
+//     pattern.
+//
+// Error codes (closed set for this handler):
+//   invalid_input, not_found, invalid_geometry, empty_pool,
+//   span_exceeds_curve, operation_failed, rollback_failed.
+//
+// Randomness:
+//   std::mt19937 seeded with user-supplied seed or std::random_device{}().
+//   The seed actually used is echoed as seedUsed in the success payload,
+//   enabling deterministic replay.
+//
+// Note on helpers: StructuredError, MakeErrorData, SendStructuredError,
+// DebugRoutesEnabledOrRefuse, and ShouldSyntheticFailInstanceAttempt are
+// replicated locally here because the versions in ArrayHandler.cpp are
+// file-local (anonymous-namespace) and not directly reusable across
+// translation units. A future refactor may extract these into
+// Infrastructure/ as shared helpers; that refactor is out of scope for
+// this PR per 2026-04-22-exotic-capability-pr1-scope.md.
+
+namespace {
+
+struct DistStructuredError : public std::exception
+{
+    DistStructuredError(std::string codeIn, std::string messageIn)
+        : code(std::move(codeIn)), message(std::move(messageIn)),
+          whatCache(code + ": " + message)
+    {
+    }
+
+    const char* what() const noexcept override { return whatCache.c_str(); }
+
+    std::string code;
+    std::string message;
+
+private:
+    std::string whatCache;
+};
+
+nlohmann::json DistMakeErrorData(const std::string& errorCode, const std::string& errorMessage)
+{
+    return {
+        {"errorCode", errorCode},
+        {"errorMessage", errorMessage},
+    };
+}
+
+void DistSendStructuredError(httplib::Response& res, const std::string& errorCode, const std::string& errorMessage)
+{
+    CRookServer::SendErrorData(res, DistMakeErrorData(errorCode, errorMessage));
+}
+
+std::atomic<int> g_debugFailInstanceIndex{ 0 };
+
+struct ScopedDistDebugArmReset
+{
+    ~ScopedDistDebugArmReset() { g_debugFailInstanceIndex.store(0); }
+};
+
+bool ShouldSyntheticFailInstanceAttempt(int ordinal)
+{
+    int expected = ordinal;
+    return g_debugFailInstanceIndex.compare_exchange_strong(expected, 0);
+}
+
+bool DistDebugRoutesEnabledOrRefuse(httplib::Response& res)
+{
+    const char* env = std::getenv("ROOK_ENABLE_DEBUG_ROUTES");
+    if (env != nullptr && std::string(env) == "1")
+        return true;
+
+    res.status = 403;
+    res.set_header("Content-Type", "application/json");
+    res.body = R"({"success":false,"data":"Debug routes disabled. Set ROOK_ENABLE_DEBUG_ROUTES=1 in the Rhino process environment and restart Rhino to enable /block/_debug/* routes. These routes are test-only and have no stable contract."})";
+    return false;
+}
+
+enum class DistMethodEnum { Fill, FixedSpacing, FixedCount };
+enum class DistTypeEnum { Even, Random };
+enum class PlacementEnum { Start, Center, End };
+enum class OrientationEnum { FollowCurve, World };
+enum class RotationModeEnum { None, Random };
+enum class ScaleModeEnum { Fixed, RandomRange };
+
+struct DistributeParams
+{
+    ON_UUID curveId = ON_nil_uuid;
+    std::vector<std::string> blockNames;
+    DistMethodEnum method = DistMethodEnum::Fill;
+    // method-specific
+    int count = 0;
+    double spacing = 0.0;
+    double spacingVariation = 0.0;
+    DistTypeEnum distribution = DistTypeEnum::Even;
+    PlacementEnum placement = PlacementEnum::Start;
+    // orientation
+    OrientationEnum orientation = OrientationEnum::FollowCurve;
+    bool keepUpright = true;
+    // rotation + scale
+    RotationModeEnum rotationMode = RotationModeEnum::None;
+    ScaleModeEnum scaleMode = ScaleModeEnum::Fixed;
+    double minScale = 1.0;
+    double maxScale = 1.0;
+    // seed
+    bool seedProvided = false;
+    std::uint32_t seed = 0;
+};
+
+bool TryParseDistributeParams(const nlohmann::json& body, DistributeParams& p, httplib::Response& res)
+{
+    // curveId
+    if (!body.contains("curveId") || !body["curveId"].is_string())
+    {
+        DistSendStructuredError(res, "invalid_input", "Field 'curveId' is required (string UUID)");
+        return false;
+    }
+    try
+    {
+        p.curveId = ParseUuid(body, "curveId");
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        DistSendStructuredError(res, "invalid_input", ex.what());
+        return false;
+    }
+
+    // blockNames
+    if (!body.contains("blockNames") || !body["blockNames"].is_array())
+    {
+        DistSendStructuredError(res, "invalid_input", "Field 'blockNames' is required (array of strings)");
+        return false;
+    }
+    for (const auto& n : body["blockNames"])
+    {
+        if (!n.is_string())
+        {
+            DistSendStructuredError(res, "invalid_input", "'blockNames' entries must be strings");
+            return false;
+        }
+        p.blockNames.push_back(n.get<std::string>());
+    }
+    if (p.blockNames.empty())
+    {
+        DistSendStructuredError(res, "invalid_input", "'blockNames' must contain at least one name");
+        return false;
+    }
+
+    // method
+    if (!body.contains("method") || !body["method"].is_string())
+    {
+        DistSendStructuredError(res, "invalid_input", "Field 'method' is required (enum: fill|fixedSpacing|fixedCount)");
+        return false;
+    }
+    {
+        const std::string m = body["method"].get<std::string>();
+        if (m == "fill") p.method = DistMethodEnum::Fill;
+        else if (m == "fixedSpacing") p.method = DistMethodEnum::FixedSpacing;
+        else if (m == "fixedCount") p.method = DistMethodEnum::FixedCount;
+        else
+        {
+            DistSendStructuredError(res, "invalid_input", "Field 'method' must be one of: fill, fixedSpacing, fixedCount");
+            return false;
+        }
+    }
+
+    // Method-specific presence rules. Reject accepted-but-ignored fields per
+    // the scope doc's doctrine (no documented-no-op parameters).
+    const bool hasCount = body.contains("count");
+    const bool hasSpacing = body.contains("spacing");
+    const bool hasPlacement = body.contains("placement");
+    const bool hasDistribution = body.contains("distribution");
+    const bool hasSpacingVariation = body.contains("spacingVariation");
+
+    switch (p.method)
+    {
+    case DistMethodEnum::Fill:
+        if (!hasCount)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fill' requires 'count'"); return false; }
+        if (hasSpacing)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fill' does not accept 'spacing'"); return false; }
+        if (hasPlacement)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fill' does not accept 'placement'"); return false; }
+        if (hasSpacingVariation)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fill' does not accept 'spacingVariation'"); return false; }
+        break;
+    case DistMethodEnum::FixedSpacing:
+        if (!hasSpacing)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedSpacing' requires 'spacing'"); return false; }
+        if (hasCount)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedSpacing' does not accept 'count'"); return false; }
+        if (hasPlacement)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedSpacing' does not accept 'placement'"); return false; }
+        if (hasDistribution)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedSpacing' does not accept 'distribution'"); return false; }
+        break;
+    case DistMethodEnum::FixedCount:
+        if (!hasCount)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedCount' requires 'count'"); return false; }
+        if (!hasSpacing)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedCount' requires 'spacing'"); return false; }
+        if (hasDistribution)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedCount' does not accept 'distribution'"); return false; }
+        if (hasSpacingVariation)
+        { DistSendStructuredError(res, "invalid_input", "Method 'fixedCount' does not accept 'spacingVariation'"); return false; }
+        break;
+    }
+
+    // Parse method-relevant numeric fields
+    if (hasCount)
+    {
+        if (!body["count"].is_number_integer() || body["count"].get<int>() < 1)
+        {
+            DistSendStructuredError(res, "invalid_input", "Field 'count' must be an integer >= 1");
+            return false;
+        }
+        p.count = body["count"].get<int>();
+    }
+    if (hasSpacing)
+    {
+        if (!body["spacing"].is_number() || !(body["spacing"].get<double>() > 0.0))
+        {
+            DistSendStructuredError(res, "invalid_input", "Field 'spacing' must be a number > 0");
+            return false;
+        }
+        p.spacing = body["spacing"].get<double>();
+    }
+    if (hasSpacingVariation)
+    {
+        if (!body["spacingVariation"].is_number() || body["spacingVariation"].get<double>() < 0.0)
+        {
+            DistSendStructuredError(res, "invalid_input", "Field 'spacingVariation' must be a number >= 0");
+            return false;
+        }
+        p.spacingVariation = body["spacingVariation"].get<double>();
+        if (p.spacingVariation >= p.spacing)
+        {
+            DistSendStructuredError(res, "invalid_input", "'spacingVariation' must be less than 'spacing'");
+            return false;
+        }
+    }
+    if (hasDistribution)
+    {
+        if (!body["distribution"].is_string())
+        { DistSendStructuredError(res, "invalid_input", "'distribution' must be a string"); return false; }
+        const std::string d = body["distribution"].get<std::string>();
+        if (d == "even") p.distribution = DistTypeEnum::Even;
+        else if (d == "random") p.distribution = DistTypeEnum::Random;
+        else
+        { DistSendStructuredError(res, "invalid_input", "'distribution' must be 'even' or 'random'"); return false; }
+    }
+    if (hasPlacement)
+    {
+        if (!body["placement"].is_string())
+        { DistSendStructuredError(res, "invalid_input", "'placement' must be a string"); return false; }
+        const std::string pl = body["placement"].get<std::string>();
+        if (pl == "start") p.placement = PlacementEnum::Start;
+        else if (pl == "center") p.placement = PlacementEnum::Center;
+        else if (pl == "end") p.placement = PlacementEnum::End;
+        else
+        { DistSendStructuredError(res, "invalid_input", "'placement' must be 'start', 'center', or 'end'"); return false; }
+    }
+
+    // orientation
+    if (body.contains("orientation"))
+    {
+        if (!body["orientation"].is_string())
+        { DistSendStructuredError(res, "invalid_input", "'orientation' must be a string"); return false; }
+        const std::string o = body["orientation"].get<std::string>();
+        if (o == "followCurve") p.orientation = OrientationEnum::FollowCurve;
+        else if (o == "world") p.orientation = OrientationEnum::World;
+        else
+        { DistSendStructuredError(res, "invalid_input", "'orientation' must be 'followCurve' or 'world'"); return false; }
+    }
+
+    // keepUpright — reject under orientation=world (no documented-no-op)
+    if (body.contains("keepUpright"))
+    {
+        if (!body["keepUpright"].is_boolean())
+        { DistSendStructuredError(res, "invalid_input", "'keepUpright' must be boolean"); return false; }
+        if (p.orientation == OrientationEnum::World)
+        {
+            DistSendStructuredError(res, "invalid_input",
+                "'keepUpright' is only valid with orientation='followCurve'; "
+                "under orientation='world' the field has no effect and is rejected "
+                "to avoid accepted-but-ignored-parameter footguns");
+            return false;
+        }
+        p.keepUpright = body["keepUpright"].get<bool>();
+    }
+
+    // rotation mode
+    if (body.contains("rotationMode"))
+    {
+        if (!body["rotationMode"].is_string())
+        { DistSendStructuredError(res, "invalid_input", "'rotationMode' must be a string"); return false; }
+        const std::string r = body["rotationMode"].get<std::string>();
+        if (r == "none") p.rotationMode = RotationModeEnum::None;
+        else if (r == "random") p.rotationMode = RotationModeEnum::Random;
+        else
+        { DistSendStructuredError(res, "invalid_input", "'rotationMode' must be 'none' or 'random'"); return false; }
+    }
+
+    // scale mode
+    if (body.contains("scaleMode"))
+    {
+        if (!body["scaleMode"].is_string())
+        { DistSendStructuredError(res, "invalid_input", "'scaleMode' must be a string"); return false; }
+        const std::string s = body["scaleMode"].get<std::string>();
+        if (s == "fixed") p.scaleMode = ScaleModeEnum::Fixed;
+        else if (s == "randomRange") p.scaleMode = ScaleModeEnum::RandomRange;
+        else
+        { DistSendStructuredError(res, "invalid_input", "'scaleMode' must be 'fixed' or 'randomRange'"); return false; }
+    }
+    if (p.scaleMode == ScaleModeEnum::RandomRange)
+    {
+        if (!body.contains("minScale") || !body.contains("maxScale"))
+        {
+            DistSendStructuredError(res, "invalid_input", "scaleMode='randomRange' requires both 'minScale' and 'maxScale'");
+            return false;
+        }
+        if (!body["minScale"].is_number() || !body["maxScale"].is_number())
+        {
+            DistSendStructuredError(res, "invalid_input", "'minScale' and 'maxScale' must be numbers");
+            return false;
+        }
+        p.minScale = body["minScale"].get<double>();
+        p.maxScale = body["maxScale"].get<double>();
+        if (!(p.minScale > 0.0))
+        { DistSendStructuredError(res, "invalid_input", "'minScale' must be > 0"); return false; }
+        if (p.maxScale < p.minScale)
+        { DistSendStructuredError(res, "invalid_input", "'maxScale' must be >= 'minScale'"); return false; }
+    }
+    else
+    {
+        // Scale-range fields are only meaningful under randomRange; reject
+        // accepted-but-ignored values.
+        if (body.contains("minScale") || body.contains("maxScale"))
+        {
+            DistSendStructuredError(res, "invalid_input",
+                "'minScale'/'maxScale' are only valid with scaleMode='randomRange'");
+            return false;
+        }
+    }
+
+    // seed
+    if (body.contains("seed"))
+    {
+        if (!body["seed"].is_number_integer())
+        { DistSendStructuredError(res, "invalid_input", "'seed' must be an integer"); return false; }
+        p.seedProvided = true;
+        p.seed = body["seed"].get<std::uint32_t>();
+    }
+
+    return true;
+}
+
+nlohmann::json DistPointToJson(const ON_3dPoint& pt)
+{
+    return nlohmann::json::array({ RoundTo(pt.x, 4), RoundTo(pt.y, 4), RoundTo(pt.z, 4) });
+}
+
+std::vector<double> ComputeArcLengthPositions(const DistributeParams& p, double length, std::mt19937& rng)
+{
+    std::vector<double> positions;
+    switch (p.method)
+    {
+    case DistMethodEnum::Fill:
+        if (p.distribution == DistTypeEnum::Even)
+        {
+            if (p.count == 1)
+            {
+                positions.push_back(0.0);
+            }
+            else
+            {
+                const double step = length / static_cast<double>(p.count - 1);
+                for (int i = 0; i < p.count; ++i)
+                    positions.push_back(i * step);
+            }
+        }
+        else
+        {
+            std::uniform_real_distribution<double> dist(0.0, length);
+            for (int i = 0; i < p.count; ++i)
+                positions.push_back(dist(rng));
+            std::sort(positions.begin(), positions.end());
+        }
+        break;
+    case DistMethodEnum::FixedSpacing:
+    {
+        std::uniform_real_distribution<double> jitter(-p.spacingVariation, p.spacingVariation);
+        double current = 0.0;
+        while (current <= length)
+        {
+            positions.push_back(current);
+            double step = p.spacing;
+            if (p.spacingVariation > 0.0) step += jitter(rng);
+            if (!(step > 0.0)) step = p.spacing;  // safety: jitter cannot stall the loop
+            current += step;
+        }
+        break;
+    }
+    case DistMethodEnum::FixedCount:
+    {
+        const double total = static_cast<double>(p.count - 1) * p.spacing;
+        double start = 0.0;
+        if (p.placement == PlacementEnum::Center)
+            start = (std::max)(0.0, (length - total) / 2.0);
+        else if (p.placement == PlacementEnum::End)
+            start = (std::max)(0.0, length - total);
+        for (int i = 0; i < p.count; ++i)
+        {
+            const double pos = start + i * p.spacing;
+            if (pos >= 0.0 && pos <= length)
+                positions.push_back(pos);
+        }
+        break;
+    }
+    }
+    return positions;
+}
+
+const char* DistMethodToString(DistMethodEnum m)
+{
+    switch (m)
+    {
+    case DistMethodEnum::Fill: return "fill";
+    case DistMethodEnum::FixedSpacing: return "fixedSpacing";
+    case DistMethodEnum::FixedCount: return "fixedCount";
+    }
+    return "unknown";
+}
+
+nlohmann::json MakeDistributeParametersUsed(const DistributeParams& p)
+{
+    nlohmann::json out = nlohmann::json::object();
+    switch (p.method)
+    {
+    case DistMethodEnum::Fill:
+        out["distribution"] = (p.distribution == DistTypeEnum::Even ? "even" : "random");
+        break;
+    case DistMethodEnum::FixedSpacing:
+        out["spacingVariation"] = p.spacingVariation;
+        break;
+    case DistMethodEnum::FixedCount:
+        out["placement"] =
+            p.placement == PlacementEnum::Start ? "start" :
+            p.placement == PlacementEnum::Center ? "center" : "end";
+        break;
+    }
+    out["orientation"] = (p.orientation == OrientationEnum::FollowCurve ? "followCurve" : "world");
+    if (p.orientation == OrientationEnum::FollowCurve)
+        out["keepUpright"] = p.keepUpright;
+    out["rotationMode"] = (p.rotationMode == RotationModeEnum::None ? "none" : "random");
+    out["scaleMode"] = (p.scaleMode == ScaleModeEnum::Fixed ? "fixed" : "randomRange");
+    if (p.scaleMode == ScaleModeEnum::RandomRange)
+    {
+        out["minScale"] = p.minScale;
+        out["maxScale"] = p.maxScale;
+    }
+    return out;
+}
+
+constexpr int kDistSampledEchoThreshold = 1000;
+
+struct RollbackOutcome
+{
+    int attempted = 0;
+    int deleted = 0;
+    bool complete() const { return attempted == deleted; }
+};
+
+RollbackOutcome RollBackCreatedInstances(CRhinoDoc* pDoc, const std::vector<ON_UUID>& createdIds)
+{
+    RollbackOutcome outcome;
+    for (const ON_UUID& id : createdIds)
+    {
+        ++outcome.attempted;
+        const CRhinoObject* obj = pDoc->LookupObject(id);
+        if (obj && pDoc->DeleteObject(CRhinoObjRef(obj), true))
+            ++outcome.deleted;
+    }
+    return outcome;
+}
+
+// Compose the rollback-failure message once so both mid-loop failure paths
+// produce a consistent payload.
+std::string FormatRollbackFailedMessage(int attemptOrdinal,
+                                        const RollbackOutcome& outcome,
+                                        const std::string& cause)
+{
+    return cause + " at instance " + std::to_string(attemptOrdinal) +
+        "; rollback deleted " + std::to_string(outcome.deleted) + "/" +
+        std::to_string(outcome.attempted) + " created instances";
+}
+
+} // namespace
+
+// POST /block/distribute-along-curve
+void HandleBlockDistributeAlongCurve(const httplib::Request& req, httplib::Response& res)
+{
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    ScopedDistDebugArmReset debugArmReset;
+
+    DistributeParams params;
+    if (!TryParseDistributeParams(body, params, res))
+        return;
+
+    auto future = CMainThreadDispatcher::Instance().Dispatch(
+        [docSn, params]() -> WriteResult
+    {
+        CRhinoDoc* pDoc = ResolveDoc(docSn);
+
+        // Resolve curve
+        const CRhinoObject* curveObj = pDoc->LookupObject(params.curveId);
+        if (!curveObj)
+            throw DistStructuredError("not_found", "Curve not found: " + UuidToString(params.curveId));
+        const ON_Curve* curve = ON_Curve::Cast(curveObj->Geometry());
+        if (!curve)
+            throw DistStructuredError("not_found", "Object is not a curve: " + UuidToString(params.curveId));
+
+        // Curve length + degeneracy check
+        double length = 0.0;
+        if (!curve->GetLength(&length))
+            throw DistStructuredError("invalid_geometry", "Failed to compute curve length");
+        const double tol = pDoc->AbsoluteTolerance();
+        if (!(length > tol))
+            throw DistStructuredError("invalid_geometry", "Curve has zero or near-zero length");
+
+        // Resolve block pool; collect warnings for missing names
+        std::vector<int> idefIndices;
+        std::vector<std::string> warnings;
+        for (const std::string& name : params.blockNames)
+        {
+            const int idx = FindDefByName(pDoc, name);
+            if (idx >= 0) idefIndices.push_back(idx);
+            else warnings.push_back("missing_block_definition: '" + name + "' not found, removed from pool");
+        }
+        if (idefIndices.empty())
+            throw DistStructuredError("empty_pool",
+                "No 'blockNames' entry resolved to a live block definition");
+
+        // fixedCount span-vs-curve check. (count-1)*spacing is the total
+        // span the N copies will occupy end-to-end. If that exceeds the
+        // curve length, silently dropping out-of-range samples would
+        // under-deliver on the contract ("N copies at fixed spacing")
+        // without the caller observing the discrepancy — the same
+        // accepted-but-ignored-parameter family the doctrine rejects.
+        // Reject explicitly with an actionable message. Only fixedCount
+        // has this constraint; fill scales to curve length, and
+        // fixedSpacing is by-definition "as many as fit".
+        if (params.method == DistMethodEnum::FixedCount)
+        {
+            const double totalSpan = static_cast<double>(params.count - 1) * params.spacing;
+            if (totalSpan > length)
+            {
+                std::ostringstream oss;
+                oss << "fixedCount requested total span "
+                    << "(count-1)*spacing = (" << params.count << "-1)*"
+                    << params.spacing << " = " << totalSpan
+                    << " but curve length is " << length
+                    << ". Reduce count, reduce spacing, or use method='fixedSpacing' "
+                    << "to place as many copies as fit.";
+                throw DistStructuredError("span_exceeds_curve", oss.str());
+            }
+        }
+
+        // Seed RNG and record seed actually used
+        std::uint32_t seedUsed;
+        if (params.seedProvided)
+        {
+            seedUsed = params.seed;
+        }
+        else
+        {
+            std::random_device rd;
+            seedUsed = rd();
+        }
+        std::mt19937 rng(seedUsed);
+
+        // Compute arc-length sample positions per method
+        const std::vector<double> arcPositions = ComputeArcLengthPositions(params, length, rng);
+
+        // Resolve positions to (t, point). Skip samples whose arc-length
+        // lookup fails; record a structured warning.
+        std::vector<double> parameters;
+        std::vector<ON_3dPoint> points;
+        parameters.reserve(arcPositions.size());
+        points.reserve(arcPositions.size());
+        for (std::size_t k = 0; k < arcPositions.size(); ++k)
+        {
+            const double s = arcPositions[k];
+            double t = 0.0;
+            if (!curve->GetNormalizedArcLengthPoint(s / length, &t))
+            {
+                warnings.push_back("parameter_lookup_failed: sample_" + std::to_string(k) +
+                                   " arc-length lookup failed, sample skipped");
+                continue;
+            }
+            parameters.push_back(t);
+            points.push_back(curve->PointAt(t));
+        }
+
+        // RNG distributions for optional modes
+        std::uniform_int_distribution<std::size_t> poolPick(0, idefIndices.size() - 1);
+        std::uniform_real_distribution<double> yawDist(0.0, 2.0 * ON_PI);
+        std::uniform_real_distribution<double> scaleDist(params.minScale, params.maxScale);
+
+        // Instance creation loop, atomic with explicit rollback
+        std::vector<ON_UUID> createdIds;
+        createdIds.reserve(points.size());
+        int attemptOrdinal = 0;
+        {
+            UndoScope undo(pDoc, L"Distribute Blocks Along Curve");
+
+            for (std::size_t k = 0; k < points.size(); ++k)
+            {
+                const ON_3dPoint& point = points[k];
+                const double t = parameters[k];
+
+                ON_Xform xform = ON_Xform::IdentityTransformation;
+
+                // Orientation: follow-curve frame or world-aligned translation.
+                // Under followCurve:
+                //   keepUpright=true  → project tangent to world XY and keep
+                //                       world Z as the up axis. Instances stay
+                //                       upright even on 3D curves (trees, cars,
+                //                       people). Vertical-tangent samples fall
+                //                       back to world X.
+                //   keepUpright=false → align X axis to the full 3D tangent;
+                //                       Y axis is any perpendicular. Instances
+                //                       tilt with the curve. The vertical-tangent
+                //                       guard does not apply — a zero-length
+                //                       tangent is a geometric error.
+                if (params.orientation == OrientationEnum::FollowCurve)
+                {
+                    const ON_3dVector tangent = curve->TangentAt(t);
+                    ON_3dVector xAxis;
+                    ON_3dVector yAxis;
+
+                    if (params.keepUpright)
+                    {
+                        xAxis = ON_3dVector(tangent.x, tangent.y, 0.0);
+                        if (xAxis.Length() < 0.001)
+                        {
+                            xAxis = ON_3dVector::XAxis;
+                            warnings.push_back("vertical_tangent_guard: sample_" +
+                                               std::to_string(k) + " used world X fallback");
+                        }
+                        else
+                        {
+                            xAxis.Unitize();
+                        }
+                        yAxis = ON_CrossProduct(ON_3dVector::ZAxis, xAxis);
+                    }
+                    else
+                    {
+                        xAxis = tangent;
+                        if (!xAxis.Unitize())
+                            throw DistStructuredError("invalid_geometry",
+                                "Curve tangent is zero at sample " + std::to_string(k) +
+                                " and keepUpright=false requires a non-zero tangent");
+                        yAxis.PerpendicularTo(xAxis);
+                        yAxis.Unitize();
+                    }
+
+                    const ON_Plane targetPlane(point, xAxis, yAxis);
+                    ON_Xform align;
+                    align.Rotation(ON_Plane::World_xy, targetPlane);
+                    xform = align;
+                }
+                else
+                {
+                    xform = ON_Xform::TranslationTransformation(point - ON_3dPoint::Origin);
+                }
+
+                // Random yaw around world Z through placement point
+                if (params.rotationMode == RotationModeEnum::Random)
+                {
+                    ON_Xform rotZ;
+                    rotZ.Rotation(yawDist(rng), ON_3dVector::ZAxis, point);
+                    xform = rotZ * xform;
+                }
+
+                // Scale from placement point
+                if (params.scaleMode == ScaleModeEnum::RandomRange)
+                {
+                    const double factor = scaleDist(rng);
+                    const ON_Xform scale = ON_Xform::ScaleTransformation(point, factor);
+                    xform = scale * xform;
+                }
+
+                const int idefIdx = idefIndices[poolPick(rng)];
+
+                ++attemptOrdinal;
+                if (ShouldSyntheticFailInstanceAttempt(attemptOrdinal))
+                {
+                    const RollbackOutcome rb = RollBackCreatedInstances(pDoc, createdIds);
+                    pDoc->Redraw();
+                    if (!rb.complete())
+                        throw DistStructuredError("rollback_failed",
+                            FormatRollbackFailedMessage(attemptOrdinal, rb,
+                                "Synthetic distribute test failure"));
+                    throw std::runtime_error("Synthetic distribute test failure at instance attempt " +
+                                             std::to_string(attemptOrdinal));
+                }
+
+                CRhinoInstanceObject* inst = pDoc->m_instance_definition_table.CreateInstanceObject(
+                    idefIdx, xform, nullptr, nullptr, false, false, true);
+                if (!inst)
+                {
+                    const RollbackOutcome rb = RollBackCreatedInstances(pDoc, createdIds);
+                    pDoc->Redraw();
+                    if (!rb.complete())
+                        throw DistStructuredError("rollback_failed",
+                            FormatRollbackFailedMessage(attemptOrdinal, rb,
+                                "CreateInstanceObject returned null"));
+                    throw std::runtime_error("CreateInstanceObject returned null at instance attempt " +
+                                             std::to_string(attemptOrdinal));
+                }
+                createdIds.push_back(inst->Attributes().m_uuid);
+            }
+        }
+
+        pDoc->Redraw();
+
+        // Build success payload
+        nlohmann::json idsJson = nlohmann::json::array();
+        for (const ON_UUID& id : createdIds) idsJson.push_back(UuidToString(id));
+
+        nlohmann::json data;
+        data["createdCount"] = static_cast<int>(createdIds.size());
+        data["instanceIds"] = std::move(idsJson);
+        data["mode"] = DistMethodToString(params.method);
+        data["parametersUsed"] = MakeDistributeParametersUsed(params);
+        data["seedUsed"] = seedUsed;
+
+        if (static_cast<int>(points.size()) <= kDistSampledEchoThreshold)
+        {
+            nlohmann::json posJson = nlohmann::json::array();
+            for (const ON_3dPoint& pt : points) posJson.push_back(DistPointToJson(pt));
+            data["sampledPositions"] = std::move(posJson);
+
+            nlohmann::json paramsJson = nlohmann::json::array();
+            for (double tv : parameters) paramsJson.push_back(RoundTo(tv, 6));
+            data["sampledParameters"] = std::move(paramsJson);
+        }
+        else
+        {
+            data["sampledPositions"] = nullptr;
+            data["sampledParameters"] = nullptr;
+            data["sampledPositionsOmittedReason"] = "count_exceeds_echo_limit";
+        }
+
+        nlohmann::json warnJson = nlohmann::json::array();
+        for (const std::string& w : warnings) warnJson.push_back(w);
+        data["warnings"] = std::move(warnJson);
+
+        WriteResult wr;
+        wr.success = true;
+        wr.data = std::move(data);
+        return wr;
+    });
+
+    try
+    {
+        auto result = future.get();
+        if (result.success)
+            CRookServer::SendSuccess(res, result.data);
+        else
+            CRookServer::SendErrorData(res, result.data);
+    }
+    catch (const DistStructuredError& ex)
+    {
+        CRookServer::SendErrorData(res, DistMakeErrorData(ex.code, ex.message));
+    }
+    catch (const std::invalid_argument& ex)
+    {
+        CRookServer::SendErrorData(res, DistMakeErrorData("invalid_input", ex.what()));
+    }
+    catch (const std::exception& ex)
+    {
+        CRookServer::SendErrorData(res, DistMakeErrorData("operation_failed", ex.what()));
+    }
+}
+
+// POST /block/_debug/fail-next-instance — internal, test-only, env-gated
+void HandleBlockDebugFailNextInstance(const httplib::Request& req, httplib::Response& res)
+{
+    if (!DistDebugRoutesEnabledOrRefuse(res)) return;
+
+    auto [docSn, body] = ParseBodyAndDocSn(req);
+    (void)docSn;
+
+    if (!body.contains("index") || !body["index"].is_number_integer())
+    {
+        DistSendStructuredError(res, "invalid_input", "Field 'index' must be an integer >= 1");
+        return;
+    }
+
+    const int index = body["index"].get<int>();
+    if (index < 1)
+    {
+        DistSendStructuredError(res, "invalid_input", "Field 'index' must be >= 1");
+        return;
+    }
+
+    g_debugFailInstanceIndex.store(index);
+
+    nlohmann::json data = {
+        {"armed", true},
+        {"index", index},
+    };
+    CRookServer::SendSuccess(res, data);
 }
 
 } // namespace Handlers
