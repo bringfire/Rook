@@ -60,22 +60,49 @@ namespace Rook.UI.Web
         /// </summary>
         public async Task<string?> DispatchAsync(string? incomingJson)
         {
-            if (string.IsNullOrEmpty(incomingJson)) return null;
+            if (string.IsNullOrEmpty(incomingJson))
+            {
+                _log?.Invoke("Bridge dispatcher: empty incoming message");
+                return null;
+            }
 
             JsonObject? root;
             try { root = JsonNode.Parse(incomingJson) as JsonObject; }
-            catch { return null; }
-            if (root is null) return null;
+            catch (Exception ex)
+            {
+                _log?.Invoke($"Bridge dispatcher: JSON parse failed: {ex.Message}");
+                return null;
+            }
+            if (root is null)
+            {
+                _log?.Invoke("Bridge dispatcher: root is not a JSON object");
+                return null;
+            }
 
             string? type;
             try { type = root["type"]?.GetValue<string>(); }
-            catch { return null; }
+            catch
+            {
+                _log?.Invoke("Bridge dispatcher: type field is not a string");
+                return null;
+            }
+            // Non-invoke messages (e.g. event-only payloads from page scripts)
+            // are silently ignored without a log entry — they may be intended
+            // for a future event channel, not a bridge protocol violation.
             if (type != "invoke") return null;
 
             string? requestId;
             try { requestId = root["requestId"]?.GetValue<string>(); }
-            catch { return null; }
-            if (string.IsNullOrEmpty(requestId)) return null;
+            catch
+            {
+                _log?.Invoke("Bridge dispatcher: invoke message has non-string requestId");
+                return null;
+            }
+            if (string.IsNullOrEmpty(requestId))
+            {
+                _log?.Invoke("Bridge dispatcher: invoke message missing requestId");
+                return null;
+            }
 
             string? method;
             try { method = root["method"]?.GetValue<string>(); }

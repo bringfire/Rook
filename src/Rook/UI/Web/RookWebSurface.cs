@@ -48,6 +48,7 @@ namespace Rook.UI.Web
 
         // ─── Bridge state ─────────────────────────────────────────────
         private readonly BridgeDispatcher _dispatcher;
+        private bool _bridgeUnavailableSignaled;
 #if NET7_0_OR_GREATER
         private CoreWebView2? _coreWebView2;
 #endif
@@ -55,7 +56,17 @@ namespace Rook.UI.Web
         // ─── Constructor ──────────────────────────────────────────────
         protected RookWebSurface()
         {
-            _dispatcher = new BridgeDispatcher(msg => RhinoApp.WriteLine($"Rook: {msg}"));
+            _dispatcher = new BridgeDispatcher(msg => Log($"Rook: {msg}"));
+        }
+
+        /// <summary>
+        /// Substrate logging hook. Defaults to <c>RhinoApp.WriteLine</c>;
+        /// test surfaces override to capture or suppress.
+        /// </summary>
+        protected virtual void Log(string message)
+        {
+            try { RhinoApp.WriteLine(message); }
+            catch { /* defensive: keep substrate functional outside Rhino */ }
         }
 
         // ─── Abstract surface contract ────────────────────────────────
@@ -266,20 +277,34 @@ namespace Rook.UI.Web
 
             // Bridge availability finalized BEFORE OnWebViewReady so
             // subclasses can rely on IsBridgeAvailable in their override.
-            // Log first, then call hook — log lands even if hook throws.
-            if (_dispatcher.HandlerCount > 0 && !IsBridgeAvailable)
-            {
-                RhinoApp.WriteLine(
-                    $"Rook: bridge unavailable for surface '{ResourceRoot}'; " +
-                    $"{_dispatcher.HandlerCount} handler(s) inert");
-                try { OnBridgeUnavailable(); }
-                catch (Exception ex)
-                {
-                    RhinoApp.WriteLine($"Rook: OnBridgeUnavailable threw: {ex.Message}");
-                }
-            }
+            SignalBridgeUnavailableIfNeeded();
 
             OnWebViewReady();
+        }
+
+        /// <summary>
+        /// Idempotent bridge-unavailable signal. Fires the
+        /// <see cref="OnBridgeUnavailable"/> hook AT MOST ONCE per surface
+        /// instance, so reload, re-navigation, or repeat DocumentLoaded
+        /// events don't duplicate the degraded-state signal.
+        /// Internal for unit-testability via InternalsVisibleTo.
+        /// </summary>
+        internal void SignalBridgeUnavailableIfNeeded()
+        {
+            if (_bridgeUnavailableSignaled) return;
+            if (_dispatcher.HandlerCount == 0) return;
+            if (IsBridgeAvailable) return;
+
+            _bridgeUnavailableSignaled = true;
+
+            // Log first, then call hook — log lands even if hook throws.
+            Log($"Rook: bridge unavailable for surface '{ResourceRoot}'; " +
+                $"{_dispatcher.HandlerCount} handler(s) inert");
+            try { OnBridgeUnavailable(); }
+            catch (Exception ex)
+            {
+                Log($"Rook: OnBridgeUnavailable threw: {ex.Message}");
+            }
         }
 
         private static Control CreateFallbackControl()

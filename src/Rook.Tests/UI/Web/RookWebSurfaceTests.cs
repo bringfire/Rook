@@ -147,6 +147,69 @@ namespace Rook.Tests.UI.Web
             }
         }
 
+        // ─── OnBridgeUnavailable one-shot ────────────────────────────
+
+        private sealed class CountingSurface : RookWebSurface
+        {
+            protected override string ResourceRoot => "Rook.Tests.Surfaces";
+            protected override string EntryPage => "test.html";
+            protected override string MinimalFallbackHtml => "<html></html>";
+
+            public int UnavailableCallCount { get; private set; }
+            public bool ThrowOnUnavailable { get; set; }
+            public List<string> Logs { get; } = new();
+
+            protected override void Log(string message) => Logs.Add(message);
+
+            protected override void OnBridgeUnavailable()
+            {
+                UnavailableCallCount++;
+                if (ThrowOnUnavailable)
+                    throw new InvalidOperationException("test-throw");
+            }
+
+            public void RegisterForTest(string method, Func<JsonNode?, Task<JsonNode?>> handler)
+                => RegisterBridgeHandler(method, handler);
+        }
+
+        [Fact]
+        public void SignalBridgeUnavailableIfNeeded_FiresAtMostOnce()
+        {
+            var s = new CountingSurface();
+            s.RegisterForTest("m", args => Task.FromResult<JsonNode?>(null));
+
+            s.SignalBridgeUnavailableIfNeeded();
+            s.SignalBridgeUnavailableIfNeeded();
+            s.SignalBridgeUnavailableIfNeeded();
+
+            Assert.Equal(1, s.UnavailableCallCount);
+        }
+
+        [Fact]
+        public void SignalBridgeUnavailableIfNeeded_NoHandlers_DoesNotFire()
+        {
+            var s = new CountingSurface();
+            // No handlers registered.
+
+            s.SignalBridgeUnavailableIfNeeded();
+
+            Assert.Equal(0, s.UnavailableCallCount);
+        }
+
+        [Fact]
+        public void SignalBridgeUnavailableIfNeeded_HookThrows_StillCountedOnce()
+        {
+            // Hook exception is caught + logged; the one-shot flag is still
+            // set so a retry doesn't re-invoke a known-broken hook.
+            var s = new CountingSurface { ThrowOnUnavailable = true };
+            s.RegisterForTest("m", args => Task.FromResult<JsonNode?>(null));
+
+            s.SignalBridgeUnavailableIfNeeded();
+            s.SignalBridgeUnavailableIfNeeded();
+
+            Assert.Equal(1, s.UnavailableCallCount);
+        }
+
         // ─── IsBridgeAvailable ───────────────────────────────────────
 
         [Fact]

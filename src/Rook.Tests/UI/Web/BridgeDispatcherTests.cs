@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Rook.UI.Web;
@@ -222,6 +223,94 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("boom", logged);
             Assert.Contains("internal-secret-detail", logged!);
             Assert.Contains("InvalidOperationException", logged);
+        }
+
+        // ─── Silent-ignore paths log a reason ────────────────────────
+
+        [Fact]
+        public async Task DispatchAsync_NullInput_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync(null);
+
+            Assert.Single(logs);
+            Assert.Contains("empty", logs[0]);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_MalformedJson_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("{ not json");
+
+            Assert.Single(logs);
+            Assert.Contains("parse", logs[0]);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_NonObjectRoot_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("[1,2,3]");
+
+            Assert.Single(logs);
+            Assert.Contains("not a JSON object", logs[0]);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_TypeFieldWrongShape_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("{\"type\":42}");
+
+            Assert.Single(logs);
+            Assert.Contains("type field", logs[0]);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_NonInvokeType_DoesNotLog()
+        {
+            // {type:'ready'} from chat.html and any future event-only
+            // messages must NOT be flagged as protocol violations.
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("{\"type\":\"ready\"}");
+            await d.DispatchAsync("{\"type\":\"event\",\"name\":\"foo\"}");
+
+            Assert.Empty(logs);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_InvokeWithMissingRequestId_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("{\"type\":\"invoke\"}");
+
+            Assert.Single(logs);
+            Assert.Contains("requestId", logs[0]);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_InvokeWithBadRequestIdShape_LogsReason()
+        {
+            var logs = new List<string>();
+            var d = new BridgeDispatcher(logs.Add);
+
+            await d.DispatchAsync("{\"type\":\"invoke\",\"requestId\":42}");
+
+            Assert.Single(logs);
+            Assert.Contains("requestId", logs[0]);
         }
 
         // ─── Wire format pinning ─────────────────────────────────────
