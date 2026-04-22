@@ -66,16 +66,32 @@ namespace Rook
             ValidateSectionName(sectionName);
             if (value is null) throw new ArgumentNullException(nameof(value));
 
-            var root = ReadRoot() ?? new JsonObject
-            {
-                [SchemaVersionField] = CurrentSchemaVersion,
-                [SectionsField] = new JsonObject(),
-            };
+            var root = ReadRoot();
+            JsonObject sections;
 
-            if (root[SectionsField] is not JsonObject sections)
+            if (root is null)
+            {
+                root = new JsonObject
+                {
+                    [SchemaVersionField] = CurrentSchemaVersion,
+                    [SectionsField] = new JsonObject(),
+                };
+                sections = (JsonObject)root[SectionsField]!;
+            }
+            else if (!root.ContainsKey(SectionsField))
             {
                 sections = new JsonObject();
                 root[SectionsField] = sections;
+            }
+            else if (root[SectionsField] is JsonObject existing)
+            {
+                sections = existing;
+            }
+            else
+            {
+                // Present but non-object → corrupt schema. Refuse to overwrite.
+                throw new InvalidDataException(
+                    $"Settings file '{_filePath}' has '{SectionsField}' field that is not a JSON object.");
             }
 
             sections[sectionName] = JsonSerializer.SerializeToNode(value);
@@ -111,11 +127,14 @@ namespace Rook
             var root = ReadRoot();
             if (root is null) return null;
 
+            // Sections field absent → optional, treat as empty.
+            if (!root.ContainsKey(SectionsField)) return null;
+
             if (root[SectionsField] is JsonObject sections) return sections;
 
-            // Present file with no/non-object sections field is treated as
-            // empty rather than corrupt — sections is optional in the schema.
-            return null;
+            // Present but non-object (string, array, null, etc.) → corrupt schema.
+            throw new InvalidDataException(
+                $"Settings file '{_filePath}' has '{SectionsField}' field that is not a JSON object.");
         }
 
         private void WriteRoot(JsonObject root)

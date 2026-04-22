@@ -125,6 +125,47 @@ namespace Rook.Tests
             Assert.Equal(original, File.ReadAllText(_testFile));
         }
 
+        // ─── locked contract: non-object sections field → throws ────────
+
+        [Theory]
+        [InlineData("{\"schemaVersion\":1,\"sections\":\"oops\"}")]
+        [InlineData("{\"schemaVersion\":1,\"sections\":[1,2,3]}")]
+        [InlineData("{\"schemaVersion\":1,\"sections\":null}")]
+        [InlineData("{\"schemaVersion\":1,\"sections\":42}")]
+        public void LoadSection_NonObjectSectionsField_Throws(string fileContent)
+        {
+            Directory.CreateDirectory(_testDir);
+            File.WriteAllText(_testFile, fileContent);
+
+            Assert.Throws<InvalidDataException>(
+                () => _store.LoadSection<TestSection>("anything"));
+        }
+
+        [Theory]
+        [InlineData("{\"schemaVersion\":1,\"sections\":\"oops\"}")]
+        [InlineData("{\"schemaVersion\":1,\"sections\":[1,2,3]}")]
+        [InlineData("{\"schemaVersion\":1,\"sections\":null}")]
+        public void SectionExists_NonObjectSectionsField_Throws(string fileContent)
+        {
+            Directory.CreateDirectory(_testDir);
+            File.WriteAllText(_testFile, fileContent);
+
+            Assert.Throws<InvalidDataException>(() => _store.SectionExists("anything"));
+        }
+
+        [Fact]
+        public void SaveSection_NonObjectSectionsField_ThrowsAndDoesNotOverwrite()
+        {
+            Directory.CreateDirectory(_testDir);
+            const string corrupt = "{\"schemaVersion\":1,\"sections\":\"oops\"}";
+            File.WriteAllText(_testFile, corrupt);
+
+            Assert.Throws<InvalidDataException>(
+                () => _store.SaveSection("test", new TestSection { Name = "x" }));
+
+            Assert.Equal(corrupt, File.ReadAllText(_testFile));
+        }
+
         // ─── locked contract: malformed section payload → throws ─────────
 
         [Fact]
