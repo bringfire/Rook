@@ -22,4 +22,14 @@
     <ProjectReference Include="..\Rook\Rook.csproj" />
   </ItemGroup>
 
+  <!-- Rook.csproj outputs Rook.rhp (Rhino plugin convention), but the .NET
+       runtime probes for Rook.dll during assembly resolution. Mirror the
+       .rhp as .dll in the test bin so xUnit can load Rook types. -->
+  <Target Name="MirrorRookRhpToDll" AfterTargets="Build">
+    <Copy SourceFiles="$(OutputPath)Rook.rhp"
+          DestinationFiles="$(OutputPath)Rook.dll"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(OutputPath)Rook.rhp')" />
+  </Target>
+
 </Project>
