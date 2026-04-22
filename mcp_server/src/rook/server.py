@@ -4163,6 +4163,98 @@ Circular: {"name": "Block", "count": 8, "center": [0, 0, 0], "radius": 10}""",
                 "required": ["name", "count"]
             }
         ),
+        Tool(
+            name="rhino_block_distribute_along_curve",
+            description=(
+                "Distribute block instances along a curve. Methods: fill (even/random "
+                "sampling over the full curve length), fixedSpacing (constant spacing "
+                "with optional spacingVariation jitter), fixedCount (N copies at fixed "
+                "spacing with start/center/end placement). Supports seeded randomness "
+                "for deterministic replay, frame-aligned orientation with upright guard, "
+                "optional random yaw and random uniform-scale range. Atomic mode: one "
+                "undo record plus server-side rollback on mid-loop failure. Plural "
+                "creator cardinality. Natural-language triggers: distribute/scatter/"
+                "array/place/populate blocks along curve/path/road.\n\n"
+                "Attribute composition is out of scope — chain "
+                "rhino_block_set_instance_properties / "
+                "rhino_block_set_instance_visibility against the returned instanceIds "
+                "to set layer, color, or visibility."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "curveId": {
+                        "type": "string",
+                        "description": "GUID of the curve to distribute along",
+                    },
+                    "blockNames": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "description": "Pool of block definition names. One is picked at random per sample. Missing names are removed from the pool and reported in warnings; empty pool after resolution returns empty_pool.",
+                        "minItems": 1,
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": ["fill", "fixedSpacing", "fixedCount"],
+                        "description": "Distribution method.",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Required for method=fill and method=fixedCount. >= 1. Rejected for method=fixedSpacing.",
+                    },
+                    "spacing": {
+                        "type": "number",
+                        "description": "Required for method=fixedSpacing and method=fixedCount. > 0. Rejected for method=fill.",
+                    },
+                    "spacingVariation": {
+                        "type": "number",
+                        "description": "Optional, only valid with method=fixedSpacing. >= 0 and < spacing. Adds uniform jitter per step.",
+                    },
+                    "distribution": {
+                        "type": "string",
+                        "enum": ["even", "random"],
+                        "description": "Only valid with method=fill. Default 'even'.",
+                    },
+                    "placement": {
+                        "type": "string",
+                        "enum": ["start", "center", "end"],
+                        "description": "Only valid with method=fixedCount. Default 'start'.",
+                    },
+                    "orientation": {
+                        "type": "string",
+                        "enum": ["followCurve", "world"],
+                        "description": "Align instances to the curve tangent (followCurve) or keep world axes (world). Default 'followCurve'.",
+                    },
+                    "keepUpright": {
+                        "type": "boolean",
+                        "description": "Only valid with orientation='followCurve'. Projects tangent to the world XY plane so instances stay upright even on 3D curves. Rejected with orientation='world'. Default true.",
+                    },
+                    "rotationMode": {
+                        "type": "string",
+                        "enum": ["none", "random"],
+                        "description": "Apply a uniform random yaw around world Z through each placement point. Default 'none'.",
+                    },
+                    "scaleMode": {
+                        "type": "string",
+                        "enum": ["fixed", "randomRange"],
+                        "description": "Uniform scale from each placement point. Default 'fixed'.",
+                    },
+                    "minScale": {
+                        "type": "number",
+                        "description": "Required with scaleMode='randomRange'. > 0.",
+                    },
+                    "maxScale": {
+                        "type": "number",
+                        "description": "Required with scaleMode='randomRange'. >= minScale.",
+                    },
+                    "seed": {
+                        "type": "integer",
+                        "description": "Optional RNG seed for reproducible randomness. If omitted the handler generates one and echoes it as seedUsed.",
+                    },
+                },
+                "required": ["curveId", "blockNames", "method"],
+            },
+        ),
         # Block Object Properties (Phase 8)
         Tool(
             name="rhino_block_set_object_colors",
@@ -11205,6 +11297,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rhino_block_array_instances":
             result = await call_rhino("/block/array-instances", "POST", arguments)
+
+        case "rhino_block_distribute_along_curve":
+            result = await call_rhino("/block/distribute-along-curve", "POST", arguments)
 
         # Block Object Properties (Phase 8)
         case "rhino_block_set_object_colors":

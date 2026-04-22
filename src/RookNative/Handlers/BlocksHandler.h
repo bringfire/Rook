@@ -1,6 +1,7 @@
 // BlocksHandler.h
 //
-// Block definition and instance operations (24 routes, 21 unique handlers).
+// Block definition and instance operations (25 routes, 22 unique handlers
+// excluding test-only debug seams).
 // GET  /blocks                  — List all block definitions
 // POST /block/create            — Create block from objects
 // POST /block/insert            — Insert block instance
@@ -24,6 +25,7 @@
 // POST /block/rebase            — Rebase definition geometry, compensate instances
 // POST /block/rebase-recursive  — Rebase leaf definition, compensate parent defs + direct instances
 // GET+POST /block/nested        — Get nested hierarchy
+// POST /block/distribute-along-curve — Distribute instances along a curve (seeded randomness, atomic rollback)
 
 #pragma once
 
@@ -59,6 +61,7 @@ void HandleBlockSetInstanceProperties(const httplib::Request& req, httplib::Resp
 void HandleBlockSetInstanceVisibility(const httplib::Request& req, httplib::Response& res);
 void HandleBlockTransformInstance(const httplib::Request& req, httplib::Response& res);
 void HandleBlockArrayInstances(const httplib::Request& req, httplib::Response& res);
+void HandleBlockDistributeAlongCurve(const httplib::Request& req, httplib::Response& res);
 void HandleBlockFindInstances(const httplib::Request& req, httplib::Response& res);
 void HandleBlockUserStrings(const httplib::Request& req, httplib::Response& res);
 void HandleBlockObjectsDetailed(const httplib::Request& req, httplib::Response& res);
@@ -101,6 +104,13 @@ void HandleBlockTestDebugBasePointUserData(const httplib::Request& req, httplib:
 // state needed by Phase C's disagreement test. Subject to change without
 // notice; product code MUST NOT call this.
 void HandleBlockTestDebugSetLegacyBasePoint(const httplib::Request& req, httplib::Response& res);
+
+// Internal / test-only. NOT exposed through MCP. Arms a one-shot synthetic
+// failure for the Nth instance-creation attempt in the next
+// /block/distribute-along-curve request. Used to verify explicit mid-loop
+// rollback. Env-gated by ROOK_ENABLE_DEBUG_ROUTES=1. Mirrors
+// /array/_debug/fail-next-copy.
+void HandleBlockDebugFailNextInstance(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

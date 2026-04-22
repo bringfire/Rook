@@ -1152,6 +1152,38 @@ def _build_route_table() -> dict[str, RouteSpec]:
         description="Set visibility on a single block instance (router covers single-id path only; bulk `ids` shape stays MCP-direct)",
     )
 
+    # First exotic-capability promotion. Doctrine:
+    #   rook_docs/2026-04-22-exotic-capability-promotion-plan.md
+    # PR scope:
+    #   rook_docs/2026-04-22-exotic-capability-pr1-scope.md
+    #
+    # Native direct-sdk route (/block/distribute-along-curve). Plural-creator
+    # cardinality, atomic-with-rollback batch mode, seeded randomness.
+    # Attribute composition (layer/color/visibility) is deliberately out of
+    # scope — chain rhino_block_set_instance_properties /
+    # rhino_block_set_instance_visibility against the returned instanceIds.
+    routes["block_distribute_along_curve"] = RouteSpec(
+        endpoint="/block/distribute-along-curve",
+        required_params=("curveId", "blockNames", "method"),
+        optional_params=(
+            "count", "spacing", "spacingVariation",
+            "distribution", "placement",
+            "orientation", "keepUpright",
+            "rotationMode", "scaleMode", "minScale", "maxScale",
+            "seed",
+        ),
+        description=(
+            "Distribute block instances along a curve. Methods: fill "
+            "(even/random sampling over full curve length), fixedSpacing "
+            "(constant spacing with optional variation), fixedCount (N copies "
+            "at fixed spacing, start/center/end placement). Supports seeded "
+            "randomness, frame-aligned orientation with upright guard, "
+            "optional random yaw and random uniform-scale range. "
+            "Natural-language triggers: distribute/scatter/array/place/"
+            "populate blocks along curve/path/road."
+        ),
+    )
+
     # === Group operations ===
     routes["create_group"] = RouteSpec(
         endpoint="/group",
@@ -1355,6 +1387,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "link_block", "unlink_block", "refresh_block",
         "find_block_instances", "block_objects_detailed",
         "set_block_instance_visibility",
+        "block_distribute_along_curve",
     ),
     "groups": ("create_group", "ungroup"),
     "materials": (
