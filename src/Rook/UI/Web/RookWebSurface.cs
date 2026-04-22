@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
@@ -30,10 +32,31 @@ namespace Rook.UI.Web
         internal const string VirtualHostName = "app.rook.invalid";
         internal static readonly string VirtualHostOrigin = $"https://{VirtualHostName}";
 
+        // ─── Default CSP (overridable via ContentSecurityPolicy) ──────
+        internal const string DefaultContentSecurityPolicy =
+            "default-src 'none'; " +
+            "script-src 'self' 'unsafe-inline'; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            "connect-src https://" + VirtualHostName + " http://127.0.0.1:*; " +
+            "img-src 'self' data:; " +
+            "font-src 'self'";
+
         // ─── WebView state ────────────────────────────────────────────
         private WebView? _webView;
         private bool _webViewReady;
         private readonly List<string> _pendingScripts = new();
+
+        // ─── Bridge state ─────────────────────────────────────────────
+        private readonly BridgeDispatcher _dispatcher;
+#if NET7_0_OR_GREATER
+        private CoreWebView2? _coreWebView2;
+#endif
+
+        // ─── Constructor ──────────────────────────────────────────────
+        protected RookWebSurface()
+        {
+            _dispatcher = new BridgeDispatcher(msg => RhinoApp.WriteLine($"Rook: {msg}"));
+        }
 
         // ─── Abstract surface contract ────────────────────────────────
 
@@ -69,12 +92,84 @@ namespace Rook.UI.Web
         /// </summary>
         protected virtual string? GetBootstrapScript() => null;
 
+        /// <summary>
+        /// Surface-specific Content-Security-Policy. Default keeps
+        /// backwards compatibility with Pattern B surfaces (Knowledge
+        /// Graph, Chat) by allowing connect to <c>127.0.0.1:*</c>.
+        /// Pattern A surfaces (Vision) override to lock down further
+        /// (e.g. <c>connect-src 'none'</c>).
+        /// </summary>
+        protected virtual string ContentSecurityPolicy => DefaultContentSecurityPolicy;
+
+        /// <summary>
+        /// Fires once after WebView2 setup completes if the bridge could
+        /// not be brought up AND at least one bridge handler was registered.
+        /// Override to render an explicit degraded state. Always also logged
+        /// via RhinoApp.WriteLine — failures never go silent.
+        /// </summary>
+        protected virtual void OnBridgeUnavailable() { }
+
+        /// <summary>
+        /// Ordered list of scripts injected via
+        /// <c>AddScriptToExecuteOnDocumentCreatedAsync</c>, in this exact order:
+        ///   1. Session nonce (substrate-owned, may be empty)
+        ///   2. Bridge shim (substrate-owned, always present)
+        ///   3. Surface bootstrap (subclass-owned, from <see cref="GetBootstrapScript"/>)
+        /// Empty entries are filtered out, but order is preserved.
+        /// Override to insert additional substrate-level scripts.
+        /// </summary>
+        protected virtual IReadOnlyList<string> ComposeDocumentScripts()
+        {
+            var scripts = new List<string>();
+
+            // 1. Nonce
+            string? nonce = null;
+            try { nonce = Chat.ChatServiceManager.Instance.SessionNonce; }
+            catch { /* chat service not available — bridge surfaces don't need it */ }
+            if (!string.IsNullOrEmpty(nonce))
+            {
+                var escapedNonce = EscapeForJavaScript(nonce);
+                scripts.Add($"window.__rookSessionNonce = '{escapedNonce}';");
+            }
+
+            // 2. Bridge shim — always present
+            scripts.Add(BuildBridgeShimScript());
+
+            // 3. Surface bootstrap
+            var bootstrap = GetBootstrapScript();
+            if (!string.IsNullOrEmpty(bootstrap))
+            {
+                scripts.Add(bootstrap!);
+            }
+
+            return scripts;
+        }
+
         // ─── Public API ───────────────────────────────────────────────
 
         /// <summary>
         /// Whether the WebView has finished loading its document.
         /// </summary>
         public bool IsWebViewReady => _webViewReady;
+
+        /// <summary>
+        /// Whether the JS↔C# bridge is wired and operational. Set after
+        /// WebView2 initialization completes (success or failure).
+        /// Returns false on net48 fallback, on WebView2 init failure, and
+        /// before initialization runs.
+        /// </summary>
+        public bool IsBridgeAvailable { get; private set; }
+
+        /// <summary>
+        /// Register a typed bridge handler keyed on a method name. Stored
+        /// immediately; only fires once the bridge comes up. Call from the
+        /// subclass constructor; do NOT call from <see cref="OnWebViewReady"/>
+        /// (handler lifetime should not depend on navigation timing).
+        /// Duplicate method name throws <see cref="ArgumentException"/>.
+        /// </summary>
+        protected void RegisterBridgeHandler(
+            string method, Func<JsonNode?, Task<JsonNode?>> handler)
+            => _dispatcher.Register(method, handler);
 
         /// <summary>
         /// Create the WebView control with virtual host setup.
@@ -168,6 +263,22 @@ namespace Rook.UI.Web
             }
 
             _webViewReady = true;
+
+            // Bridge availability finalized BEFORE OnWebViewReady so
+            // subclasses can rely on IsBridgeAvailable in their override.
+            // Log first, then call hook — log lands even if hook throws.
+            if (_dispatcher.HandlerCount > 0 && !IsBridgeAvailable)
+            {
+                RhinoApp.WriteLine(
+                    $"Rook: bridge unavailable for surface '{ResourceRoot}'; " +
+                    $"{_dispatcher.HandlerCount} handler(s) inert");
+                try { OnBridgeUnavailable(); }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Rook: OnBridgeUnavailable threw: {ex.Message}");
+                }
+            }
+
             OnWebViewReady();
         }
 
@@ -181,6 +292,41 @@ namespace Rook.UI.Web
                 Text = "WebView unavailable. Restart Rhino to retry."
             };
         }
+
+        // ─── Bridge JS shim ───────────────────────────────────────────
+        //
+        // Always injected before any surface bootstrap. Surfaces that
+        // don't register handlers simply have an unused window.rookBridge.
+        //
+        // Wire format mirrors BridgeDispatcher exactly.
+        private static string BuildBridgeShimScript() => @"(function() {
+  if (!window.chrome || !window.chrome.webview) return;
+  var nextId = 1;
+  var pending = Object.create(null);
+  window.rookBridge = {
+    invoke: function(method, args) {
+      return new Promise(function(resolve, reject) {
+        var requestId = 'r' + (nextId++);
+        pending[requestId] = { resolve: resolve, reject: reject };
+        window.chrome.webview.postMessage({
+          type: 'invoke',
+          method: method,
+          requestId: requestId,
+          args: args === undefined ? null : args
+        });
+      });
+    }
+  };
+  window.chrome.webview.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (!msg || msg.type !== 'response') return;
+    var p = pending[msg.requestId];
+    if (!p) return;
+    delete pending[msg.requestId];
+    if (msg.ok) p.resolve(msg.result);
+    else p.reject(new Error(msg.error || 'bridge error'));
+  });
+})();";
 
 #if NET7_0_OR_GREATER
 
@@ -256,29 +402,55 @@ namespace Rook.UI.Web
                     CoreWebView2WebResourceContext.All);
                 coreWebView2.WebResourceRequested += OnWebResourceRequested;
 
-                // Inject session nonce BEFORE navigation.
-                var nonce = Chat.ChatServiceManager.Instance.SessionNonce;
-                if (!string.IsNullOrEmpty(nonce))
+                // Wire bridge BEFORE script injection so the shim's receiver
+                // is connected before any page script can post.
+                coreWebView2.WebMessageReceived += OnWebMessageReceived;
+                _coreWebView2 = coreWebView2;
+
+                // Inject document-creation scripts in the locked order:
+                // nonce, bridge shim, surface bootstrap.
+                foreach (var script in ComposeDocumentScripts())
                 {
-                    var escapedNonce = EscapeForJavaScript(nonce);
-                    await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-                        $"window.__rookSessionNonce = '{escapedNonce}';");
+                    if (string.IsNullOrEmpty(script)) continue;
+                    await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
                 }
 
-                // Inject surface-specific bootstrap script.
-                var bootstrap = GetBootstrapScript();
-                if (!string.IsNullOrEmpty(bootstrap))
-                {
-                    await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(bootstrap);
-                }
+                // Bridge is operational. Settle the flag BEFORE Navigate so
+                // any post-Navigate code paths see the correct state.
+                IsBridgeAvailable = true;
 
                 coreWebView2.Navigate($"{VirtualHostOrigin}/{EntryPage}");
             }
             catch (Exception ex)
             {
                 RhinoApp.WriteLine($"Rook: virtual host navigation failed: {ex.Message}");
+                IsBridgeAvailable = false;
                 Application.Instance.Invoke(() => _webView?.LoadHtml(MinimalFallbackHtml));
             }
+        }
+
+        private async void OnWebMessageReceived(
+            object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            string? incomingJson;
+            try { incomingJson = e.WebMessageAsJson; }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine($"Rook: bridge message read failed: {ex.Message}");
+                return;
+            }
+
+            var responseJson = await _dispatcher.DispatchAsync(incomingJson);
+            if (responseJson is null) return;
+
+            Application.Instance.Invoke(() =>
+            {
+                try { _coreWebView2?.PostWebMessageAsJson(responseJson); }
+                catch (Exception ex)
+                {
+                    RhinoApp.WriteLine($"Rook: bridge response post failed: {ex.Message}");
+                }
+            });
         }
 
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -315,17 +487,7 @@ namespace Rook.UI.Web
             }
         }
 
-        // ─── CSP + headers ────────────────────────────────────────────
-
-        private const string ContentSecurityPolicy =
-            "default-src 'none'; " +
-            "script-src 'self' 'unsafe-inline'; " +
-            "style-src 'self' 'unsafe-inline'; " +
-            $"connect-src https://{VirtualHostName} http://127.0.0.1:*; " +
-            "img-src 'self' data:; " +
-            "font-src 'self'";
-
-        private static string GetResponseHeaders(string path)
+        private string GetResponseHeaders(string path)
         {
             var contentType = GuessContentType(path);
             if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
