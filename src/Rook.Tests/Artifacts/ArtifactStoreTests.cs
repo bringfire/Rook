@@ -373,6 +373,41 @@ namespace Rook.Tests.Artifacts
             Assert.Throws<InvalidDataException>(() => _store.Get(id));
         }
 
+        // ─── created_at offset-strictness ───────────────────────────
+
+        [Theory]
+        [InlineData("2026-04-22T15:30:00")]      // no offset, no Z (would default to local)
+        [InlineData("2026-04-22 15:30:00")]      // space separator instead of T
+        [InlineData("2026-04-22")]               // date only
+        [InlineData("not-a-date")]
+        [InlineData("")]
+        public void Get_ManifestCreatedAtMissingOrWithoutOffset_Throws(string caStr)
+        {
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dir, "primary.png"), Bytes("x"));
+            WriteRawManifest(dir, ValidManifest(id, createdAt: caStr));
+
+            Assert.Throws<InvalidDataException>(() => _store.Get(id));
+        }
+
+        [Theory]
+        [InlineData("2026-04-22T15:30:00Z")]
+        [InlineData("2026-04-22T15:30:00.123Z")]
+        [InlineData("2026-04-22T15:30:00+05:00")]
+        [InlineData("2026-04-22T15:30:00-05:00")]
+        [InlineData("2026-04-22T15:30:00+0500")]
+        public void Get_ManifestCreatedAtValidIso8601WithOffset_Accepted(string caStr)
+        {
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dir, "primary.png"), Bytes("x"));
+            WriteRawManifest(dir, ValidManifest(id, createdAt: caStr));
+
+            var artifact = _store.Get(id);
+            Assert.NotNull(artifact);
+        }
+
         // ─── manifest id ≠ dir name ─────────────────────────────────
 
         [Fact]

@@ -57,6 +57,13 @@ namespace Rook.Artifacts
         private static readonly Regex PathPattern =
             new(@"^[A-Za-z0-9][A-Za-z0-9._-]*$", RegexOptions.Compiled);
 
+        // ISO 8601 datetime with explicit offset (Z or ±HH:MM / ±HHMM).
+        // Pre-check before TryParse because RoundtripKind alone accepts
+        // offset-less strings and silently treats them as local time.
+        private static readonly Regex Iso8601WithOffsetPattern = new(
+            @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$",
+            RegexOptions.Compiled);
+
         private static readonly JsonSerializerOptions WriteOptions = new()
         {
             WriteIndented = true,
@@ -294,8 +301,15 @@ namespace Rook.Artifacts
             if (!KindPattern.IsMatch(kind))
                 throw Bad(manifestPath, $"kind '{kind}' does not match required pattern");
 
-            // created_at
+            // created_at — require explicit offset (Z or ±HH:MM); reject
+            // offset-less strings that DateTimeOffset.TryParse would otherwise
+            // silently interpret as local time.
             var caStr = ReadStringField(root, "created_at", manifestPath);
+            if (!Iso8601WithOffsetPattern.IsMatch(caStr))
+            {
+                throw Bad(manifestPath,
+                    $"created_at '{caStr}' is not ISO 8601 with explicit offset (Z or ±HH:MM)");
+            }
             if (!DateTimeOffset.TryParse(
                     caStr,
                     CultureInfo.InvariantCulture,
