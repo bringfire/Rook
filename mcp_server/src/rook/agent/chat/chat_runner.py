@@ -21,7 +21,12 @@ from .conversation_store import Conversation
 # execution_policy verification (needs_verification + annotate_result) is now
 # handled inside ToolDispatcher.dispatch() — the single enforcement point.
 from .runtime_health import collect_runtime_facts
-from ..substrate_analytics import extract_substrate_observation, summarize_substrate_observations
+from ..substrate_analytics import (
+    _compact_error as _substrate_compact_error,
+    extract_substrate_observation,
+    persist_substrate_observation,
+    summarize_substrate_observations,
+)
 from ..tool_dispatcher import (
     BRIDGE_ROUTES,
     TRANSFORM_FUNCTIONS,
@@ -582,6 +587,18 @@ class ChatRunner:
                                 _obs = extract_substrate_observation(tool_name, result)
                                 if _obs is not None:
                                     substrate_observations.append(_obs)
+                                    try:
+                                        persist_substrate_observation(
+                                            _obs,
+                                            error=_substrate_compact_error(result),
+                                            session_id=getattr(conversation, "id", "") or "",
+                                        )
+                                    except Exception as _persist_exc:
+                                        logger.debug(
+                                            "Substrate persistence skipped for %s: %s",
+                                            tool_name,
+                                            _persist_exc,
+                                        )
                         except Exception as e:
                             result_str = f"Error: {e}"
                         tools_used.add(tool_name)

@@ -48,7 +48,11 @@ from .events import (
     ERROR,
 )
 from .tool_groups import TOOL_TRANSITIONS, TOOL_GROUP_TRIGGERS
-from .substrate_analytics import extract_substrate_observation
+from .substrate_analytics import (
+    extract_substrate_observation,
+    persist_substrate_observation,
+    _compact_error as _substrate_compact_error,
+)
 from ..runtime_paths import (
     load_runtime_dotenv,
     resolve_readable_knowledge_path,
@@ -1000,6 +1004,22 @@ class RookAgent:
         self, name: str, params: dict, result: dict, *, duration_ms: float = 0.0
     ) -> None:
         """Record a tool execution for the knowledge system."""
+        # Substrate persistence is an additive, independent store: it must not
+        # be gated on metrics-infra availability or on config.observation_recording
+        # reaching the metrics path. Kept outside the metrics early-return guards
+        # so direct-bridge executions still produce route_taken telemetry when
+        # the metrics store is unavailable or deliberately disabled.
+        if isinstance(result, dict):
+            try:
+                substrate_obs = extract_substrate_observation(name, result)
+                if substrate_obs is not None:
+                    persist_substrate_observation(
+                        substrate_obs,
+                        error=_substrate_compact_error(result),
+                    )
+            except Exception as exc:
+                logger.debug(f"Substrate persistence skipped for {name}: {exc}")
+
         if not self.config.observation_recording:
             return
 
