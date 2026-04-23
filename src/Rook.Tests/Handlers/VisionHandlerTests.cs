@@ -557,5 +557,95 @@ namespace Rook.Tests.Handlers
             _store.SetGeminiApiKey("second");
             Assert.Equal("second", _store.GetGeminiApiKey());
         }
+
+        // ─── API key preview (UI affordance) ────────────────────────────
+
+        [Fact]
+        public void Preview_NoKey_ReturnsNull()
+        {
+            Assert.Null(_store.GetApiKeyPreview());
+        }
+
+        [Fact]
+        public void Preview_StoredOnSet_ReturnsTruncated()
+        {
+            // Arrange/Act
+            _store.SetGeminiApiKey("AIzaSyExampleKeyForTesting-abcd1234");
+
+            // Assert — first4…last4 shape
+            var preview = _store.GetApiKeyPreview();
+            Assert.NotNull(preview);
+            Assert.StartsWith("AIza", preview);
+            Assert.EndsWith("1234", preview);
+            Assert.Contains("…", preview);
+        }
+
+        [Fact]
+        public void Preview_IsPersistedInSettingsFile()
+        {
+            _store.SetGeminiApiKey("AIzaSyExampleKeyForTesting-abcd1234");
+
+            var section = _settings.LoadSection<VisionSettings>("vision");
+            Assert.NotNull(section);
+            Assert.NotNull(section!.ApiKeyPreview);
+            Assert.StartsWith("AIza", section.ApiKeyPreview);
+            // The MIDDLE of the key must still not appear in the file.
+            var fileContent = File.ReadAllText(_settingsPath);
+            Assert.DoesNotContain("ExampleKey", fileContent);
+        }
+
+        [Fact]
+        public void Preview_ShortKey_AllAsterisks()
+        {
+            // Keys <=8 chars get fully asterisked so we never echo the
+            // bulk of a short credential. Defensive — real Gemini keys
+            // are much longer; this guards against misuse.
+            _store.SetGeminiApiKey("short");
+            Assert.Equal("*****", _store.GetApiKeyPreview());
+        }
+
+        [Fact]
+        public void Preview_ClearedOnClear()
+        {
+            _store.SetGeminiApiKey("AIzaSyExampleKeyForTesting-abcd1234");
+            Assert.NotNull(_store.GetApiKeyPreview());
+
+            _store.ClearGeminiApiKey();
+            Assert.Null(_store.GetApiKeyPreview());
+        }
+
+        [Fact]
+        public void Preview_RebuildOnReSave()
+        {
+            // User rotates the key — preview must reflect the new value,
+            // not the first one that was saved.
+            _store.SetGeminiApiKey("AIzaSyFirst--key---EndsHere1111");
+            var first = _store.GetApiKeyPreview();
+            _store.SetGeminiApiKey("AIzaSySecond-key---EndsHere2222");
+            var second = _store.GetApiKeyPreview();
+
+            Assert.NotEqual(first, second);
+            Assert.EndsWith("1111", first);
+            Assert.EndsWith("2222", second);
+        }
+
+        [Fact]
+        public void Preview_LegacySettingsFile_ReturnsNull()
+        {
+            // A settings.json written by a previous companion build has
+            // GeminiApiKeyEncrypted but no ApiKeyPreview. Reading must
+            // return null (not throw); the UI falls back to the generic
+            // "API key configured" placeholder, and the next save
+            // rebuilds the preview field.
+            var legacy = new VisionSettings
+            {
+                GeminiApiKeyEncrypted = "anything-looks-encrypted",
+                ApiKeyPreview = null,
+            };
+            _settings.SaveSection("vision", legacy);
+
+            Assert.Null(_store.GetApiKeyPreview());
+            Assert.True(_store.HasGeminiApiKey());
+        }
     }
 }

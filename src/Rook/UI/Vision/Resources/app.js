@@ -85,17 +85,21 @@ function switchView(view) {
 async function loadViewports() {
     try {
         const data = await bridgeCall("list_views");
-        const options = [];
+        // First entry is the "capture whatever is currently on screen"
+        // sentinel — empty value tells `captureViewport` to omit the
+        // `view_name` arg so the server-side handler skips the
+        // `TrySetStandardView` reset and captures the live camera
+        // (orbit/pan/zoom preserved). Naming a specific standard view
+        // (e.g. "Perspective") would otherwise force the projection
+        // back to its default orientation.
+        const options = ['<option value="" selected>Active view (live)</option>'];
         (data.views || []).forEach(v => {
             const label = `${v.name} (${v.width}×${v.height})`;
-            options.push(`<option value="${escapeAttr(v.name)}"${v.is_active ? " selected" : ""}>${escapeHtml(label)}</option>`);
+            options.push(`<option value="${escapeAttr(v.name)}">${escapeHtml(label)}</option>`);
         });
         (data.named_views || []).forEach(v => {
             options.push(`<option value="${escapeAttr(v.name)}">${escapeHtml(v.name)} (named)</option>`);
         });
-        if (options.length === 0) {
-            options.push('<option value="">No views available</option>');
-        }
         el.viewportSelect.innerHTML = options.join("");
     } catch (e) {
         el.viewportSelect.innerHTML = `<option value="">${escapeHtml(e.message)}</option>`;
@@ -515,9 +519,16 @@ async function loadSettingsOverview() {
             (typeof data.artifact_count === "number") ? String(data.artifact_count) : "—";
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
         if (data.has_api_key) {
-            el.apiKeyStatus.textContent = "API key configured.";
+            // Show the truncated preview in the input placeholder so
+            // it's visibly clear the key persists across sessions —
+            // matches SA_Banana's "AIza…xyz1" affordance. The input
+            // value stays empty; re-saving is only needed to replace.
+            const preview = data.api_key_preview || "API key configured";
+            el.apiKey.placeholder = preview;
+            el.apiKeyStatus.textContent = `API key configured (${preview}).`;
             el.apiKeyStatus.className = "status-indicator success";
         } else {
+            el.apiKey.placeholder = "Enter your API key";
             el.apiKeyStatus.textContent = "No API key configured.";
             el.apiKeyStatus.className = "status-indicator error";
         }

@@ -115,7 +115,31 @@ namespace Rook.Handlers
                 //    depending on captureBackend — a silent regression.
                 if (!string.IsNullOrEmpty(request.ViewName))
                 {
-                    if (TrySetStandardView(view, request.ViewName))
+                    // Pre-check: if the requested view name matches the
+                    // currently active viewport's name, skip the reset.
+                    // `SetProjection(DefinedViewportProjection.Perspective,
+                    //   null, true)` unconditionally snaps the camera to
+                    // Rhino's hard-coded default orientation for that
+                    // projection, even when we're already in that
+                    // projection — which means "capture Perspective"
+                    // while the user IS in Perspective would throw away
+                    // their orbit/pan/zoom. The principle of least
+                    // surprise: if you're already in the view, capturing
+                    // it by name should be a no-op on the camera. This
+                    // collapses "pick Perspective while in Perspective"
+                    // into the same behavior as "Active view (live)".
+                    var currentName = view.ActiveViewport.Name;
+                    bool alreadyInRequestedView =
+                        !string.IsNullOrEmpty(currentName)
+                        && string.Equals(
+                            currentName, request.ViewName,
+                            StringComparison.OrdinalIgnoreCase);
+
+                    if (alreadyInRequestedView)
+                    {
+                        resolvedViewName = currentName!;
+                    }
+                    else if (TrySetStandardView(view, request.ViewName))
                     {
                         resolvedViewName = request.ViewName!;
                     }
