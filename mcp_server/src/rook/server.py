@@ -10448,6 +10448,203 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "required": []
             }
         ),
+
+        # ─── Vision (PR-6) ───────────────────────────────────────────────
+        # Eight MCP tools wrapping the native /vision/* routes added by
+        # PR-5a/PR-5b. See rook_docs/2026-04-22-rookvision-image-track-
+        # checkpoint.md for the broader image-track framing.
+        #
+        # Naming split: active-capability ops use verb-first names
+        # (render_view / enhance_prompt / capture_depth), matching
+        # rhino_viewport / rhino_export conventions. Artifact-lifecycle
+        # ops use the rhino_vision_* namespace for discoverability.
+        #
+        # Preconditions: generate and enhance_prompt require a persisted
+        # Gemini API key in VisionSecretStore (configured via future
+        # PR-7 settings UI). Without it, the server returns a clear
+        # error envelope — no MCP-side pre-check.
+        #
+        # Path-param tools (get/approve/delete) URL-encode artifact_id
+        # via urllib.parse.quote with safe="" so slashes, query
+        # separators, or fragments cannot alter routing before
+        # reaching the managed validation boundary
+        # (VisionHandler.RequireArtifactId).
+        Tool(
+            name="rhino_render_view",
+            description=(
+                "Generate a styled image of the current Rhino view via "
+                "Gemini / Nano Banana. Takes a prompt and an input image "
+                "file path (typically a prior capture from rhino_viewport "
+                "or rhino_capture_depth). Returns an artifact_id handle "
+                "plus file_path to the generated PNG — the agent fetches "
+                "full detail via rhino_vision_get_artifact when needed. "
+                "Requires a Gemini API key persisted via the Vision "
+                "settings; fails cleanly otherwise. Prompt limit 16 KB, "
+                "per-image limit 10 MB, aggregate limit 15 MB raw."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Generation prompt (max 16 KB)."},
+                    "input_image_path": {"type": "string", "description": "Absolute path to the primary input image (PNG/JPEG/WebP, <= 10 MB)."},
+                    "reference_image_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional reference images (max 8, each <= 10 MB, aggregate with primary <= 15 MB).",
+                    },
+                    "model": {"type": "string", "description": "Gemini model override (default: the service's current default)."},
+                    "resolution": {"type": "string", "description": "Output resolution: '1K', '2K', or '4K' (default '1K')."},
+                    "aspect_ratio": {"type": "string", "description": "Output aspect ratio, e.g. '1:1', '16:9' (default '1:1')."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target (multi-instance support)."},
+                },
+                "required": ["prompt", "input_image_path"],
+            },
+        ),
+        Tool(
+            name="rhino_enhance_prompt",
+            description=(
+                "Expand a short user prompt into a richer structured prompt "
+                "via a text-only Gemini call. Stores the result as an "
+                "enhanced_prompt artifact. Useful as a preprocessing step "
+                "before rhino_render_view when the user's prompt is terse. "
+                "Requires the same Gemini API key configuration as "
+                "rhino_render_view. Prompt limit 16 KB; optional context "
+                "limit 4 KB."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Original prompt to enhance (max 16 KB)."},
+                    "context": {"type": "string", "description": "Optional context about the Rhino scene, style target, etc. (max 4 KB)."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["prompt"],
+            },
+        ),
+        Tool(
+            name="rhino_capture_depth",
+            description=(
+                "Capture a depth map of the active Rhino view using the "
+                "Arctic display mode. Stores the result as a depth_map "
+                "artifact and returns artifact_id + file_path. Use this "
+                "as a conditioning input for ControlNet-style depth-guided "
+                "generation or as a standalone analysis output. No Gemini "
+                "API key required — the capture is entirely local."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_edge": {"type": "integer", "description": "Maximum edge length of the captured bitmap in pixels (100 <= n <= 4096, default 1024)."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_vision_artifacts",
+            description=(
+                "List stored vision artifacts. Returns compact summaries "
+                "(artifact_id, kind, created_at, files, parent_ids, flags) "
+                "— metadata and absolute file_path are omitted to keep "
+                "responses under the bridge buffer. Call "
+                "rhino_vision_get_artifact with an id for full detail. "
+                "Filters: kind (exact match), approved (bool), limit "
+                "(default 100, max 500). Response includes applied_limit "
+                "for truncation detection."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "description": "Exact-match artifact kind filter (e.g. 'generated_image', 'depth_map', 'enhanced_prompt')."},
+                    "approved": {"type": "boolean", "description": "Filter by approval state (flags.approved)."},
+                    "limit": {"type": "integer", "description": "Max results to return (default 100, max 500)."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_vision_get_artifact",
+            description=(
+                "Fetch the full envelope for one vision artifact. Returns "
+                "artifact_id, kind, created_at, file_path (absolute), "
+                "files, parent_ids, metadata, and flags. No inline image "
+                "bytes — callers read the file at file_path directly. "
+                "Missing id returns an error envelope with "
+                "'Artifact ... not found.'"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "Canonical GUID of the artifact."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["artifact_id"],
+            },
+        ),
+        Tool(
+            name="rhino_vision_approve",
+            description=(
+                "Mark a vision artifact as approved by flipping "
+                "flags.approved = true. Idempotent — re-approving is a "
+                "no-op-shaped success. Closes the human-approval step "
+                "of the human <-> agent handoff: a user approves an "
+                "artifact here, and the agent's subsequent "
+                "rhino_vision_consume_approved call picks it up. No "
+                "disapprove/unset affordance in v1; delete the artifact "
+                "if approval needs to be withdrawn."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "Canonical GUID of the artifact to approve."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["artifact_id"],
+            },
+        ),
+        Tool(
+            name="rhino_vision_delete_artifact",
+            description=(
+                "Hard-delete a vision artifact (directory + blobs + "
+                "manifest). Orphaned parent_ids on other artifacts are "
+                "tolerated — lineage is best-effort history, not "
+                "referential integrity. Missing id returns an error "
+                "envelope; double-delete fails the same way."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "artifact_id": {"type": "string", "description": "Canonical GUID of the artifact to delete."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["artifact_id"],
+            },
+        ),
+        Tool(
+            name="rhino_vision_consume_approved",
+            description=(
+                "Return the most recently-created approved artifact, or "
+                "{artifact: null} if none match. Default filter: "
+                "kind='generated_image' and flags.approved=true — the "
+                "2D->3D handoff consumes a concept image, not a depth "
+                "map or prompt. Overridable via 'kind'. Optional 'since' "
+                "is an ISO 8601 datetime with explicit offset (Z or "
+                "+/-HH:MM) — offset-less strings are rejected, matching "
+                "the store's manifest invariant. Scope is GLOBAL in v1 "
+                "(the manifest schema does not yet carry "
+                "document/session context)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "description": "Override the default kind filter (default 'generated_image')."},
+                    "since": {"type": "string", "description": "ISO 8601 datetime with explicit offset; only artifacts created at or after this point are considered."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
     ]
 
     return all_tools
@@ -17116,6 +17313,68 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         case "rc_list_road_profiles":
             result = await call_rhino("/rc/profile/list", port=port)
+
+        # ─── Vision (PR-6) ───────────────────────────────────────────────
+        # Path-param tools URL-encode artifact_id with safe="" so /, ?,
+        # and # cannot alter routing before reaching the managed
+        # validation boundary (VisionHandler.RequireArtifactId). The
+        # single-segment native matcher [^/]+ still admits any
+        # non-slash string; encoding keeps the string intact end-to-end.
+        case "rhino_render_view":
+            result = await call_rhino("/vision/generate", "POST", arguments, port=port)
+
+        case "rhino_enhance_prompt":
+            result = await call_rhino("/vision/enhance-prompt", "POST", arguments, port=port)
+
+        case "rhino_capture_depth":
+            result = await call_rhino("/vision/capture-depth", "POST", arguments, port=port)
+
+        case "rhino_vision_artifacts":
+            # GET /vision/artifacts — the native route folds query params
+            # into the dispatch body server-side. call_rhino's GET
+            # variant doesn't send a body, so we convert the filter
+            # arguments to query string here.
+            from urllib.parse import urlencode as _urlencode
+            _params = {}
+            if "kind" in arguments:
+                _params["kind"] = arguments["kind"]
+            if "approved" in arguments:
+                # Native expects 'true'/'false' string — Python bool
+                # repr is 'True'/'False', so explicitly lowercase.
+                _params["approved"] = "true" if arguments["approved"] else "false"
+            if "limit" in arguments:
+                _params["limit"] = str(arguments["limit"])
+            _endpoint = "/vision/artifacts"
+            if _params:
+                _endpoint = f"{_endpoint}?{_urlencode(_params)}"
+            result = await call_rhino(_endpoint, port=port)
+
+        case "rhino_vision_get_artifact":
+            from urllib.parse import quote as _quote
+            _artifact_id = arguments.get("artifact_id", "")
+            _encoded = _quote(str(_artifact_id), safe="")
+            result = await call_rhino(f"/vision/artifacts/{_encoded}", port=port)
+
+        case "rhino_vision_approve":
+            from urllib.parse import quote as _quote
+            _artifact_id = arguments.get("artifact_id", "")
+            _encoded = _quote(str(_artifact_id), safe="")
+            result = await call_rhino(
+                f"/vision/artifacts/{_encoded}/approve", "POST", {}, port=port
+            )
+
+        case "rhino_vision_delete_artifact":
+            from urllib.parse import quote as _quote
+            _artifact_id = arguments.get("artifact_id", "")
+            _encoded = _quote(str(_artifact_id), safe="")
+            result = await call_rhino(
+                f"/vision/artifacts/{_encoded}", "DELETE", port=port
+            )
+
+        case "rhino_vision_consume_approved":
+            result = await call_rhino(
+                "/vision/artifacts/consume-approved", "POST", arguments, port=port
+            )
 
         case _:
             result = {"success": False, "data": f"Unknown tool: {name}"}
