@@ -193,6 +193,25 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_document",
     ],
 
+    # --- Vision (PR-6): Gemini generation + artifact management ---
+    # MCP-only: internal agents do not have BRIDGE_ROUTES entries for
+    # these, so the group is registered in MCP_ONLY_GROUPS below. When
+    # agent-side dispatch is added (future PR), remove from the
+    # MCP_ONLY_GROUPS set.
+    "vision": [
+        "rhino_render_view", "rhino_enhance_prompt", "rhino_capture_depth",
+        "rhino_vision_artifacts", "rhino_vision_get_artifact",
+        "rhino_vision_approve", "rhino_vision_delete_artifact",
+        "rhino_vision_consume_approved",
+    ],
+    # Read-only subset: excludes render_view (spends API quota),
+    # enhance_prompt (spends API quota), capture_depth (writes an
+    # artifact), approve (mutates flags), and delete (mutates store).
+    "vision_readonly": [
+        "rhino_vision_artifacts", "rhino_vision_get_artifact",
+        "rhino_vision_consume_approved",
+    ],
+
     # --- Rhino Commands (direct) ---
     "rhino_commands": [
         "rhino_command", "rhino_execute",
@@ -399,6 +418,13 @@ MCP_ONLY_GROUPS: Set[str] = {
     "gh_session",
     "gh_exploration",
     "gh_validation",
+    # PR-6: Vision tools are MCP-only until agent dispatcher routes
+    # exist. External Claude Code / CLI callers discover them via the
+    # catalog; internal agents skip them so they don't request groups
+    # they cannot execute. When agent-side dispatch is added, remove
+    # both entries below.
+    "vision",
+    "vision_readonly",
     # NOTE: "sessions" is intentionally excluded here — all four tools
     # (session_current/history/list/export) are in BRIDGE_ROUTES and work
     # through the C++ HTTP server, so agents can request them normally.
