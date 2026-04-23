@@ -2339,12 +2339,37 @@ namespace Rook.InternalBridge
             string json,
             int statusCode)
         {
-            if (httpStatusCode != IntPtr.Zero)
+            var bytes = Encoding.UTF8.GetBytes(json + "\0");
+            var finalStatusCode = statusCode;
+
+            // Defense-in-depth size guard. If the intended response
+            // exceeds the native buffer capacity, substitute a small
+            // fitting error envelope. Without this, the native side
+            // sees rc=-2 and surfaces an opaque "callback invocation
+            // failed (-2)" message with no diagnostic signal — the
+            // same failure class PR-5a avoided for blobs. This catches
+            // any op whose serialized response unexpectedly inflates
+            // (e.g. list_artifacts under worst-case metadata, even
+            // after that route's compact-summary fix).
+            if (responseJsonUtf8 != IntPtr.Zero && responseJsonCapacity < bytes.Length)
             {
-                Marshal.WriteInt32(httpStatusCode, statusCode);
+                var fallback = JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    data = $"Response payload of {bytes.Length - 1} bytes exceeds bridge " +
+                           $"buffer capacity of {responseJsonCapacity - 1} bytes. " +
+                           "Reduce 'limit', apply filters, or fetch per-artifact detail " +
+                           "via GET /vision/artifacts/{id}."
+                }, JsonOptions);
+                bytes = Encoding.UTF8.GetBytes(fallback + "\0");
+                finalStatusCode = 400;
             }
 
-            var bytes = Encoding.UTF8.GetBytes(json + "\0");
+            if (httpStatusCode != IntPtr.Zero)
+            {
+                Marshal.WriteInt32(httpStatusCode, finalStatusCode);
+            }
+
             if (responseJsonLength != IntPtr.Zero)
             {
                 Marshal.WriteInt32(responseJsonLength, bytes.Length - 1);
@@ -2352,6 +2377,11 @@ namespace Rook.InternalBridge
 
             if (responseJsonUtf8 == IntPtr.Zero || responseJsonCapacity < bytes.Length)
             {
+                // Pathological case: even the fallback envelope doesn't
+                // fit (would only happen if responseJsonCapacity is
+                // absurdly small or JsonOptions produces something huge).
+                // Signal failure; native will surface the opaque error
+                // rather than corrupt memory.
                 return -2;
             }
 

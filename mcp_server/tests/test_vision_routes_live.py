@@ -454,6 +454,101 @@ async def test_consume_approved_accepts_iso_with_offset():
     assert "artifact" in body["data"]
 
 
+# ─── PR-5b review round 2: envelope compactness + path validation ─────
+
+
+async def test_list_artifacts_envelope_is_compact_summary():
+    # Pins the list envelope shape. Full artifact metadata can be
+    # ~16 KB per entry (generated_image stores the user prompt
+    # verbatim), which at limit=100 would exceed the bridge's 1 MB
+    # buffer. list deliberately returns a compact summary; full
+    # detail is served by get_artifact.
+    status, body, _ = await _get_vision("artifacts")
+    assert status == 200
+    assert body["success"] is True
+
+    artifacts = body["data"]["artifacts"]
+    if not artifacts:
+        pytest.skip(
+            "Artifact store is empty; shape-pin test needs at least one "
+            "artifact. Run the end-to-end lifecycle test first or seed "
+            "the store manually."
+        )
+
+    entry = artifacts[0]
+    # Required compact-summary fields.
+    for required in ("artifact_id", "kind", "created_at", "files",
+                     "parent_ids", "flags"):
+        assert required in entry, f"list entry missing '{required}': {entry!r}"
+
+    # Deliberately omitted — list should stay small.
+    assert "metadata" not in entry, (
+        "list envelope should not include metadata — use GET "
+        "/vision/artifacts/{id} for full detail."
+    )
+    assert "file_path" not in entry, (
+        "list envelope should not include file_path — per-item "
+        "directory scan is skipped to keep list cheap."
+    )
+
+
+async def test_get_artifact_full_envelope_includes_metadata_placeholder():
+    # get_artifact returns the FULL envelope including metadata and
+    # file_path. Uses the same store-must-be-nonempty pattern as the
+    # compact-summary test — picks the first id from list, then GETs.
+    status, body, _ = await _get_vision("artifacts")
+    if not body.get("success") or not body["data"]["artifacts"]:
+        pytest.skip(
+            "Artifact store is empty; full-envelope test needs an "
+            "existing artifact."
+        )
+
+    artifact_id = body["data"]["artifacts"][0]["artifact_id"]
+    status, body, _ = await _get_vision(f"artifacts/{artifact_id}")
+    assert status == 200
+    entry = body["data"]
+    # Full-envelope-only fields.
+    assert "metadata" in entry
+    assert "file_path" in entry
+
+
+# ─── Path-id regex: managed is the validation boundary ───────────────
+#
+# The native routes now use [^/]+ rather than [0-9A-Fa-f-]+ for the
+# path-id capture group. Non-GUID strings previously fell through to
+# httplib's generic 404 (no X-Rook-Vision-Op header, no JSON envelope);
+# they must now reach managed RequireArtifactId and return the
+# standard contract.
+
+
+async def test_get_artifact_non_hex_path_routes_to_managed():
+    status, body, headers = await _get_vision("artifacts/not-a-guid")
+    # Still the managed failure shape, not httplib's generic 404.
+    assert status == 400
+    assert body["success"] is False
+    assert "GUID" in body["data"]
+    # X-Rook-Vision-Op header pins the "managed reached it" invariant.
+    assert headers.get("x-rook-vision-op") == "get_artifact"
+
+
+async def test_delete_artifact_non_hex_path_routes_to_managed():
+    status, body, headers = await _delete_vision("artifacts/not-a-guid")
+    assert status == 400
+    assert body["success"] is False
+    assert "GUID" in body["data"]
+    assert headers.get("x-rook-vision-op") == "delete_artifact"
+
+
+async def test_approve_artifact_non_hex_path_routes_to_managed():
+    status, body, headers = await _post_vision(
+        "artifacts/not-a-guid/approve", {}
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "GUID" in body["data"]
+    assert headers.get("x-rook-vision-op") == "approve_artifact"
+
+
 # ─── PR-5b: End-to-end lifecycle (requires live Rhino) ───────────────
 #
 # Uses capture_depth to mint a real depth_map artifact, then exercises

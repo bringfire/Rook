@@ -582,18 +582,46 @@ namespace Rook.Handlers
 
             results = results.Take(appliedLimit);
 
-            var envelopes = new List<Dictionary<string, object?>>();
+            // Compact summary — NOT the full envelope. Drops `metadata`
+            // (which can carry a 16 KB prompt on a generated_image) and
+            // `file_path` (which requires a per-artifact directory scan
+            // to resolve). Under worst-case 100 × 16 KB metadata, the
+            // full envelope would exceed the bridge's 1 MB response
+            // buffer even at the default limit. Consumers that need
+            // metadata or the absolute file path call
+            // GET /vision/artifacts/{id} for the full envelope.
+            var summaries = new List<Dictionary<string, object?>>();
             foreach (var artifact in results)
             {
-                envelopes.Add(ArtifactEnvelope(artifact));
+                summaries.Add(ArtifactListSummary(artifact));
             }
 
             return Ok(new Dictionary<string, object?>
             {
-                ["artifacts"] = envelopes,
-                ["count"] = envelopes.Count,
+                ["artifacts"] = summaries,
+                ["count"] = summaries.Count,
                 ["applied_limit"] = appliedLimit,
             });
+        }
+
+        /// <summary>
+        /// Compact list-response entry. Contains only the fields a UI or
+        /// agent needs to drive selection / filtering. Deliberately omits
+        /// <c>metadata</c> (unbounded size) and <c>file_path</c> (per-item
+        /// directory scan). Full detail is available via the get-artifact
+        /// route.
+        /// </summary>
+        private static Dictionary<string, object?> ArtifactListSummary(Artifact artifact)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["artifact_id"] = artifact.Id.ToString("D"),
+                ["kind"] = artifact.Kind,
+                ["created_at"] = artifact.CreatedAt.ToString("o"),
+                ["files"] = BuildFilesList(artifact),
+                ["parent_ids"] = artifact.ParentIds,
+                ["flags"] = artifact.Flags,
+            };
         }
 
         // ─── op: get_artifact (off-UI) ──────────────────────────────────

@@ -803,19 +803,28 @@ void CRookServer::RegisterRoutes()
     // (consume-approved, {id}/approve) are registered BEFORE the
     // generic /vision/artifacts/{id} so httplib's first-match semantics
     // route them correctly.
+    //
+    // Path-id matcher is deliberately permissive ([^/]+, not
+    // [0-9A-Fa-f-]+). The stricter hex-only pattern caused non-GUID
+    // paths (e.g. /vision/artifacts/not-a-guid) to fall through to
+    // httplib's generic 404 instead of our JSON-envelope + op-header
+    // contract. The managed VisionHandler.cs is the single validation
+    // boundary per PR-5a design; RequireArtifactId rejects malformed
+    // GUIDs with a structured 400 response that carries the standard
+    // X-Rook-Vision-Op header.
     m_server->Post("/vision/artifacts/consume-approved", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionConsumeApproved(req, res);
     });
-    m_server->Post(R"(/vision/artifacts/([0-9A-Fa-f-]+)/approve)", [](const httplib::Request& req, httplib::Response& res) {
+    m_server->Post(R"(/vision/artifacts/([^/]+)/approve)", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionApproveArtifact(req, res);
     });
     m_server->Get("/vision/artifacts", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionListArtifacts(req, res);
     });
-    m_server->Get(R"(/vision/artifacts/([0-9A-Fa-f-]+))", [](const httplib::Request& req, httplib::Response& res) {
+    m_server->Get(R"(/vision/artifacts/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionGetArtifact(req, res);
     });
-    m_server->Delete(R"(/vision/artifacts/([0-9A-Fa-f-]+))", [](const httplib::Request& req, httplib::Response& res) {
+    m_server->Delete(R"(/vision/artifacts/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionDeleteArtifact(req, res);
     });
     m_server->Get("/display-modes", [this](const httplib::Request& req, httplib::Response& res) {
