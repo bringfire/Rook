@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,18 +21,27 @@ namespace Rook.Handlers
     /// the HTTP body because <c>VisionHandler.cpp</c> overwrites any caller
     /// <c>op</c> field with the route-specific value before forwarding.
     ///
-    /// Threading model: two entry points, one sync + one async.
+    /// Threading model: three entry points.
     /// <list type="bullet">
-    ///   <item><see cref="Dispatch"/> (sync) runs on Rhino's UI thread
-    ///         via <c>ExecuteApiResponseCallback</c> — used for
+    ///   <item><see cref="Dispatch"/> (sync, UI thread) runs on Rhino's UI
+    ///         thread via <c>ExecuteApiResponseCallback</c> — used for
     ///         <c>capture_depth</c> because depth capture touches the
     ///         Rhino viewport and must be on the UI thread.</item>
-    ///   <item><see cref="DispatchAsync"/> (async) runs off the UI thread
-    ///         via <c>ExecuteAsyncApiResponseCallback</c> — used for
-    ///         <c>generate</c> / <c>enhance_prompt</c> because they are
-    ///         network-bound, do not touch Rhino state, and blocking the
-    ///         UI thread for 30–60 s during Gemini calls is
+    ///   <item><see cref="DispatchAsync"/> (async, threadpool) runs off
+    ///         the UI thread via <c>ExecuteAsyncApiResponseCallback</c> —
+    ///         used for <c>generate</c> / <c>enhance_prompt</c> because
+    ///         they are network-bound, do not touch Rhino state, and
+    ///         blocking the UI thread for 30–60 s during Gemini calls is
     ///         unacceptable.</item>
+    ///   <item><see cref="DispatchOffUi"/> (sync, threadpool) runs off
+    ///         the UI thread via <c>ExecuteOffUiApiResponseCallback</c> —
+    ///         used for the artifact-management ops
+    ///         (<c>list_artifacts</c>, <c>get_artifact</c>,
+    ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
+    ///         <c>consume_approved</c>). These touch only the on-disk
+    ///         artifact store; running them off the UI thread prevents
+    ///         a large store from starving Rhino during disk scans or
+    ///         recursive directory deletes.</item>
     /// </list>
     /// The bridge trampoline peeks the <c>op</c> and selects the correct
     /// dispatcher. Unknown ops are rejected before dispatcher selection.
@@ -120,10 +130,88 @@ namespace Rook.Handlers
                     "capture_depth" => CaptureDepth(args),
                     "generate" or "enhance_prompt" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
+                    "list_artifacts" or "get_artifact" or "approve_artifact"
+                        or "delete_artifact" or "consume_approved" => Fail(
+                        $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
             }
             catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine(
+                    $"Rook Vision: unhandled error in op '{op}': {ex.GetType().Name}: {ex.Message}");
+                return Fail($"Vision op '{op}' failed. See Rhino command line for details.");
+            }
+        }
+
+        // ─── Off-UI sync dispatcher (artifact-management ops) ───────────
+
+        /// <summary>
+        /// Off-UI sync entry point. Handles the artifact-management ops
+        /// (<c>list_artifacts</c>, <c>get_artifact</c>,
+        /// <c>approve_artifact</c>, <c>delete_artifact</c>,
+        /// <c>consume_approved</c>) — all disk-only, no Rhino state, no
+        /// network. Runs on the threadpool so a large artifact store
+        /// doesn't stall the Rhino UI thread during scans/deletes.
+        /// Any other op is rejected as a defensive guard; the bridge
+        /// trampoline is the primary gate.
+        /// </summary>
+        public ApiResponse DispatchOffUi(string? body)
+        {
+            Dictionary<string, JsonElement> args;
+            try
+            {
+                args = ParseObjectBody(body);
+            }
+            catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+
+            var op = GetStringArg(args, "op");
+            if (string.IsNullOrEmpty(op))
+            {
+                return Fail("Vision request missing required 'op' discriminator.");
+            }
+
+            try
+            {
+                return op switch
+                {
+                    "list_artifacts" => ListArtifacts(args),
+                    "get_artifact" => GetArtifact(args),
+                    "approve_artifact" => ApproveArtifact(args),
+                    "delete_artifact" => DeleteArtifact(args),
+                    "consume_approved" => ConsumeApproved(args),
+                    "capture_depth" => Fail(
+                        $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
+                    "generate" or "enhance_prompt" => Fail(
+                        $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
+                    _ => Fail($"Unknown vision op '{op}'."),
+                };
+            }
+            catch (KeyNotFoundException ex)
+            {
+                // Artifact-lookup misses — distinct from bad input. The
+                // response still lands as success=false with the message
+                // the bridge maps to a 400 status code. v1 does not have
+                // a separate 404 semantic; the `data` field carries the
+                // distinction.
+                return Fail(ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+            catch (InvalidDataException ex)
             {
                 return Fail(ex.Message);
             }
@@ -174,6 +262,9 @@ namespace Rook.Handlers
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
                     "capture_depth" => Fail(
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
+                    "list_artifacts" or "get_artifact" or "approve_artifact"
+                        or "delete_artifact" or "consume_approved" => Fail(
+                        $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
             }
@@ -419,6 +510,225 @@ namespace Rook.Handlers
             return Ok(ArtifactEnvelope(artifact));
         }
 
+        // ─── op: list_artifacts (off-UI) ────────────────────────────────
+
+        /// <summary>
+        /// List artifacts with optional filters. Optional <c>kind</c>
+        /// (exact match) and <c>approved</c> (boolean; matches
+        /// <c>flags.approved</c>). Optional <c>limit</c> caps the result
+        /// count to the most-recent N; unspecified or &lt;=0 means no cap.
+        /// Always returns the store's canonical ordering (newest
+        /// <c>CreatedAt</c> first, <c>Id</c> ascending tie-break).
+        /// </summary>
+        internal ApiResponse ListArtifacts(Dictionary<string, JsonElement> args)
+        {
+            var kindFilter = GetStringArg(args, "kind");
+            if (kindFilter != null && string.IsNullOrWhiteSpace(kindFilter))
+            {
+                throw new ArgumentException("'kind' filter must be non-empty when specified.");
+            }
+
+            var approvedFilter = GetBoolArg(args, "approved");
+            var limit = GetIntArg(args, "limit");
+
+            IEnumerable<Artifact> results = _artifactStore.List();
+
+            if (kindFilter != null)
+            {
+                results = results.Where(a =>
+                    string.Equals(a.Kind, kindFilter, StringComparison.Ordinal));
+            }
+
+            if (approvedFilter.HasValue)
+            {
+                results = results.Where(a => IsApproved(a) == approvedFilter.Value);
+            }
+
+            if (limit.HasValue && limit.Value > 0)
+            {
+                results = results.Take(limit.Value);
+            }
+
+            var envelopes = new List<Dictionary<string, object?>>();
+            foreach (var artifact in results)
+            {
+                envelopes.Add(ArtifactEnvelope(artifact));
+            }
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["artifacts"] = envelopes,
+                ["count"] = envelopes.Count,
+            });
+        }
+
+        // ─── op: get_artifact (off-UI) ──────────────────────────────────
+
+        /// <summary>
+        /// Fetch one artifact by id. v1 returns path + metadata only — no
+        /// inline blob bytes. Callers read the file at
+        /// <c>file_path</c>/<c>files[].path</c> directly. The
+        /// <c>include_blob</c> flag is deliberately absent; adding it
+        /// would reintroduce the 1 MB bridge buffer hazard.
+        /// </summary>
+        internal ApiResponse GetArtifact(Dictionary<string, JsonElement> args)
+        {
+            var id = RequireArtifactId(args);
+            var artifact = _artifactStore.Get(id);
+            if (artifact is null)
+            {
+                throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
+            }
+            return Ok(ArtifactEnvelope(artifact));
+        }
+
+        // ─── op: approve_artifact (off-UI) ──────────────────────────────
+
+        /// <summary>
+        /// Set <c>flags.approved = true</c> on an existing artifact.
+        /// Idempotent — approving an already-approved artifact is a
+        /// successful no-op-shaped call. No unset/disapprove affordance
+        /// in v1; if a consumer needs to withdraw approval, delete the
+        /// artifact.
+        /// </summary>
+        internal ApiResponse ApproveArtifact(Dictionary<string, JsonElement> args)
+        {
+            var id = RequireArtifactId(args);
+            // Single-flag schema: { approved: true }. No approved_at, no
+            // approved_by — single-user local tool.
+            var updated = _artifactStore.SetFlag(id, "approved", JsonValue.Create(true)!);
+            return Ok(ArtifactEnvelope(updated));
+        }
+
+        // ─── op: delete_artifact (off-UI) ───────────────────────────────
+
+        /// <summary>
+        /// Hard-delete an artifact (directory + blobs + manifest). Mirrors
+        /// <see cref="ArtifactStore.Create"/>'s inverse.
+        ///
+        /// Lineage semantics: <c>parent_ids</c> on other artifacts that
+        /// referenced the deleted id are left dangling. Lineage is
+        /// best-effort history, not referential integrity — a missing
+        /// parent is not corruption, it's just a record whose ancestor
+        /// has been cleaned up. No cascade, no refcount, no soft-delete
+        /// in v1.
+        /// </summary>
+        internal ApiResponse DeleteArtifact(Dictionary<string, JsonElement> args)
+        {
+            var id = RequireArtifactId(args);
+            if (!_artifactStore.Delete(id))
+            {
+                throw new KeyNotFoundException($"Artifact '{id:D}' not found.");
+            }
+            return Ok(new Dictionary<string, object?>
+            {
+                ["artifact_id"] = id.ToString("D"),
+                ["deleted"] = true,
+            });
+        }
+
+        // ─── op: consume_approved (off-UI) ──────────────────────────────
+
+        /// <summary>
+        /// Agent-facing entry point for "give me the most recent approved
+        /// concept." Scope is GLOBAL in v1 — the manifest schema does not
+        /// carry document/session context, so filtering beyond
+        /// <c>kind</c>/<c>since</c> is not available. Callers that need
+        /// session-scoped consume must stash a session identifier in
+        /// <c>metadata</c> and wait for a future schema extension.
+        ///
+        /// Default filter: <c>kind == "generated_image"</c> and
+        /// <c>flags.approved == true</c>. The kind default is deliberate
+        /// — the 2D→3D handoff consumes a concept image, not a depth map
+        /// or an enhanced prompt. Callers can override via the request
+        /// body.
+        ///
+        /// Sort: <c>CreatedAt</c> descending, <c>Id</c> descending as a
+        /// deterministic tie-breaker so polling does not race on equal
+        /// timestamps.
+        ///
+        /// Returns <c>{ artifact: null }</c> when nothing matches. That
+        /// is a steady state the agent polls, not an error.
+        /// </summary>
+        internal ApiResponse ConsumeApproved(Dictionary<string, JsonElement> args)
+        {
+            var kindFilter = GetStringArg(args, "kind") ?? ArtifactKindGeneratedImage;
+            if (string.IsNullOrWhiteSpace(kindFilter))
+            {
+                throw new ArgumentException("'kind' filter must be non-empty when specified.");
+            }
+
+            DateTimeOffset? sinceFilter = null;
+            if (args.TryGetValue("since", out var sinceEl))
+            {
+                if (sinceEl.ValueKind != JsonValueKind.String)
+                {
+                    throw new ArgumentException("'since' filter must be an ISO 8601 string with explicit offset.");
+                }
+                var sinceStr = sinceEl.GetString()!;
+                if (!DateTimeOffset.TryParse(
+                        sinceStr,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind,
+                        out var parsed))
+                {
+                    throw new ArgumentException(
+                        $"'since' value '{sinceStr}' is not a valid ISO 8601 datetime.");
+                }
+                sinceFilter = parsed;
+            }
+
+            var match = _artifactStore.List()
+                .Where(a => string.Equals(a.Kind, kindFilter, StringComparison.Ordinal))
+                .Where(IsApproved)
+                .Where(a => !sinceFilter.HasValue || a.CreatedAt >= sinceFilter.Value)
+                .OrderByDescending(a => a.CreatedAt)
+                .ThenByDescending(a => a.Id)
+                .FirstOrDefault();
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["artifact"] = match is null ? null : (object)ArtifactEnvelope(match),
+            });
+        }
+
+        /// <summary>
+        /// Public wrapper used by the VisionTab UI (and any in-process
+        /// caller that already has a dispatcher context). Agents route
+        /// through the bridge's <c>approve_artifact</c> op instead.
+        /// </summary>
+        public Artifact SetApproved(Guid artifactId, bool approved)
+            => _artifactStore.SetFlag(artifactId, "approved", JsonValue.Create(approved)!);
+
+        // ─── artifact-management helpers ────────────────────────────────
+
+        internal static Guid RequireArtifactId(Dictionary<string, JsonElement> args)
+        {
+            if (!args.TryGetValue("artifact_id", out var el) || el.ValueKind != JsonValueKind.String)
+            {
+                throw new ArgumentException("Missing or non-string field 'artifact_id'.");
+            }
+            var raw = el.GetString();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new ArgumentException("Field 'artifact_id' must be non-empty.");
+            }
+            if (!Guid.TryParseExact(raw, "D", out var id))
+            {
+                throw new ArgumentException(
+                    $"Field 'artifact_id' is not a valid GUID: '{raw}'.");
+            }
+            return id;
+        }
+
+        internal static bool IsApproved(Artifact artifact)
+        {
+            if (!artifact.Flags.TryGetValue("approved", out var node) || node is null)
+                return false;
+            try { return node.GetValue<bool>(); }
+            catch { return false; }
+        }
+
         // ─── validation helpers ─────────────────────────────────────────
 
         internal static void ValidateResolution(string resolution)
@@ -531,6 +841,18 @@ namespace Rook.Handlers
             if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v))
                 return v;
             return null;
+        }
+
+        internal static bool? GetBoolArg(
+            Dictionary<string, JsonElement> args, string name)
+        {
+            if (!args.TryGetValue(name, out var el)) return null;
+            return el.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null,
+            };
         }
 
         private Dictionary<string, object?> ArtifactEnvelope(Artifact artifact)
