@@ -34,6 +34,12 @@ namespace Rook.Services.Vision
     /// original snake_case was SDK-style and would have been partially
     /// ignored by the REST endpoint.
     ///
+    /// Authentication: the API key rides in the <c>x-goog-api-key</c>
+    /// request header, NOT in the URL query string. URL-embedded secrets
+    /// leak into proxy access logs, browser history, exception messages
+    /// that echo full URLs, and diagnostic traces far more readily than
+    /// request headers. The key never appears in constructed URLs.
+    ///
     /// Cooperative cancellation: all network awaits accept a
     /// <see cref="CancellationToken"/>. Bridge trampolines pass a token
     /// that fires when the 180 s vision timeout hits — this stops the
@@ -42,6 +48,7 @@ namespace Rook.Services.Vision
     /// </summary>
     public class GeminiClient
     {
+        private const string ApiKeyHeader = "x-goog-api-key";
         private readonly HttpClient _httpClient;
         private const string BaseUrl =
             "https://generativelanguage.googleapis.com/v1beta/models";
@@ -74,7 +81,8 @@ namespace Rook.Services.Vision
         {
             try
             {
-                var url = $"{BaseUrl}/{model}:generateContent?key={apiKey}";
+                // API key rides in x-goog-api-key header, NOT in URL.
+                var url = $"{BaseUrl}/{model}:generateContent";
 
                 // Part order: 1) prompt, 2) reference/style images, 3)
                 // viewport capture last. Last image determines aspect
@@ -144,11 +152,16 @@ namespace Rook.Services.Vision
                 };
 
                 var json = JsonSerializer.Serialize(requestDict, jsonOptions);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 RhinoApp.WriteLine($"Rook Vision: Sending request to {model}...");
 
-                var response = await _httpClient.PostAsync(url, content, cancellationToken)
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                request.Headers.Add(ApiKeyHeader, apiKey);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken)
                     .ConfigureAwait(false);
                 var responseJson = await response.Content.ReadAsStringAsync()
                     .ConfigureAwait(false);
@@ -261,8 +274,10 @@ namespace Rook.Services.Vision
         {
             try
             {
-                var url = $"{BaseUrl}/{Models.Default}?key={apiKey}";
-                var response = await _httpClient.GetAsync(url, cancellationToken)
+                var url = $"{BaseUrl}/{Models.Default}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add(ApiKeyHeader, apiKey);
+                var response = await _httpClient.SendAsync(request, cancellationToken)
                     .ConfigureAwait(false);
                 return response.IsSuccessStatusCode
                     || response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed;

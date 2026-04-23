@@ -126,6 +126,36 @@ async def test_generate_nonexistent_input_image_rejected():
     assert "does not exist" in body["data"].lower()
 
 
+async def test_generate_aggregate_payload_cap_rejected(tmp_path):
+    """Aggregate raw-byte cap (primary + all references) rejects requests
+    that would exceed Gemini's inline-payload envelope after base64
+    expansion. Per-file limit is 10 MB; aggregate cap is 15 MB — two
+    ~8 MB images combined must be rejected.
+    """
+    import struct
+    # Create two ~8 MB PNG-ish files. Content is valid PNG header +
+    # padding — size is what matters for the validation gate.
+    def make(path, size_bytes):
+        header = b"\x89PNG\r\n\x1a\n"
+        path.write_bytes(header + b"\x00" * (size_bytes - len(header)))
+        return str(path)
+
+    primary = make(tmp_path / "primary.png", 8 * 1024 * 1024)
+    ref1 = make(tmp_path / "ref1.png", 8 * 1024 * 1024)
+
+    status, body, _ = await _post_vision(
+        "generate",
+        {
+            "prompt": "x",
+            "input_image_path": primary,
+            "reference_image_paths": [ref1],
+        },
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "aggregate" in body["data"].lower()
+
+
 # ─── Enhance prompt validation ────────────────────────────────────────
 
 

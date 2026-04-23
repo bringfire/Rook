@@ -49,8 +49,32 @@ namespace Rook.Tests.Handlers
             Assert.Equal(4_000, VisionHandler.MaxContextLength);
             Assert.Equal(10L * 1024 * 1024, VisionHandler.MaxInputImageBytes);
             Assert.Equal(8, VisionHandler.MaxReferenceImages);
+            Assert.Equal(15L * 1024 * 1024, VisionHandler.MaxAggregateImageBytes);
             Assert.Equal(4096, VisionHandler.MaxDepthMaxEdge);
             Assert.Equal(1024, VisionHandler.DefaultDepthMaxEdge);
+        }
+
+        [Fact]
+        public void AggregateCap_IsBelowGeminiInlinePayloadLimit()
+        {
+            // Gemini's inline-payload guidance is ~20 MB per request;
+            // after base64 expansion (~1.33x) and JSON envelope overhead,
+            // the raw aggregate must stay under 20 MB. 15 MB raw = ~20 MB
+            // base64 leaves safety margin.
+            const long GeminiInlineLimit = 20L * 1024 * 1024;
+            Assert.True(
+                VisionHandler.MaxAggregateImageBytes < GeminiInlineLimit,
+                "Aggregate cap must leave headroom under Gemini's inline limit.");
+        }
+
+        [Fact]
+        public void AggregateCap_IsGreaterThanPerFileCap()
+        {
+            // Nonsense otherwise — aggregate must accommodate at least
+            // one max-sized primary image.
+            Assert.True(
+                VisionHandler.MaxAggregateImageBytes >= VisionHandler.MaxInputImageBytes,
+                "Aggregate cap must accommodate at least one max-sized image.");
         }
 
         // ─── Resolution validation ──────────────────────────────────────

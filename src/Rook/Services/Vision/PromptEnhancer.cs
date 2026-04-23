@@ -34,9 +34,15 @@ namespace Rook.Services.Vision
     /// https://ai.google.dev/gemini-api/docs/text-generation. Accepts a
     /// CancellationToken wired to the bridge's async timeout so the outbound
     /// request is cancelled rather than left to run past the deadline.
+    ///
+    /// Authentication: the API key rides in the <c>x-goog-api-key</c>
+    /// request header, NOT in the URL. Same rationale as GeminiClient —
+    /// URL secrets leak into proxy logs, diagnostics, and exception text
+    /// more readily than headers.
     /// </summary>
     public class PromptEnhancer
     {
+        private const string ApiKeyHeader = "x-goog-api-key";
         private readonly HttpClient _httpClient;
         private const string BaseUrl =
             "https://generativelanguage.googleapis.com/v1beta/models";
@@ -110,7 +116,8 @@ Return ONLY valid JSON with NO markdown code blocks, NO explanations. Just the r
         {
             try
             {
-                var url = $"{BaseUrl}/{TextModel}:generateContent?key={apiKey}";
+                // API key rides in x-goog-api-key header, NOT in URL.
+                var url = $"{BaseUrl}/{TextModel}:generateContent";
 
                 var userFraming = string.IsNullOrEmpty(context)
                     ? $"Transform this prompt for Nano Banana image generation:\n\n\"{userPrompt}\""
@@ -134,11 +141,16 @@ Return ONLY valid JSON with NO markdown code blocks, NO explanations. Just the r
                 };
 
                 var json = JsonSerializer.Serialize(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 RhinoApp.WriteLine("Rook Vision: Enhancing prompt...");
 
-                var response = await _httpClient.PostAsync(url, content, cancellationToken)
+                using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                httpReq.Headers.Add(ApiKeyHeader, apiKey);
+
+                var response = await _httpClient.SendAsync(httpReq, cancellationToken)
                     .ConfigureAwait(false);
                 var responseJson = await response.Content.ReadAsStringAsync()
                     .ConfigureAwait(false);

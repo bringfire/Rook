@@ -29,10 +29,17 @@ namespace Rook.Services.Vision
     /// only be decrypted by the same user on the same machine. No key
     /// material is stored in the plaintext JSON file.
     ///
-    /// Why entropy: scopes the ciphertext to this specific purpose.
-    /// Without entropy, any DPAPI blob for the user would be interchangeable,
-    /// letting another app decrypt this blob if it ran as the same user.
-    /// The fixed entropy string ties the blob to Rook Vision specifically.
+    /// Why entropy: purpose-binds the ciphertext. The entropy string is
+    /// NOT a secret — it lives in source and any same-user process with
+    /// that value can still call <c>ProtectedData.Unprotect</c> to
+    /// decrypt. What entropy does buy: it prevents the blob from being
+    /// interchangeable with other DPAPI ciphertexts produced by this
+    /// user under different purposes (e.g. a user-level password manager
+    /// cannot unwrap this blob even though both share the CurrentUser
+    /// scope). It also catches accidental cross-purpose misuse inside
+    /// Rook (if a different Rook subsystem uses different entropy, their
+    /// blobs can't collide). It is NOT an authentication boundary
+    /// against same-user malware.
     ///
     /// Error discipline: decryption failures surface as
     /// <see cref="InvalidOperationException"/> with a generic message. The

@@ -50,8 +50,15 @@ namespace Rook.Handlers
 
         internal const int MaxPromptLength = 16_000;
         internal const int MaxContextLength = 4_000;
-        internal const long MaxInputImageBytes = 10L * 1024 * 1024; // 10 MB
+        internal const long MaxInputImageBytes = 10L * 1024 * 1024; // 10 MB per file
         internal const int MaxReferenceImages = 8;
+        // Aggregate raw-byte cap for primary + all reference images
+        // combined, BEFORE base64 expansion. Gemini's inline-payload
+        // guidance sits around 20 MB per request; 15 MB raw becomes
+        // ~20 MB after base64, leaving safety margin for JSON envelope
+        // overhead. Protects against 1 × 10 MB + 8 × 10 MB = 90 MB raw
+        // requests that per-file limits alone would allow.
+        internal const long MaxAggregateImageBytes = 15L * 1024 * 1024;
         internal const int MaxDepthMaxEdge = 4096;
         internal const int DefaultDepthMaxEdge = 1024;
 
@@ -207,6 +214,12 @@ namespace Rook.Handlers
                     $"({info.Length} bytes).");
             }
 
+            // Track aggregate raw bytes across primary + all references
+            // to enforce MaxAggregateImageBytes. Base64 expansion happens
+            // downstream — we cap BEFORE encoding to avoid exceeding
+            // Gemini's practical inline-payload limit.
+            long aggregateBytes = info.Length;
+
             string[]? referenceBase64 = null;
             if (args.TryGetValue("reference_image_paths", out var refsEl)
                 && refsEl.ValueKind == JsonValueKind.Array)
@@ -227,6 +240,14 @@ namespace Rook.Handlers
                     var refInfo = new FileInfo(path);
                     if (refInfo.Length > MaxInputImageBytes)
                         throw new ArgumentException($"reference image exceeds size limit: '{path}'.");
+                    aggregateBytes += refInfo.Length;
+                    if (aggregateBytes > MaxAggregateImageBytes)
+                    {
+                        throw new ArgumentException(
+                            $"Aggregate image payload exceeds {MaxAggregateImageBytes} bytes " +
+                            $"({aggregateBytes} bytes so far). Reduce the number or size of " +
+                            "reference images.");
+                    }
                     list.Add(Convert.ToBase64String(File.ReadAllBytes(path)));
                 }
                 referenceBase64 = list.ToArray();
