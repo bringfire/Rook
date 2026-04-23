@@ -1225,7 +1225,10 @@ namespace Rook.Handlers
             return Ok(new Dictionary<string, object?>
             {
                 ["has_api_key"] = true,
-                ["api_key_preview"] = BuildApiKeyPreview(apiKey),
+                // Same preview the store persists — consumers can
+                // display it immediately without a follow-up
+                // `get_settings_overview` round-trip.
+                ["api_key_preview"] = VisionSecretStore.BuildPreview(apiKey),
             });
         }
 
@@ -1244,6 +1247,15 @@ namespace Rook.Handlers
             var overview = new Dictionary<string, object?>
             {
                 ["has_api_key"] = _secrets.HasGeminiApiKey(),
+                // api_key_preview is the first-4…last-4 obscured form
+                // of the stored key, read directly from the settings
+                // file without decrypting the DPAPI ciphertext. The
+                // Settings UI uses it as an input placeholder ("AIza…
+                // xyz1") so it's visually obvious the key persists
+                // across sessions — matching SA_Banana's behavior.
+                // Null when no key is stored, or when the settings
+                // file predates the preview field (next save rebuilds).
+                ["api_key_preview"] = _secrets.GetApiKeyPreview(),
                 // default_model is the short name the UI dropdown uses,
                 // not the full Gemini ID — UI matches option values
                 // against this to set the selected entry.
@@ -1273,13 +1285,6 @@ namespace Rook.Handlers
             }
 
             return Ok(overview);
-        }
-
-        private static string BuildApiKeyPreview(string apiKey)
-        {
-            if (string.IsNullOrEmpty(apiKey)) return "";
-            if (apiKey.Length <= 8) return new string('*', apiKey.Length);
-            return apiKey.Substring(0, 4) + "..." + apiKey.Substring(apiKey.Length - 4);
         }
 
         /// <summary>

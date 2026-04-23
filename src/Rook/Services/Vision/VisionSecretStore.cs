@@ -6,7 +6,9 @@ namespace Rook.Services.Vision
 {
     /// <summary>
     /// Settings record for the Vision section in RookSettingsStore.
-    /// Only holds the DPAPI-encrypted API key (base64 of the ciphertext).
+    /// Holds the DPAPI-encrypted API key plus a short non-secret preview
+    /// ("AIza…xyz1") so the Settings UI can show "API key configured"
+    /// across sessions without decrypting the ciphertext on every read.
     /// Plaintext never appears in the JSON file.
     /// </summary>
     public sealed class VisionSettings
@@ -18,6 +20,21 @@ namespace Rook.Services.Vision
         /// general DPAPI oracle for the same user.
         /// </summary>
         public string? GeminiApiKeyEncrypted { get; set; }
+
+        /// <summary>
+        /// Display-only obscured form of the key — <c>first 4 characters</c>
+        /// + "…" + <c>last 4 characters</c>. Written alongside the
+        /// ciphertext by <see cref="VisionSecretStore.SetGeminiApiKey"/>
+        /// so the Settings UI can display a placeholder that proves the
+        /// key is stored without costing a DPAPI decrypt on every read.
+        ///
+        /// Why plaintext: the first 4 chars of a Gemini key are the
+        /// publicly-known "AIza" prefix, and 4 trailing chars leak
+        /// effectively 4 key characters of entropy — acceptable for
+        /// single-user local UI display. The DPAPI envelope still
+        /// protects the 20+ middle characters.
+        /// </summary>
+        public string? ApiKeyPreview { get; set; }
     }
 
     /// <summary>
@@ -116,7 +133,8 @@ namespace Rook.Services.Vision
         }
 
         /// <summary>
-        /// Encrypts and persists the Gemini API key. Rejects null/empty.
+        /// Encrypts and persists the Gemini API key, alongside a short
+        /// obscured preview for UI display. Rejects null/empty.
         /// </summary>
         public void SetGeminiApiKey(string apiKey)
         {
@@ -135,6 +153,7 @@ namespace Rook.Services.Vision
             var existing = _settings.LoadSection<VisionSettings>(SectionName)
                 ?? new VisionSettings();
             existing.GeminiApiKeyEncrypted = encoded;
+            existing.ApiKeyPreview = BuildPreview(apiKey);
             _settings.SaveSection(SectionName, existing);
         }
 
@@ -149,8 +168,21 @@ namespace Rook.Services.Vision
         }
 
         /// <summary>
-        /// Clears the stored Gemini API key. Leaves other vision settings
-        /// fields (if any) untouched.
+        /// Return the stored obscured preview of the API key, or null if
+        /// no key is stored or the preview was never recorded (settings
+        /// file predates the preview field). Never decrypts.
+        /// </summary>
+        public string? GetApiKeyPreview()
+        {
+            var section = _settings.LoadSection<VisionSettings>(SectionName);
+            if (section is null) return null;
+            if (string.IsNullOrEmpty(section.GeminiApiKeyEncrypted)) return null;
+            return string.IsNullOrEmpty(section.ApiKeyPreview) ? null : section.ApiKeyPreview;
+        }
+
+        /// <summary>
+        /// Clears the stored Gemini API key and its preview. Leaves
+        /// other vision settings fields (if any) untouched.
         /// </summary>
         public void ClearGeminiApiKey()
         {
@@ -158,7 +190,26 @@ namespace Rook.Services.Vision
             if (section is null) return;
             if (string.IsNullOrEmpty(section.GeminiApiKeyEncrypted)) return;
             section.GeminiApiKeyEncrypted = null;
+            section.ApiKeyPreview = null;
             _settings.SaveSection(SectionName, section);
+        }
+
+        /// <summary>
+        /// Build the first4…last4 preview for UI display. Returned value
+        /// is SAFE to persist in the plaintext settings file — the
+        /// prefix is publicly-known for Gemini keys ("AIza…") and 4
+        /// trailing chars reveal minimal entropy. For keys shorter than
+        /// 8 chars, return all asterisks so we don't accidentally echo
+        /// an entire short credential. Exposed internally for
+        /// <see cref="VisionHandler.SetApiKey"/> to share the same
+        /// computation when returning the preview in the response
+        /// envelope (same value is later persisted on read-back).
+        /// </summary>
+        internal static string BuildPreview(string apiKey)
+        {
+            if (string.IsNullOrEmpty(apiKey)) return "";
+            if (apiKey.Length <= 8) return new string('*', apiKey.Length);
+            return apiKey.Substring(0, 4) + "…" + apiKey.Substring(apiKey.Length - 4);
         }
     }
 }

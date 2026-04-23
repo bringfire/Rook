@@ -519,9 +519,16 @@ async function loadSettingsOverview() {
             (typeof data.artifact_count === "number") ? String(data.artifact_count) : "—";
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
         if (data.has_api_key) {
-            el.apiKeyStatus.textContent = "API key configured.";
+            // Show the truncated preview in the input placeholder so
+            // it's visibly clear the key persists across sessions —
+            // matches SA_Banana's "AIza…xyz1" affordance. The input
+            // value stays empty; re-saving is only needed to replace.
+            const preview = data.api_key_preview || "API key configured";
+            el.apiKey.placeholder = preview;
+            el.apiKeyStatus.textContent = `API key configured (${preview}).`;
             el.apiKeyStatus.className = "status-indicator success";
         } else {
+            el.apiKey.placeholder = "Enter your API key";
             el.apiKeyStatus.textContent = "No API key configured.";
             el.apiKeyStatus.className = "status-indicator error";
         }
