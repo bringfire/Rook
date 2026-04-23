@@ -10,6 +10,7 @@
 
 #include "stdafx.h"
 #include "Handlers/ViewportHandler.h"
+#include "Handlers/GrasshopperProxyHandler.h"
 #include "Infrastructure/JsonHelpers.h"
 #include "Models/DocumentHelpers.h"
 #include "Threading/MainThreadDispatcher.h"
@@ -71,6 +72,63 @@ static std::wstring ViewNameToCommand(const std::string& viewName)
 void HandleViewport(const httplib::Request& req, httplib::Response& res)
 {
     auto [docSn, body] = ParseBodyAndDocSn(req);
+
+    // captureBackend discriminator: absent or "legacy" runs the in-process
+    // native _-ViewCaptureToFile path; "tier3" dispatches to the managed
+    // companion bridge (SDK-backed view.CaptureToBitmap with display-mode
+    // resolution and optional raytraced convergence). Any other string is a
+    // hard 400 — silent legacy fallback on a misspelling would be a false
+    // success that consumers cannot diagnose.
+    const std::string captureBackend = body.value("captureBackend", std::string());
+    if (!captureBackend.empty()
+        && captureBackend != "legacy"
+        && captureBackend != "tier3")
+    {
+        CRookServer::SendError(res,
+            "Unknown captureBackend '" + captureBackend +
+            "'. Expected 'legacy' or 'tier3' (or omit the field).");
+        res.status = 400;
+        return;
+    }
+
+    if (captureBackend == "tier3")
+    {
+        // Forward the full request body to the managed Tier 3 handler. The
+        // managed side reads documentSerialNumber from the same body and
+        // pins the document via DocumentContext.WithDocument, so we do not
+        // need to rewrite the payload — just pass it through.
+        std::string responseJson;
+        int statusCode = 0;
+        std::string invokeError;
+        const auto invokeResult = InvokeViewportCaptureTier3WithBody(
+            req.body.empty() ? body.dump() : req.body,
+            responseJson,
+            statusCode,
+            invokeError);
+
+        switch (invokeResult)
+        {
+        case ManagedCreateInvokeResult::Ok:
+            res.status = statusCode == 0 ? 200 : statusCode;
+            res.set_content(responseJson, "application/json");
+            res.set_header("X-Rook-Viewport-Backend", "tier3");
+            return;
+        case ManagedCreateInvokeResult::Unavailable:
+            CRookServer::SendError(res,
+                "Tier 3 viewport capture requires the Rook companion plugin. "
+                "Ensure Rook.rhp is loaded in Rhino, then retry.");
+            res.status = 503;
+            res.set_header("X-Rook-Viewport-Backend", "tier3-unavailable");
+            return;
+        case ManagedCreateInvokeResult::Failed:
+        default:
+            CRookServer::SendError(res,
+                "Tier 3 viewport capture failed: " + invokeError);
+            res.status = 500;
+            res.set_header("X-Rook-Viewport-Backend", "tier3-failed");
+            return;
+        }
+    }
 
     // Parse parameters (all optional)
     int width = body.value("width", 800);

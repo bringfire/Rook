@@ -17,7 +17,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 12;
+        private const uint BridgeAbiVersion = 13;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -26,6 +26,7 @@ namespace Rook.InternalBridge
         private static readonly CreateHandler Create = new();
         private static readonly TextureMappingHandler TextureMapping = new();
         private static readonly GameExportHandler GameExport = new();
+        private static readonly ViewportHandler Viewport = new();
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -109,6 +110,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback GameExportPrepareCallback = HandleGameExportPrepare;
         private static readonly NativeGhBridgeCallback ScriptParamsCallback = HandleScriptParams;
         private static readonly NativeGhBridgeCallback BakeOutputCallback = HandleBakeOutput;
+        private static readonly NativeGhBridgeCallback ViewportCaptureTier3Callback = HandleViewportCaptureTier3;
 
         private static bool _isRegistered;
         private static bool _registrationErrorLogged;
@@ -213,6 +215,8 @@ namespace Rook.InternalBridge
             public IntPtr BlockReplaceObjectGeometryBatch;
             // ABI v12: batch transform-object
             public IntPtr BlockTransformObjectBatch;
+            // ABI v13: Tier 3 viewport capture (SDK-backed, managed-side)
+            public IntPtr ViewportCaptureTier3;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -309,6 +313,7 @@ namespace Rook.InternalBridge
                     BlockTransformInstanceBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformInstanceBatchCallback),
                     BlockReplaceObjectGeometryBatch = Marshal.GetFunctionPointerForDelegate(BlockReplaceObjectGeometryBatchCallback),
                     BlockTransformObjectBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformObjectBatchCallback),
+                    ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -1402,6 +1407,24 @@ namespace Rook.InternalBridge
                 responseJsonLength,
                 httpStatusCode,
                 requestJson => Blocks.TransformBlockObjectBatch(requestJson));
+        }
+
+        private static int HandleViewportCaptureTier3(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            return ExecuteApiResponseCallback(
+                requestJsonUtf8,
+                requestJsonLength,
+                responseJsonUtf8,
+                responseJsonCapacity,
+                responseJsonLength,
+                httpStatusCode,
+                requestJson => Viewport.CaptureTier3(requestJson));
         }
 
         private static int HandleBlockSetMaterials(

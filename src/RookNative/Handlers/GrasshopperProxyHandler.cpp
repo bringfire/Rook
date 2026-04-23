@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 12;
+constexpr uint32_t kGhBridgeAbiVersion = 13;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -170,6 +170,8 @@ struct GhBridgeRegistration
     GhBridgeCallbackFn block_replace_object_geometry_batch = nullptr;
     // ABI v12: batch transform-object
     GhBridgeCallbackFn block_transform_object_batch = nullptr;
+    // ABI v13: Tier 3 viewport capture (SDK-backed, managed-side)
+    GhBridgeCallbackFn viewport_capture_tier3 = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -915,6 +917,37 @@ ManagedCreateInvokeResult InvokeManagedCreateWithBody(
 
     const auto result = TryInvokeRegisteredCallbackWithBody(
         registration.create_geometry,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
+}
+
+ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.viewport_capture_tier3 == nullptr)
+    {
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.viewport_capture_tier3,
         requestJson,
         responseJson,
         statusCode,

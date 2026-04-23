@@ -32,6 +32,17 @@ ManagedCreateInvokeResult InvokeManagedCreateWithBody(
     std::string& responseJson,
     int& statusCode,
     std::string& error);
+
+// Invokes the managed Tier 3 viewport capture bridge callback. Tier 3 is
+// SDK-backed (view.CaptureToBitmap) and managed-only; native /viewport falls
+// back to this helper when captureBackend == "tier3". Same contract as
+// InvokeManagedCreateWithBody: populates responseJson + statusCode with the
+// raw managed response on Ok.
+ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res);
 void HandleManagedGameExportPrepare(const httplib::Request& req, httplib::Response& res);
 void ProxyManagedCompanionRequest(

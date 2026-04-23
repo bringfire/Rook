@@ -203,3 +203,103 @@ class TestViewportCaptureParams:
         assert payload["drawGrid"] is True
         assert payload["scale"] == 2
         assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_capture_backend_passthrough(self, dispatcher):
+        """captureBackend discriminator must survive MCP → native forwarding
+        intact. Absent means legacy; 'tier3' routes to the managed bridge.
+        """
+        mock_result = {
+            "success": True,
+            "data": {
+                "format": "png",
+                "width": 1024,
+                "height": 1024,
+                "savedToFile": True,
+                "filePath": "/tmp/rook/viewports/viewport_t3.png",
+                "captureBackend": "tier3",
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch(
+                "rhino_viewport",
+                {"width": 1024, "height": 1024, "captureBackend": "tier3"},
+            )
+
+        mock_rhino.assert_called_once()
+        call_args = mock_rhino.call_args
+        payload = call_args[0][2]
+        assert payload["captureBackend"] == "tier3"
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_raytraced_converge_passthrough(self, dispatcher):
+        """raytracedConverge flag must forward. Only honored when the
+        resolved display mode is actually raytraced (enforced managed-side).
+        """
+        mock_result = {
+            "success": True,
+            "data": {
+                "format": "png",
+                "width": 800,
+                "height": 600,
+                "savedToFile": True,
+                "filePath": "/tmp/rook/viewports/viewport_rt.png",
+                "captureBackend": "tier3",
+                "raytracedSamples": 42,
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch(
+                "rhino_viewport",
+                {
+                    "captureBackend": "tier3",
+                    "displayMode": "Raytraced",
+                    "raytracedConverge": True,
+                },
+            )
+
+        mock_rhino.assert_called_once()
+        call_args = mock_rhino.call_args
+        payload = call_args[0][2]
+        assert payload["raytracedConverge"] is True
+        assert payload["displayMode"] == "Raytraced"
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_raytraced_timeout_passthrough(self, dispatcher):
+        """raytracedTimeoutMs must forward as-is. Clamping to the 20 s
+        ceiling happens managed-side to stay under the bridge's 30 s wait.
+        """
+        mock_result = {
+            "success": True,
+            "data": {
+                "format": "png",
+                "width": 800,
+                "height": 600,
+                "savedToFile": True,
+                "filePath": "/tmp/rook/viewports/viewport_rt_t.png",
+                "captureBackend": "tier3",
+            },
+        }
+
+        with patch("rook.agent.tool_dispatcher.call_rhino", new_callable=AsyncMock) as mock_rhino:
+            mock_rhino.return_value = mock_result
+            result = await dispatcher.dispatch(
+                "rhino_viewport",
+                {
+                    "captureBackend": "tier3",
+                    "raytracedConverge": True,
+                    "raytracedTimeoutMs": 15000,
+                },
+            )
+
+        mock_rhino.assert_called_once()
+        call_args = mock_rhino.call_args
+        payload = call_args[0][2]
+        assert payload["raytracedTimeoutMs"] == 15000
+        assert result["success"] is True
