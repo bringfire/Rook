@@ -24,6 +24,8 @@ namespace Rook
         private bool _isRhinoInside = false;
         private int _startupRetryCount = 0;
         private Timer? _startupRetryTimer;
+        private int _startupInitInProgress = 0;
+        private bool _startupRetriesActive = false;
         private static readonly string StartupTracePath =
             Path.Combine(RookPaths.DiscoveryFolder, "companion-startup.log");
 
@@ -116,6 +118,7 @@ namespace Rook
             TraceStartup("BeginStartupRetries");
             _startupRetryTimer?.Dispose();
             _startupRetryCount = 0;
+            _startupRetriesActive = true;
             _startupRetryTimer = new Timer(_ =>
             {
                 try
@@ -127,65 +130,100 @@ namespace Rook
                     // Ignore transient shutdown/startup races; the next retry or
                     // idle event will try again while Rhino is still alive.
                 }
-            }, null, StartupRetryIntervalMs, StartupRetryIntervalMs);
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            ScheduleNextStartupRetry();
         }
 
         private void StopStartupRetries()
         {
+            _startupRetriesActive = false;
             _startupRetryTimer?.Dispose();
             _startupRetryTimer = null;
         }
 
-        private void TryInitializeRuntime()
+        private void ScheduleNextStartupRetry()
         {
-            var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
-            TraceStartup($"TryInitializeRuntime bridgeRegistered={nativeBridgeRegistered} serverStarted={_serverStarted} retryCount={_startupRetryCount}");
-
-            if (!_serverStarted)
+            if (!_startupRetriesActive || _startupRetryTimer == null)
             {
-                // The C++ native plugin (RookNative) now owns the HTTP server,
-                // session recording, and scene graph.  The C# companion must NOT
-                // start its own HTTP server or SessionRecorder — doing so adds a
-                // second set of Command.BeginCommand / EndCommand handlers that
-                // enumerate doc.Objects on every command (including _SaveSmall),
-                // plus a background-thread HTTP server whose handlers can race
-                // with Rhino's file-save serialization.
-                //
-                // The companion's only responsibilities are:
-                //   1. GH bridge registration (NativeGhBridgeRegistrar)
-                //   2. Panel UI (Rook panel, Chat panel)
-                //   3. Toolbar loading
-                _serverStarted = true;
-                RhinoApp.Idle -= OnRhinoIdle;
-                // DO NOT call EnsureSessionInitialized() — C++ CSessionRecorder handles this
-                if (!_isRhinoInside)
-                    EnsureToolbarLoaded();
-                RhinoApp.WriteLine("Rook companion loaded (HTTP server + session recording delegated to RookNative).");
-            }
-
-            if (nativeBridgeRegistered)
-            {
-                // NOTE: RookServer.EnableCompanionMode() was previously called
-                // here, but it's a no-op — the C# HTTP server is never started
-                // in companion mode (IsRunning is always false).  Removed to
-                // avoid confusion.  The C++ native plugin writes the only
-                // discovery file that bridge.py reads.
-                RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
-                StopStartupRetries();
-                TraceStartup("GH bridge registered — companion startup complete");
                 return;
             }
 
-            if (_serverStarted)
+            try
             {
-                _startupRetryCount++;
-                if (_startupRetryCount >= StartupRetryLimit)
+                _startupRetryTimer.Change(StartupRetryIntervalMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Shutdown race — safe to ignore.
+            }
+        }
+
+        private void TryInitializeRuntime()
+        {
+            if (Interlocked.Exchange(ref _startupInitInProgress, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                var nativeBridgeRegistered = NativeGhBridgeRegistrar.TryRegister();
+                TraceStartup($"TryInitializeRuntime bridgeRegistered={nativeBridgeRegistered} serverStarted={_serverStarted} retryCount={_startupRetryCount}");
+
+                if (!_serverStarted)
                 {
-                    StopStartupRetries();
-                    RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
-                    TraceStartup("Startup retries exhausted");
-                    RhinoApp.WriteLine("Rook: native GH callback bridge was not available after startup retries; staying in companion mode.");
+                    // The C++ native plugin (RookNative) now owns the HTTP server,
+                    // session recording, and scene graph.  The C# companion must NOT
+                    // start its own HTTP server or SessionRecorder — doing so adds a
+                    // second set of Command.BeginCommand / EndCommand handlers that
+                    // enumerate doc.Objects on every command (including _SaveSmall),
+                    // plus a background-thread HTTP server whose handlers can race
+                    // with Rhino's file-save serialization.
+                    //
+                    // The companion's only responsibilities are:
+                    //   1. GH bridge registration (NativeGhBridgeRegistrar)
+                    //   2. Panel UI (Rook panel, Chat panel)
+                    //   3. Toolbar loading
+                    _serverStarted = true;
+                    RhinoApp.Idle -= OnRhinoIdle;
+                    // DO NOT call EnsureSessionInitialized() — C++ CSessionRecorder handles this
+                    if (!_isRhinoInside)
+                        EnsureToolbarLoaded();
+                    RhinoApp.WriteLine("Rook companion loaded (HTTP server + session recording delegated to RookNative).");
                 }
+
+                if (nativeBridgeRegistered)
+                {
+                    // NOTE: RookServer.EnableCompanionMode() was previously called
+                    // here, but it's a no-op — the C# HTTP server is never started
+                    // in companion mode (IsRunning is always false).  Removed to
+                    // avoid confusion.  The C++ native plugin writes the only
+                    // discovery file that bridge.py reads.
+                    RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
+                    StopStartupRetries();
+                    TraceStartup("GH bridge registered — companion startup complete");
+                    return;
+                }
+
+                if (_serverStarted && _startupRetriesActive)
+                {
+                    _startupRetryCount++;
+                    if (_startupRetryCount >= StartupRetryLimit)
+                    {
+                        StopStartupRetries();
+                        RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
+                        TraceStartup("Startup retries exhausted");
+                        RhinoApp.WriteLine("Rook: native GH callback bridge was not available after startup retries; staying in companion mode.");
+                    }
+                    else
+                    {
+                        ScheduleNextStartupRetry();
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _startupInitInProgress, 0);
             }
         }
 
