@@ -196,6 +196,57 @@ async def test_list_artifacts_approved_false_lowercase():
 
 
 @pytest.mark.asyncio
+async def test_list_artifacts_approved_string_false_not_flipped_by_truthiness():
+    """If an LLM passes the string 'false' (despite the inputSchema
+    declaring a bool — no server-side schema enforcement is
+    guaranteed), Python truthiness would turn it into 'true' under
+    a naive ternary. The dispatcher must only apply true/false
+    mapping to actual bool instances; other values pass through
+    as-is for native to validate.
+
+    Regression gate for Codex PR-6 round 2 finding on approved
+    truthiness."""
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"artifacts": [], "count": 0}}
+        await server.call_tool(
+            "rhino_vision_artifacts", {"approved": "false"},
+        )
+    endpoint = mock.call_args[0][0]
+    # Passes through as-is — native accepts "false" and "true" per the
+    # PR-5b native query folding (VisionHandler.cpp). The dispatcher
+    # must NOT silently flip this to "true" via Python truthiness.
+    assert "approved=false" in endpoint
+    assert "approved=true" not in endpoint
+
+
+@pytest.mark.asyncio
+async def test_list_artifacts_approved_bogus_string_passes_through():
+    """Non-bool, non-'true'/'false' values pass through unchanged;
+    native is the validator and will return a structured error."""
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"artifacts": [], "count": 0}}
+        await server.call_tool(
+            "rhino_vision_artifacts", {"approved": "bogus"},
+        )
+    endpoint = mock.call_args[0][0]
+    assert "approved=bogus" in endpoint
+
+
+@pytest.mark.asyncio
+async def test_list_artifacts_approved_zero_int_passes_through():
+    """int 0 is Python-falsy but not a bool — must pass through as
+    '0' (native accepts '0' per the PR-5b review-round fix), not
+    get auto-mapped to 'false' via the bool ternary branch."""
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "data": {"artifacts": [], "count": 0}}
+        await server.call_tool(
+            "rhino_vision_artifacts", {"approved": 0},
+        )
+    endpoint = mock.call_args[0][0]
+    assert "approved=0" in endpoint
+
+
+@pytest.mark.asyncio
 async def test_list_artifacts_no_filters_hits_bare_endpoint():
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
         mock.return_value = {"success": True, "data": {"artifacts": [], "count": 0}}
@@ -220,25 +271,67 @@ async def test_get_artifact_encodes_path_id_valid_guid():
 
 
 @pytest.mark.asyncio
-async def test_get_artifact_encodes_slashes_in_path_id():
-    # If a caller passes "bad/segment", an f-string would split the
-    # path into two segments and httplib's route matcher would miss.
-    # quote(..., safe="") keeps it as a single encoded segment that
-    # managed RequireArtifactId rejects with its normal error envelope.
+async def test_get_artifact_rejects_slash_before_http():
+    """cpp-httplib decodes %2F to '/' BEFORE route matching
+    (vendor/httplib/httplib.h line 6390), so quote()-encoded
+    slashes misroute to a generic 404 with no X-Rook-Vision-Op
+    header. The MCP layer must reject these pre-HTTP so callers
+    still get a structured Rook envelope."""
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
-        mock.return_value = {"success": True, "data": {}}
-        await server.call_tool(
+        result = await server.call_tool(
             "rhino_vision_get_artifact", {"artifact_id": "bad/segment"},
         )
-    endpoint = mock.call_args[0][0]
-    assert endpoint == "/vision/artifacts/bad%2Fsegment"
-    assert "bad/segment" not in endpoint.replace("bad%2Fsegment", "")
+    # call_rhino was never invoked — the MCP layer rejected first.
+    mock.assert_not_called()
+    # Tool result surfaces the error envelope. call_tool stringifies
+    # failure data with "Error: " prefix per server.py:17150 convention.
+    assert len(result) == 1
+    assert "Error:" in result[0].text
+    assert "'/'" in result[0].text and "artifact_id" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_rejects_backslash_before_http():
+    """Windows-style path separators are also blocked defensively —
+    cpp-httplib may or may not normalize them, but the MCP boundary
+    shouldn't need to know. Uniform rejection of both separators."""
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        result = await server.call_tool(
+            "rhino_vision_get_artifact", {"artifact_id": r"bad\segment"},
+        )
+    mock.assert_not_called()
+    assert "Error:" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_rejects_path_traversal_attempt():
+    # ../../etc/passwd is a '/'-bearing string; the MCP layer rejects
+    # it explicitly before URL construction.
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        result = await server.call_tool(
+            "rhino_vision_get_artifact", {"artifact_id": "../../etc/passwd"},
+        )
+    mock.assert_not_called()
+    assert "Error:" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_rejects_empty_id():
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        result = await server.call_tool(
+            "rhino_vision_get_artifact", {"artifact_id": ""},
+        )
+    mock.assert_not_called()
+    assert "Error:" in result[0].text
 
 
 @pytest.mark.asyncio
 async def test_get_artifact_encodes_query_separator_in_path_id():
-    # "bad?x=1" would inject a query string if f-stringed. Encoding
-    # keeps the literal in the path.
+    """'?' is safe to url-encode: httplib strips fragments on the
+    raw target BEFORE decoding and divides on literal '?' — encoded
+    '%3F' survives both stages and reaches the regex as part of the
+    path segment, so it routes to managed and rejects as non-GUID
+    there. Verified by tracing httplib lines 6380–6393."""
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
         mock.return_value = {"success": True, "data": {}}
         await server.call_tool(
@@ -251,6 +344,8 @@ async def test_get_artifact_encodes_query_separator_in_path_id():
 
 @pytest.mark.asyncio
 async def test_get_artifact_encodes_fragment_in_path_id():
+    """'#' is also safe to url-encode: the fragment strip at
+    httplib line 6381 only removes literal '#', not '%23'."""
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
         mock.return_value = {"success": True, "data": {}}
         await server.call_tool(
@@ -262,23 +357,20 @@ async def test_get_artifact_encodes_fragment_in_path_id():
 
 
 @pytest.mark.asyncio
-async def test_get_artifact_encodes_path_traversal_attempt():
-    # ../../etc/passwd style. quote(..., safe="") escapes each char.
+async def test_approve_artifact_rejects_slash_before_http():
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
-        mock.return_value = {"success": True, "data": {}}
-        await server.call_tool(
-            "rhino_vision_get_artifact", {"artifact_id": "../../etc/passwd"},
+        result = await server.call_tool(
+            "rhino_vision_approve", {"artifact_id": "bad/segment"},
         )
-    endpoint = mock.call_args[0][0]
-    # No literal slashes or dots escaping the artifact segment.
-    assert endpoint.startswith("/vision/artifacts/")
-    tail = endpoint[len("/vision/artifacts/"):]
-    assert "/" not in tail
-    assert tail == "..%2F..%2Fetc%2Fpasswd"
+    mock.assert_not_called()
+    assert "Error:" in result[0].text
 
 
 @pytest.mark.asyncio
-async def test_approve_artifact_encodes_path_id():
+async def test_approve_artifact_encodes_non_slash_chars():
+    """Non-slash special chars still survive round-trip through
+    httplib's decode and reach managed, so they're encoded on our
+    side rather than pre-rejected."""
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
         mock.return_value = {"success": True, "data": {}}
         await server.call_tool(
@@ -290,14 +382,24 @@ async def test_approve_artifact_encodes_path_id():
 
 
 @pytest.mark.asyncio
-async def test_delete_artifact_encodes_path_id():
+async def test_delete_artifact_rejects_slash_before_http():
+    with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
+        result = await server.call_tool(
+            "rhino_vision_delete_artifact", {"artifact_id": "bad/segment"},
+        )
+    mock.assert_not_called()
+    assert "Error:" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_delete_artifact_encodes_non_slash_chars():
     with patch.object(server, "call_rhino", new_callable=AsyncMock) as mock:
         mock.return_value = {"success": True, "data": {}}
         await server.call_tool(
-            "rhino_vision_delete_artifact", {"artifact_id": "bad/segment"},
+            "rhino_vision_delete_artifact", {"artifact_id": "bad?x=1"},
         )
     args, _ = mock.call_args
-    assert args[0] == "/vision/artifacts/bad%2Fsegment"
+    assert args[0] == "/vision/artifacts/bad%3Fx%3D1"
     assert args[1] == "DELETE"
 
 

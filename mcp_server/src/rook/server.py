@@ -11069,6 +11069,48 @@ def _handle_agent_answer(arguments: dict) -> dict:
     return {"success": False, "data": "Agent has no pending question"}
 
 
+def _encode_vision_artifact_id(aid: Any) -> tuple[str | None, dict | None]:
+    """Pre-validate and URL-encode a vision artifact_id for path-param
+    routes (/vision/artifacts/{id}, .../{id}/approve, etc.).
+
+    Returns ``(encoded, None)`` on success or ``(None, error_dict)`` on
+    rejection — callers early-return the error as the tool result.
+
+    Why a pre-HTTP check: cpp-httplib decodes URL-encoded characters
+    BEFORE route matching (``detail::decode_url`` called on the path
+    at ``vendor/httplib/httplib.h`` line 6390). So ``bad%2Fsegment``
+    arrives as ``bad/segment`` when the ``([^/]+)`` matcher runs,
+    fails to match, and falls through to a generic 404 — no
+    ``X-Rook-Vision-Op`` header, no managed JSON envelope. ``quote()``
+    alone is not sufficient; the caller can still smuggle a literal
+    ``/`` or ``\\`` in and get the same misroute after native
+    decoding. Guarding here keeps the contract: any malformed
+    artifact_id returns a structured Rook envelope.
+
+    The managed ``RequireArtifactId`` validator is still the GUID-
+    format authority — anything that survives this pre-check is
+    URL-encoded and shipped off to native, and anything non-GUID
+    comes back as "not a valid GUID" from managed.
+    """
+    from urllib.parse import quote as _quote
+
+    if not isinstance(aid, str) or not aid:
+        return None, {
+            "success": False,
+            "data": "artifact_id must be a non-empty string.",
+        }
+    if "/" in aid or "\\" in aid:
+        return None, {
+            "success": False,
+            "data": (
+                f"artifact_id must not contain '/' or '\\\\' "
+                f"(got: {aid!r}). Supply a canonical GUID — e.g. "
+                "12345678-1234-1234-1234-123456789abc."
+            ),
+        }
+    return _quote(aid, safe=""), None
+
+
 @mcp.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
@@ -17339,9 +17381,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             if "kind" in arguments:
                 _params["kind"] = arguments["kind"]
             if "approved" in arguments:
-                # Native expects 'true'/'false' string — Python bool
-                # repr is 'True'/'False', so explicitly lowercase.
-                _params["approved"] = "true" if arguments["approved"] else "false"
+                # Only map real Python bools to the native-expected
+                # 'true'/'false'. Non-bool values (strings, ints,
+                # anything coerced by an LLM) pass through as
+                # ``str(value)`` so native can apply its own
+                # validation — the route accepts 'true'/'false'/'1'/'0'
+                # and rejects anything else with a clear envelope.
+                # Python truthiness would otherwise turn the string
+                # "false" or "0" into "true", flipping the filter.
+                _approved_val = arguments["approved"]
+                if isinstance(_approved_val, bool):
+                    _params["approved"] = "true" if _approved_val else "false"
+                else:
+                    _params["approved"] = str(_approved_val)
             if "limit" in arguments:
                 _params["limit"] = str(arguments["limit"])
             _endpoint = "/vision/artifacts"
@@ -17350,26 +17402,37 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await call_rhino(_endpoint, port=port)
 
         case "rhino_vision_get_artifact":
-            from urllib.parse import quote as _quote
-            _artifact_id = arguments.get("artifact_id", "")
-            _encoded = _quote(str(_artifact_id), safe="")
-            result = await call_rhino(f"/vision/artifacts/{_encoded}", port=port)
+            _encoded, _err = _encode_vision_artifact_id(
+                arguments.get("artifact_id", "")
+            )
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/artifacts/{_encoded}", port=port
+                )
 
         case "rhino_vision_approve":
-            from urllib.parse import quote as _quote
-            _artifact_id = arguments.get("artifact_id", "")
-            _encoded = _quote(str(_artifact_id), safe="")
-            result = await call_rhino(
-                f"/vision/artifacts/{_encoded}/approve", "POST", {}, port=port
+            _encoded, _err = _encode_vision_artifact_id(
+                arguments.get("artifact_id", "")
             )
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/artifacts/{_encoded}/approve", "POST", {}, port=port
+                )
 
         case "rhino_vision_delete_artifact":
-            from urllib.parse import quote as _quote
-            _artifact_id = arguments.get("artifact_id", "")
-            _encoded = _quote(str(_artifact_id), safe="")
-            result = await call_rhino(
-                f"/vision/artifacts/{_encoded}", "DELETE", port=port
+            _encoded, _err = _encode_vision_artifact_id(
+                arguments.get("artifact_id", "")
             )
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/artifacts/{_encoded}", "DELETE", port=port
+                )
 
         case "rhino_vision_consume_approved":
             result = await call_rhino(
