@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook;
@@ -41,6 +42,82 @@ namespace Rook.Tests.Handlers
             Assert.Equal("generated_image", VisionHandler.ArtifactKindGeneratedImage);
             Assert.Equal("enhanced_prompt", VisionHandler.ArtifactKindEnhancedPrompt);
             Assert.Equal("depth_map", VisionHandler.ArtifactKindDepthMap);
+            Assert.Equal("captured_viewport", VisionHandler.ArtifactKindCapturedViewport);
+        }
+
+        // ─── Model catalog + short-name resolution ──────────────────────
+
+        [Fact]
+        public void Models_AvailableCatalog_OffersTwoPaidOnlyEntries()
+        {
+            // The UI dropdown is populated from AvailableModels. Changing
+            // the count or the short-name set is a user-visible change —
+            // surface it as a test diff, not a silent drop.
+            var shortNames = GeminiClient.Models.AvailableModels
+                .Select(m => (string?)m["short_name"])
+                .ToList();
+            Assert.Equal(2, shortNames.Count);
+            Assert.Contains("nano-banana-2", shortNames);
+            Assert.Contains("nano-banana-pro", shortNames);
+        }
+
+        [Fact]
+        public void Models_AvailableCatalog_DoesNotExposeFreeTier()
+        {
+            // Regression: free-tier models are deliberately NOT exposed
+            // because API keys can't invoke free-tier endpoints —
+            // including them would only generate 429s. A future addition
+            // must be an explicit decision documented on the catalog.
+            var shortNames = GeminiClient.Models.AvailableModels
+                .Select(m => (string?)m["short_name"] ?? "")
+                .ToList();
+            Assert.DoesNotContain(shortNames, n => n.Contains("2.5-flash"));
+            Assert.DoesNotContain(shortNames, n => n.Contains("free"));
+        }
+
+        [Fact]
+        public void Models_DefaultShortName_MatchesShortNameToIdEntry()
+        {
+            // The UI selects the "default" option by matching the
+            // overview's default_model string against each option's
+            // value. If DefaultShortName isn't in ShortNameToId the UI
+            // never marks any option selected.
+            Assert.Contains(GeminiClient.Models.DefaultShortName,
+                GeminiClient.Models.ShortNameToId.Keys);
+        }
+
+        [Fact]
+        public void Models_DefaultShortName_ResolvesToDefaultFullId()
+        {
+            Assert.Equal(
+                GeminiClient.Models.Default,
+                GeminiClient.Models.ResolveShortName(GeminiClient.Models.DefaultShortName));
+        }
+
+        [Theory]
+        [InlineData("nano-banana-2", "gemini-3.1-flash-image-preview")]
+        [InlineData("nano-banana-pro", "gemini-3-pro-image-preview")]
+        public void Models_ResolveShortName_MapsKnownShortNames(string shortName, string expectedFullId)
+        {
+            Assert.Equal(expectedFullId, GeminiClient.Models.ResolveShortName(shortName));
+        }
+
+        [Fact]
+        public void Models_ResolveShortName_NullOrEmpty_ReturnsDefault()
+        {
+            Assert.Equal(GeminiClient.Models.Default, GeminiClient.Models.ResolveShortName(null));
+            Assert.Equal(GeminiClient.Models.Default, GeminiClient.Models.ResolveShortName(""));
+        }
+
+        [Fact]
+        public void Models_ResolveShortName_UnknownValue_PassesThrough()
+        {
+            // Power users (and agents targeting a new Google release
+            // before Rook catches up) need to be able to request a model
+            // by full Gemini ID. The resolver must not clobber anything
+            // that isn't a short-name entry.
+            const string custom = "gemini-4-hypothetical-image-preview";
+            Assert.Equal(custom, GeminiClient.Models.ResolveShortName(custom));
         }
 
         // ─── Input bound constants ──────────────────────────────────────

@@ -1,0 +1,552 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using Rhino;
+using Rook.Artifacts;
+using Rook.Handlers;
+using Rook.UI.Web;
+
+namespace Rook.UI.Vision
+{
+    /// <summary>
+    /// Pattern A web surface for the Vision tab. The Vision UI is fully
+    /// in-process: every call that would otherwise have crossed an HTTP
+    /// boundary is routed through the JS ↔ C# bridge shim registered here
+    /// under the single method <c>vision</c>, discriminated by the inner
+    /// <c>op</c> field.
+    ///
+    /// Routing:
+    /// <list type="bullet">
+    ///   <item><c>generate</c>, <c>enhance_prompt</c>, <c>test_api_key</c>
+    ///         → <see cref="VisionHandler.DispatchAsync"/> (network,
+    ///         cancellable).</item>
+    ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
+    ///         <c>list_views</c>, <c>open_image_picker</c>
+    ///         → <see cref="VisionHandler.Dispatch"/> on the Rhino UI
+    ///         thread (viewport state / modal dialog).</item>
+    ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
+    ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
+    ///         <c>consume_approved</c>, <c>set_api_key</c>,
+    ///         <c>get_settings_overview</c>
+    ///         → <see cref="VisionHandler.DispatchOffUi"/> (disk or secret
+    ///         store; threadpool-offloaded so a large artifact store
+    ///         scan doesn't stall Rhino).</item>
+    /// </list>
+    ///
+    /// Unknown ops return a structured failure envelope
+    /// (<c>{success:false, data:"Unknown vision op..."}</c>) instead of
+    /// raising — so a bad op name at the JS layer surfaces as a
+    /// user-addressable error rather than a generic "handler failed"
+    /// from <see cref="BridgeDispatcher"/>'s exception path. This is the
+    /// explicit allowlist the scope pass called for — no default-to-offUi
+    /// fallback that would mis-route a future UI-thread op.
+    ///
+    /// CSP: overrides the substrate default to <c>connect-src 'none'</c>
+    /// — the Vision tab must not talk to <c>127.0.0.1:*</c> because there
+    /// is no chat-server involvement, and a slip into network traffic
+    /// would violate the Pattern A boundary. Gallery thumbnails load via
+    /// the <c>/blob/{artifact_id}/{role}</c> virtual resource on the
+    /// same <c>https://app.rook.invalid</c> origin, covered by
+    /// <c>img-src 'self'</c>.
+    ///
+    /// Virtual resources: <c>/blob/{artifact_id}/{role}</c> streams blob
+    /// bytes from <see cref="ArtifactStore.GetBlobAbsolutePath"/>. Path
+    /// validation (canonicalization, directory-escape rejection, role
+    /// pattern, file existence) is inherited from the store — the
+    /// subclass adds the URI shape check and the segment-count guard.
+    /// </summary>
+    public sealed class VisionWebSurface : RookWebSurface
+    {
+        // ─── Resource contract ────────────────────────────────────────
+
+        protected override string ResourceRoot => "Rook.UI.Vision.Resources";
+        protected override string EntryPage => "index.html";
+
+        /// <summary>
+        /// Self-contained fallback shown when WebView2 is unavailable
+        /// (net48 runtime or initialization failure). Fully inline — no
+        /// relative URLs, no external fonts.
+        /// </summary>
+        protected override string MinimalFallbackHtml => @"<!DOCTYPE html>
+<html><head><meta charset='UTF-8'>
+<style>
+body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #1e1e1e; color: #e0e0e0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+.msg { text-align: center; opacity: 0.7; max-width: 320px; padding: 20px; }
+h1 { margin: 0 0 12px; font-weight: 500; font-size: 18px; }
+p { margin: 8px 0; line-height: 1.4; }
+</style></head><body>
+<div class='msg'>
+  <h1>Vision</h1>
+  <p>WebView unavailable.</p>
+  <p>Restart Rhino to retry, or check that Microsoft Edge WebView2 Runtime is installed.</p>
+</div>
+</body></html>";
+
+        // ─── CSP override ─────────────────────────────────────────────
+
+        /// <summary>
+        /// Content-Security-Policy for the Vision tab (v1). The value is
+        /// regression-pinned in <c>Rook.Tests/UI/Web/VisionWebSurfaceTests.cs</c>
+        /// — silent drift would reintroduce network affordances the
+        /// Pattern A boundary exists to prevent.
+        /// </summary>
+        internal const string VisionContentSecurityPolicy =
+            "default-src 'none'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            "font-src 'self'; " +
+            "img-src 'self' data:; " +
+            "connect-src 'none';";
+
+        protected override string ContentSecurityPolicy => VisionContentSecurityPolicy;
+
+        // ─── Op-routing table ─────────────────────────────────────────
+
+        internal enum VisionOpRoute
+        {
+            Async,   // DispatchAsync (network-bound)
+            Ui,      // Dispatch (Rhino UI thread)
+            OffUi,   // DispatchOffUi (threadpool — disk / secret store)
+        }
+
+        /// <summary>
+        /// Explicit allowlist of ops the JS bridge is willing to relay
+        /// to <see cref="VisionHandler"/>, paired with the dispatcher
+        /// each one must land in. There is NO default route — an op not
+        /// in this dictionary returns a structured "Unknown vision op"
+        /// failure. Routing decisions live here; schema validation is
+        /// the dispatcher's responsibility on the other side.
+        /// </summary>
+        internal static readonly IReadOnlyDictionary<string, VisionOpRoute> OpRoutes =
+            new Dictionary<string, VisionOpRoute>(StringComparer.Ordinal)
+            {
+                ["generate"] = VisionOpRoute.Async,
+                ["enhance_prompt"] = VisionOpRoute.Async,
+                ["test_api_key"] = VisionOpRoute.Async,
+
+                ["capture_depth"] = VisionOpRoute.Ui,
+                ["capture_viewport"] = VisionOpRoute.Ui,
+                ["list_views"] = VisionOpRoute.Ui,
+                ["open_image_picker"] = VisionOpRoute.Ui,
+
+                ["list_artifacts"] = VisionOpRoute.OffUi,
+                ["get_artifact"] = VisionOpRoute.OffUi,
+                ["approve_artifact"] = VisionOpRoute.OffUi,
+                ["delete_artifact"] = VisionOpRoute.OffUi,
+                ["consume_approved"] = VisionOpRoute.OffUi,
+                ["set_api_key"] = VisionOpRoute.OffUi,
+                ["get_settings_overview"] = VisionOpRoute.OffUi,
+            };
+
+        // ─── Timeouts ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Upper bound for every async bridge op
+        /// (<c>generate</c>, <c>enhance_prompt</c>, <c>test_api_key</c>).
+        /// Matches the native <c>vision_dispatch</c> trampoline's 180 s
+        /// ceiling in <c>NativeGhBridgeRegistrar.HandleVisionDispatch</c>
+        /// so both entry points behave symmetrically. The probe op
+        /// (<c>test_api_key</c>) typically completes in under 2 s; 180 s
+        /// is only the hard cap.
+        /// </summary>
+        internal static readonly TimeSpan AsyncOpTimeout = TimeSpan.FromSeconds(180);
+
+        // ─── State ────────────────────────────────────────────────────
+
+        private readonly VisionHandler _handler;
+        private readonly ArtifactStore _artifactStore;
+
+        public VisionWebSurface() : this(new VisionHandler(), new ArtifactStore()) { }
+
+        internal VisionWebSurface(VisionHandler handler, ArtifactStore artifactStore)
+        {
+            _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+            _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
+
+            // Register the single op-discriminated bridge method. Must
+            // happen in the constructor so the handler is attached
+            // before ConfigureVirtualHost runs and the bridge-unavailable
+            // lifecycle fires.
+            RegisterBridgeHandler("vision", HandleVisionBridgeCallAsync);
+        }
+
+        // ─── Bridge handler ───────────────────────────────────────────
+
+        /// <summary>
+        /// Top-level relay for <c>window.rookBridge.invoke("vision", {op, ...})</c>.
+        /// Routes by <see cref="OpRoutes"/> to the correct
+        /// <see cref="VisionHandler"/> dispatcher, then wraps the
+        /// <see cref="ApiResponse"/> as a <c>{success, data}</c> JsonNode.
+        /// </summary>
+        private async Task<JsonNode?> HandleVisionBridgeCallAsync(JsonNode? argsNode)
+        {
+            string? body = argsNode?.ToJsonString();
+            string? op = PeekOp(body);
+
+            if (string.IsNullOrEmpty(op))
+            {
+                return BuildFailure("Vision request missing required 'op' discriminator.");
+            }
+            if (!OpRoutes.TryGetValue(op!, out var route))
+            {
+                return BuildFailure($"Unknown vision op '{op}'.");
+            }
+
+            ApiResponse response;
+            try
+            {
+                switch (route)
+                {
+                    case VisionOpRoute.Async:
+                        response = await DispatchAsyncWithTimeoutAsync(
+                            op!, body).ConfigureAwait(false);
+                        break;
+                    case VisionOpRoute.Ui:
+                        response = await InvokeOnUiAsync(
+                            () => _handler.Dispatch(body)).ConfigureAwait(false);
+                        break;
+                    case VisionOpRoute.OffUi:
+                        // Off-UI ops are disk-only (artifact store) or
+                        // secret-store reads. VisionHandler.DispatchOffUi
+                        // is sync with no CancellationToken parameter; a
+                        // Task.Run wrapper cannot cooperatively cancel
+                        // its body. The native trampoline wraps these in
+                        // a 30 s wait at the transport layer; the JS
+                        // bridge relies on the disk I/O being bounded
+                        // (the v1 artifact store has no indexing and
+                        // scans day buckets).
+                        response = await Task.Run(
+                            () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
+                        break;
+                    default:
+                        return BuildFailure($"Unhandled route for op '{op}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: vision bridge op '{op}' threw: {ex.GetType().Name}: {ex.Message}");
+                // Surface a generic failure — never leak exception text to JS.
+                return BuildFailure($"Vision op '{op}' failed.");
+            }
+
+            return ApiResponseToJsonNode(response);
+        }
+
+        /// <summary>
+        /// Instance entry point: dispatch an async op through
+        /// <see cref="VisionHandler.DispatchAsync"/> under the standard
+        /// <see cref="AsyncOpTimeout"/>. Thin wrapper around the pure
+        /// <see cref="DispatchWithTimeoutAsync"/> helper, which isolates
+        /// the cancellation-to-timeout rewrite so it can be exercised
+        /// in unit tests without a real <see cref="VisionHandler"/>.
+        /// </summary>
+        private Task<ApiResponse> DispatchAsyncWithTimeoutAsync(string op, string? body)
+            => DispatchWithTimeoutAsync(
+                op,
+                AsyncOpTimeout,
+                token => _handler.DispatchAsync(body, token));
+
+        /// <summary>
+        /// Pure timeout-wrapper: run <paramref name="dispatch"/> under a
+        /// per-call <see cref="CancellationTokenSource"/> bounded by
+        /// <paramref name="timeout"/>, and return an
+        /// <see cref="ApiResponse"/>. Two cancellation paths are
+        /// handled:
+        /// <list type="bullet">
+        ///   <item><b>Observed</b>: the dispatcher honors the token and
+        ///         throws <see cref="OperationCanceledException"/> when
+        ///         the CTS fires. We catch it and return a fresh
+        ///         failure envelope whose <c>Data</c> reads
+        ///         <c>"Vision op '{op}' timed out after {N}s."</c>.</item>
+        ///   <item><b>Swallowed</b>: the dispatcher's own generic
+        ///         exception catch converts the cancellation into a
+        ///         <c>Success=false</c> envelope. We detect this via
+        ///         <see cref="CancellationTokenSource.IsCancellationRequested"/>
+        ///         and rewrite <c>Data</c> in place so the caller sees
+        ///         the actual cause instead of "See Rhino command line
+        ///         for details."</item>
+        /// </list>
+        /// Happy path passes through unchanged. Exceptions that are not
+        /// cancellations (or fire before the CTS) propagate to the
+        /// outer bridge-handler catch.
+        /// </summary>
+        internal static async Task<ApiResponse> DispatchWithTimeoutAsync(
+            string op,
+            TimeSpan timeout,
+            Func<CancellationToken, Task<ApiResponse>> dispatch)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            ApiResponse response;
+            try
+            {
+                response = await dispatch(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
+                };
+            }
+
+            if (!response.Success && cts.IsCancellationRequested)
+            {
+                response.Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
+            }
+            return response;
+        }
+
+        /// <summary>
+        /// Run <paramref name="func"/> on Rhino's UI thread via
+        /// <c>Eto.Forms.Application.Instance.AsyncInvoke</c> and return a
+        /// Task that completes with its result. Bridge callbacks enter on
+        /// the WebView2 message thread — which is typically the UI thread
+        /// already, but we marshal unconditionally so a prior <c>await</c>
+        /// that resumed on a threadpool context cannot starve us of UI
+        /// affinity before touching Rhino state.
+        /// </summary>
+        private static Task<ApiResponse> InvokeOnUiAsync(Func<ApiResponse> func)
+        {
+            var tcs = new TaskCompletionSource<ApiResponse>();
+            try
+            {
+                Eto.Forms.Application.Instance.AsyncInvoke(() =>
+                {
+                    try { tcs.SetResult(func()); }
+                    catch (Exception ex) { tcs.SetException(ex); }
+                });
+            }
+            catch (Exception ex)
+            {
+                // Eto application may be unavailable in test contexts —
+                // surface synchronously so the caller's catch runs.
+                tcs.SetException(ex);
+            }
+            return tcs.Task;
+        }
+
+        internal static string? PeekOp(string? requestJson)
+        {
+            if (string.IsNullOrEmpty(requestJson)) return null;
+            try
+            {
+                using var doc = JsonDocument.Parse(requestJson!);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+                if (!doc.RootElement.TryGetProperty("op", out var opEl)) return null;
+                if (opEl.ValueKind != JsonValueKind.String) return null;
+                return opEl.GetString();
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        internal static JsonNode ApiResponseToJsonNode(ApiResponse response)
+        {
+            var obj = new JsonObject { ["success"] = response.Success };
+
+            // ApiResponse.Data is `object?`. Round-trip through JsonSerializer
+            // to land a faithful JsonNode — Dictionary<string, object?>,
+            // strings, ints, and nested objects all serialize correctly.
+            if (response.Data is null)
+            {
+                obj["data"] = null;
+            }
+            else
+            {
+                try
+                {
+                    var raw = JsonSerializer.Serialize(response.Data);
+                    obj["data"] = JsonNode.Parse(raw);
+                }
+                catch (Exception ex)
+                {
+                    obj["success"] = false;
+                    obj["data"] = $"Vision response serialization failed: {ex.Message}";
+                }
+            }
+            return obj;
+        }
+
+        internal static JsonNode BuildFailure(string message)
+            => new JsonObject { ["success"] = false, ["data"] = message };
+
+        // ─── Virtual resource: /blob/{artifact_id}/{role} ─────────────
+
+        /// <summary>
+        /// Test-only accessor for <see cref="TryResolveVirtualResource"/>.
+        /// The real hook is <c>protected virtual</c> on the substrate;
+        /// reaching it from xUnit requires an internal bridge plus
+        /// <c>InternalsVisibleTo("Rook.Tests")</c> (already on Rook.csproj).
+        /// Not part of any production contract.
+        /// </summary>
+        internal VirtualResource? ResolveVirtualResourceForTest(Uri uri)
+            => TryResolveVirtualResource(uri);
+
+        protected override VirtualResource? TryResolveVirtualResource(Uri uri)
+        {
+            if (!TryParseBlobUri(uri, out var artifactId, out var role))
+            {
+                // Not a blob URI — let the substrate fall through to the
+                // embedded-resource lookup.
+                if (!IsBlobPath(uri)) return null;
+
+                // Path-shape was blob/... but segments didn't pass
+                // validation. Return a 404 explicitly so the browser
+                // console surfaces the misuse instead of falling through
+                // to an embedded-resource "not found" that obscures the
+                // real issue.
+                return BuildPlainText404($"Invalid blob URI: {uri.AbsolutePath}");
+            }
+
+            string absPath;
+            try
+            {
+                absPath = _artifactStore.GetBlobAbsolutePath(artifactId, role);
+            }
+            catch (KeyNotFoundException)
+            {
+                return BuildPlainText404($"Artifact or role not found: {artifactId:D}/{role}");
+            }
+            catch (FileNotFoundException)
+            {
+                return BuildPlainText404($"Blob missing on disk for: {artifactId:D}/{role}");
+            }
+            catch (InvalidDataException ex)
+            {
+                // Corrupt manifest — serve 404, log the cause for operators.
+                Log($"Rook: blob resolution failed for {artifactId:D}/{role}: {ex.Message}");
+                return BuildPlainText404("Artifact data is corrupted.");
+            }
+            catch (ArgumentException)
+            {
+                // Role failed the store's pattern check. We already
+                // validated in TryParseBlobUri, so this is defense-
+                // in-depth; treat as 404.
+                return BuildPlainText404($"Invalid blob role: {role}");
+            }
+            catch (Exception ex)
+            {
+                // Any other exception is unexpected — log and 404 rather
+                // than letting it bubble back through the substrate.
+                Log($"Rook: blob resolution unexpected error for {artifactId:D}/{role}: {ex.Message}");
+                return BuildPlainText404("Blob resolution failed.");
+            }
+
+            Stream stream;
+            try
+            {
+                stream = new FileStream(
+                    absPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: blob stream open failed for {absPath}: {ex.Message}");
+                return BuildPlainText404("Blob unavailable.");
+            }
+
+            var contentType = GuessBlobContentType(absPath);
+            // no-store keeps the browser from caching user-specific blob
+            // content; artifacts can be deleted between requests and a
+            // cached stale preview would mislead the gallery.
+            return new VirtualResource(
+                stream, contentType, 200,
+                extraHeaders: "Cache-Control: no-store");
+        }
+
+        /// <summary>
+        /// Cheap path-shape predicate — does the URI start with /blob/?
+        /// Used to decide 404-vs-fallthrough when detailed parsing fails.
+        /// </summary>
+        internal static bool IsBlobPath(Uri uri)
+        {
+            var trimmed = uri.AbsolutePath.TrimStart('/');
+            return trimmed.StartsWith("blob/", StringComparison.Ordinal)
+                || trimmed.Equals("blob", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Validate a <c>/blob/{artifact_id}/{role}</c> URI. Returns
+        /// false for any shape deviation — 3 segments exactly, first
+        /// literal <c>blob</c>, second a GUID in "D" form, third matching
+        /// the artifact role pattern (<c>^[a-z0-9][a-z0-9_-]*$</c>).
+        /// </summary>
+        internal static bool TryParseBlobUri(Uri uri, out Guid artifactId, out string role)
+        {
+            artifactId = Guid.Empty;
+            role = string.Empty;
+
+            var absPath = uri.AbsolutePath;
+            if (string.IsNullOrEmpty(absPath)) return false;
+
+            var segments = absPath.TrimStart('/').Split('/');
+            if (segments.Length != 3) return false;
+            if (!string.Equals(segments[0], "blob", StringComparison.Ordinal)) return false;
+
+            if (!Guid.TryParseExact(segments[1], "D", out artifactId)) return false;
+
+            var candidateRole = segments[2];
+            if (!IsValidRole(candidateRole)) return false;
+
+            role = candidateRole;
+            return true;
+        }
+
+        /// <summary>
+        /// Mirror the artifact-store role pattern — lowercase start,
+        /// then lowercase alphanumerics / underscores / hyphens. No
+        /// path separators, no traversal tokens, no dots.
+        /// </summary>
+        internal static bool IsValidRole(string role)
+        {
+            if (string.IsNullOrEmpty(role)) return false;
+            if (role.Length > 64) return false; // defensive upper bound
+
+            char first = role[0];
+            if (!(char.IsDigit(first) || (first >= 'a' && first <= 'z'))) return false;
+
+            for (int i = 1; i < role.Length; i++)
+            {
+                char c = role[i];
+                bool ok = char.IsDigit(c)
+                    || (c >= 'a' && c <= 'z')
+                    || c == '_'
+                    || c == '-';
+                if (!ok) return false;
+            }
+            return true;
+        }
+
+        internal static string GuessBlobContentType(string path)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                ".bmp" => "image/bmp",
+                ".json" => "application/json; charset=utf-8",
+                ".txt" => "text/plain; charset=utf-8",
+                _ => "application/octet-stream",
+            };
+        }
+
+        internal static VirtualResource BuildPlainText404(string message)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(message);
+            return new VirtualResource(
+                new MemoryStream(bytes),
+                "text/plain; charset=utf-8",
+                404,
+                extraHeaders: "Cache-Control: no-store");
+        }
+    }
+}
