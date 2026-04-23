@@ -78,7 +78,7 @@ int EnsureMake2dHiddenLayer(CRhinoDoc* pDoc, int parentLayerIdx)
 }
 
 constexpr auto kDiscoveryFolderName = "rook";
-constexpr uint32_t kGhBridgeAbiVersion = 13;
+constexpr uint32_t kGhBridgeAbiVersion = 14;
 
 using GhBridgeCallbackFn = int(__stdcall*)(
     const char* request_json_utf8,
@@ -172,6 +172,10 @@ struct GhBridgeRegistration
     GhBridgeCallbackFn block_transform_object_batch = nullptr;
     // ABI v13: Tier 3 viewport capture (SDK-backed, managed-side)
     GhBridgeCallbackFn viewport_capture_tier3 = nullptr;
+    // ABI v14: Vision domain (single generic dispatch; op carried in
+    // request JSON). Keeps VisionHandler.cs as the single validation
+    // boundary and avoids one callback slot per route for future PRs.
+    GhBridgeCallbackFn vision_dispatch = nullptr;
 };
 
 enum class BridgeInvokeResult
@@ -948,6 +952,37 @@ ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
 
     const auto result = TryInvokeRegisteredCallbackWithBody(
         registration.viewport_capture_tier3,
+        requestJson,
+        responseJson,
+        statusCode,
+        error);
+
+    switch (result)
+    {
+    case BridgeInvokeResult::Completed:
+        return ManagedCreateInvokeResult::Ok;
+    case BridgeInvokeResult::Unavailable:
+        return ManagedCreateInvokeResult::Unavailable;
+    case BridgeInvokeResult::Failed:
+    default:
+        return ManagedCreateInvokeResult::Failed;
+    }
+}
+
+ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error)
+{
+    const auto registration = GetGhBridgeRegistrationSnapshot();
+    if (registration.vision_dispatch == nullptr)
+    {
+        return ManagedCreateInvokeResult::Unavailable;
+    }
+
+    const auto result = TryInvokeRegisteredCallbackWithBody(
+        registration.vision_dispatch,
         requestJson,
         responseJson,
         statusCode,

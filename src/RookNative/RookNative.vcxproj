@@ -113,6 +113,7 @@
     <ClCompile Include="Handlers\LayerOpsHandler.cpp" />
     <ClCompile Include="Handlers\SelectionHandler.cpp" />
     <ClCompile Include="Handlers\ViewportHandler.cpp" />
+    <ClCompile Include="Handlers\VisionHandler.cpp" />
     <ClCompile Include="Handlers\DisplayModeHandler.cpp" />
     <ClCompile Include="Handlers\MeasureHandler.cpp" />
     <ClCompile Include="Handlers\GroupsHandler.cpp" />
@@ -175,6 +176,7 @@
     <ClInclude Include="Handlers\LayerOpsHandler.h" />
     <ClInclude Include="Handlers\SelectionHandler.h" />
     <ClInclude Include="Handlers\ViewportHandler.h" />
+    <ClInclude Include="Handlers\VisionHandler.h" />
     <ClInclude Include="Handlers\DisplayModeHandler.h" />
     <ClInclude Include="Handlers\MeasureHandler.h" />
     <ClInclude Include="Infrastructure\LayerHelpers.h" />

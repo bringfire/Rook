@@ -12,6 +12,7 @@
 #include "Handlers/LayerOpsHandler.h"
 #include "Handlers/SelectionHandler.h"
 #include "Handlers/ViewportHandler.h"
+#include "Handlers/VisionHandler.h"
 #include "Handlers/DisplayModeHandler.h"
 #include "Handlers/MeasureHandler.h"
 #include "Handlers/GroupsHandler.h"
@@ -783,6 +784,19 @@ void CRookServer::RegisterRoutes()
     // Phase 4B: Viewport
     m_server->Post("/viewport", [this](const httplib::Request& req, httplib::Response& res) {
         HandleViewport(req, res);
+    });
+
+    // Vision (PR-5a): all three routes proxy through a single managed
+    // bridge callback (vision_dispatch, ABI v14). Native injects the op
+    // discriminator; VisionHandler.cs owns validation and routing.
+    m_server->Post("/vision/generate", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionGenerate(req, res);
+    });
+    m_server->Post("/vision/enhance-prompt", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionEnhancePrompt(req, res);
+    });
+    m_server->Post("/vision/capture-depth", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionCaptureDepth(req, res);
     });
     m_server->Get("/display-modes", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDisplayModes(req, res);
