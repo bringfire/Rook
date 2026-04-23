@@ -61,12 +61,92 @@ namespace Rook.Services.Vision
             };
         }
 
+        /// <summary>
+        /// Image-generation models exposed to the UI and agent surface.
+        /// Only paid-tier models are offered — API keys cannot use
+        /// free-tier generation endpoints, so listing free-tier models
+        /// would only confuse users with 429s on every call.
+        ///
+        /// Two classes of identifier:
+        /// <list type="bullet">
+        ///   <item><b>Short names</b> (<c>"nano-banana-2"</c>,
+        ///         <c>"nano-banana-pro"</c>) — what the UI sends. Stable
+        ///         across Gemini model version bumps.</item>
+        ///   <item><b>Full IDs</b> (<c>"gemini-3.1-flash-image-preview"</c>,
+        ///         <c>"gemini-3-pro-image-preview"</c>) — what the
+        ///         Gemini REST API expects in the URL. Will change as
+        ///         Google GA's and retires preview endpoints.</item>
+        /// </list>
+        /// <see cref="ResolveShortName"/> performs the short→full lookup
+        /// and passes through anything not in the short-name map, so
+        /// power users can still request newer models by full ID at
+        /// their own risk.
+        /// </summary>
         public static class Models
         {
+            /// <summary>Nano Banana 2 — fast, high quality
+            /// (Gemini 3.1 Flash Image, paid tier).</summary>
             public const string NanoBanana2 = "gemini-3.1-flash-image-preview";
+
+            /// <summary>Nano Banana Pro — highest quality
+            /// (Gemini 3 Pro Image, paid tier).</summary>
             public const string NanoBananaPro = "gemini-3-pro-image-preview";
-            public const string Gemini25FlashImage = "gemini-2.5-flash-image";
+
+            /// <summary>Full Gemini model ID used when no model is
+            /// specified. Exposed for agent-path consumers who bypass
+            /// the short-name mapping.</summary>
             public const string Default = NanoBanana2;
+
+            /// <summary>Short-name key for <see cref="Default"/>.
+            /// UI dropdowns use short names so display labels stay
+            /// stable across model version bumps.</summary>
+            public const string DefaultShortName = "nano-banana-2";
+
+            /// <summary>Map short name → full Gemini model ID. Entries
+            /// here drive both UI dropdown population (via
+            /// <see cref="AvailableModels"/>) and backend resolution
+            /// (via <see cref="ResolveShortName"/>).</summary>
+            public static readonly IReadOnlyDictionary<string, string> ShortNameToId =
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["nano-banana-2"] = NanoBanana2,
+                    ["nano-banana-pro"] = NanoBananaPro,
+                };
+
+            /// <summary>UI-facing catalog — one entry per user-selectable
+            /// model, with a human label + one-line description. Order is
+            /// the display order (default first). The dropdown is
+            /// populated from this list via
+            /// <c>get_settings_overview</c>.</summary>
+            public static readonly IReadOnlyList<IReadOnlyDictionary<string, object?>> AvailableModels =
+                new List<IReadOnlyDictionary<string, object?>>
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["short_name"] = "nano-banana-2",
+                        ["label"] = "Nano Banana 2",
+                        ["description"] = "Fast, high quality",
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["short_name"] = "nano-banana-pro",
+                        ["label"] = "Nano Banana Pro",
+                        ["description"] = "Highest quality",
+                    },
+                };
+
+            /// <summary>Resolve a short name or full ID to the Gemini
+            /// model identifier that belongs in the request URL. Null /
+            /// empty returns <see cref="Default"/>; anything not in
+            /// <see cref="ShortNameToId"/> passes through unchanged so
+            /// power users can target newer models.</summary>
+            public static string ResolveShortName(string? nameOrId)
+            {
+                if (string.IsNullOrEmpty(nameOrId)) return Default;
+                return ShortNameToId.TryGetValue(nameOrId!, out var fullId)
+                    ? fullId
+                    : nameOrId!;
+            }
         }
 
         public async Task<GenerationResult> GenerateImageAsync(

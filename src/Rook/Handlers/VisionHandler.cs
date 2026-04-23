@@ -393,7 +393,13 @@ namespace Rook.Handlers
                 referenceBase64 = list.ToArray();
             }
 
-            var model = GetStringArg(args, "model") ?? GeminiClient.Models.Default;
+            // Accept either a short name ("nano-banana-2") from the UI
+            // dropdown or a full Gemini model ID from an agent caller.
+            // `ResolveShortName` performs the short→full lookup and passes
+            // through unknown values so power users can target newer
+            // models at their own risk.
+            var modelInput = GetStringArg(args, "model");
+            var model = GeminiClient.Models.ResolveShortName(modelInput);
             var resolution = GetStringArg(args, "resolution") ?? "1K";
             var aspectRatio = GetStringArg(args, "aspect_ratio") ?? "1:1";
 
@@ -1238,7 +1244,16 @@ namespace Rook.Handlers
             var overview = new Dictionary<string, object?>
             {
                 ["has_api_key"] = _secrets.HasGeminiApiKey(),
-                ["default_model"] = GeminiClient.Models.Default,
+                // default_model is the short name the UI dropdown uses,
+                // not the full Gemini ID — UI matches option values
+                // against this to set the selected entry.
+                ["default_model"] = GeminiClient.Models.DefaultShortName,
+                // Full catalog so the UI can rebuild dropdowns without
+                // hard-coding model IDs alongside the backend. Mirrors
+                // SA_Banana's hardcoded pair: paid-tier only. Free-tier
+                // models are deliberately absent — API keys can't use
+                // them, so listing them would generate only 429s.
+                ["available_models"] = GeminiClient.Models.AvailableModels,
                 ["allowed_resolutions"] = AllowedResolutions,
             };
 

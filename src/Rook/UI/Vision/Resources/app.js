@@ -504,7 +504,13 @@ async function deleteCurrentArtifact(id) {
 async function loadSettingsOverview() {
     try {
         const data = await bridgeCall("get_settings_overview");
-        el.overviewDefaultModel.textContent = data.default_model || "—";
+        // Show the friendly label in the Settings overview, falling
+        // back to the short name if the catalog is missing the match.
+        const defaultEntry = Array.isArray(data.available_models)
+            ? data.available_models.find(m => m.short_name === data.default_model)
+            : null;
+        el.overviewDefaultModel.textContent =
+            (defaultEntry && defaultEntry.label) || data.default_model || "—";
         el.overviewArtifactCount.textContent =
             (typeof data.artifact_count === "number") ? String(data.artifact_count) : "—";
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
@@ -516,10 +522,37 @@ async function loadSettingsOverview() {
             el.apiKeyStatus.className = "status-indicator error";
         }
 
-        // Populate model dropdowns with the default option.
-        const modelOption = `<option value="" selected>${escapeHtml(data.default_model || "Default")}</option>`;
-        if (el.modelSelect) el.modelSelect.innerHTML = modelOption;
-        if (el.studioModelSelect) el.studioModelSelect.innerHTML = modelOption;
+        // Populate model dropdowns from the server-side catalog when
+        // provided. If `available_models` is absent (e.g. an older
+        // companion), leave the HTML-embedded defaults in place rather
+        // than wiping them — that mistake was PR-7b's original "only
+        // one option" bug.
+        if (Array.isArray(data.available_models) && data.available_models.length > 0) {
+            const modelOptions = data.available_models.map(m => {
+                const shortName = m.short_name || "";
+                const label = m.label || shortName;
+                const selected = shortName === data.default_model ? " selected" : "";
+                const title = m.description ? ` title="${escapeAttr(m.description)}"` : "";
+                return `<option value="${escapeAttr(shortName)}"${selected}${title}>${escapeHtml(label)}</option>`;
+            }).join("");
+            if (el.modelSelect) el.modelSelect.innerHTML = modelOptions;
+            if (el.studioModelSelect) el.studioModelSelect.innerHTML = modelOptions;
+        } else if (data.default_model) {
+            // Server returned no catalog but did give a default — select
+            // that option in the existing dropdown if it's there, else
+            // leave the HTML defaults alone.
+            const pickDefault = (sel) => {
+                if (!sel) return;
+                for (const opt of sel.options) {
+                    if (opt.value === data.default_model) {
+                        sel.value = data.default_model;
+                        break;
+                    }
+                }
+            };
+            pickDefault(el.modelSelect);
+            pickDefault(el.studioModelSelect);
+        }
 
         // Populate resolution dropdowns with allowed values.
         const allowed = data.allowed_resolutions || ["1K", "2K", "4K"];
