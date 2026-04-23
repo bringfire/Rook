@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
@@ -57,6 +58,30 @@ namespace Rook.Handlers
         public const string ArtifactKindGeneratedImage = "generated_image";
         public const string ArtifactKindEnhancedPrompt = "enhanced_prompt";
         public const string ArtifactKindDepthMap = "depth_map";
+        public const string ArtifactKindCapturedViewport = "captured_viewport";
+
+        // Thumbnail dimensions used by `open_image_picker` to keep the
+        // bridge response under the 1 MB response-buffer ceiling.
+        internal const int ThumbnailMaxEdge = 512;
+        internal const long ThumbnailMaxBytes = 512 * 1024;
+
+        // Ops exposed exclusively on the in-process JS bridge
+        // (VisionWebSurface). Not routed by the native trampoline —
+        // `NativeGhBridgeRegistrar.HandleVisionDispatch` rejects anything
+        // outside its own allowlist, so these never become agent-reachable.
+        // Documented here so future edits stay aware of the split.
+        //
+        //   set_api_key             (off-UI)  — widens the secret-setting surface
+        //                                        over HTTP; UI-only.
+        //   get_settings_overview   (off-UI)  — UI composition, not an agent signal.
+        //   test_api_key            (async)   — network probe for UI feedback.
+        //   capture_viewport        (UI)      — agents already have the
+        //                                        `/viewport` route; this variant
+        //                                        exists to produce an artifact.
+        //   list_views              (UI)      — view enumeration for the UI's
+        //                                        viewport selector.
+        //   open_image_picker       (UI)      — opens an OS file dialog; no
+        //                                        agent affordance.
 
         internal const int MaxPromptLength = 16_000;
         internal const int MaxContextLength = 4_000;
@@ -89,22 +114,26 @@ namespace Rook.Handlers
         private readonly VisionSecretStore _secrets;
         private readonly GeminiClient _gemini;
         private readonly PromptEnhancer _enhancer;
+        private readonly ViewportHandler _viewportHandler;
 
         public VisionHandler()
             : this(new ArtifactStore(), new VisionSecretStore(),
-                   new GeminiClient(), new PromptEnhancer())
+                   new GeminiClient(), new PromptEnhancer(),
+                   new ViewportHandler())
         { }
 
         internal VisionHandler(
             ArtifactStore artifactStore,
             VisionSecretStore secrets,
             GeminiClient gemini,
-            PromptEnhancer enhancer)
+            PromptEnhancer enhancer,
+            ViewportHandler viewportHandler)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
             _gemini = gemini ?? throw new ArgumentNullException(nameof(gemini));
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
+            _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
         }
 
         // ─── Synchronous dispatcher (capture_depth only) ────────────────
@@ -138,10 +167,14 @@ namespace Rook.Handlers
                 return op switch
                 {
                     "capture_depth" => CaptureDepth(args),
-                    "generate" or "enhance_prompt" => Fail(
+                    "capture_viewport" => CaptureViewport(args),
+                    "list_views" => ListViews(args),
+                    "open_image_picker" => OpenImagePicker(args),
+                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
-                        or "delete_artifact" or "consume_approved" => Fail(
+                        or "delete_artifact" or "consume_approved"
+                        or "set_api_key" or "get_settings_overview" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -201,9 +234,12 @@ namespace Rook.Handlers
                     "approve_artifact" => ApproveArtifact(args),
                     "delete_artifact" => DeleteArtifact(args),
                     "consume_approved" => ConsumeApproved(args),
-                    "capture_depth" => Fail(
+                    "set_api_key" => SetApiKey(args),
+                    "get_settings_overview" => GetSettingsOverview(args),
+                    "capture_depth" or "capture_viewport" or "list_views"
+                        or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
-                    "generate" or "enhance_prompt" => Fail(
+                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -270,10 +306,13 @@ namespace Rook.Handlers
                 {
                     "generate" => await GenerateAsync(args, cancellationToken).ConfigureAwait(false),
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
-                    "capture_depth" => Fail(
+                    "test_api_key" => await TestApiKeyAsync(args, cancellationToken).ConfigureAwait(false),
+                    "capture_depth" or "capture_viewport" or "list_views"
+                        or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
-                        or "delete_artifact" or "consume_approved" => Fail(
+                        or "delete_artifact" or "consume_approved"
+                        or "set_api_key" or "get_settings_overview" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -451,6 +490,14 @@ namespace Rook.Handlers
                 ["original_prompt"] = prompt,
                 ["context"] = context,
                 ["model"] = "gemini-2.5-flash",
+                // Surface the enhanced text in metadata so bridge consumers
+                // can read it without a secondary fetch against the blob
+                // (CSP `connect-src 'none'` blocks XHR/fetch against the
+                // virtual host; image tags still work for blob roles but
+                // not for text). The blob on disk remains authoritative;
+                // this is a convenience field for the UI and for agents
+                // pulling the artifact envelope.
+                ["enhanced_prompt"] = result.EnhancedPrompt!,
             };
 
             var blob = new BlobInput(
@@ -464,6 +511,56 @@ namespace Rook.Handlers
                 metadata: metadata);
 
             return Ok(ArtifactEnvelope(artifact));
+        }
+
+        // ─── op: test_api_key (async) ───────────────────────────────────
+
+        /// <summary>
+        /// Probe an API key by running a cheap, short prompt through the
+        /// enhancer. Accepts either an inline <c>api_key</c> arg (to test
+        /// a key BEFORE saving — common UX for "validate then save") or
+        /// falls back to the already-stored key.
+        ///
+        /// UI-only op: not registered on the native trampoline. The probe
+        /// costs a few tokens on the user's Gemini account; exposing it
+        /// as an agent-reachable HTTP route would let any caller (CORS
+        /// permitting) burn quota.
+        ///
+        /// Success envelope: <c>{ ok: true }</c>. Failure envelope:
+        /// <c>Fail("<generic provider error>")</c>. The inline key is
+        /// never logged or stored — it only flows into the enhancer call
+        /// and is dropped when the method returns.
+        /// </summary>
+        internal async Task<ApiResponse> TestApiKeyAsync(
+            Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
+        {
+            string? apiKey = GetStringArg(args, "api_key");
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                try
+                {
+                    apiKey = _secrets.GetGeminiApiKey();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Fail(ex.Message);
+                }
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    return Fail(
+                        "No API key provided or stored. Pass 'api_key' to test a " +
+                        "candidate key, or configure one via set_api_key first.");
+                }
+            }
+
+            var probe = await _enhancer.EnhancePromptAsync(
+                apiKey!, "ping", null, cancellationToken).ConfigureAwait(false);
+
+            if (probe.Success)
+            {
+                return Ok(new Dictionary<string, object?> { ["ok"] = true });
+            }
+            return Fail(GenericizeProviderError(probe.Error));
         }
 
         // ─── op: capture_depth (sync — UI thread) ───────────────────────
@@ -518,6 +615,338 @@ namespace Rook.Handlers
                 metadata: metadata);
 
             return Ok(ArtifactEnvelope(artifact));
+        }
+
+        // ─── op: capture_viewport (sync — UI thread) ────────────────────
+
+        /// <summary>
+        /// Wrap the Tier 3 viewport capture (shipped in #94) in the artifact
+        /// flow. Forwards parameters to <see cref="ViewportHandler.CaptureTier3"/>
+        /// with <c>captureBackend="tier3"</c> injected, reads the produced PNG
+        /// from disk, writes it into the artifact store under kind
+        /// <see cref="ArtifactKindCapturedViewport"/>, and returns an envelope.
+        /// Mirrors <see cref="CaptureDepth"/>'s artifact-creating shape.
+        ///
+        /// Parameter mapping — snake_case here to camelCase on the Viewport
+        /// contract, so the VisionHandler surface stays uniformly snake_case:
+        /// <list type="bullet">
+        ///   <item><c>view_name</c> → <c>view</c></item>
+        ///   <item><c>display_mode</c> → <c>displayMode</c></item>
+        ///   <item><c>zoom_extents</c> → <c>zoomExtents</c></item>
+        ///   <item><c>raytraced_converge</c> → <c>raytracedConverge</c></item>
+        ///   <item><c>raytraced_timeout_ms</c> → <c>raytracedTimeoutMs</c></item>
+        ///   <item><c>width</c>, <c>height</c> pass through unchanged</item>
+        /// </list>
+        ///
+        /// UI-only op: not registered on the native <c>vision_dispatch</c>
+        /// trampoline. Agents that need a viewport bitmap continue to call
+        /// the existing <c>/viewport</c> HTTP route.
+        /// </summary>
+        internal ApiResponse CaptureViewport(Dictionary<string, JsonElement> args)
+        {
+            var forward = new JsonObject { ["captureBackend"] = "tier3" };
+            CopyIntArg(args, "width", forward, "width");
+            CopyIntArg(args, "height", forward, "height");
+            CopyStringArg(args, "view_name", forward, "view");
+            CopyStringArg(args, "display_mode", forward, "displayMode");
+            CopyBoolArg(args, "zoom_extents", forward, "zoomExtents");
+            CopyBoolArg(args, "raytraced_converge", forward, "raytracedConverge");
+            CopyIntArg(args, "raytraced_timeout_ms", forward, "raytracedTimeoutMs");
+
+            var viewportResp = _viewportHandler.CaptureTier3(forward.ToJsonString());
+            if (!viewportResp.Success)
+            {
+                // Pass the underlying failure message through; ViewportHandler
+                // produces the same {success:false, data:"..."} shape we use.
+                return viewportResp;
+            }
+
+            if (viewportResp.Data is not Dictionary<string, object?> data
+                || !data.TryGetValue("filePath", out var filePathObj)
+                || filePathObj is not string filePath
+                || string.IsNullOrEmpty(filePath))
+            {
+                return Fail("Tier 3 viewport capture returned no file path.");
+            }
+
+            byte[] pngBytes;
+            try
+            {
+                pngBytes = File.ReadAllBytes(filePath);
+            }
+            catch (Exception ex)
+            {
+                return Fail($"Tier 3 viewport PNG could not be read: {ex.Message}");
+            }
+
+            var metadata = new Dictionary<string, JsonNode?>();
+            if (data.TryGetValue("viewName", out var vn) && vn is string vnStr)
+                metadata["view_name"] = JsonValue.Create(vnStr);
+            if (data.TryGetValue("displayMode", out var dm) && dm is string dmStr)
+                metadata["display_mode"] = JsonValue.Create(dmStr);
+            if (data.TryGetValue("width", out var w) && w is int wInt)
+                metadata["width"] = JsonValue.Create(wInt);
+            if (data.TryGetValue("height", out var h) && h is int hInt)
+                metadata["height"] = JsonValue.Create(hInt);
+            if (data.TryGetValue("captureBackend", out var cb) && cb is string cbStr)
+                metadata["capture_backend"] = JsonValue.Create(cbStr);
+            if (data.TryGetValue("raytracedSamples", out var rs) && rs is int rsInt)
+                metadata["raytraced_samples"] = JsonValue.Create(rsInt);
+            metadata["captured_at"] = JsonValue.Create(
+                DateTimeOffset.UtcNow.ToString("o"));
+
+            var blob = new BlobInput("image", pngBytes, "png");
+            var artifact = _artifactStore.Create(
+                kind: ArtifactKindCapturedViewport,
+                blobs: new[] { blob },
+                metadata: metadata);
+
+            // Best-effort cleanup of the Tier 3 temp file. The artifact store
+            // has its own copy; the temp file is no longer needed.
+            try { File.Delete(filePath); }
+            catch { /* non-fatal — %TEMP%\rook\viewports accumulates otherwise */ }
+
+            return Ok(ArtifactEnvelope(artifact));
+        }
+
+        // ─── op: list_views (sync — UI thread) ──────────────────────────
+
+        /// <summary>
+        /// Enumerate the active document's viewports and named views for the
+        /// VisionTab's viewport selector. Active-doc only; named views are
+        /// flagged but returned in a separate bucket so the UI can style
+        /// them differently.
+        ///
+        /// Standard projections (Top/Front/Right/Perspective/etc.) are NOT
+        /// synthesized here — the UI's selector lifted from SA_Banana
+        /// populates from this list alone, and the per-viewport
+        /// <c>view.ActiveViewport.Name</c> already covers "Top" / "Front" in
+        /// the standard four-view layout. If a future UI revision wants a
+        /// pinned standard-view list, add a <c>standard_views</c> bucket.
+        ///
+        /// UI-only op: not registered on the native trampoline.
+        /// </summary>
+        internal ApiResponse ListViews(Dictionary<string, JsonElement> args)
+        {
+            var doc = DocumentContext.GetDocument();
+            if (doc == null)
+            {
+                return Fail("No active document.");
+            }
+
+            var views = new List<Dictionary<string, object?>>();
+            var active = doc.Views.ActiveView;
+            foreach (var view in doc.Views)
+            {
+                if (view == null) continue;
+                var vp = view.ActiveViewport;
+                views.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = vp.Name ?? "(unnamed)",
+                    ["is_active"] = active != null && ReferenceEquals(view, active),
+                    ["width"] = vp.Size.Width,
+                    ["height"] = vp.Size.Height,
+                    ["projection"] = vp.IsPerspectiveProjection ? "perspective" : "parallel",
+                });
+            }
+
+            var namedViews = new List<Dictionary<string, object?>>();
+            for (int i = 0; i < doc.NamedViews.Count; i++)
+            {
+                namedViews.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = doc.NamedViews[i].Name ?? "(unnamed)",
+                });
+            }
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["views"] = views,
+                ["named_views"] = namedViews,
+            });
+        }
+
+        // ─── op: open_image_picker (sync — UI thread) ───────────────────
+
+        /// <summary>
+        /// Open an Eto <c>OpenFileDialog</c> and return the selected image
+        /// path(s) plus a JPEG thumbnail base64 for each, so the UI can
+        /// render a preview without a second round-trip or access to the
+        /// raw file bytes over the bridge's 1 MB response buffer.
+        ///
+        /// Threading: runs on Rhino's UI thread because
+        /// <c>OpenFileDialog.ShowDialog</c> requires it. During the dialog
+        /// every HTTP request through the native server serializes behind
+        /// the Rhino UI thread (the fundamental concurrency constraint —
+        /// see CLAUDE.md). A user who stalls on the dialog stalls Rhino.
+        /// This is an accepted v1 ceiling; a future STA-thread variant
+        /// could decouple but adds apartment-affinity risk with Eto + Rhino
+        /// panels.
+        ///
+        /// UI-only op: not registered on the native trampoline. Agents
+        /// cannot drive a file dialog.
+        ///
+        /// Args: <c>{ "multi": bool (default false) }</c>. Returns
+        /// <c>{ "paths": [{ "path", "thumbnail_base64", "thumbnail_mime_type",
+        ///    "width", "height", "mime_type" }] }</c>. The array is empty when
+        /// the user cancels the dialog. Files that fail thumbnail generation
+        /// still land in the array with <c>thumbnail_base64 = null</c>.
+        /// </summary>
+        internal ApiResponse OpenImagePicker(Dictionary<string, JsonElement> args)
+        {
+            var multi = GetBoolArg(args, "multi") ?? false;
+
+            string[] pickedPaths;
+            try
+            {
+                pickedPaths = ShowOpenDialog(multi);
+            }
+            catch (Exception ex)
+            {
+                return Fail($"File picker failed: {ex.Message}");
+            }
+
+            var results = new List<Dictionary<string, object?>>();
+            foreach (var path in pickedPaths)
+            {
+                results.Add(BuildPickedImageEntry(path));
+            }
+
+            return Ok(new Dictionary<string, object?> { ["paths"] = results });
+        }
+
+        /// <summary>
+        /// Extracted for unit-testability: build the per-path payload, with
+        /// thumbnail and metadata. Safe to call off-UI because it only
+        /// touches the file system and in-memory bitmaps.
+        /// </summary>
+        internal static Dictionary<string, object?> BuildPickedImageEntry(string path)
+        {
+            var entry = new Dictionary<string, object?>
+            {
+                ["path"] = path,
+                ["thumbnail_base64"] = null,
+                ["thumbnail_mime_type"] = null,
+                ["width"] = null,
+                ["height"] = null,
+                ["mime_type"] = GuessImageMimeFromExtension(path),
+            };
+
+            if (!File.Exists(path)) return entry;
+
+            try
+            {
+                using var src = Image.FromFile(path);
+                entry["width"] = src.Width;
+                entry["height"] = src.Height;
+
+                using var thumb = ResizeToFit(src, ThumbnailMaxEdge, ThumbnailMaxEdge);
+                using var ms = new MemoryStream();
+                // JPEG at Q75 keeps a 512×512 preview well under the
+                // 1 MB bridge buffer (typically < 80 KB).
+                var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
+                if (jpegEncoder != null)
+                {
+                    using var ep = new EncoderParameters(1);
+                    ep.Param[0] = new EncoderParameter(
+                        System.Drawing.Imaging.Encoder.Quality, 75L);
+                    thumb.Save(ms, jpegEncoder, ep);
+                }
+                else
+                {
+                    thumb.Save(ms, ImageFormat.Jpeg);
+                }
+                var bytes = ms.ToArray();
+                if (bytes.LongLength <= ThumbnailMaxBytes)
+                {
+                    entry["thumbnail_base64"] = Convert.ToBase64String(bytes);
+                    entry["thumbnail_mime_type"] = "image/jpeg";
+                }
+                else
+                {
+                    // Defensive: a 512×512 JPEG at Q75 over the buffer
+                    // threshold is nearly impossible, but a contrived
+                    // 16-bit grayscale-with-alpha source could surprise us.
+                    // Logging the overflow keeps the failure loud.
+                    RhinoApp.WriteLine(
+                        $"Rook Vision: thumbnail exceeded {ThumbnailMaxBytes} bytes for '{path}'; omitting preview bytes.");
+                }
+            }
+            catch (Exception ex)
+            {
+                RhinoApp.WriteLine(
+                    $"Rook Vision: thumbnail generation failed for '{path}': {ex.Message}");
+            }
+
+            return entry;
+        }
+
+        private static string[] ShowOpenDialog(bool multi)
+        {
+            var dlg = new Eto.Forms.OpenFileDialog
+            {
+                MultiSelect = multi,
+                Title = multi ? "Select images" : "Select an image",
+            };
+            dlg.Filters.Add(new Eto.Forms.FileFilter(
+                "Images", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"));
+            dlg.Filters.Add(new Eto.Forms.FileFilter("All files", ".*"));
+
+            var result = dlg.ShowDialog(null);
+            if (result != Eto.Forms.DialogResult.Ok)
+            {
+                return Array.Empty<string>();
+            }
+            if (multi)
+            {
+                return dlg.Filenames?.ToArray() ?? Array.Empty<string>();
+            }
+            return string.IsNullOrEmpty(dlg.FileName)
+                ? Array.Empty<string>()
+                : new[] { dlg.FileName };
+        }
+
+        private static string GuessImageMimeFromExtension(string path)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                ".bmp" => "image/bmp",
+                _ => "application/octet-stream",
+            };
+        }
+
+        private static Bitmap ResizeToFit(Image src, int maxW, int maxH)
+        {
+            double scale = Math.Min((double)maxW / src.Width, (double)maxH / src.Height);
+            if (scale >= 1.0 || scale <= 0.0)
+            {
+                // Small enough to embed as-is; copy into a fresh bitmap so
+                // the caller's `using` doesn't dispose the source too early.
+                return new Bitmap(src);
+            }
+            int w = Math.Max(1, (int)(src.Width * scale));
+            int h = Math.Max(1, (int)(src.Height * scale));
+            var dst = new Bitmap(w, h);
+            using var g = Graphics.FromImage(dst);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(src, 0, 0, w, h);
+            return dst;
+        }
+
+        private static ImageCodecInfo? GetEncoder(ImageFormat format)
+        {
+            foreach (var codec in ImageCodecInfo.GetImageEncoders())
+            {
+                if (codec.FormatID == format.Guid) return codec;
+            }
+            return null;
         }
 
         // ─── op: list_artifacts (off-UI) ────────────────────────────────
@@ -763,6 +1192,81 @@ namespace Rook.Handlers
             });
         }
 
+        // ─── op: set_api_key (off-UI) ───────────────────────────────────
+
+        /// <summary>
+        /// Persist a Gemini API key via <see cref="VisionSecretStore"/>
+        /// (DPAPI-wrapped, CurrentUser scope). Never logs the key, never
+        /// echoes it in the response. Returns <c>has_api_key=true</c> and
+        /// a short preview so the UI can show "sk-...xyz1" without
+        /// holding the plaintext.
+        ///
+        /// UI-only op: not registered on the native trampoline. Agents
+        /// must not be able to plant a key through the HTTP surface.
+        /// </summary>
+        internal ApiResponse SetApiKey(Dictionary<string, JsonElement> args)
+        {
+            var apiKey = RequireString(args, "api_key", 1024);
+            try
+            {
+                _secrets.SetGeminiApiKey(apiKey);
+            }
+            catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["has_api_key"] = true,
+                ["api_key_preview"] = BuildApiKeyPreview(apiKey),
+            });
+        }
+
+        // ─── op: get_settings_overview (off-UI) ─────────────────────────
+
+        /// <summary>
+        /// Composite read for the Settings view: whether a key is
+        /// configured (cheap — no decrypt), the default generation model,
+        /// and the artifact count. No inputs.
+        ///
+        /// UI-only op: not registered on the native trampoline. Agents
+        /// have no use for a UI-composed overview.
+        /// </summary>
+        internal ApiResponse GetSettingsOverview(Dictionary<string, JsonElement> args)
+        {
+            var overview = new Dictionary<string, object?>
+            {
+                ["has_api_key"] = _secrets.HasGeminiApiKey(),
+                ["default_model"] = GeminiClient.Models.Default,
+                ["allowed_resolutions"] = AllowedResolutions,
+            };
+
+            try
+            {
+                overview["artifact_count"] = _artifactStore.List().Count;
+            }
+            catch (Exception ex)
+            {
+                // List() throws if the store has duplicate UUIDs across
+                // day buckets (corruption). Report the count as null and
+                // surface the reason on the Rhino command line, but don't
+                // fail the whole overview call — Settings still needs to
+                // render so the user can fix the key.
+                RhinoApp.WriteLine($"Rook Vision: settings overview artifact_count failed: {ex.Message}");
+                overview["artifact_count"] = null;
+            }
+
+            return Ok(overview);
+        }
+
+        private static string BuildApiKeyPreview(string apiKey)
+        {
+            if (string.IsNullOrEmpty(apiKey)) return "";
+            if (apiKey.Length <= 8) return new string('*', apiKey.Length);
+            return apiKey.Substring(0, 4) + "..." + apiKey.Substring(apiKey.Length - 4);
+        }
+
         /// <summary>
         /// Public wrapper used by the VisionTab UI (and any in-process
         /// caller that already has a dispatcher context). Agents route
@@ -924,6 +1428,46 @@ namespace Rook.Handlers
                 JsonValueKind.False => false,
                 _ => null,
             };
+        }
+
+        // ─── snake_case → camelCase arg forwarding ──────────────────────
+        //
+        // VisionHandler uses snake_case uniformly; ViewportHandler (and a
+        // handful of other forwarded handlers) use camelCase. Copy* helpers
+        // preserve types while renaming keys on the way out.
+
+        private static void CopyStringArg(
+            Dictionary<string, JsonElement> src, string srcKey,
+            JsonObject dst, string dstKey)
+        {
+            if (src.TryGetValue(srcKey, out var el)
+                && el.ValueKind == JsonValueKind.String)
+            {
+                dst[dstKey] = el.GetString();
+            }
+        }
+
+        private static void CopyIntArg(
+            Dictionary<string, JsonElement> src, string srcKey,
+            JsonObject dst, string dstKey)
+        {
+            if (src.TryGetValue(srcKey, out var el)
+                && el.ValueKind == JsonValueKind.Number
+                && el.TryGetInt32(out var v))
+            {
+                dst[dstKey] = v;
+            }
+        }
+
+        private static void CopyBoolArg(
+            Dictionary<string, JsonElement> src, string srcKey,
+            JsonObject dst, string dstKey)
+        {
+            if (src.TryGetValue(srcKey, out var el))
+            {
+                if (el.ValueKind == JsonValueKind.True) dst[dstKey] = true;
+                else if (el.ValueKind == JsonValueKind.False) dst[dstKey] = false;
+            }
         }
 
         private Dictionary<string, object?> ArtifactEnvelope(Artifact artifact)

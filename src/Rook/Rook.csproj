@@ -38,6 +38,7 @@
   <ItemGroup>
     <EmbeddedResource Include="UI\Chat\Resources\**\*" />
     <EmbeddedResource Include="UI\Knowledge\Resources\**\*" />
+    <EmbeddedResource Include="UI\Vision\Resources\**\*" />
   </ItemGroup>
 
   <!-- RUI toolbar file - copied to output for programmatic loading -->

@@ -41,6 +41,7 @@ namespace Rook.Tests.Handlers
             Assert.Equal("generated_image", VisionHandler.ArtifactKindGeneratedImage);
             Assert.Equal("enhanced_prompt", VisionHandler.ArtifactKindEnhancedPrompt);
             Assert.Equal("depth_map", VisionHandler.ArtifactKindDepthMap);
+            Assert.Equal("captured_viewport", VisionHandler.ArtifactKindCapturedViewport);
         }
 
         // ─── Input bound constants ──────────────────────────────────────

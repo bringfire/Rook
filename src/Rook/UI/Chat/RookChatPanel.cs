@@ -5,6 +5,7 @@ using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
 using Rhino.UI;
+using Rook.UI.Vision;
 
 namespace Rook.UI.Chat
 {
@@ -173,6 +174,41 @@ namespace Rook.UI.Chat
             tabControl.Pages.Add(page);
             tabControl.SelectedPage = page;
             return page;
+        }
+
+        // ─── Vision tab entry point ─────────────────────────────────────
+
+        /// <summary>
+        /// Tab label used for the Vision surface. Exposed as a constant so
+        /// the command-level entry point (<c>ShowRookVisionCommand</c>)
+        /// and the focus-or-create dedupe check use the same string.
+        /// </summary>
+        public const string VisionTabLabel = "Vision";
+
+        /// <summary>
+        /// Open the Vision tab for the current document, or focus the
+        /// existing one if already present. Called from
+        /// <c>ShowRookVisionCommand</c> after the chat panel has been
+        /// made visible. Deduplication is by tab-label equality — the
+        /// panel owns at most one Vision tab per document, matching the
+        /// Settings/Gallery single-instance expectation users bring in
+        /// from other IDEs.
+        /// </summary>
+        public void OpenOrFocusVisionTab()
+        {
+            var tabControl = GetCurrentTabControl();
+
+            foreach (var existing in tabControl.Pages)
+            {
+                if (string.Equals(existing.Text, VisionTabLabel, StringComparison.Ordinal))
+                {
+                    tabControl.SelectedPage = existing;
+                    return;
+                }
+            }
+
+            var tab = new VisionTab();
+            AddPanelTab(VisionTabLabel, tab, tab.OnTabClosed);
         }
 
         /// <summary>
