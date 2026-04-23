@@ -72,6 +72,16 @@ namespace Rook.Handlers
         internal const int MaxDepthMaxEdge = 4096;
         internal const int DefaultDepthMaxEdge = 1024;
 
+        // list_artifacts bounds. The bridge response buffer is a fixed
+        // 1 MB (GrasshopperProxyHandler.cpp). Full artifact envelopes
+        // include metadata dictionaries that may carry multi-KB prompts;
+        // an unbounded list easily exceeds the buffer and drops into the
+        // same silent-oversize failure class PR-5a fixed for blobs. The
+        // hard max is enforced below any value a caller can set; the
+        // default applies when no limit is supplied.
+        internal const int DefaultListLimit = 100;
+        internal const int MaxListLimit = 500;
+
         internal static readonly string[] AllowedResolutions =
             { "1K", "2K", "4K" };
 
@@ -516,9 +526,13 @@ namespace Rook.Handlers
         /// List artifacts with optional filters. Optional <c>kind</c>
         /// (exact match) and <c>approved</c> (boolean; matches
         /// <c>flags.approved</c>). Optional <c>limit</c> caps the result
-        /// count to the most-recent N; unspecified or &lt;=0 means no cap.
-        /// Always returns the store's canonical ordering (newest
-        /// <c>CreatedAt</c> first, <c>Id</c> ascending tie-break).
+        /// count; a value above <see cref="MaxListLimit"/> is rejected
+        /// (the response must fit within the bridge's 1 MB buffer).
+        /// When no limit is supplied, <see cref="DefaultListLimit"/>
+        /// applies. Always returns the store's canonical ordering
+        /// (newest <c>CreatedAt</c> first, <c>Id</c> ascending tie-break).
+        /// The response includes an <c>applied_limit</c> field so callers
+        /// can detect truncation by comparing it to <c>count</c>.
         /// </summary>
         internal ApiResponse ListArtifacts(Dictionary<string, JsonElement> args)
         {
@@ -529,7 +543,29 @@ namespace Rook.Handlers
             }
 
             var approvedFilter = GetBoolArg(args, "approved");
-            var limit = GetIntArg(args, "limit");
+
+            var rawLimit = GetIntArg(args, "limit");
+            int appliedLimit;
+            if (!rawLimit.HasValue)
+            {
+                appliedLimit = DefaultListLimit;
+            }
+            else if (rawLimit.Value <= 0)
+            {
+                throw new ArgumentException(
+                    $"'limit' must be a positive integer (got {rawLimit.Value}).");
+            }
+            else if (rawLimit.Value > MaxListLimit)
+            {
+                throw new ArgumentException(
+                    $"'limit' exceeds maximum of {MaxListLimit} (got {rawLimit.Value}). " +
+                    "The bridge response buffer is bounded; paginate by requesting " +
+                    "smaller slices or filter by kind/approved.");
+            }
+            else
+            {
+                appliedLimit = rawLimit.Value;
+            }
 
             IEnumerable<Artifact> results = _artifactStore.List();
 
@@ -544,10 +580,7 @@ namespace Rook.Handlers
                 results = results.Where(a => IsApproved(a) == approvedFilter.Value);
             }
 
-            if (limit.HasValue && limit.Value > 0)
-            {
-                results = results.Take(limit.Value);
-            }
+            results = results.Take(appliedLimit);
 
             var envelopes = new List<Dictionary<string, object?>>();
             foreach (var artifact in results)
@@ -559,6 +592,7 @@ namespace Rook.Handlers
             {
                 ["artifacts"] = envelopes,
                 ["count"] = envelopes.Count,
+                ["applied_limit"] = appliedLimit,
             });
         }
 
@@ -666,6 +700,15 @@ namespace Rook.Handlers
                     throw new ArgumentException("'since' filter must be an ISO 8601 string with explicit offset.");
                 }
                 var sinceStr = sinceEl.GetString()!;
+                // Reuse the store's manifest-date invariant: require an
+                // explicit Z or ±HH:MM offset before handing off to
+                // DateTimeOffset.TryParse (which, on its own, silently
+                // interprets offset-less strings as local time).
+                if (!ArtifactStore.Iso8601WithOffsetPattern.IsMatch(sinceStr))
+                {
+                    throw new ArgumentException(
+                        $"'since' value '{sinceStr}' is not ISO 8601 with explicit offset (Z or ±HH:MM).");
+                }
                 if (!DateTimeOffset.TryParse(
                         sinceStr,
                         System.Globalization.CultureInfo.InvariantCulture,
@@ -880,6 +923,11 @@ namespace Rook.Handlers
                 ["files"] = BuildFilesList(artifact),
                 ["parent_ids"] = artifact.ParentIds,
                 ["metadata"] = artifact.Metadata,
+                // Approval and any other persisted flags must be visible to
+                // route consumers — without this the approve response and
+                // the get/list/consume envelopes cannot carry observable
+                // approval state, forcing callers to re-read the manifest.
+                ["flags"] = artifact.Flags,
             };
         }
 

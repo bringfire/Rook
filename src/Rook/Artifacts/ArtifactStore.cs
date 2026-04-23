@@ -60,7 +60,10 @@ namespace Rook.Artifacts
         // ISO 8601 datetime with explicit offset (Z or ±HH:MM / ±HHMM).
         // Pre-check before TryParse because RoundtripKind alone accepts
         // offset-less strings and silently treats them as local time.
-        private static readonly Regex Iso8601WithOffsetPattern = new(
+        // Exposed as internal so consumers (e.g. VisionHandler's
+        // consume_approved 'since' filter) can apply the same invariant
+        // without duplicating the pattern string.
+        internal static readonly Regex Iso8601WithOffsetPattern = new(
             @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$",
             RegexOptions.Compiled);
 

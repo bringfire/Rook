@@ -383,8 +383,75 @@ async def test_list_artifacts_accepts_filters():
     data = body["data"]
     assert "artifacts" in data
     assert "count" in data
+    assert "applied_limit" in data
     assert isinstance(data["artifacts"], list)
     assert data["count"] == len(data["artifacts"])
+    assert data["applied_limit"] == 5
+
+
+async def test_list_artifacts_default_limit_applied_without_param():
+    # No 'limit' query param — the default should come back in
+    # applied_limit so callers can detect truncation.
+    status, body, _ = await _get_vision("artifacts")
+    assert status == 200
+    data = body["data"]
+    # Default is 100 per VisionHandler.DefaultListLimit.
+    assert data["applied_limit"] == 100
+    assert data["count"] <= data["applied_limit"]
+
+
+async def test_list_artifacts_rejects_limit_above_hard_max():
+    status, body, _ = await _get_vision(
+        "artifacts", {"limit": "501"}
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "limit" in body["data"].lower()
+    assert "500" in body["data"]
+
+
+async def test_list_artifacts_rejects_non_positive_limit():
+    status, body, _ = await _get_vision(
+        "artifacts", {"limit": "0"}
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "limit" in body["data"].lower()
+
+
+async def test_list_artifacts_rejects_limit_with_trailing_garbage():
+    # Native query folding must not silently accept "5abc" as 5.
+    status, body, _ = await _get_vision(
+        "artifacts", {"limit": "5abc"}
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "limit" in body["data"].lower()
+
+
+async def test_consume_approved_rejects_offset_less_since():
+    # DateTimeOffset.TryParse silently accepts offset-less strings
+    # and interprets them as local time — which is the trap
+    # ArtifactStore.Iso8601WithOffsetPattern guards against for
+    # manifest timestamps. The same invariant applies here.
+    status, body, _ = await _post_vision(
+        "artifacts/consume-approved",
+        {"since": "2026-04-22T15:30:00"},  # no Z, no offset
+    )
+    assert status == 400
+    assert body["success"] is False
+    assert "offset" in body["data"].lower()
+
+
+async def test_consume_approved_accepts_iso_with_offset():
+    status, body, _ = await _post_vision(
+        "artifacts/consume-approved",
+        {"since": "2000-01-01T00:00:00Z"},
+    )
+    assert status == 200
+    assert body["success"] is True
+    # Shape assertion only — store may or may not have a match.
+    assert "artifact" in body["data"]
 
 
 # ─── PR-5b: End-to-end lifecycle (requires live Rhino) ───────────────

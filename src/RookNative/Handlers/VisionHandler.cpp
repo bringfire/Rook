@@ -201,9 +201,35 @@ void DispatchVisionListWithQuery(
     if (req.has_param("limit"))
     {
         const auto raw = req.get_param_value("limit");
+        // std::stoi silently accepts trailing garbage ("5abc" -> 5).
+        // Require the entire string to be consumed so a malformed
+        // value is rejected, matching the route's "malformed limits
+        // are rejected" contract. Also reject an empty string up
+        // front so stoi doesn't throw before we can message it.
+        if (raw.empty())
+        {
+            CRookServer::SendError(
+                res,
+                std::string("/vision/artifacts: 'limit' must be a non-empty integer."));
+            res.status = 400;
+            res.set_header("X-Rook-Vision-Op", op);
+            return;
+        }
         try
         {
-            body["limit"] = std::stoi(raw);
+            std::size_t consumed = 0;
+            const int parsed = std::stoi(raw, &consumed);
+            if (consumed != raw.size())
+            {
+                CRookServer::SendError(
+                    res,
+                    std::string("/vision/artifacts: 'limit' has trailing non-numeric characters, got '") +
+                        raw + "'.");
+                res.status = 400;
+                res.set_header("X-Rook-Vision-Op", op);
+                return;
+            }
+            body["limit"] = parsed;
         }
         catch (const std::exception&)
         {
