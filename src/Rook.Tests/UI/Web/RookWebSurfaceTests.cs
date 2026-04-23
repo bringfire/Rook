@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Rook.UI.Web;
@@ -243,6 +245,131 @@ namespace Rook.Tests.UI.Web
 
             s.RegisterForTest("m", args => Task.FromResult<JsonNode?>(null));
             // No exception = pass.
+        }
+
+        // ─── TryResolveVirtualResource hook (PR-7a) ──────────────────
+
+        /// <summary>
+        /// Exposes the protected hook so a test can invoke the default
+        /// implementation without subclassing to override it — catches any
+        /// future behavioral drift on the default.
+        /// </summary>
+        private sealed class DefaultResolverSurface : RookWebSurface
+        {
+            protected override string ResourceRoot => "Rook.Tests.Surfaces";
+            protected override string EntryPage => "test.html";
+            protected override string MinimalFallbackHtml => "<html></html>";
+
+            public VirtualResource? TryResolveForTest(Uri uri) => TryResolveVirtualResource(uri);
+        }
+
+        /// <summary>
+        /// Example subclass that resolves a single virtual URI path to a
+        /// canned payload. Used to verify the subclass-override contract.
+        /// </summary>
+        private sealed class OverridingResolverSurface : RookWebSurface
+        {
+            protected override string ResourceRoot => "Rook.Tests.Surfaces";
+            protected override string EntryPage => "test.html";
+            protected override string MinimalFallbackHtml => "<html></html>";
+
+            public int CallCount { get; private set; }
+
+            protected override VirtualResource? TryResolveVirtualResource(Uri uri)
+            {
+                CallCount++;
+                if (uri.AbsolutePath == "/virtual/ok.txt")
+                {
+                    return new VirtualResource(
+                        new MemoryStream(Encoding.UTF8.GetBytes("hello")),
+                        "text/plain",
+                        200,
+                        "X-Rook-Virtual: 1");
+                }
+                return null;
+            }
+
+            public VirtualResource? TryResolveForTest(Uri uri) => TryResolveVirtualResource(uri);
+        }
+
+        [Fact]
+        public void TryResolveVirtualResource_DefaultImplementation_ReturnsNull()
+        {
+            // The default is a no-op so existing consumers (Chat, Knowledge
+            // Graph) see zero behavioral change — embedded-resource serving
+            // and the 404 fall-through path stay authoritative.
+            var s = new DefaultResolverSurface();
+            var uri = new Uri("https://app.rook.invalid/virtual/anything.png");
+
+            var result = s.TryResolveForTest(uri);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryResolveVirtualResource_Override_ReturnedForMatchingPath()
+        {
+            var s = new OverridingResolverSurface();
+            var uri = new Uri("https://app.rook.invalid/virtual/ok.txt");
+
+            var result = s.TryResolveForTest(uri);
+
+            Assert.NotNull(result);
+            Assert.Equal("text/plain", result!.ContentType);
+            Assert.Equal(200, result.StatusCode);
+            Assert.Contains("X-Rook-Virtual", result.ExtraHeaders ?? "");
+            Assert.Equal(1, s.CallCount);
+        }
+
+        [Fact]
+        public void TryResolveVirtualResource_Override_NullForUnknownPath()
+        {
+            // Subclass returns null for unrecognized paths; the substrate
+            // falls through to embedded-resource lookup.
+            var s = new OverridingResolverSurface();
+            var uri = new Uri("https://app.rook.invalid/virtual/not-handled.png");
+
+            var result = s.TryResolveForTest(uri);
+
+            Assert.Null(result);
+            Assert.Equal(1, s.CallCount); // still invoked, just returned null
+        }
+
+        [Fact]
+        public void VirtualResource_Ctor_SetsAllFields()
+        {
+            using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+
+            var r = new VirtualResource(stream, "image/png", 200, "X-Foo: bar");
+
+            Assert.Same(stream, r.Content);
+            Assert.Equal("image/png", r.ContentType);
+            Assert.Equal(200, r.StatusCode);
+            Assert.Equal("X-Foo: bar", r.ExtraHeaders);
+        }
+
+        [Fact]
+        public void VirtualResource_Ctor_DefaultStatusAndHeaders()
+        {
+            using var stream = new MemoryStream();
+
+            var r = new VirtualResource(stream, "text/plain");
+
+            Assert.Equal(200, r.StatusCode);
+            Assert.Null(r.ExtraHeaders);
+        }
+
+        [Fact]
+        public void VirtualResource_NonSuccessStatus_Preserved()
+        {
+            // Subclasses returning a 404 (resource not found) should see
+            // the status propagate — the substrate maps 404 to "Not Found"
+            // in the reason phrase.
+            using var stream = new MemoryStream();
+
+            var r = new VirtualResource(stream, "text/plain", 404);
+
+            Assert.Equal(404, r.StatusCode);
         }
     }
 }
