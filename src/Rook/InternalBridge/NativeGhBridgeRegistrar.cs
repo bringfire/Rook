@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Rhino;
 using Rook.Handlers;
 
@@ -17,7 +18,7 @@ namespace Rook.InternalBridge
     /// </summary>
     public static class NativeGhBridgeRegistrar
     {
-        private const uint BridgeAbiVersion = 13;
+        private const uint BridgeAbiVersion = 14;
         private static readonly object Sync = new();
         private static readonly IGrasshopperCore Core = new GrasshopperCore();
         private static readonly GrasshopperHandler Handler = new();
@@ -27,6 +28,7 @@ namespace Rook.InternalBridge
         private static readonly TextureMappingHandler TextureMapping = new();
         private static readonly GameExportHandler GameExport = new();
         private static readonly ViewportHandler Viewport = new();
+        private static readonly VisionHandler Vision = new();
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -111,6 +113,7 @@ namespace Rook.InternalBridge
         private static readonly NativeGhBridgeCallback ScriptParamsCallback = HandleScriptParams;
         private static readonly NativeGhBridgeCallback BakeOutputCallback = HandleBakeOutput;
         private static readonly NativeGhBridgeCallback ViewportCaptureTier3Callback = HandleViewportCaptureTier3;
+        private static readonly NativeGhBridgeCallback VisionDispatchCallback = HandleVisionDispatch;
 
         private static bool _isRegistered;
         private static bool _registrationErrorLogged;
@@ -217,6 +220,10 @@ namespace Rook.InternalBridge
             public IntPtr BlockTransformObjectBatch;
             // ABI v13: Tier 3 viewport capture (SDK-backed, managed-side)
             public IntPtr ViewportCaptureTier3;
+            // ABI v14: Vision domain — single generic dispatch; op
+            // discriminator is carried in the request JSON and routed
+            // inside VisionHandler.cs (the single validation boundary).
+            public IntPtr VisionDispatch;
         }
 
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
@@ -314,6 +321,7 @@ namespace Rook.InternalBridge
                     BlockReplaceObjectGeometryBatch = Marshal.GetFunctionPointerForDelegate(BlockReplaceObjectGeometryBatchCallback),
                     BlockTransformObjectBatch = Marshal.GetFunctionPointerForDelegate(BlockTransformObjectBatchCallback),
                     ViewportCaptureTier3 = Marshal.GetFunctionPointerForDelegate(ViewportCaptureTier3Callback),
+                    VisionDispatch = Marshal.GetFunctionPointerForDelegate(VisionDispatchCallback),
                 };
 
                 var rc = registerBridge(ref registration);
@@ -1427,6 +1435,221 @@ namespace Rook.InternalBridge
                 requestJson => Viewport.CaptureTier3(requestJson));
         }
 
+        private static int HandleVisionDispatch(
+            IntPtr requestJsonUtf8,
+            int requestJsonLength,
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode)
+        {
+            // Peek the op discriminator to choose between the UI-thread
+            // sync dispatcher (capture_depth — touches Rhino state) and
+            // the off-UI async dispatcher (generate / enhance_prompt —
+            // network-bound; blocking Rhino's UI thread for 30–60 s is
+            // unacceptable and can deadlock HttpClient continuations that
+            // capture the UI SyncContext). Unknown ops are rejected here
+            // before either dispatcher is selected — prevents a bad route
+            // wiring from silently hitting the off-UI boundary.
+            string requestJson;
+            try
+            {
+                requestJson = ReadUtf8(requestJsonUtf8, requestJsonLength);
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = $"Vision dispatch failed to read request: {ex.Message}"
+                    }, JsonOptions),
+                    500);
+            }
+
+            var op = PeekVisionOp(requestJson);
+
+            switch (op)
+            {
+                case "capture_depth":
+                    // UI-thread path — needs DocumentContext + RhinoApp
+                    // for viewport access. Default 30 s timeout is fine
+                    // (capture completes in ~1 s).
+                    return ExecuteApiResponseCallback(
+                        requestJsonUtf8,
+                        requestJsonLength,
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        reqJson => Vision.Dispatch(reqJson));
+
+                case "generate":
+                case "enhance_prompt":
+                    // Off-UI async path — Gemini network call with
+                    // cooperative cancellation on the 180 s timeout.
+                    return ExecuteAsyncApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        (reqJson, ct) => Vision.DispatchAsync(reqJson, ct),
+                        timeoutSeconds: 180);
+
+                default:
+                    // Reject unknown/missing op before selecting a
+                    // dispatcher. Defense-in-depth against a future
+                    // registration mistake where a new route forgets to
+                    // extend this switch.
+                    var message = string.IsNullOrEmpty(op)
+                        ? "Vision request missing required 'op' discriminator."
+                        : $"Unknown vision op '{op}'. Expected 'generate', 'enhance_prompt', or 'capture_depth'.";
+                    return WriteUtf8Response(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        JsonSerializer.Serialize(new
+                        {
+                            success = false,
+                            data = message
+                        }, JsonOptions),
+                        400);
+            }
+        }
+
+        /// <summary>
+        /// Extract the <c>op</c> field from the vision request JSON
+        /// without full validation. Returns null if the body is absent,
+        /// not a JSON object, or missing an op field.
+        /// </summary>
+        private static string? PeekVisionOp(string? requestJson)
+        {
+            if (string.IsNullOrEmpty(requestJson)) return null;
+            try
+            {
+                using var doc = JsonDocument.Parse(requestJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+                if (!doc.RootElement.TryGetProperty("op", out var opEl)) return null;
+                if (opEl.ValueKind != JsonValueKind.String) return null;
+                return opEl.GetString();
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Async variant of <see cref="ExecuteApiResponseCallback"/> —
+        /// runs the operation on the threadpool (not the UI thread) and
+        /// waits synchronously here (bridge callback signature is sync).
+        /// A <see cref="CancellationTokenSource"/> fires on timeout so
+        /// the outbound HttpClient request is cancelled rather than
+        /// continuing to spend API time past the deadline.
+        ///
+        /// Does not use <c>DocumentContext.WithDocument</c> — the current
+        /// async ops (generate, enhance_prompt) do not read the document.
+        /// If a future async op needs document pinning, set the AsyncLocal
+        /// before awaiting inside the operation delegate.
+        /// </summary>
+        private static int ExecuteAsyncApiResponseCallback(
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode,
+            string requestJson,
+            Func<string, CancellationToken, Task<ApiResponse>> operation,
+            int timeoutSeconds)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource();
+                var token = cts.Token;
+
+                var task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        return await operation(requestJson, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return new ApiResponse
+                        {
+                            Success = false,
+                            Data = "Vision callback cancelled (bridge timeout).",
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        return new ApiResponse
+                        {
+                            Success = false,
+                            Data = ex.Message,
+                        };
+                    }
+                });
+
+                string responseJson;
+                int statusCode;
+
+                if (!task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+                {
+                    // Timeout: cancel the CTS so the outbound HttpClient
+                    // request is aborted (cooperative cancellation —
+                    // PostAsync/GetAsync respect the token). The Task
+                    // itself may continue running until the token is
+                    // observed, but the HTTP connection closes promptly
+                    // and API quota is not spent past the deadline.
+                    cts.Cancel();
+                    responseJson = JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = "Vision callback request timed out.",
+                    }, JsonOptions);
+                    statusCode = 400;
+                }
+                else
+                {
+                    var result = task.Result;
+                    responseJson = JsonSerializer.Serialize(new
+                    {
+                        success = result.Success,
+                        data = result.Data,
+                    }, JsonOptions);
+                    statusCode = result.Success ? 200 : 400;
+                }
+
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    responseJson,
+                    statusCode);
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = $"Native vision async bridge failed: {ex.Message}",
+                    }, JsonOptions),
+                    500);
+            }
+        }
+
         private static int HandleBlockSetMaterials(
             IntPtr requestJsonUtf8,
             int requestJsonLength,
@@ -1821,7 +2044,8 @@ namespace Rook.InternalBridge
             int responseJsonCapacity,
             IntPtr responseJsonLength,
             IntPtr httpStatusCode,
-            Func<string, ApiResponse> operation)
+            Func<string, ApiResponse> operation,
+            int timeoutSeconds = 30)
         {
             try
             {
@@ -1858,7 +2082,7 @@ namespace Rook.InternalBridge
                     }
                 }));
 
-                if (!waitHandle.Wait(TimeSpan.FromSeconds(30)))
+                if (!waitHandle.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
                 {
                     responseJson = JsonSerializer.Serialize(new
                     {

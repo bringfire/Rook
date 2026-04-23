@@ -43,6 +43,17 @@ ManagedCreateInvokeResult InvokeViewportCaptureTier3WithBody(
     std::string& responseJson,
     int& statusCode,
     std::string& error);
+
+// Invokes the managed vision_dispatch bridge callback (ABI v14). Single
+// generic dispatch for all /vision/* routes — the op discriminator is
+// carried in the request JSON and routed inside VisionHandler.cs. Keeps
+// VisionHandler.cs as the single validation boundary and avoids one
+// callback slot per vision route.
+ManagedCreateInvokeResult InvokeVisionDispatchWithBody(
+    const std::string& requestJson,
+    std::string& responseJson,
+    int& statusCode,
+    std::string& error);
 void HandleManagedUvPlanar(const httplib::Request& req, httplib::Response& res);
 void HandleManagedGameExportPrepare(const httplib::Request& req, httplib::Response& res);
 void ProxyManagedCompanionRequest(
