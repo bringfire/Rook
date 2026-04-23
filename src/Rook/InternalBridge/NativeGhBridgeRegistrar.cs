@@ -1501,6 +1501,27 @@ namespace Rook.InternalBridge
                         (reqJson, ct) => Vision.DispatchAsync(reqJson, ct),
                         timeoutSeconds: 180);
 
+                case "list_artifacts":
+                case "get_artifact":
+                case "approve_artifact":
+                case "delete_artifact":
+                case "consume_approved":
+                    // Off-UI sync path — disk-only artifact-store ops.
+                    // Runs on the threadpool so a large store scan or
+                    // recursive delete doesn't starve the Rhino UI thread.
+                    // No CancellationToken, no network-sized timeout —
+                    // disk I/O is bounded and predictable; a 30 s cap is
+                    // generous for the worst-case v1 store (no
+                    // manifest.index.json yet).
+                    return ExecuteOffUiApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        reqJson => Vision.DispatchOffUi(reqJson),
+                        timeoutSeconds: 30);
+
                 default:
                     // Reject unknown/missing op before selecting a
                     // dispatcher. Defense-in-depth against a future
@@ -1508,7 +1529,7 @@ namespace Rook.InternalBridge
                     // extend this switch.
                     var message = string.IsNullOrEmpty(op)
                         ? "Vision request missing required 'op' discriminator."
-                        : $"Unknown vision op '{op}'. Expected 'generate', 'enhance_prompt', or 'capture_depth'.";
+                        : $"Unknown vision op '{op}'. Expected 'generate', 'enhance_prompt', 'capture_depth', 'list_artifacts', 'get_artifact', 'approve_artifact', 'delete_artifact', or 'consume_approved'.";
                     return WriteUtf8Response(
                         responseJsonUtf8,
                         responseJsonCapacity,
@@ -1645,6 +1666,93 @@ namespace Rook.InternalBridge
                     {
                         success = false,
                         data = $"Native vision async bridge failed: {ex.Message}",
+                    }, JsonOptions),
+                    500);
+            }
+        }
+
+        /// <summary>
+        /// Off-UI sync variant of <see cref="ExecuteApiResponseCallback"/>.
+        /// Runs the operation on the threadpool (not the UI thread) and
+        /// blocks the bridge thread waiting for it. No
+        /// <see cref="CancellationToken"/> — intended for disk-only ops
+        /// (artifact-store list/get/approve/delete/consume) where there is
+        /// no cooperative-cancellation surface to plumb a token into.
+        /// A hard timeout is still enforced so a wedged operation surfaces
+        /// as an envelope failure rather than hanging the HTTP client.
+        ///
+        /// Does not use <c>DocumentContext.WithDocument</c> — artifact-store
+        /// ops do not read the Rhino document.
+        /// </summary>
+        private static int ExecuteOffUiApiResponseCallback(
+            IntPtr responseJsonUtf8,
+            int responseJsonCapacity,
+            IntPtr responseJsonLength,
+            IntPtr httpStatusCode,
+            string requestJson,
+            Func<string, ApiResponse> operation,
+            int timeoutSeconds)
+        {
+            try
+            {
+                var task = Task.Run(() =>
+                {
+                    try
+                    {
+                        return operation(requestJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new ApiResponse
+                        {
+                            Success = false,
+                            Data = ex.Message,
+                        };
+                    }
+                });
+
+                string responseJson;
+                int statusCode;
+
+                if (!task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+                {
+                    responseJson = JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = "Vision callback request timed out.",
+                    }, JsonOptions);
+                    statusCode = 400;
+                }
+                else
+                {
+                    var result = task.Result;
+                    responseJson = JsonSerializer.Serialize(new
+                    {
+                        success = result.Success,
+                        data = result.Data,
+                    }, JsonOptions);
+                    statusCode = result.Success ? 200 : 400;
+                }
+
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    responseJson,
+                    statusCode);
+            }
+            catch (Exception ex)
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = $"Native vision off-UI bridge failed: {ex.Message}",
                     }, JsonOptions),
                     500);
             }
@@ -2231,12 +2339,37 @@ namespace Rook.InternalBridge
             string json,
             int statusCode)
         {
-            if (httpStatusCode != IntPtr.Zero)
+            var bytes = Encoding.UTF8.GetBytes(json + "\0");
+            var finalStatusCode = statusCode;
+
+            // Defense-in-depth size guard. If the intended response
+            // exceeds the native buffer capacity, substitute a small
+            // fitting error envelope. Without this, the native side
+            // sees rc=-2 and surfaces an opaque "callback invocation
+            // failed (-2)" message with no diagnostic signal — the
+            // same failure class PR-5a avoided for blobs. This catches
+            // any op whose serialized response unexpectedly inflates
+            // (e.g. list_artifacts under worst-case metadata, even
+            // after that route's compact-summary fix).
+            if (responseJsonUtf8 != IntPtr.Zero && responseJsonCapacity < bytes.Length)
             {
-                Marshal.WriteInt32(httpStatusCode, statusCode);
+                var fallback = JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    data = $"Response payload of {bytes.Length - 1} bytes exceeds bridge " +
+                           $"buffer capacity of {responseJsonCapacity - 1} bytes. " +
+                           "Reduce 'limit', apply filters, or fetch per-artifact detail " +
+                           "via GET /vision/artifacts/{id}."
+                }, JsonOptions);
+                bytes = Encoding.UTF8.GetBytes(fallback + "\0");
+                finalStatusCode = 400;
             }
 
-            var bytes = Encoding.UTF8.GetBytes(json + "\0");
+            if (httpStatusCode != IntPtr.Zero)
+            {
+                Marshal.WriteInt32(httpStatusCode, finalStatusCode);
+            }
+
             if (responseJsonLength != IntPtr.Zero)
             {
                 Marshal.WriteInt32(responseJsonLength, bytes.Length - 1);
@@ -2244,6 +2377,11 @@ namespace Rook.InternalBridge
 
             if (responseJsonUtf8 == IntPtr.Zero || responseJsonCapacity < bytes.Length)
             {
+                // Pathological case: even the fallback envelope doesn't
+                // fit (would only happen if responseJsonCapacity is
+                // absurdly small or JsonOptions produces something huge).
+                // Signal failure; native will surface the opaque error
+                // rather than corrupt memory.
                 return -2;
             }
 

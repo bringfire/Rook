@@ -20,21 +20,20 @@ namespace Handlers {
 
 namespace {
 
-// Dispatch helper: parse body, inject op, forward through bridge,
-// forward response as-is. All three /vision/* routes reuse this.
-void DispatchVisionOp(
+// Parse the request body as a JSON object, or start from {}.  Returns
+// true on success; on failure, writes the error response + 400 and
+// returns false.
+bool ParseBodyAsObject(
     const httplib::Request& req,
     httplib::Response& res,
-    const char* op)
+    const char* op,
+    nlohmann::json& out)
 {
-    // Parse the body (or start from an empty object when absent) so we
-    // can reliably set the op field without relying on string splicing.
-    nlohmann::json body;
     if (!req.body.empty())
     {
         try
         {
-            body = nlohmann::json::parse(req.body);
+            out = nlohmann::json::parse(req.body);
         }
         catch (const std::exception& ex)
         {
@@ -42,23 +41,35 @@ void DispatchVisionOp(
                 res,
                 std::string("Invalid JSON body for /vision/") + op + ": " + ex.what());
             res.status = 400;
-            return;
+            res.set_header("X-Rook-Vision-Op", op);
+            return false;
         }
-        if (!body.is_object())
+        if (!out.is_object())
         {
             CRookServer::SendError(
                 res,
                 std::string("Vision request body must be a JSON object (got ") +
-                    body.type_name() + ").");
+                    out.type_name() + ").");
             res.status = 400;
-            return;
+            res.set_header("X-Rook-Vision-Op", op);
+            return false;
         }
     }
     else
     {
-        body = nlohmann::json::object();
+        out = nlohmann::json::object();
     }
+    return true;
+}
 
+// Core dispatch helper: forward a pre-built body with an injected op
+// through the vision_dispatch bridge callback and forward the response
+// as-is.
+void ForwardVisionDispatch(
+    httplib::Response& res,
+    const char* op,
+    nlohmann::json& body)
+{
     // Inject op. Native owns the op string — callers cannot override it
     // by sending their own op field, because we always overwrite.
     body["op"] = op;
@@ -100,6 +111,141 @@ void DispatchVisionOp(
     }
 }
 
+// Body-forwarding dispatch: parse body, inject op, forward. Used by
+// routes that carry their payload in the request body (POST generate /
+// enhance-prompt / capture-depth / consume-approved).
+void DispatchVisionOp(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op)
+{
+    nlohmann::json body;
+    if (!ParseBodyAsObject(req, res, op, body)) return;
+    ForwardVisionDispatch(res, op, body);
+}
+
+// Path-param dispatch: extract {id} from req.matches[1], inject into
+// body as artifact_id, then forward. Used by GET/DELETE/POST routes
+// where the id is a path segment and any request body is also merged.
+void DispatchVisionOpWithPathId(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op)
+{
+    nlohmann::json body;
+    if (!ParseBodyAsObject(req, res, op, body)) return;
+
+    if (req.matches.size() < 2)
+    {
+        CRookServer::SendError(
+            res,
+            std::string("/vision/artifacts/{id}/") + op +
+                ": path id match missing.");
+        res.status = 500;
+        res.set_header("X-Rook-Vision-Op", op);
+        return;
+    }
+
+    // Path id takes precedence over any body-supplied artifact_id —
+    // native owns both the op discriminator and the primary identity
+    // the route URL claimed. Callers cannot smuggle a different id
+    // through the body.
+    body["artifact_id"] = req.matches[1].str();
+
+    ForwardVisionDispatch(res, op, body);
+}
+
+// Query-param dispatch: fold whitelisted query parameters into the
+// body before forwarding. Used by GET /vision/artifacts (list).
+// Only known filter params are forwarded — unknown query strings are
+// silently dropped so a malformed request surfaces through managed
+// validation, not as a silent bridge-side mismatch.
+void DispatchVisionListWithQuery(
+    const httplib::Request& req,
+    httplib::Response& res,
+    const char* op)
+{
+    nlohmann::json body = nlohmann::json::object();
+
+    if (req.has_param("kind"))
+    {
+        body["kind"] = req.get_param_value("kind");
+    }
+
+    if (req.has_param("approved"))
+    {
+        const auto raw = req.get_param_value("approved");
+        // Accept common truthy/falsy spellings; managed validation
+        // rejects anything else. Canonicalize to a JSON bool here so
+        // the dispatcher's GetBoolArg picks it up.
+        if (raw == "true" || raw == "1")
+        {
+            body["approved"] = true;
+        }
+        else if (raw == "false" || raw == "0")
+        {
+            body["approved"] = false;
+        }
+        else
+        {
+            CRookServer::SendError(
+                res,
+                std::string("/vision/artifacts: 'approved' must be 'true' or 'false', got '") +
+                    raw + "'.");
+            res.status = 400;
+            res.set_header("X-Rook-Vision-Op", op);
+            return;
+        }
+    }
+
+    if (req.has_param("limit"))
+    {
+        const auto raw = req.get_param_value("limit");
+        // std::stoi silently accepts trailing garbage ("5abc" -> 5).
+        // Require the entire string to be consumed so a malformed
+        // value is rejected, matching the route's "malformed limits
+        // are rejected" contract. Also reject an empty string up
+        // front so stoi doesn't throw before we can message it.
+        if (raw.empty())
+        {
+            CRookServer::SendError(
+                res,
+                std::string("/vision/artifacts: 'limit' must be a non-empty integer."));
+            res.status = 400;
+            res.set_header("X-Rook-Vision-Op", op);
+            return;
+        }
+        try
+        {
+            std::size_t consumed = 0;
+            const int parsed = std::stoi(raw, &consumed);
+            if (consumed != raw.size())
+            {
+                CRookServer::SendError(
+                    res,
+                    std::string("/vision/artifacts: 'limit' has trailing non-numeric characters, got '") +
+                        raw + "'.");
+                res.status = 400;
+                res.set_header("X-Rook-Vision-Op", op);
+                return;
+            }
+            body["limit"] = parsed;
+        }
+        catch (const std::exception&)
+        {
+            CRookServer::SendError(
+                res,
+                std::string("/vision/artifacts: 'limit' must be an integer, got '") +
+                    raw + "'.");
+            res.status = 400;
+            res.set_header("X-Rook-Vision-Op", op);
+            return;
+        }
+    }
+
+    ForwardVisionDispatch(res, op, body);
+}
+
 } // namespace
 
 void HandleVisionGenerate(const httplib::Request& req, httplib::Response& res)
@@ -115,6 +261,31 @@ void HandleVisionEnhancePrompt(const httplib::Request& req, httplib::Response& r
 void HandleVisionCaptureDepth(const httplib::Request& req, httplib::Response& res)
 {
     DispatchVisionOp(req, res, "capture_depth");
+}
+
+void HandleVisionListArtifacts(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionListWithQuery(req, res, "list_artifacts");
+}
+
+void HandleVisionGetArtifact(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "get_artifact");
+}
+
+void HandleVisionApproveArtifact(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "approve_artifact");
+}
+
+void HandleVisionDeleteArtifact(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "delete_artifact");
+}
+
+void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "consume_approved");
 }
 
 } // namespace Handlers

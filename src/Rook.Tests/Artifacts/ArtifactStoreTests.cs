@@ -669,6 +669,189 @@ namespace Rook.Tests.Artifacts
                 () => _store.Create("k", new[] { new BlobInput("primary", Bytes("x"), ext) }));
         }
 
+        // ─── SetFlag: atomic flag mutation ──────────────────────────
+
+        [Fact]
+        public void SetFlag_SetsNewFlag_AndPersists()
+        {
+            var created = _store.Create("k", OneBlob());
+            Assert.False(created.Flags.ContainsKey("approved"));
+
+            var updated = _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+
+            Assert.True(updated.Flags["approved"]!.GetValue<bool>());
+
+            // Persisted — a fresh Get sees the same flag.
+            var reloaded = _store.Get(created.Id);
+            Assert.NotNull(reloaded);
+            Assert.True(reloaded!.Flags["approved"]!.GetValue<bool>());
+        }
+
+        [Fact]
+        public void SetFlag_OverwritesExistingFlag()
+        {
+            var created = _store.Create("k", OneBlob(),
+                flags: new Dictionary<string, JsonNode?>
+                {
+                    ["approved"] = JsonValue.Create(false),
+                });
+
+            var updated = _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+
+            Assert.True(updated.Flags["approved"]!.GetValue<bool>());
+            var reloaded = _store.Get(created.Id);
+            Assert.True(reloaded!.Flags["approved"]!.GetValue<bool>());
+        }
+
+        [Fact]
+        public void SetFlag_Idempotent_SameValue_NoThrow()
+        {
+            var created = _store.Create("k", OneBlob(),
+                flags: new Dictionary<string, JsonNode?>
+                {
+                    ["approved"] = JsonValue.Create(true),
+                });
+
+            var updated = _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+            Assert.True(updated.Flags["approved"]!.GetValue<bool>());
+
+            // Second call — manifest is re-written but state is identical.
+            var updated2 = _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+            Assert.True(updated2.Flags["approved"]!.GetValue<bool>());
+        }
+
+        [Fact]
+        public void SetFlag_PreservesOtherFlagsAndMetadata()
+        {
+            var created = _store.Create("k", OneBlob(),
+                metadata: new Dictionary<string, JsonNode?>
+                {
+                    ["prompt"] = JsonValue.Create("a cube"),
+                    ["model"] = JsonValue.Create("gemini-2.5"),
+                },
+                flags: new Dictionary<string, JsonNode?>
+                {
+                    ["archived"] = JsonValue.Create(false),
+                });
+
+            var updated = _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+
+            Assert.Equal("a cube", updated.Metadata["prompt"]!.GetValue<string>());
+            Assert.Equal("gemini-2.5", updated.Metadata["model"]!.GetValue<string>());
+            Assert.False(updated.Flags["archived"]!.GetValue<bool>());
+            Assert.True(updated.Flags["approved"]!.GetValue<bool>());
+        }
+
+        [Fact]
+        public void SetFlag_MissingArtifact_Throws()
+        {
+            Assert.Throws<KeyNotFoundException>(() =>
+                _store.SetFlag(Guid.NewGuid(), "approved", JsonValue.Create(true)!));
+        }
+
+        [Fact]
+        public void SetFlag_NullValue_Throws()
+        {
+            var created = _store.Create("k", OneBlob());
+            Assert.Throws<ArgumentNullException>(() =>
+                _store.SetFlag(created.Id, "approved", null!));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(" ")]
+        [InlineData("Bad/Name")]
+        [InlineData("UPPER")]
+        [InlineData("-leading")]
+        [InlineData("name with spaces")]
+        public void SetFlag_InvalidName_Throws(string name)
+        {
+            var created = _store.Create("k", OneBlob());
+            Assert.Throws<ArgumentException>(() =>
+                _store.SetFlag(created.Id, name, JsonValue.Create(true)!));
+        }
+
+        [Fact]
+        public void SetFlag_NullName_Throws()
+        {
+            var created = _store.Create("k", OneBlob());
+            Assert.Throws<ArgumentNullException>(() =>
+                _store.SetFlag(created.Id, null!, JsonValue.Create(true)!));
+        }
+
+        [Fact]
+        public void SetFlag_CorruptManifest_RejectsMutation()
+        {
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dir, "primary.png"), Bytes("x"));
+            WriteRawManifest(dir, "{ not valid json");
+
+            // Corruption surfaces before any write touches the manifest.
+            Assert.ThrowsAny<Exception>(() =>
+                _store.SetFlag(id, "approved", JsonValue.Create(true)!));
+
+            // Manifest is untouched — the write path was never reached.
+            var raw = File.ReadAllText(Path.Combine(dir, "manifest.json"));
+            Assert.Equal("{ not valid json", raw);
+        }
+
+        [Fact]
+        public void SetFlag_DuplicateUuidAcrossBuckets_Throws()
+        {
+            var id = Guid.NewGuid();
+            CreateRawArtifactDir("2026-04-20", id);
+            CreateRawArtifactDir("2026-04-22", id);
+
+            Assert.Throws<InvalidDataException>(() =>
+                _store.SetFlag(id, "approved", JsonValue.Create(true)!));
+        }
+
+        [Fact]
+        public void SetFlag_OrphanedTmpManifest_DoesNotBlockGetOrList()
+        {
+            // A stray manifest.json.tmp (simulating a crash between
+            // WriteAllText and File.Replace) must not be visible to
+            // Get/List — they read manifest.json only. The next SetFlag
+            // overwrites it via WriteAllText.
+            var created = _store.Create("k", OneBlob());
+            var artifactDir = Directory.EnumerateDirectories(_root)
+                .SelectMany(Directory.EnumerateDirectories)
+                .First(d => Path.GetFileName(d) == created.Id.ToString("D"));
+            File.WriteAllText(
+                Path.Combine(artifactDir, "manifest.json.tmp"),
+                "{ partial write");
+
+            // Get / List ignore the orphan and return the valid manifest.
+            Assert.NotNull(_store.Get(created.Id));
+            Assert.Single(_store.List());
+
+            // Next SetFlag succeeds and clears the orphan path (via
+            // WriteAllText + File.Replace cycle).
+            _store.SetFlag(created.Id, "approved", JsonValue.Create(true)!);
+            Assert.False(File.Exists(Path.Combine(artifactDir, "manifest.json.tmp")));
+        }
+
+        [Fact]
+        public void SetFlag_ReturnedValue_IsClonedFromInput()
+        {
+            // Mutating the caller's JsonNode after SetFlag must not
+            // affect stored state — the store takes a defensive copy.
+            var created = _store.Create("k", OneBlob());
+
+            var live = new JsonObject
+            {
+                ["label"] = "alpha",
+            };
+            _store.SetFlag(created.Id, "tag", live);
+            live["label"] = "mutated";
+
+            var reloaded = _store.Get(created.Id);
+            Assert.Equal(
+                "alpha",
+                ((JsonObject)reloaded!.Flags["tag"]!)["label"]!.GetValue<string>());
+        }
+
         // ─── on-disk JSON casing ────────────────────────────────────
 
         [Fact]

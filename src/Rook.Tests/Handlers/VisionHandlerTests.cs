@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Rook;
+using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision;
 using Xunit;
@@ -230,6 +233,133 @@ namespace Rook.Tests.Handlers
             var ex = Assert.Throws<ArgumentException>(
                 () => VisionHandler.RequireString(args, "x", 100));
             Assert.Contains("length", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ─── RequireArtifactId (PR-5b) ──────────────────────────────────
+
+        [Fact]
+        public void RequireArtifactId_Present_ReturnsGuid()
+        {
+            var id = Guid.NewGuid();
+            var args = VisionHandler.ParseObjectBody(
+                "{\"artifact_id\":\"" + id.ToString("D") + "\"}");
+            Assert.Equal(id, VisionHandler.RequireArtifactId(args));
+        }
+
+        [Fact]
+        public void RequireArtifactId_Missing_Throws()
+        {
+            var args = VisionHandler.ParseObjectBody("{}");
+            var ex = Assert.Throws<ArgumentException>(
+                () => VisionHandler.RequireArtifactId(args));
+            Assert.Contains("artifact_id", ex.Message);
+        }
+
+        [Fact]
+        public void RequireArtifactId_WrongType_Throws()
+        {
+            var args = VisionHandler.ParseObjectBody("{\"artifact_id\":42}");
+            Assert.Throws<ArgumentException>(
+                () => VisionHandler.RequireArtifactId(args));
+        }
+
+        [Fact]
+        public void RequireArtifactId_Empty_Throws()
+        {
+            var args = VisionHandler.ParseObjectBody("{\"artifact_id\":\"\"}");
+            Assert.Throws<ArgumentException>(
+                () => VisionHandler.RequireArtifactId(args));
+        }
+
+        [Theory]
+        [InlineData("not-a-guid")]
+        [InlineData("12345")]
+        [InlineData("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")]
+        public void RequireArtifactId_Malformed_Throws(string bad)
+        {
+            var args = VisionHandler.ParseObjectBody(
+                "{\"artifact_id\":\"" + bad + "\"}");
+            var ex = Assert.Throws<ArgumentException>(
+                () => VisionHandler.RequireArtifactId(args));
+            Assert.Contains("GUID", ex.Message);
+        }
+
+        // ─── GetBoolArg (PR-5b) ─────────────────────────────────────────
+
+        [Theory]
+        [InlineData("{\"approved\":true}", true)]
+        [InlineData("{\"approved\":false}", false)]
+        public void GetBoolArg_BooleanValue_Returned(string json, bool expected)
+        {
+            var args = VisionHandler.ParseObjectBody(json);
+            Assert.Equal(expected, VisionHandler.GetBoolArg(args, "approved"));
+        }
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"approved\":\"true\"}")]       // string "true" is NOT bool
+        [InlineData("{\"approved\":1}")]              // number 1 is NOT bool
+        [InlineData("{\"approved\":null}")]
+        public void GetBoolArg_NonBoolean_ReturnsNull(string json)
+        {
+            var args = VisionHandler.ParseObjectBody(json);
+            Assert.Null(VisionHandler.GetBoolArg(args, "approved"));
+        }
+
+        // ─── IsApproved (PR-5b) ─────────────────────────────────────────
+
+        [Fact]
+        public void IsApproved_FlagTrue_ReturnsTrue()
+        {
+            var artifact = MakeArtifactWithFlags(
+                new Dictionary<string, JsonNode?> { ["approved"] = JsonValue.Create(true) });
+            Assert.True(VisionHandler.IsApproved(artifact));
+        }
+
+        [Fact]
+        public void IsApproved_FlagFalse_ReturnsFalse()
+        {
+            var artifact = MakeArtifactWithFlags(
+                new Dictionary<string, JsonNode?> { ["approved"] = JsonValue.Create(false) });
+            Assert.False(VisionHandler.IsApproved(artifact));
+        }
+
+        [Fact]
+        public void IsApproved_FlagMissing_ReturnsFalse()
+        {
+            var artifact = MakeArtifactWithFlags(new Dictionary<string, JsonNode?>());
+            Assert.False(VisionHandler.IsApproved(artifact));
+        }
+
+        [Fact]
+        public void IsApproved_FlagNotBool_ReturnsFalse()
+        {
+            // Defensive: a flag value of a non-bool type (e.g. string)
+            // should not throw — a best-effort "false" is correct.
+            var artifact = MakeArtifactWithFlags(
+                new Dictionary<string, JsonNode?> { ["approved"] = JsonValue.Create("yes") });
+            Assert.False(VisionHandler.IsApproved(artifact));
+        }
+
+        [Fact]
+        public void IsApproved_FlagNull_ReturnsFalse()
+        {
+            var artifact = MakeArtifactWithFlags(
+                new Dictionary<string, JsonNode?> { ["approved"] = null });
+            Assert.False(VisionHandler.IsApproved(artifact));
+        }
+
+        private static Artifact MakeArtifactWithFlags(
+            IReadOnlyDictionary<string, JsonNode?> flags)
+        {
+            return new Artifact(
+                Id: Guid.NewGuid(),
+                Kind: "generated_image",
+                CreatedAt: DateTimeOffset.UtcNow,
+                Files: new[] { new ArtifactFile("image", "image.png") },
+                ParentIds: Array.Empty<Guid>(),
+                Metadata: new Dictionary<string, JsonNode?>(),
+                Flags: flags);
         }
     }
 

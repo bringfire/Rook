@@ -60,7 +60,10 @@ namespace Rook.Artifacts
         // ISO 8601 datetime with explicit offset (Z or ±HH:MM / ±HHMM).
         // Pre-check before TryParse because RoundtripKind alone accepts
         // offset-less strings and silently treats them as local time.
-        private static readonly Regex Iso8601WithOffsetPattern = new(
+        // Exposed as internal so consumers (e.g. VisionHandler's
+        // consume_approved 'since' filter) can apply the same invariant
+        // without duplicating the pattern string.
+        internal static readonly Regex Iso8601WithOffsetPattern = new(
             @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$",
             RegexOptions.Compiled);
 
@@ -193,6 +196,105 @@ namespace Rook.Artifacts
 
             Directory.Delete(dirs[0], recursive: true);
             return true;
+        }
+
+        /// <summary>
+        /// Atomically update a single flag on an existing artifact. Rewrites
+        /// the artifact's <c>manifest.json</c> in place; blobs and
+        /// directory identity are untouched.
+        ///
+        /// Atomicity: writes the new manifest to
+        /// <c>manifest.json.tmp</c> inside the finalized artifact directory,
+        /// then swaps into place via <c>File.Replace</c> (which wraps the
+        /// Windows <c>ReplaceFile</c> API and is atomic on NTFS). A crash
+        /// between write-and-swap leaves a stray <c>manifest.json.tmp</c>
+        /// file that is invisible to <see cref="List"/> (directory
+        /// enumeration only) and <see cref="Get"/>/<see cref="Delete"/>
+        /// (they read <c>manifest.json</c>); the next <see cref="SetFlag"/>
+        /// call overwrites it. A startup sweep for orphans is a v2
+        /// affordance.
+        ///
+        /// Validation re-runs on read before mutation: a manifest that no
+        /// longer passes <see cref="ParseAndValidate"/> surfaces as
+        /// corruption and the mutation is rejected — we refuse to
+        /// write-over an unreadable manifest.
+        ///
+        /// Idempotent: setting a flag to the value it already holds is a
+        /// successful no-op-shaped call (the manifest is re-serialized,
+        /// but semantically nothing changes).
+        ///
+        /// Single-writer assumption holds — no cross-process lock. A v1
+        /// race between two concurrent <see cref="SetFlag"/> calls on the
+        /// same artifact may lose one update.
+        /// </summary>
+        /// <param name="id">Artifact identity (matches directory name).</param>
+        /// <param name="name">Flag name — snake-case, same pattern as
+        /// <c>kind</c>/<c>role</c>.</param>
+        /// <param name="value">Flag value. Must be non-null. v1 has no
+        /// unset/remove affordance; if a consumer needs to clear a flag,
+        /// set it to a sentinel (e.g. <c>false</c>) instead.</param>
+        /// <returns>The updated <see cref="Artifact"/>.</returns>
+        /// <exception cref="ArgumentNullException">If <paramref name="name"/>
+        /// or <paramref name="value"/> is null.</exception>
+        /// <exception cref="ArgumentException">If <paramref name="name"/>
+        /// fails the flag-name pattern.</exception>
+        /// <exception cref="KeyNotFoundException">If no finalized artifact
+        /// directory exists for <paramref name="id"/>.</exception>
+        /// <exception cref="InvalidDataException">If the current manifest
+        /// is corrupt or duplicate UUIDs exist across day buckets.</exception>
+        public Artifact SetFlag(Guid id, string name, JsonNode value)
+        {
+            ValidateFlagNameArg(name);
+            if (value is null)
+            {
+                throw new ArgumentNullException(
+                    nameof(value),
+                    "SetFlag requires a non-null value; v1 has no unset/remove affordance.");
+            }
+
+            var dirs = FindFinalizedDirs(id);
+            if (dirs.Count == 0)
+                throw new KeyNotFoundException($"Artifact '{id}' not found.");
+            if (dirs.Count > 1) throw DuplicateUuid(id);
+
+            var artifactDir = dirs[0];
+            var existing = ReadArtifact(artifactDir);
+
+            var newFlags = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+            foreach (var kvp in existing.Flags)
+            {
+                newFlags[kvp.Key] = kvp.Value?.DeepClone();
+            }
+            // DeepClone the incoming value — caller retains ownership of
+            // the JsonNode they passed, and we don't want mutations they
+            // make later to leak into the stored manifest.
+            newFlags[name] = value.DeepClone();
+
+            var updated = new Artifact(
+                existing.Id,
+                existing.Kind,
+                existing.CreatedAt,
+                existing.Files,
+                existing.ParentIds,
+                existing.Metadata,
+                newFlags);
+
+            var manifestPath = Path.Combine(artifactDir, ManifestFileName);
+            var tmpManifestPath = Path.Combine(artifactDir, ManifestFileName + ".tmp");
+
+            File.WriteAllText(tmpManifestPath, SerializeManifest(updated));
+
+            // File.Replace is atomic on Windows (ReplaceFile API) and
+            // requires the destination to exist — which it does, because
+            // the directory is finalized. destinationBackupFileName is
+            // null: we already have the .tmp-before-replace step for
+            // crash safety, no need for a second backup.
+            File.Replace(
+                sourceFileName: tmpManifestPath,
+                destinationFileName: manifestPath,
+                destinationBackupFileName: null);
+
+            return updated;
         }
 
         public string GetBlobAbsolutePath(Guid id, string role)
@@ -538,6 +640,18 @@ namespace Rook.Artifacts
             if (!RolePattern.IsMatch(role))
                 throw new ArgumentException(
                     $"role '{role}' does not match required pattern.", nameof(role));
+        }
+
+        private static void ValidateFlagNameArg(string name)
+        {
+            if (name is null) throw new ArgumentNullException(nameof(name));
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("flag name must be non-empty.", nameof(name));
+            // Flag names reuse the snake-case pattern enforced on kind and
+            // role to keep on-disk JSON field naming uniform.
+            if (!KindPattern.IsMatch(name))
+                throw new ArgumentException(
+                    $"flag name '{name}' does not match required pattern.", nameof(name));
         }
 
         private static void ValidateExtensionArg(string ext)
