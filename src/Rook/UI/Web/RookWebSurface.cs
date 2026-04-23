@@ -121,6 +121,25 @@ namespace Rook.UI.Web
         protected virtual void OnBridgeUnavailable() { }
 
         /// <summary>
+        /// Optional hook for subclasses to resolve <em>virtual</em> resources
+        /// whose bytes are NOT embedded in the assembly — for example the
+        /// Vision tab's <c>/blob/{artifact_id}/{role}</c> URIs that stream
+        /// artifact files from disk so the Gallery can render thumbnails
+        /// without the bridge's 1 MB buffer constraint.
+        ///
+        /// Called by the substrate on every <c>WebResourceRequested</c>
+        /// event <em>before</em> the standard embedded-resource lookup.
+        /// Return <c>null</c> to fall through to the embedded path; return a
+        /// <see cref="VirtualResource"/> to serve the bytes directly.
+        ///
+        /// Security note: the subclass is responsible for path validation
+        /// (canonicalization, directory-escape rejection, authorization).
+        /// The substrate does NOT re-validate — a returned
+        /// <see cref="VirtualResource"/> is handed straight to WebView2.
+        /// </summary>
+        protected virtual VirtualResource? TryResolveVirtualResource(Uri uri) => null;
+
+        /// <summary>
         /// Ordered list of scripts injected via
         /// <c>AddScriptToExecuteOnDocumentCreatedAsync</c>, in this exact order:
         ///   1. Session nonce (substrate-owned, may be empty)
@@ -484,6 +503,45 @@ namespace Rook.UI.Web
             if (!uri.Host.Equals(VirtualHostName, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            var coreWv2 = sender as CoreWebView2;
+
+            // Give the subclass first crack at virtual resources
+            // (on-disk blobs, bridge-synthesized content, etc.) BEFORE
+            // falling back to embedded-resource lookup. Subclass is
+            // responsible for path validation.
+            VirtualResource? virtResource = null;
+            try
+            {
+                virtResource = TryResolveVirtualResource(uri);
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: TryResolveVirtualResource threw for '{uri}': {ex.Message}");
+                // Fall through to embedded-resource path; a surface-level
+                // exception must not deny the caller a response.
+            }
+
+            if (virtResource != null)
+            {
+                if (coreWv2 != null)
+                {
+                    var virtHeaders = $"Content-Type: {virtResource.ContentType}";
+                    if (!string.IsNullOrEmpty(virtResource.ExtraHeaders))
+                    {
+                        virtHeaders = virtHeaders + "\r\n" + virtResource.ExtraHeaders;
+                    }
+                    var reasonPhrase = virtResource.StatusCode == 200
+                        ? "OK"
+                        : (virtResource.StatusCode == 404 ? "Not Found" : "Error");
+                    e.Response = coreWv2.Environment.CreateWebResourceResponse(
+                        virtResource.Content,
+                        virtResource.StatusCode,
+                        reasonPhrase,
+                        virtHeaders);
+                }
+                return;
+            }
+
             var path = uri.AbsolutePath.TrimStart('/').Replace('/', '.');
             var resourceName = $"{ResourceRoot}.{path}";
 
@@ -493,10 +551,9 @@ namespace Rook.UI.Web
             {
                 // Return an explicit 404 so missing resources surface as clear
                 // errors in the browser console rather than silent network failures.
-                var coreWv2For404 = sender as CoreWebView2;
-                if (coreWv2For404 != null)
+                if (coreWv2 != null)
                 {
-                    e.Response = coreWv2For404.Environment.CreateWebResourceResponse(
+                    e.Response = coreWv2.Environment.CreateWebResourceResponse(
                         null, 404, "Not Found",
                         $"Content-Type: text/plain\r\nX-Rook-Missing-Resource: {resourceName}");
                 }
@@ -504,7 +561,6 @@ namespace Rook.UI.Web
             }
 
             var headers = GetResponseHeaders(uri.AbsolutePath);
-            var coreWv2 = sender as CoreWebView2;
             if (coreWv2 != null)
             {
                 e.Response = coreWv2.Environment.CreateWebResourceResponse(

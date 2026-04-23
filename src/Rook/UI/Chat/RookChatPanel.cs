@@ -23,6 +23,15 @@ namespace Rook.UI.Chat
         private readonly Dictionary<uint, TabControl> _tabControlsByDocument = new();
 
         /// <summary>
+        /// Per-TabPage disposal callback registry. Lets the panel run
+        /// cleanup for non-ChatTab tabs (e.g. VisionTab) without
+        /// type-checking the page content. Fire-once invariants live
+        /// in <see cref="TabCleanupRegistry"/> for unit-testability.
+        /// </summary>
+        private readonly TabCleanupRegistry _cleanup = new(
+            msg => RhinoApp.WriteLine(msg));
+
+        /// <summary>
         /// Panel unique identifier.
         /// </summary>
         public static Guid PanelId => typeof(RookChatPanel).GUID;
@@ -111,7 +120,7 @@ namespace Rook.UI.Chat
                 var documentSerialNumber = _documentSerialNumber;
                 var tabControl = GetOrCreateTabControl(documentSerialNumber);
                 var tab = new ClaudeCodeTab(documentSerialNumber);
-                var page = CreateTabPage(tab.TabLabel, tab, tabControl);
+                var page = CreateTabPage(tab.TabLabel, tab, tab.OnTabClosed, tabControl);
                 tabControl.Pages.Add(page);
                 tabControl.SelectedPage = page;
 
@@ -137,7 +146,7 @@ namespace Rook.UI.Chat
                     label,
                     color,
                     documentSerialNumber: documentSerialNumber);
-                var page = CreateTabPage(tab.TabLabel, tab, tabControl);
+                var page = CreateTabPage(tab.TabLabel, tab, tab.OnTabClosed, tabControl);
                 tabControl.Pages.Add(page);
                 tabControl.SelectedPage = page;
 
@@ -150,25 +159,50 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
-        /// Build a <see cref="TabPage"/> wrapping a <see cref="ChatTab"/>.
-        /// Adds a close button via custom content in the page header when the
-        /// platform supports closable tabs, otherwise we rely on the context
-        /// approach below.
+        /// Add a pre-built <see cref="Panel"/> as a tab in the current
+        /// document's tab control. Non-ChatTab consumers (e.g. VisionTab)
+        /// use this path; the <paramref name="onClosed"/> callback is
+        /// invoked when the tab is removed OR when the panel is disposed,
+        /// symmetric with <c>ChatTab.OnTabClosed</c>.
         /// </summary>
-        private TabPage CreateTabPage(string label, ChatTab chatTab, TabControl owner)
+        internal TabPage AddPanelTab(string label, Panel content, Action? onClosed)
+        {
+            var documentSerialNumber = _documentSerialNumber;
+            var tabControl = GetOrCreateTabControl(documentSerialNumber);
+            var page = CreateTabPage(label, content, onClosed, tabControl);
+            tabControl.Pages.Add(page);
+            tabControl.SelectedPage = page;
+            return page;
+        }
+
+        /// <summary>
+        /// Build a <see cref="TabPage"/> wrapping an arbitrary <see cref="Panel"/>
+        /// with an optional cleanup callback. The callback is invoked
+        /// exactly once — either when the user closes the tab via the
+        /// context menu, or when the panel itself is disposed (whichever
+        /// happens first). ChatTab callers pass <c>tab.OnTabClosed</c>;
+        /// other panels supply their own disposal hook.
+        ///
+        /// A cross-cut <c>Dictionary&lt;TabPage, Action&gt;</c> in
+        /// <c>_onClosedByPage</c> holds the callbacks so <see cref="Dispose"/>
+        /// can reach them without type-checking the page content.
+        /// </summary>
+        private TabPage CreateTabPage(string label, Panel content, Action? onClosed, TabControl owner)
         {
             var page = new TabPage
             {
                 Text = label,
-                Content = chatTab
+                Content = content
             };
+
+            _cleanup.Register(page, onClosed);
 
             // Eto TabPage does not expose a Closable property on all platforms.
             // We use a context menu on the tab header as the universal close
             // mechanism.
             var menu = new ContextMenu();
             var closeItem = new ButtonMenuItem { Text = "Close Tab" };
-            closeItem.Click += (s, e) => RemoveTab(owner, page, chatTab);
+            closeItem.Click += (s, e) => RemoveTab(owner, page);
             menu.Items.Add(closeItem);
 
             // Attach context menu to the page content so right-click works
@@ -180,11 +214,13 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
-        /// Remove a tab page and clean up the underlying <see cref="ChatTab"/>.
+        /// Remove a tab page and fire its cleanup callback exactly once.
+        /// Callback runs BEFORE the page is removed from the TabControl so
+        /// subscribers can still read page state if needed.
         /// </summary>
-        private void RemoveTab(TabControl owner, TabPage page, ChatTab chatTab)
+        private void RemoveTab(TabControl owner, TabPage page)
         {
-            chatTab.OnTabClosed();
+            _cleanup.FireAndRemove(page);
             owner.Pages.Remove(page);
         }
 
@@ -268,23 +304,19 @@ namespace Rook.UI.Chat
         #endregion
 
         /// <summary>
-        /// Cleanup when panel is disposed. Close all open tabs so that each
-        /// <see cref="ChatTab"/> can release its resources.
+        /// Cleanup when panel is disposed. Drain every registered
+        /// onClosed callback so both ChatTab and non-ChatTab tabs
+        /// release their resources uniformly. Callbacks that already
+        /// fired via <see cref="RemoveTab"/> have been removed from
+        /// the registry, so Dispose does not double-fire them.
         /// </summary>
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                _cleanup.DrainAll();
                 foreach (var tabControl in _tabControlsByDocument.Values)
                 {
-                    var pages = new List<TabPage>(tabControl.Pages);
-                    foreach (var page in pages)
-                    {
-                        if (page.Content is ChatTab chatTab)
-                        {
-                            chatTab.OnTabClosed();
-                        }
-                    }
                     tabControl.Pages.Clear();
                 }
                 _tabControlsByDocument.Clear();
