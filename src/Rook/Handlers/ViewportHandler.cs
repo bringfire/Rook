@@ -100,6 +100,10 @@ namespace Rook.Handlers
             string resolvedViewName = view.ActiveViewport.Name;
             string resolvedDisplayMode =
                 view.ActiveViewport.DisplayMode?.EnglishName ?? "current";
+            // null: convergence not requested OR realtime pipeline never
+            // activated (see WaitForRaytracedRender). Distinguishing "never
+            // ran" from "ran to N samples" matters to callers — reporting 0
+            // in both cases would be misleading.
             int? raytracedSamples = null;
 
             try
@@ -160,10 +164,23 @@ namespace Rook.Handlers
 
                 // 4. Wait for raytraced convergence when both flag and mode
                 //    agree. Silently ignored when either condition fails.
+                //    When the realtime pipeline never activates (Rhino 8
+                //    quirk — see WaitForRaytracedRender doc), the helper
+                //    returns null and no raytracedSamples field is reported.
                 if (request.RaytracedConverge && runningRaytraced)
                 {
                     raytracedSamples = WaitForRaytracedRender(
                         view, request.RaytracedTimeoutMs);
+                    if (raytracedSamples == null)
+                    {
+                        RhinoApp.WriteLine(
+                            "Rook: Tier 3 raytracedConverge requested but " +
+                            "RealtimeDisplayMode was never active during the " +
+                            "wait. The capture will still run, but the image " +
+                            "may not reflect Raytraced output. Try ensuring " +
+                            "the viewport is already running Raytraced before " +
+                            "calling /viewport.");
+                    }
                 }
 
                 // 5. Capture. Size = (width, height) clamped. SA_Banana's
@@ -220,11 +237,18 @@ namespace Rook.Handlers
             }
             finally
             {
-                // Full viewport state restore — projection first (covers
-                // camera, target, lens, view type), then display mode.
+                // Full viewport-state restore. SetViewProjection alone is
+                // insufficient: after a ZoomExtents + SetProjection mutation
+                // it leaves the target at the zoom-fitted value even when
+                // updateTargetLocation=true. Follow with SetCameraLocations
+                // (target, camera) to atomically re-pin both endpoints to
+                // the snapshot values. Verified against Rhino 8 live.
                 try
                 {
                     view.ActiveViewport.SetViewProjection(savedProjection, true);
+                    view.ActiveViewport.SetCameraLocations(
+                        savedProjection.TargetPoint,
+                        savedProjection.CameraLocation);
                 }
                 catch (Exception ex)
                 {
@@ -469,21 +493,32 @@ namespace Rook.Handlers
             return true;
         }
 
-        // Returns the final sample count observed (or 0 if the realtime
-        // display mode never reported any). Port of
+        // Returns the final sample count observed, or null if the realtime
+        // pipeline was never active during the wait (RealtimeDisplayMode
+        // stayed null the whole time). Port of
         // SA_Banana.Services.ViewportCapture.WaitForRaytracedRender.
-        private static int WaitForRaytracedRender(
+        //
+        // Known limitation: Rhino 8 does not activate RealtimeDisplayMode
+        // purely in response to a DisplayMode = Raytraced assignment; the
+        // pipeline is lazy and typically requires the viewport to be the
+        // focused/hovered window in the UI. Tier 3 does not try to force
+        // activation — if the viewport isn't already running Raytraced
+        // when we arrive, this wait returns null and the caller gets no
+        // raytracedSamples field in the response.
+        private static int? WaitForRaytracedRender(
             Rhino.Display.RhinoView view, int timeoutMs)
         {
             var start = DateTime.Now;
             int lastPass = -1;
             int stableCount = 0;
+            bool everSawRealtime = false;
 
             while ((DateTime.Now - start).TotalMilliseconds < timeoutMs)
             {
                 var rtm = view.RealtimeDisplayMode;
                 if (rtm != null)
                 {
+                    everSawRealtime = true;
                     var passFunc = rtm.LastRenderedPass;
                     int pass = passFunc != null ? passFunc() : 0;
 
@@ -511,6 +546,10 @@ namespace Rook.Handlers
             // Timeout: final redraw + brief settle so buffer is ready.
             view.Redraw();
             Thread.Sleep(100);
+            if (!everSawRealtime)
+            {
+                return null;
+            }
             return Math.Max(0, lastPass);
         }
 
