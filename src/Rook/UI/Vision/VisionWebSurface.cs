@@ -237,42 +237,66 @@ p { margin: 8px 0; line-height: 1.4; }
         }
 
         /// <summary>
-        /// Dispatch an async op under a <see cref="CancellationTokenSource"/>
-        /// bounded by <see cref="AsyncOpTimeout"/>. If the source fires
-        /// while the handler is awaiting Gemini, the outbound HttpClient
-        /// request is cancelled and the handler returns a failure
-        /// envelope; on straight timeouts we rewrite the failure to be
-        /// explicit about the cause. The CTS is disposed on completion.
+        /// Instance entry point: dispatch an async op through
+        /// <see cref="VisionHandler.DispatchAsync"/> under the standard
+        /// <see cref="AsyncOpTimeout"/>. Thin wrapper around the pure
+        /// <see cref="DispatchWithTimeoutAsync"/> helper, which isolates
+        /// the cancellation-to-timeout rewrite so it can be exercised
+        /// in unit tests without a real <see cref="VisionHandler"/>.
         /// </summary>
-        private async Task<ApiResponse> DispatchAsyncWithTimeoutAsync(string op, string? body)
+        private Task<ApiResponse> DispatchAsyncWithTimeoutAsync(string op, string? body)
+            => DispatchWithTimeoutAsync(
+                op,
+                AsyncOpTimeout,
+                token => _handler.DispatchAsync(body, token));
+
+        /// <summary>
+        /// Pure timeout-wrapper: run <paramref name="dispatch"/> under a
+        /// per-call <see cref="CancellationTokenSource"/> bounded by
+        /// <paramref name="timeout"/>, and return an
+        /// <see cref="ApiResponse"/>. Two cancellation paths are
+        /// handled:
+        /// <list type="bullet">
+        ///   <item><b>Observed</b>: the dispatcher honors the token and
+        ///         throws <see cref="OperationCanceledException"/> when
+        ///         the CTS fires. We catch it and return a fresh
+        ///         failure envelope whose <c>Data</c> reads
+        ///         <c>"Vision op '{op}' timed out after {N}s."</c>.</item>
+        ///   <item><b>Swallowed</b>: the dispatcher's own generic
+        ///         exception catch converts the cancellation into a
+        ///         <c>Success=false</c> envelope. We detect this via
+        ///         <see cref="CancellationTokenSource.IsCancellationRequested"/>
+        ///         and rewrite <c>Data</c> in place so the caller sees
+        ///         the actual cause instead of "See Rhino command line
+        ///         for details."</item>
+        /// </list>
+        /// Happy path passes through unchanged. Exceptions that are not
+        /// cancellations (or fire before the CTS) propagate to the
+        /// outer bridge-handler catch.
+        /// </summary>
+        internal static async Task<ApiResponse> DispatchWithTimeoutAsync(
+            string op,
+            TimeSpan timeout,
+            Func<CancellationToken, Task<ApiResponse>> dispatch)
         {
-            using var cts = new CancellationTokenSource(AsyncOpTimeout);
+            using var cts = new CancellationTokenSource(timeout);
             ApiResponse response;
             try
             {
-                response = await _handler.DispatchAsync(body, cts.Token).ConfigureAwait(false);
+                response = await dispatch(cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
-                // Handler's outer catch normally converts cancellations
-                // into Fail(...) envelopes — reach this path only when
-                // the cancellation escapes above that net.
                 return new ApiResponse
                 {
                     Success = false,
-                    Data = $"Vision op '{op}' timed out after {AsyncOpTimeout.TotalSeconds:F0}s.",
+                    Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.",
                 };
             }
 
-            // When cancellation fired but the handler's generic catch
-            // converted it to a generic failure, rewrite the data field
-            // so the UI surfaces the actual cause (timeout, not
-            // "See Rhino command line"). The handler's envelope is
-            // already `{Success=false, Data="Vision op '...' failed..."}`
-            // — detect by the shape, not by text, via the cts state.
             if (!response.Success && cts.IsCancellationRequested)
             {
-                response.Data = $"Vision op '{op}' timed out after {AsyncOpTimeout.TotalSeconds:F0}s.";
+                response.Data = $"Vision op '{op}' timed out after {timeout.TotalSeconds:F0}s.";
             }
             return response;
         }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook;
 using Rook.Artifacts;
 using Rook.Handlers;
@@ -95,6 +97,113 @@ namespace Rook.Tests.UI.Vision
             // points have symmetric cancellation behavior — otherwise a
             // UI-initiated generate could outlast its agent-path twin.
             Assert.Equal(180, VisionWebSurface.AsyncOpTimeout.TotalSeconds);
+        }
+
+        // ─── Async op timeout — behavioral coverage ───────────────────
+
+        [Fact]
+        public async Task DispatchWithTimeout_HappyPath_PassesResponseThrough()
+        {
+            var expected = new ApiResponse
+            {
+                Success = true,
+                Data = new Dictionary<string, object?> { ["x"] = 1 },
+            };
+            var actual = await VisionWebSurface.DispatchWithTimeoutAsync(
+                "generate",
+                TimeSpan.FromSeconds(5),
+                _ => Task.FromResult(expected));
+            Assert.True(actual.Success);
+            Assert.Same(expected.Data, actual.Data);
+        }
+
+        [Fact]
+        public async Task DispatchWithTimeout_ObservedCancellation_EmitsTimeoutEnvelope()
+        {
+            // Simulates a well-behaved dispatcher that honors the token
+            // and throws OperationCanceledException when the CTS fires.
+            var response = await VisionWebSurface.DispatchWithTimeoutAsync(
+                "generate",
+                TimeSpan.FromMilliseconds(30),
+                async token =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+                    return new ApiResponse { Success = true };
+                });
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("'generate'", message);
+            Assert.Contains("0s", message); // 30 ms rounds to 0s under F0.
+        }
+
+        [Fact]
+        public async Task DispatchWithTimeout_SwallowedCancellation_RewritesDataField()
+        {
+            // Simulates VisionHandler's outer catch: the dispatcher
+            // swallows OperationCanceledException and returns its own
+            // `{Success=false, Data="... failed ..."}` envelope. The
+            // wrapper must detect the CTS state and rewrite Data so the
+            // UI sees the timeout cause, not the generic fallback.
+            var response = await VisionWebSurface.DispatchWithTimeoutAsync(
+                "enhance_prompt",
+                TimeSpan.FromMilliseconds(30),
+                async token =>
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+                    }
+                    catch (Exception)
+                    {
+                        // Mimics the production handler's catch-all.
+                    }
+                    return new ApiResponse
+                    {
+                        Success = false,
+                        Data = "Vision op 'enhance_prompt' failed. See Rhino command line for details.",
+                    };
+                });
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("'enhance_prompt'", message);
+            Assert.DoesNotContain("See Rhino command line", message);
+        }
+
+        [Fact]
+        public async Task DispatchWithTimeout_FailureWithoutTimeout_PassesThrough()
+        {
+            // A dispatcher that fails WITHOUT cancellation must not
+            // trigger the rewrite — the original failure message is
+            // the UI's signal about the real cause.
+            var response = await VisionWebSurface.DispatchWithTimeoutAsync(
+                "generate",
+                TimeSpan.FromSeconds(5),
+                _ => Task.FromResult(new ApiResponse
+                {
+                    Success = false,
+                    Data = "API key invalid.",
+                }));
+
+            Assert.False(response.Success);
+            Assert.Equal("API key invalid.", response.Data);
+        }
+
+        [Fact]
+        public async Task DispatchWithTimeout_NonCancellationException_Propagates()
+        {
+            // Exceptions that are NOT OperationCanceledException must
+            // flow up to the bridge handler's outer catch unchanged.
+            // Otherwise we'd bury real bugs behind a misleading
+            // "timed out" envelope.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                VisionWebSurface.DispatchWithTimeoutAsync(
+                    "generate",
+                    TimeSpan.FromSeconds(5),
+                    _ => throw new InvalidOperationException("boom")));
         }
 
         // ─── OpRoutes table ───────────────────────────────────────────
