@@ -183,9 +183,10 @@ namespace Rook.UI.Chat
         /// happens first). ChatTab callers pass <c>tab.OnTabClosed</c>;
         /// other panels supply their own disposal hook.
         ///
-        /// A cross-cut <c>Dictionary&lt;TabPage, Action&gt;</c> in
-        /// <c>_onClosedByPage</c> holds the callbacks so <see cref="Dispose"/>
-        /// can reach them without type-checking the page content.
+        /// <see cref="_cleanup"/> (a <see cref="TabCleanupRegistry"/>)
+        /// holds the callbacks so <see cref="Dispose"/> can reach them
+        /// without type-checking the page content. The registry owns
+        /// the fire-once invariant.
         /// </summary>
         private TabPage CreateTabPage(string label, Panel content, Action? onClosed, TabControl owner)
         {
