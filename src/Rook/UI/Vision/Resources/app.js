@@ -52,6 +52,7 @@ let latestArtifactId = null;          // id of the most-recently generated image
 let latestStudioArtifactId = null;    // same, Studio view
 let galleryItems = [];                // cached list for modal lookup
 let modalArtifact = null;             // currently-open gallery item
+let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
 
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
@@ -121,6 +122,7 @@ async function captureViewport() {
             el.previewImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
             el.previewImage.style.display = "";
             el.previewPlaceholder.classList.add("hidden");
+            applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect);
             hideStatus();
         } else {
             showStatus("Capture produced no artifact.", "error");
@@ -187,8 +189,9 @@ async function generateImage() {
             prompt,
             input_image_path: sourcePath,
             resolution: el.resolutionSelect.value,
-            aspect_ratio: el.aspectSelect.value,
         };
+        const aspectRatio = selectedAspectRatio(el.aspectSelect);
+        if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.modelSelect.value) args.model = el.modelSelect.value;
         if (generateReferences.length > 0) {
             args.reference_image_paths = generateReferences.map(r => r.path);
@@ -243,6 +246,87 @@ function renderReferencePreview(list, container) {
     });
 }
 
+// ─── Framing helpers ───────────────────────────────────────────────
+
+function selectedAspectRatio(selectEl) {
+    if (!selectEl) return null;
+    const value = selectEl.value || "auto";
+    return value === "auto" ? null : value;
+}
+
+function parseRatio(value) {
+    if (!value || value === "auto") return null;
+    const parts = String(value).split(":");
+    if (parts.length !== 2) return null;
+    const width = Number(parts[0]);
+    const height = Number(parts[1]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    return {
+        aspect: `${width} / ${height}`,
+        widthCap: `${Math.max(1, (width / height) * 520)}px`,
+    };
+}
+
+function setPreviewAspect(container, ratio) {
+    container.style.setProperty("--preview-aspect", ratio.aspect);
+    container.style.setProperty("--preview-width-cap", ratio.widthCap);
+}
+
+function applyImageAspect(container, imageEl) {
+    if (!container || !imageEl || !imageEl.naturalWidth || !imageEl.naturalHeight) return;
+    setPreviewAspect(container, {
+        aspect: `${imageEl.naturalWidth} / ${imageEl.naturalHeight}`,
+        widthCap: `${Math.max(1, (imageEl.naturalWidth / imageEl.naturalHeight) * 520)}px`,
+    });
+}
+
+function applySelectedOutputAspect(container, imageEl, selectEl) {
+    if (!container) return;
+    const explicit = parseRatio(selectedAspectRatio(selectEl));
+    if (explicit) {
+        setPreviewAspect(container, explicit);
+        return;
+    }
+    applyImageAspect(container, imageEl);
+}
+
+function refreshPreviewFraming() {
+    applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect);
+    applySelectedOutputAspect(
+        el.studioSourceContainer,
+        el.studioSourceImage,
+        el.studioAspectSelect);
+}
+
+function supportedResolutionsForSelectedModel(selectEl) {
+    const selected = selectEl && selectEl.value;
+    const entry = modelCatalog.find(m => m.short_name === selected);
+    if (entry && Array.isArray(entry.supported_resolutions) && entry.supported_resolutions.length > 0) {
+        return entry.supported_resolutions;
+    }
+    return ["1K", "2K", "4K"];
+}
+
+function populateResolutionSelect(selectEl, values) {
+    if (!selectEl) return;
+    const previous = selectEl.value || "1K";
+    selectEl.innerHTML = values
+        .map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`)
+        .join("");
+    selectEl.value = values.includes(previous) ? previous : "1K";
+}
+
+function syncResolutionOptions() {
+    populateResolutionSelect(
+        el.resolutionSelect,
+        supportedResolutionsForSelectedModel(el.modelSelect));
+    populateResolutionSelect(
+        el.studioResolutionSelect,
+        supportedResolutionsForSelectedModel(el.studioModelSelect));
+}
+
 // ─── Studio View ──────────────────────────────────────────────────
 
 async function studioLoadImage() {
@@ -295,9 +379,17 @@ function applyStudioSource(src) {
     if (src.previewSrc) {
         el.studioSourceImage.src = src.previewSrc;
         el.studioSourcePlaceholder.classList.add("hidden");
+        applySelectedOutputAspect(
+            el.studioSourceContainer,
+            el.studioSourceImage,
+            el.studioAspectSelect);
     } else {
         el.studioSourceImage.src = "";
         el.studioSourcePlaceholder.classList.remove("hidden");
+        if (el.studioSourceContainer) {
+            el.studioSourceContainer.style.removeProperty("--preview-aspect");
+            el.studioSourceContainer.style.removeProperty("--preview-width-cap");
+        }
     }
     if (el.studioSourceLabel) {
         if (src.label) {
@@ -313,6 +405,10 @@ function clearStudioSource() {
     studioSource = null;
     el.studioSourceImage.src = "";
     el.studioSourcePlaceholder.classList.remove("hidden");
+    if (el.studioSourceContainer) {
+        el.studioSourceContainer.style.removeProperty("--preview-aspect");
+        el.studioSourceContainer.style.removeProperty("--preview-width-cap");
+    }
     if (el.studioSourceLabel) {
         el.studioSourceLabel.textContent = "";
         el.studioSourceLabel.classList.add("hidden");
@@ -366,8 +462,9 @@ async function studioGenerate() {
             prompt,
             input_image_path: studioSource.path,
             resolution: el.studioResolutionSelect.value,
-            aspect_ratio: el.studioAspectSelect.value,
         };
+        const aspectRatio = selectedAspectRatio(el.studioAspectSelect);
+        if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.studioModelSelect.value) args.model = el.studioModelSelect.value;
         if (studioReferences.length > 0) {
             args.reference_image_paths = studioReferences.map(r => r.path);
@@ -539,6 +636,7 @@ async function loadSettingsOverview() {
         // than wiping them — that mistake was PR-7b's original "only
         // one option" bug.
         if (Array.isArray(data.available_models) && data.available_models.length > 0) {
+            modelCatalog = data.available_models;
             const modelOptions = data.available_models.map(m => {
                 const shortName = m.short_name || "";
                 const label = m.label || shortName;
@@ -548,6 +646,7 @@ async function loadSettingsOverview() {
             }).join("");
             if (el.modelSelect) el.modelSelect.innerHTML = modelOptions;
             if (el.studioModelSelect) el.studioModelSelect.innerHTML = modelOptions;
+            syncResolutionOptions();
         } else if (data.default_model) {
             // Server returned no catalog but did give a default — select
             // that option in the existing dropdown if it's there, else
@@ -563,13 +662,14 @@ async function loadSettingsOverview() {
             };
             pickDefault(el.modelSelect);
             pickDefault(el.studioModelSelect);
+            syncResolutionOptions();
         }
 
-        // Populate resolution dropdowns with allowed values.
-        const allowed = data.allowed_resolutions || ["1K", "2K", "4K"];
-        const resOptions = allowed.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join("");
-        if (el.resolutionSelect) el.resolutionSelect.innerHTML = resOptions;
-        if (el.studioResolutionSelect) el.studioResolutionSelect.innerHTML = resOptions;
+        if (modelCatalog.length === 0) {
+            const allowed = data.allowed_resolutions || ["1K", "2K", "4K"];
+            populateResolutionSelect(el.resolutionSelect, allowed);
+            populateResolutionSelect(el.studioResolutionSelect, allowed);
+        }
     } catch (e) {
         el.apiKeyStatus.textContent = e.message;
         el.apiKeyStatus.className = "status-indicator error";
@@ -672,6 +772,7 @@ function init() {
 
     // Generate
     el.viewportSelect = $("viewport-select");
+    el.previewContainer = document.querySelector(".preview-container");
     el.previewImage = $("preview-image");
     el.previewPlaceholder = $("preview-placeholder");
     el.captureBtn = $("capture-btn");
@@ -696,6 +797,7 @@ function init() {
     el.clearReferencesBtn = $("clear-references");
 
     // Studio
+    el.studioSourceContainer = document.querySelector(".source-preview-container");
     el.studioSourceImage = $("studio-source-image");
     el.studioSourcePlaceholder = $("studio-source-placeholder");
     el.studioSourceLabel = $("studio-source-label");
@@ -751,6 +853,10 @@ function init() {
 
     el.captureBtn.addEventListener("click", captureViewport);
     el.viewportSelect.addEventListener("change", captureViewport);
+    el.previewImage.addEventListener("load", () =>
+        applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect));
+    el.aspectSelect.addEventListener("change", refreshPreviewFraming);
+    el.modelSelect.addEventListener("change", syncResolutionOptions);
     el.enhanceBtn.addEventListener("click", enhancePrompt);
     el.generateBtn.addEventListener("click", generateImage);
     el.newBtn.addEventListener("click", () => {
@@ -770,6 +876,13 @@ function init() {
     el.studioUploadBtn.addEventListener("click", studioLoadImage);
     el.studioCaptureDepthBtn.addEventListener("click", studioCaptureDepth);
     el.studioClearSourceBtn.addEventListener("click", clearStudioSource);
+    el.studioSourceImage.addEventListener("load", () =>
+        applySelectedOutputAspect(
+            el.studioSourceContainer,
+            el.studioSourceImage,
+            el.studioAspectSelect));
+    el.studioAspectSelect.addEventListener("change", refreshPreviewFraming);
+    el.studioModelSelect.addEventListener("change", syncResolutionOptions);
     el.studioEnhanceBtn.addEventListener("click", studioEnhancePrompt);
     el.studioGenerateBtn.addEventListener("click", studioGenerate);
     el.studioApproveBtn.addEventListener("click", () => approveCurrentArtifact(latestStudioArtifactId));

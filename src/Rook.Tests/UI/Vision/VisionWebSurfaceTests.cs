@@ -264,6 +264,69 @@ namespace Rook.Tests.UI.Vision
             Assert.False(VisionWebSurface.OpRoutes.ContainsKey("GENERATE"));
         }
 
+        // ─── Embedded Vision resources ────────────────────────────────
+
+        [Fact]
+        public void IndexHtml_AspectDropdowns_DefaultToAutoAndExposeApiRatios()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.True(
+                CountOccurrences(html, "<option value=\"auto\" selected>Auto</option>") >= 2,
+                "Generate and Studio aspect dropdowns should both default to Auto.");
+
+            foreach (var ratio in new[]
+            {
+                "1:1", "1:4", "4:1", "1:8", "8:1",
+                "2:3", "3:2", "3:4", "4:3", "4:5", "5:4",
+                "9:16", "16:9", "21:9",
+            })
+            {
+                Assert.Contains($"<option value=\"{ratio}\">{ratio}</option>", html);
+            }
+        }
+
+        [Fact]
+        public void IndexHtml_DefaultResolutionDropdowns_Expose512ForDefaultModelFallback()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.True(
+                CountOccurrences(html, "<option value=\"512\">512</option>") >= 2,
+                "Generate and Studio fallback resolution dropdowns should expose 512 for the embedded default model.");
+            Assert.True(
+                CountOccurrences(html, "<option value=\"1K\" selected>1K</option>") >= 2,
+                "512 should be optional, not the static fallback default.");
+        }
+
+        [Fact]
+        public void AppJs_AutoAspect_OmitsAspectRatioFromGeneratePayload()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function selectedAspectRatio", js);
+            Assert.Contains("if (aspectRatio) args.aspect_ratio = aspectRatio;", js);
+            Assert.DoesNotContain("aspect_ratio: el.aspectSelect.value", js);
+            Assert.DoesNotContain("aspect_ratio: el.studioAspectSelect.value", js);
+        }
+
+        [Fact]
+        public void AppJs_UpdatesPreviewFrameFromImageAndAspectSelection()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("function applyImageAspect", js);
+            Assert.Contains("function applySelectedOutputAspect", js);
+            Assert.Contains("function parseRatio", js);
+            Assert.Contains("--preview-width-cap", js);
+            Assert.Contains("removeProperty(\"--preview-width-cap\")", js);
+        }
+
+        [Fact]
+        public void StylesCss_StudioPreviewFrame_AllowsExtremeRatios()
+        {
+            var css = ReadVisionResource("styles.css");
+            Assert.Contains("max-width: min(100%, var(--preview-width-cap, 100%));", css);
+            Assert.DoesNotContain("max-height: 520px;", css);
+            Assert.DoesNotContain("min-height: 300px;\r\n    display: flex;\r\n    align-items: center;\r\n    justify-content: center;\r\n}", css);
+        }
+
         // ─── PeekOp ───────────────────────────────────────────────────
 
         [Fact]
@@ -559,6 +622,28 @@ namespace Rook.Tests.UI.Vision
                 new Uri($"https://app.rook.invalid/blob/{artifact.Id:D}/IMAGE"));
             Assert.NotNull(resource);
             Assert.Equal(404, resource!.StatusCode);
+        }
+
+        private static string ReadVisionResource(string fileName)
+        {
+            var asm = typeof(VisionWebSurface).Assembly;
+            var resourceName = "Rook.UI.Vision.Resources." + fileName;
+            using var stream = asm.GetManifestResourceStream(resourceName);
+            Assert.NotNull(stream);
+            using var reader = new StreamReader(stream!);
+            return reader.ReadToEnd();
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            int count = 0;
+            int index = 0;
+            while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+            return count;
         }
     }
 }

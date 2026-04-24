@@ -46,11 +46,17 @@ namespace Rook.UI.Vision
         {
             if (_closed) return;
             _closed = true;
-            // v1: no long-lived resources held by the surface (WebView
-            // disposal is Eto's job on panel dispose). Hook kept as the
-            // documented disposal seam so future additions — in-flight
-            // generation cancellation, background pollers, picker-issued
-            // temp tokens — have a home.
+            Content = null;
+            _surface.Dispose();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                OnTabClosed();
+            }
+            base.Dispose(disposing);
         }
     }
 }

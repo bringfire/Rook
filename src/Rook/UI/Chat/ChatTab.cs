@@ -32,6 +32,7 @@ namespace Rook.UI.Chat
 
         // ─── State ────────────────────────────────────────────────────
         private bool _isProcessing;
+        private bool _tabClosed;
 
         // ─── Public properties ────────────────────────────────────────
 
@@ -61,10 +62,11 @@ namespace Rook.UI.Chat
 
         /// <summary>
         /// Called when the tab is removed from the tab strip. Override to
-        /// release resources. The default implementation does nothing.
+        /// release resources. Safe to call multiple times.
         /// </summary>
         public virtual void OnTabClosed()
         {
+            CloseWebSurface();
         }
 
         /// <summary>
@@ -159,6 +161,28 @@ namespace Rook.UI.Chat
         protected void ExecuteScript(string script)
         {
             _webSurface.ExecuteScript(script);
+        }
+
+        /// <summary>
+        /// Releases the shared WebView substrate. Subclass close handlers
+        /// call this before their own resource cleanup.
+        /// </summary>
+        protected bool CloseWebSurface()
+        {
+            if (_tabClosed) return false;
+            _tabClosed = true;
+            Content = null;
+            _webSurface.Dispose();
+            return true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                OnTabClosed();
+            }
+            base.Dispose(disposing);
         }
 
         /// <summary>

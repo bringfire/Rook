@@ -223,6 +223,28 @@ namespace Rook.Tests.UI.Web
             Assert.False(s.IsBridgeAvailable);
         }
 
+        // ─── Disposal contract ───────────────────────────────────────
+
+        [Fact]
+        public void RookWebSurface_ImplementsDisposable()
+        {
+            var s = new DefaultSurface();
+
+            Assert.IsAssignableFrom<IDisposable>(s);
+        }
+
+        [Fact]
+        public void Dispose_IsIdempotent_AndMarksSurfaceDisposed()
+        {
+            var s = new DefaultSurface();
+            Assert.False(s.IsDisposed);
+
+            s.Dispose();
+            s.Dispose();
+
+            Assert.True(s.IsDisposed);
+        }
+
         // ─── RegisterBridgeHandler delegation ────────────────────────
 
         [Fact]
