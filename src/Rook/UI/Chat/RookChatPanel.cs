@@ -211,6 +211,22 @@ namespace Rook.UI.Chat
             AddPanelTab(VisionTabLabel, tab, tab.OnTabClosed);
         }
 
+        private static void RecoverVisionSurfaceAfterPanelShown(
+            TabControl tabControl,
+            ShowPanelReason reason)
+        {
+            foreach (var page in tabControl.Pages)
+            {
+                if (!string.Equals(page.Text, VisionTabLabel, StringComparison.Ordinal))
+                    continue;
+
+                if (page.Content is VisionTab visionTab)
+                {
+                    visionTab.RecoverAfterHostActivation(reason.ToString());
+                }
+            }
+        }
+
         /// <summary>
         /// Build a <see cref="TabPage"/> wrapping an arbitrary <see cref="Panel"/>
         /// with an optional cleanup callback. The callback is invoked
@@ -320,6 +336,11 @@ namespace Rook.UI.Chat
             {
                 AddAgentTab("architect", "Architect", Color.FromArgb(0xc0, 0x84, 0xfc));
             }
+
+            if (PanelShowReasonRecovery.ShouldRecoverVisionSurface(reason.ToString()))
+            {
+                RecoverVisionSurfaceAfterPanelShown(tabControl, reason);
+            }
         }
 
         /// <summary>
@@ -360,6 +381,15 @@ namespace Rook.UI.Chat
             }
 
             base.Dispose(disposing);
+        }
+    }
+
+    internal static class PanelShowReasonRecovery
+    {
+        public static bool ShouldRecoverVisionSurface(string reason)
+        {
+            return string.Equals(reason, "Show", StringComparison.Ordinal) ||
+                   string.Equals(reason, "ShowOnDeactivate", StringComparison.Ordinal);
         }
     }
 }
