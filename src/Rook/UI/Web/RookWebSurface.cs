@@ -200,6 +200,71 @@ namespace Rook.UI.Web
         /// </summary>
         public bool IsBridgeAvailable { get; private set; }
 
+        internal enum ProcessFailureRecoveryAction
+        {
+            LogOnly,
+            Reload,
+            RecreateRequired,
+        }
+
+        internal static ProcessFailureRecoveryAction ClassifyProcessFailure(string processFailedKind)
+        {
+            return processFailedKind switch
+            {
+                "RenderProcessExited" => ProcessFailureRecoveryAction.Reload,
+                "BrowserProcessExited" => ProcessFailureRecoveryAction.RecreateRequired,
+                _ => ProcessFailureRecoveryAction.LogOnly,
+            };
+        }
+
+        internal void ReloadAfterHostActivation(string reason)
+        {
+            if (_disposed)
+                return;
+
+            _webViewReady = false;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    if (_disposed || _webView == null)
+                        return;
+
+                    try
+                    {
+#if NET7_0_OR_GREATER
+                        if (_coreWebView2 != null)
+                        {
+                            _coreWebView2.Reload();
+                        }
+                        else
+#endif
+                        {
+                            _webView.Reload();
+                        }
+
+                        Log($"Rook: WebView reload requested after host activation for surface " +
+                            $"'{ResourceRoot}' (reason={reason})");
+                    }
+                    catch (Exception reloadEx)
+                    {
+                        Log($"Rook: WebView host-activation reload failed: {reloadEx.Message}");
+#if NET7_0_OR_GREATER
+                        if (_coreWebView2 != null)
+                        {
+                            TryRenavigateAfterReloadFailure(_coreWebView2);
+                        }
+#endif
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView host-activation reload dispatch failed: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// Register a typed bridge handler keyed on a method name. Stored
         /// immediately; only fires once the bridge comes up. Call from the
@@ -477,6 +542,7 @@ namespace Rook.UI.Web
                 // Wire bridge BEFORE script injection so the shim's receiver
                 // is connected before any page script can post.
                 coreWebView2.WebMessageReceived += OnWebMessageReceived;
+                coreWebView2.ProcessFailed += OnWebViewProcessFailed;
                 _coreWebView2 = coreWebView2;
 
                 // Inject document-creation scripts in the locked order:
@@ -501,6 +567,80 @@ namespace Rook.UI.Web
                 RhinoApp.WriteLine($"Rook: virtual host navigation failed: {ex.Message}");
                 IsBridgeAvailable = false;
                 Application.Instance.Invoke(() => _webView?.LoadHtml(MinimalFallbackHtml));
+            }
+        }
+
+        private void OnWebViewProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+        {
+            if (_disposed) return;
+
+            var kind = e.ProcessFailedKind.ToString();
+            var action = ClassifyProcessFailure(kind);
+            Log("Rook: WebView2 process failure on surface " +
+                $"'{ResourceRoot}': kind={kind}, reason={e.Reason}, " +
+                $"exitCode={e.ExitCode}, description='{e.ProcessDescription}', " +
+                $"recovery={action}");
+
+            switch (action)
+            {
+                case ProcessFailureRecoveryAction.Reload:
+                    ReloadAfterRendererExit(sender as CoreWebView2);
+                    break;
+                case ProcessFailureRecoveryAction.RecreateRequired:
+                    _webViewReady = false;
+                    IsBridgeAvailable = false;
+                    Log("Rook: WebView2 browser process exited; close and reopen the " +
+                        "Rook panel if the surface does not recover.");
+                    break;
+            }
+        }
+
+        private void ReloadAfterRendererExit(CoreWebView2? eventCore)
+        {
+            _webViewReady = false;
+
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    if (_disposed) return;
+
+                    var core = eventCore ?? _coreWebView2;
+                    if (core == null)
+                    {
+                        Log("Rook: WebView2 renderer reload skipped; CoreWebView2 is unavailable");
+                        return;
+                    }
+
+                    try
+                    {
+                        core.Reload();
+                        Log($"Rook: WebView2 renderer reload requested for surface '{ResourceRoot}'");
+                    }
+                    catch (Exception reloadEx)
+                    {
+                        Log($"Rook: WebView2 renderer reload failed: {reloadEx.Message}");
+                        TryRenavigateAfterReloadFailure(core);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"Rook: WebView2 renderer reload dispatch failed: {ex.Message}");
+            }
+        }
+
+        private void TryRenavigateAfterReloadFailure(CoreWebView2 core)
+        {
+            try
+            {
+                core.Navigate($"{VirtualHostOrigin}/{EntryPage}");
+                Log($"Rook: WebView2 renderer re-navigation requested for surface '{ResourceRoot}'");
+            }
+            catch (Exception navEx)
+            {
+                Log("Rook: WebView2 renderer recovery failed; close and reopen the " +
+                    $"Rook panel to recover. Details: {navEx.Message}");
             }
         }
 
@@ -654,6 +794,8 @@ namespace Rook.UI.Web
                 try { _coreWebView2.WebResourceRequested -= OnWebResourceRequested; }
                 catch { }
                 try { _coreWebView2.WebMessageReceived -= OnWebMessageReceived; }
+                catch { }
+                try { _coreWebView2.ProcessFailed -= OnWebViewProcessFailed; }
                 catch { }
                 _coreWebView2 = null;
             }

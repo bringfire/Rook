@@ -223,6 +223,27 @@ namespace Rook.Tests.UI.Web
             Assert.False(s.IsBridgeAvailable);
         }
 
+        // ─── WebView2 process-failure recovery ──────────────────────
+
+        [Theory]
+        [InlineData("RenderProcessExited", "Reload")]
+        [InlineData("RenderProcessUnresponsive", "LogOnly")]
+        [InlineData("BrowserProcessExited", "RecreateRequired")]
+        [InlineData("FrameRenderProcessExited", "LogOnly")]
+        [InlineData("GpuProcessExited", "LogOnly")]
+        [InlineData("UtilityProcessExited", "LogOnly")]
+        [InlineData("UnknownProcessExited", "LogOnly")]
+        public void ClassifyProcessFailure_MapsWebView2KindsToRecoveryAction(
+            string processFailedKind,
+            string expectedName)
+        {
+            var expected = (RookWebSurface.ProcessFailureRecoveryAction)Enum.Parse(
+                typeof(RookWebSurface.ProcessFailureRecoveryAction),
+                expectedName);
+
+            Assert.Equal(expected, RookWebSurface.ClassifyProcessFailure(processFailedKind));
+        }
+
         // ─── Disposal contract ───────────────────────────────────────
 
         [Fact]

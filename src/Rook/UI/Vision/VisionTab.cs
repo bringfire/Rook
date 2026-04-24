@@ -36,6 +36,12 @@ namespace Rook.UI.Vision
             Content = _surface.CreateWebContent();
         }
 
+        internal void RecoverAfterHostActivation(string reason)
+        {
+            if (_closed) return;
+            _surface.ReloadAfterHostActivation(reason);
+        }
+
         /// <summary>
         /// Cleanup callback passed to <c>RookChatPanel.AddPanelTab</c>.
         /// Fires exactly once thanks to
