@@ -761,6 +761,7 @@ namespace Rook.UI.Web
             if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)) return "application/javascript; charset=utf-8";
             if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return "application/json; charset=utf-8";
             if (path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase)) return "font/woff2";
+            if (path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)) return "image/svg+xml";
             return "application/octet-stream";
         }
 

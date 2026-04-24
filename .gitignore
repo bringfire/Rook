@@ -120,6 +120,7 @@ injection_capture.jsonl
 *.psd
 !docs/Images/Rook_02.png
 !installer/rook-icon.ico
+!src/Rook/UI/Vision/Resources/rook-logo.svg
 
 # Temporary files
 nul
