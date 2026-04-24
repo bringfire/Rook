@@ -607,10 +607,10 @@ function Step-BuildCompanion {
         } else {
             $built48 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net48\Rook.rhp"
             $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
-            if (Test-Path $built48) {
-                $Summary.planned_actions += "Reuse existing companion net48 build at $built48"
-            } elseif (Test-Path $built70) {
+            if (Test-Path $built70) {
                 $Summary.planned_actions += "Reuse existing companion net7.0 build at $built70"
+            } elseif (Test-Path $built48) {
+                $Summary.planned_actions += "Reuse existing companion net48 build at $built48"
             } else {
                 $Summary.planned_actions += "Build companion C# plugin via dotnet build src/Rook -c Release"
             }
@@ -634,16 +634,16 @@ function Step-BuildCompanion {
     $built48 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net48\Rook.rhp"
     $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
 
-    if (Test-Path $built48) {
-        Write-Host "      [OK] Companion already built (net48)" -ForegroundColor Green
-        $Context.CompanionBuildDir = Split-Path -Parent $built48
+    if (Test-Path $built70) {
+        Write-Host "      [OK] Companion already built (net7.0)" -ForegroundColor Green
+        $Context.CompanionBuildDir = Split-Path -Parent $built70
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         return
     }
-    if (Test-Path $built70) {
-        Write-Host "      [OK] Companion already built (net7.0)" -ForegroundColor Green
-        $Context.CompanionBuildDir = Split-Path -Parent $built70
+    if (Test-Path $built48) {
+        Write-Host "      [OK] Companion already built (net48)" -ForegroundColor Green
+        $Context.CompanionBuildDir = Split-Path -Parent $built48
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         return
@@ -675,16 +675,16 @@ function Step-BuildCompanion {
         }
     }
 
-    if (Test-Path $built48) {
-        $Context.CompanionBuildDir = Split-Path -Parent $built48
-        $Summary.steps.companion.built = $true
-        $Summary.steps.companion.state = "completed"
-        Write-Host "      [OK] Companion built successfully (net48)" -ForegroundColor Green
-    } elseif (Test-Path $built70) {
+    if (Test-Path $built70) {
         $Context.CompanionBuildDir = Split-Path -Parent $built70
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         Write-Host "      [OK] Companion built successfully (net7.0)" -ForegroundColor Green
+    } elseif (Test-Path $built48) {
+        $Context.CompanionBuildDir = Split-Path -Parent $built48
+        $Summary.steps.companion.built = $true
+        $Summary.steps.companion.state = "completed"
+        Write-Host "      [OK] Companion built successfully (net48)" -ForegroundColor Green
     } else {
         Add-InstallError -Summary $Summary -Code "companion.build_failed" `
             -Message "Build reported success but output not found." `

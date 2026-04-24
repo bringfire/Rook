@@ -62,6 +62,41 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Models_AvailableCatalog_AdvertisesModelSpecificResolutions()
+        {
+            var byShortName = GeminiClient.Models.AvailableModels
+                .ToDictionary(m => (string)m["short_name"]!);
+
+            var flashResolutions = Assert.IsAssignableFrom<IEnumerable<string>>(
+                byShortName["nano-banana-2"]["supported_resolutions"]);
+            Assert.Contains("512", flashResolutions);
+            Assert.Contains("1K", flashResolutions);
+            Assert.Contains("2K", flashResolutions);
+            Assert.Contains("4K", flashResolutions);
+
+            var proResolutions = Assert.IsAssignableFrom<IEnumerable<string>>(
+                byShortName["nano-banana-pro"]["supported_resolutions"]);
+            Assert.DoesNotContain("512", proResolutions);
+            Assert.Contains("1K", proResolutions);
+            Assert.Contains("2K", proResolutions);
+            Assert.Contains("4K", proResolutions);
+        }
+
+        [Fact]
+        public void Models_ResolutionMetadata_SeparatesCommonFromModelSpecificValues()
+        {
+            Assert.Equal(new[] { "1K", "2K", "4K" }, VisionHandler.CommonResolutions);
+
+            var byModel = VisionHandler.SupportedResolutionsByModelShortName();
+            Assert.Equal(
+                new[] { "512", "1K", "2K", "4K" },
+                byModel["nano-banana-2"]);
+            Assert.Equal(
+                new[] { "1K", "2K", "4K" },
+                byModel["nano-banana-pro"]);
+        }
+
+        [Fact]
         public void Models_AvailableCatalog_DoesNotExposeFreeTier()
         {
             // Regression: free-tier models are deliberately NOT exposed
@@ -160,6 +195,7 @@ namespace Rook.Tests.Handlers
         // ─── Resolution validation ──────────────────────────────────────
 
         [Theory]
+        [InlineData("512")]
         [InlineData("1K")]
         [InlineData("2K")]
         [InlineData("4K")]
@@ -169,6 +205,16 @@ namespace Rook.Tests.Handlers
         public void ValidateResolution_AllowedValues_NoThrow(string resolution)
         {
             VisionHandler.ValidateResolution(resolution);
+        }
+
+        [Fact]
+        public void ValidateResolution_512RejectedForNanoBananaPro()
+        {
+            var ex = Assert.Throws<ArgumentException>(
+                () => VisionHandler.ValidateResolution(
+                    "512", GeminiClient.Models.NanoBananaPro));
+            Assert.Contains("resolution", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("nano-banana-pro", ex.Message);
         }
 
         [Theory]
@@ -181,6 +227,79 @@ namespace Rook.Tests.Handlers
             var ex = Assert.Throws<ArgumentException>(
                 () => VisionHandler.ValidateResolution(resolution));
             Assert.Contains("resolution", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ─── Aspect-ratio validation / normalization ───────────────────
+
+        [Fact]
+        public void AllowedAspectRatios_MatchesGeminiApiList()
+        {
+            Assert.Equal(
+                new[]
+                {
+                    "1:1", "1:4", "4:1", "1:8", "8:1",
+                    "2:3", "3:2", "3:4", "4:3", "4:5", "5:4",
+                    "9:16", "16:9", "21:9",
+                },
+                VisionHandler.AllowedAspectRatios);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("auto")]
+        [InlineData("AUTO")]
+        [InlineData("current")]
+        public void NormalizeAspectRatio_AutoValues_ReturnNull(string? raw)
+        {
+            Assert.Null(VisionHandler.NormalizeAspectRatio(raw));
+        }
+
+        [Theory]
+        [InlineData("1:1")]
+        [InlineData("1:4")]
+        [InlineData("4:1")]
+        [InlineData("1:8")]
+        [InlineData("8:1")]
+        [InlineData("2:3")]
+        [InlineData("3:2")]
+        [InlineData("3:4")]
+        [InlineData("4:3")]
+        [InlineData("4:5")]
+        [InlineData("5:4")]
+        [InlineData("9:16")]
+        [InlineData("16:9")]
+        [InlineData("21:9")]
+        public void NormalizeAspectRatio_SupportedValues_ReturnRaw(string ratio)
+        {
+            Assert.Equal(ratio, VisionHandler.NormalizeAspectRatio(ratio));
+        }
+
+        [Theory]
+        [InlineData("5:7")]
+        [InlineData("square")]
+        [InlineData("16/9")]
+        public void NormalizeAspectRatio_UnsupportedValues_Throw(string ratio)
+        {
+            var ex = Assert.Throws<ArgumentException>(
+                () => VisionHandler.NormalizeAspectRatio(ratio));
+            Assert.Contains("aspect_ratio", ex.Message);
+        }
+
+        [Fact]
+        public void GeminiBuildImageConfig_AutoAspect_OmitsAspectRatio()
+        {
+            var config = GeminiClient.BuildImageConfig("1K", null);
+            Assert.Equal("1K", config["imageSize"]);
+            Assert.False(config.ContainsKey("aspectRatio"));
+        }
+
+        [Fact]
+        public void GeminiBuildImageConfig_ExplicitAspect_IncludesAspectRatio()
+        {
+            var config = GeminiClient.BuildImageConfig("512", "16:9");
+            Assert.Equal("512", config["imageSize"]);
+            Assert.Equal("16:9", config["aspectRatio"]);
         }
 
         // ─── GenericizeProviderError: no secret leakage ─────────────────

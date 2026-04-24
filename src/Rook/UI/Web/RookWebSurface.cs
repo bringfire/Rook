@@ -26,7 +26,7 @@ namespace Rook.UI.Web
     /// Subclasses declare their resource root and entry page.
     /// The substrate owns the security boundary; modules own the content.
     /// </summary>
-    public abstract class RookWebSurface
+    public abstract class RookWebSurface : IDisposable
     {
         // ─── Virtual host ─────────────────────────────────────────────
         internal const string VirtualHostName = "app.rook.invalid";
@@ -44,6 +44,8 @@ namespace Rook.UI.Web
         // ─── WebView state ────────────────────────────────────────────
         private WebView? _webView;
         private bool _webViewReady;
+        private bool _disposed;
+        private Action? _disposeWebView;
         private readonly List<string> _pendingScripts = new();
 
         // ─── Bridge state ─────────────────────────────────────────────
@@ -51,6 +53,9 @@ namespace Rook.UI.Web
         private bool _bridgeUnavailableSignaled;
 #if NET7_0_OR_GREATER
         private CoreWebView2? _coreWebView2;
+        private object? _nativeControlWithInitHandler;
+        private EventInfo? _initEvent;
+        private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -183,6 +188,11 @@ namespace Rook.UI.Web
         public bool IsWebViewReady => _webViewReady;
 
         /// <summary>
+        /// True after the surface has released WebView resources.
+        /// </summary>
+        public bool IsDisposed => _disposed;
+
+        /// <summary>
         /// Whether the JS↔C# bridge is wired and operational. Set after
         /// WebView2 initialization completes (success or failure).
         /// Returns false on net48 fallback, on WebView2 init failure, and
@@ -207,10 +217,14 @@ namespace Rook.UI.Web
         /// </summary>
         public Control CreateWebContent()
         {
+            if (_disposed)
+                throw new ObjectDisposedException(GetType().Name);
+
             try
             {
                 _webView = new WebView();
                 _webView.DocumentLoaded += OnDocumentLoaded;
+                _disposeWebView = DisposeWebView;
 
 #if NET7_0_OR_GREATER
                 if (TrySetupVirtualHost())
@@ -235,7 +249,7 @@ namespace Rook.UI.Web
         /// </summary>
         public void ExecuteScript(string script)
         {
-            if (_webView == null)
+            if (_disposed || _webView == null)
                 return;
 
             if (!_webViewReady)
@@ -276,6 +290,8 @@ namespace Rook.UI.Web
 
         private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e)
         {
+            if (_disposed) return;
+
             // Flush buffered scripts BEFORE marking ready, so any
             // ExecuteScript call arriving during the flush still queues
             // behind the buffer rather than overtaking it.
@@ -410,6 +426,13 @@ namespace Rook.UI.Web
                 handler = (sender, args) =>
                 {
                     initEvent.RemoveEventHandler(nativeControl, handler);
+                    if (ReferenceEquals(_initHandler, handler))
+                    {
+                        _initEvent = null;
+                        _initHandler = null;
+                        _nativeControlWithInitHandler = null;
+                    }
+                    if (_disposed) return;
                     if (args.IsSuccess)
                     {
                         coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
@@ -422,6 +445,9 @@ namespace Rook.UI.Web
                         Application.Instance.Invoke(() => _webView?.LoadHtml(MinimalFallbackHtml));
                     }
                 };
+                _nativeControlWithInitHandler = nativeControl;
+                _initEvent = initEvent;
+                _initHandler = handler;
                 initEvent.AddEventHandler(nativeControl, handler);
 
                 var ensureMethod = nativeControl.GetType().GetMethod("EnsureCoreWebView2Async",
@@ -441,6 +467,8 @@ namespace Rook.UI.Web
         {
             try
             {
+                if (_disposed) return;
+
                 coreWebView2.AddWebResourceRequestedFilter(
                     $"{VirtualHostOrigin}/*",
                     CoreWebView2WebResourceContext.All);
@@ -457,7 +485,10 @@ namespace Rook.UI.Web
                 {
                     if (string.IsNullOrEmpty(script)) continue;
                     await coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+                    if (_disposed) return;
                 }
+
+                if (_disposed) return;
 
                 // Bridge is operational. Settle the flag BEFORE Navigate so
                 // any post-Navigate code paths see the correct state.
@@ -476,6 +507,8 @@ namespace Rook.UI.Web
         private async void OnWebMessageReceived(
             object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            if (_disposed) return;
+
             string? incomingJson;
             try { incomingJson = e.WebMessageAsJson; }
             catch (Exception ex)
@@ -485,7 +518,7 @@ namespace Rook.UI.Web
             }
 
             var responseJson = await _dispatcher.DispatchAsync(incomingJson);
-            if (responseJson is null) return;
+            if (responseJson is null || _disposed) return;
 
             Application.Instance.Invoke(() =>
             {
@@ -499,6 +532,8 @@ namespace Rook.UI.Web
 
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
+            if (_disposed) return;
+
             var uri = new Uri(e.Request.Uri);
             if (!uri.Host.Equals(VirtualHostName, StringComparison.OrdinalIgnoreCase))
                 return;
@@ -590,5 +625,56 @@ namespace Rook.UI.Web
         }
 
 #endif
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (!disposing) return;
+
+#if NET7_0_OR_GREATER
+            if (_initEvent != null && _nativeControlWithInitHandler != null && _initHandler != null)
+            {
+                try { _initEvent.RemoveEventHandler(_nativeControlWithInitHandler, _initHandler); }
+                catch { }
+            }
+            _initEvent = null;
+            _initHandler = null;
+            _nativeControlWithInitHandler = null;
+
+            if (_coreWebView2 != null)
+            {
+                try { _coreWebView2.WebResourceRequested -= OnWebResourceRequested; }
+                catch { }
+                try { _coreWebView2.WebMessageReceived -= OnWebMessageReceived; }
+                catch { }
+                _coreWebView2 = null;
+            }
+#endif
+
+            var disposeWebView = _disposeWebView;
+            _disposeWebView = null;
+            disposeWebView?.Invoke();
+
+            _pendingScripts.Clear();
+            _webViewReady = false;
+            IsBridgeAvailable = false;
+        }
+
+        private void DisposeWebView()
+        {
+            try { _webView!.DocumentLoaded -= OnDocumentLoaded; }
+            catch { }
+            try { _webView!.Dispose(); }
+            catch { }
+            _webView = null;
+        }
     }
 }

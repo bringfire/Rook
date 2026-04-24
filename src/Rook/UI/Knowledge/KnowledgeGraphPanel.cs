@@ -19,6 +19,7 @@ namespace Rook.UI.Knowledge
     {
         private readonly KnowledgeGraphSurface _surface;
         private uint _documentSerialNumber;
+        private bool _closed;
 
         public static Guid PanelId => typeof(KnowledgeGraphPanel).GUID;
 
@@ -73,6 +74,24 @@ namespace Rook.UI.Knowledge
 
         public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
         {
+            CloseSurface();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                CloseSurface();
+            }
+            base.Dispose(disposing);
+        }
+
+        private void CloseSurface()
+        {
+            if (_closed) return;
+            _closed = true;
+            Content = null;
+            _surface.Dispose();
         }
 
         /// <summary>

@@ -334,10 +334,8 @@ namespace Rook.UI.Chat
                 if (!entered)
                 {
                     RhinoApp.WriteLine("Rook: chat service shutdown skipped semaphore wait after timeout; proceeding with best-effort cleanup.");
-                    return;
                 }
-                StopOwnedProcess();
-                StopDiscoveredOwnedService();
+                StopServicesBestEffort();
             }
             finally
             {
@@ -1168,6 +1166,12 @@ namespace Rook.UI.Chat
                 _ownedProcess.Dispose();
                 _ownedProcess = null;
             }
+        }
+
+        private void StopServicesBestEffort()
+        {
+            StopOwnedProcess();
+            StopDiscoveredOwnedService();
         }
 
         private void StopDiscoveredOwnedService()

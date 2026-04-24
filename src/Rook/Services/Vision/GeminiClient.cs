@@ -126,12 +126,14 @@ namespace Rook.Services.Vision
                         ["short_name"] = "nano-banana-2",
                         ["label"] = "Nano Banana 2",
                         ["description"] = "Fast, high quality",
+                        ["supported_resolutions"] = new[] { "512", "1K", "2K", "4K" },
                     },
                     new Dictionary<string, object?>
                     {
                         ["short_name"] = "nano-banana-pro",
                         ["label"] = "Nano Banana Pro",
                         ["description"] = "Highest quality",
+                        ["supported_resolutions"] = new[] { "1K", "2K", "4K" },
                     },
                 };
 
@@ -156,7 +158,7 @@ namespace Rook.Services.Vision
             string[]? referenceImages = null,
             string model = Models.Default,
             string resolution = "1K",
-            string aspectRatio = "1:1",
+            string? aspectRatio = null,
             CancellationToken cancellationToken = default)
         {
             try
@@ -202,16 +204,7 @@ namespace Rook.Services.Vision
                     });
                 }
 
-                var imageConfig = new Dictionary<string, object>
-                {
-                    ["imageSize"] = resolution.ToUpperInvariant()
-                };
-
-                if (!string.IsNullOrEmpty(aspectRatio) &&
-                    !aspectRatio.Equals("current", StringComparison.OrdinalIgnoreCase))
-                {
-                    imageConfig["aspectRatio"] = aspectRatio;
-                }
+                var imageConfig = BuildImageConfig(resolution, aspectRatio);
 
                 var requestDict = new Dictionary<string, object>
                 {
@@ -327,6 +320,25 @@ namespace Rook.Services.Vision
                     GeneratedAt = DateTime.Now
                 };
             }
+        }
+
+        internal static Dictionary<string, object> BuildImageConfig(
+            string resolution,
+            string? aspectRatio)
+        {
+            var imageConfig = new Dictionary<string, object>
+            {
+                ["imageSize"] = string.IsNullOrWhiteSpace(resolution)
+                    ? "1K"
+                    : resolution.ToUpperInvariant()
+            };
+
+            if (!string.IsNullOrWhiteSpace(aspectRatio))
+            {
+                imageConfig["aspectRatio"] = aspectRatio!;
+            }
+
+            return imageConfig;
         }
 
         private (string? data, string? mimeType) ExtractImageFromResponse(GeminiResponse? response)

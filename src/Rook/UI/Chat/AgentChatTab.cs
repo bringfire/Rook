@@ -367,6 +367,9 @@ namespace Rook.UI.Chat
 
         public override void OnTabClosed()
         {
+            if (!CloseWebSurface())
+                return;
+
             if (_conversationId != null && _conversationBaseUri != null)
             {
                 _ = _client.StopAsync(_conversationBaseUri, _conversationId);
@@ -375,6 +378,7 @@ namespace Rook.UI.Chat
             }
             _cts?.Cancel();
             _cts?.Dispose();
+            _cts = null;
             _client.Dispose();
         }
     }

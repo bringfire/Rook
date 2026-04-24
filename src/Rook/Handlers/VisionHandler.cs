@@ -108,7 +108,17 @@ namespace Rook.Handlers
         internal const int MaxListLimit = 500;
 
         internal static readonly string[] AllowedResolutions =
+            { "512", "1K", "2K", "4K" };
+
+        internal static readonly string[] CommonResolutions =
             { "1K", "2K", "4K" };
+
+        internal static readonly string[] AllowedAspectRatios =
+        {
+            "1:1", "1:4", "4:1", "1:8", "8:1",
+            "2:3", "3:2", "3:4", "4:3", "4:5", "5:4",
+            "9:16", "16:9", "21:9",
+        };
 
         private readonly ArtifactStore _artifactStore;
         private readonly VisionSecretStore _secrets;
@@ -400,10 +410,13 @@ namespace Rook.Handlers
             // models at their own risk.
             var modelInput = GetStringArg(args, "model");
             var model = GeminiClient.Models.ResolveShortName(modelInput);
-            var resolution = GetStringArg(args, "resolution") ?? "1K";
-            var aspectRatio = GetStringArg(args, "aspect_ratio") ?? "1:1";
+            var resolutionInput = GetStringArg(args, "resolution");
+            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
+                ? "1K"
+                : resolutionInput!;
+            var aspectRatio = NormalizeAspectRatio(GetStringArg(args, "aspect_ratio"));
 
-            ValidateResolution(resolution);
+            ValidateResolution(resolution, model);
 
             var apiKey = _secrets.GetGeminiApiKey();
             if (string.IsNullOrEmpty(apiKey))
@@ -445,7 +458,7 @@ namespace Rook.Handlers
                 ["prompt"] = prompt,
                 ["model"] = result.Model ?? model,
                 ["resolution"] = resolution,
-                ["aspect_ratio"] = aspectRatio,
+                ["aspect_ratio"] = aspectRatio ?? "auto",
                 ["mime_type"] = mimeType,
                 ["generated_at"] = result.GeneratedAt.ToString("o"),
                 ["reference_count"] = referenceBase64?.Length ?? 0,
@@ -1266,7 +1279,12 @@ namespace Rook.Handlers
                 // models are deliberately absent — API keys can't use
                 // them, so listing them would generate only 429s.
                 ["available_models"] = GeminiClient.Models.AvailableModels,
-                ["allowed_resolutions"] = AllowedResolutions,
+                ["allowed_resolutions"] = CommonResolutions,
+                ["default_model_supported_resolutions"] =
+                    SupportedResolutionsForModel(GeminiClient.Models.Default),
+                ["supported_resolutions_by_model"] =
+                    SupportedResolutionsByModelShortName(),
+                ["allowed_aspect_ratios"] = AllowedAspectRatios,
             };
 
             try
@@ -1327,15 +1345,72 @@ namespace Rook.Handlers
         // ─── validation helpers ─────────────────────────────────────────
 
         internal static void ValidateResolution(string resolution)
+            => ValidateResolution(resolution, GeminiClient.Models.Default);
+
+        internal static void ValidateResolution(string resolution, string model)
         {
             if (string.IsNullOrEmpty(resolution)) return;
             var upper = resolution.ToUpperInvariant();
-            foreach (var allowed in AllowedResolutions)
+            var allowedResolutions = SupportedResolutionsForModel(model);
+            foreach (var allowed in allowedResolutions)
             {
                 if (upper == allowed) return;
             }
             throw new ArgumentException(
-                $"resolution must be one of: {string.Join(", ", AllowedResolutions)}.");
+                $"resolution must be one of: {string.Join(", ", allowedResolutions)} " +
+                $"for model '{ModelShortNameForMessage(model)}'.");
+        }
+
+        internal static string? NormalizeAspectRatio(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var value = raw!.Trim();
+            if (value.Equals("auto", StringComparison.OrdinalIgnoreCase)) return null;
+            if (value.Equals("current", StringComparison.OrdinalIgnoreCase)) return null;
+
+            foreach (var allowed in AllowedAspectRatios)
+            {
+                if (value == allowed) return value;
+            }
+
+            throw new ArgumentException(
+                "aspect_ratio must be 'auto' or one of: " +
+                string.Join(", ", AllowedAspectRatios) + ".");
+        }
+
+        internal static string[] SupportedResolutionsForModel(string model)
+        {
+            if (string.Equals(model, GeminiClient.Models.NanoBanana2,
+                    StringComparison.Ordinal)
+                || string.Equals(model, GeminiClient.Models.DefaultShortName,
+                    StringComparison.Ordinal))
+            {
+                return AllowedResolutions;
+            }
+
+            return new[] { "1K", "2K", "4K" };
+        }
+
+        internal static Dictionary<string, string[]> SupportedResolutionsByModelShortName()
+        {
+            return new Dictionary<string, string[]>
+            {
+                ["nano-banana-2"] =
+                    SupportedResolutionsForModel(GeminiClient.Models.NanoBanana2),
+                ["nano-banana-pro"] =
+                    SupportedResolutionsForModel(GeminiClient.Models.NanoBananaPro),
+            };
+        }
+
+        private static string ModelShortNameForMessage(string model)
+        {
+            if (string.Equals(model, GeminiClient.Models.NanoBananaPro,
+                    StringComparison.Ordinal))
+                return "nano-banana-pro";
+            if (string.Equals(model, GeminiClient.Models.NanoBanana2,
+                    StringComparison.Ordinal))
+                return "nano-banana-2";
+            return model;
         }
 
         /// <summary>

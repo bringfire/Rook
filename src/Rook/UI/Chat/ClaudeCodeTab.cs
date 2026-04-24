@@ -109,6 +109,9 @@ namespace Rook.UI.Chat
 
         public override void OnTabClosed()
         {
+            if (!CloseWebSurface())
+                return;
+
             _wrapper.Dispose();
         }
     }
