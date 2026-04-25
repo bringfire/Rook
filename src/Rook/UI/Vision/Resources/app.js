@@ -57,6 +57,7 @@ let modelCatalog = [];                 // [{ short_name, supported_resolutions, 
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
 let capturedViewport = null;          // { artifact_id, file_path, ... } | null
+let viewportOptionsByValue = new Map(); // select value -> { width, height }
 
 // ─── DOM ──────────────────────────────────────────────────────────
 
@@ -86,20 +87,54 @@ function switchView(view) {
 async function loadViewports() {
     try {
         const data = await bridgeCall("list_views");
+        viewportOptionsByValue = new Map();
+        const views = data.views || [];
+        const activeViewport = views.find(v => v && v.is_active) || views[0] || null;
+        const activeCaptureSize = activeViewport
+            && Number.isFinite(Number(activeViewport.width))
+            && Number.isFinite(Number(activeViewport.height))
+            && Number(activeViewport.width) > 0
+            && Number(activeViewport.height) > 0
+            ? {
+                width: Number(activeViewport.width),
+                height: Number(activeViewport.height),
+            }
+            : null;
+        if (activeCaptureSize) {
+            viewportOptionsByValue.set("", activeCaptureSize);
+        }
         // First entry is the "capture whatever is currently on screen"
-        // sentinel — empty value tells `captureViewport` to omit the
-        // `view_name` arg so the server-side handler skips the
-        // `TrySetStandardView` reset and captures the live camera
-        // (orbit/pan/zoom preserved). Naming a specific standard view
-        // (e.g. "Perspective") would otherwise force the projection
-        // back to its default orientation.
+        // sentinel. Open viewport entries use a stable RhinoView id so
+        // the backend captures that exact view's live camera/framing;
+        // named views keep using `view_name` because they are saved
+        // cameras, not open UI panels with their own pixel size.
         const options = ['<option value="" selected>Active view (live)</option>'];
-        (data.views || []).forEach(v => {
+        views.forEach(v => {
             const label = `${v.name} (${v.width}×${v.height})`;
-            options.push(`<option value="${escapeAttr(v.name)}">${escapeHtml(label)}</option>`);
+            const hasSize = Number.isFinite(Number(v.width))
+                && Number.isFinite(Number(v.height))
+                && Number(v.width) > 0
+                && Number(v.height) > 0;
+            const optionValue = `view:${v.id}`;
+            if (v.id && hasSize) {
+                viewportOptionsByValue.set(optionValue, {
+                    width: Number(v.width),
+                    height: Number(v.height),
+                    viewId: v.id,
+                });
+                options.push(`<option value="${escapeAttr(optionValue)}">${escapeHtml(label)}</option>`);
+            }
         });
         (data.named_views || []).forEach(v => {
-            options.push(`<option value="${escapeAttr(v.name)}">${escapeHtml(v.name)} (named)</option>`);
+            const optionValue = `named:${v.name}`;
+            if (activeCaptureSize) {
+                viewportOptionsByValue.set(optionValue, {
+                    width: activeCaptureSize.width,
+                    height: activeCaptureSize.height,
+                    viewName: v.name,
+                });
+            }
+            options.push(`<option value="${escapeAttr(optionValue)}">${escapeHtml(v.name)} (named)</option>`);
         });
         el.viewportSelect.innerHTML = options.join("");
     } catch (e) {
@@ -108,24 +143,32 @@ async function loadViewports() {
 }
 
 async function captureViewport() {
-    const viewName = el.viewportSelect.value || null;
+    const selectedKey = el.viewportSelect.value || "";
     showStatus("Capturing viewport...", "info");
     el.captureBtn.disabled = true;
+    // Hide stale dims caption — the `load` handler re-shows it with
+    // the new image's dimensions on success.
+    if (el.viewportDimsCaption) el.viewportDimsCaption.classList.add("hidden");
 
     try {
         const args = {};
-        if (viewName) args.view_name = viewName;
-        const artifact = await bridgeCall("capture_viewport", args);
+        const selectedViewport = viewportOptionsByValue.get(selectedKey);
+        if (selectedViewport) {
+            if (selectedViewport.viewId) args.view_id = selectedViewport.viewId;
+            if (selectedViewport.viewName) args.view_name = selectedViewport.viewName;
+        }
+        const capture = await bridgeCall("preview_viewport", args);
 
-        capturedViewport = artifact;
-        if (artifact.artifact_id) {
-            el.previewImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
+        capturedViewport = capture;
+        if (capture.preview_url) {
+            el.previewImage.src = `${capture.preview_url}?ts=${Date.now()}`;
             el.previewImage.style.display = "";
             el.previewPlaceholder.classList.add("hidden");
-            applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect);
+            // Aspect + dims caption get set by the `load` event handler,
+            // where naturalWidth/Height are known.
             hideStatus();
         } else {
-            showStatus("Capture produced no artifact.", "error");
+            showStatus("Capture produced no preview.", "error");
         }
     } catch (e) {
         showStatus(e.message, "error");
@@ -148,7 +191,12 @@ async function enhancePrompt() {
         if (text) {
             el.prompt.dataset.originalPrompt = prompt;
             el.prompt.value = text;
-            el.enhanceHint.textContent = "Prompt enhanced. Original saved.";
+            if (tryRenderEnhancedPromptAsJson(text)) {
+                el.enhanceHint.textContent = "Prompt enhanced. Click Edit to modify.";
+            } else {
+                showPromptAsTextarea();
+                el.enhanceHint.textContent = "Prompt enhanced. Original saved.";
+            }
         } else {
             el.enhanceHint.textContent = "Enhancement returned no text.";
         }
@@ -157,6 +205,104 @@ async function enhancePrompt() {
         showStatus(e.message, "error");
     } finally {
         setEnhancing(el.enhanceBtn, el.enhanceText, el.enhanceSpinner, false);
+    }
+}
+
+// ─── Enhanced-prompt rendering ─────────────────────────────────────
+// After a successful enhance, Gemini returns a JSON string. Render it
+// as an indented, syntax-highlighted <pre> and hide the textarea. The
+// textarea still holds the raw text — it's the source-of-truth that
+// `generate` reads — so the swap is visual only.
+
+function tryRenderEnhancedPromptAsJson(text) {
+    if (!el.promptJsonPreview) return false;
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { return false; }
+    if (parsed === null || typeof parsed !== "object") return false;
+    el.promptJsonPreview.innerHTML = syntaxHighlightJson(parsed);
+    el.prompt.classList.add("hidden");
+    el.promptJsonPreview.classList.remove("hidden");
+    if (el.editPromptBtn) el.editPromptBtn.classList.remove("hidden");
+    return true;
+}
+
+function showPromptAsTextarea() {
+    if (el.promptJsonPreview) {
+        el.promptJsonPreview.classList.add("hidden");
+        el.promptJsonPreview.textContent = "";
+    }
+    el.prompt.classList.remove("hidden");
+    if (el.editPromptBtn) el.editPromptBtn.classList.add("hidden");
+}
+
+// Security invariant: matched content is entity-escaped before token
+// wrapping, so `<`, `>`, `&` in Gemini-emitted keys/values can never
+// break out of the span's text context. Never interpolate matched
+// content into an HTML *attribute* (e.g. `data-foo="${match}"`) — `"`
+// and `'` are not escaped here because tokens only land inside span
+// text, never inside attributes.
+function syntaxHighlightJson(obj) {
+    const json = JSON.stringify(obj, null, 2)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const highlighted = json.replace(
+        /("(\\u[0-9A-Fa-f]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+        (match) => {
+            let cls = "json-number";
+            if (/^"/.test(match)) {
+                cls = /:$/.test(match) ? "json-key" : "json-string";
+            } else if (/true|false/.test(match)) {
+                cls = "json-boolean";
+            } else if (/null/.test(match)) {
+                cls = "json-null";
+            }
+            return `<span class="${cls}">${match}</span>`;
+        }
+    );
+    // Promote keys whose value is an object or array to a parent-key
+    // class so structural headers visually outrank leaf keys. The
+    // tokenizer above can't see across tokens, so this is a second
+    // pass: any `json-key` span immediately followed by whitespace +
+    // `{` or `[` is rewrapped with the additional class.
+    const withHierarchy = highlighted.replace(
+        /<span class="json-key">("[^"]+":)<\/span>(\s+[{[])/g,
+        '<span class="json-key json-key-parent">$1</span>$2'
+    );
+    // Wrap each logical line in a block with its JSON depth as a CSS
+    // custom property, then strip the leading whitespace.
+    //
+    // Key-value lines split into <key-prefix> + <value-block> so CSS
+    // can use flex layout to align wrapped value text under the
+    // value's first character (the prefix stays inline with
+    // white-space: nowrap; the value-block wraps within its own flex
+    // item width). Non-KV lines (bare brackets, array elements) keep
+    // the simpler hanging indent on .json-line itself.
+    return withHierarchy.split("\n").map(line => {
+        const leading = (line.match(/^ */) || [""])[0].length;
+        const depth = Math.floor(leading / 2);
+        const content = line.slice(leading);
+        const kvMatch = content.match(/^(<span class="json-key[^"]*">"[^"]+":<\/span>\s+)(.+)$/);
+        if (kvMatch) {
+            return `<div class="json-line json-line-kv" style="--json-depth:${depth}">` +
+                   `<span class="json-key-prefix">${kvMatch[1]}</span>` +
+                   `<span class="json-value-block">${kvMatch[2]}</span>` +
+                   `</div>`;
+        }
+        return `<div class="json-line" style="--json-depth:${depth}">${content}</div>`;
+    }).join("");
+}
+
+function updateViewportDimsCaption() {
+    if (!el.viewportDimsCaption) return;
+    const w = el.previewImage && el.previewImage.naturalWidth;
+    const h = el.previewImage && el.previewImage.naturalHeight;
+    if (w && h) {
+        el.viewportDimsCaption.textContent = `${w} × ${h}`;
+        el.viewportDimsCaption.classList.remove("hidden");
+    } else {
+        el.viewportDimsCaption.classList.add("hidden");
     }
 }
 
@@ -293,7 +439,9 @@ function applySelectedOutputAspect(container, imageEl, selectEl) {
 }
 
 function refreshPreviewFraming() {
-    applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect);
+    // Generate-preview tracks the SOURCE viewport's aspect (set on image
+    // load). The output-aspect dropdown drives the RESULT panel only —
+    // changing it should not reshape the captured source preview.
     applySelectedOutputAspect(
         el.studioSourceContainer,
         el.studioSourceImage,
@@ -535,6 +683,14 @@ async function loadGallery() {
     }
 }
 
+async function openArtifactsFolder() {
+    try {
+        await bridgeCall("open_artifacts_folder", {});
+    } catch (e) {
+        window.alert(`Could not open artifacts folder: ${e.message}`);
+    }
+}
+
 function pickDisplayRole(summary) {
     // Gallery summary embeds the `files[]` list. Pick an image-role
     // blob for the thumbnail.
@@ -605,6 +761,8 @@ async function deleteCurrentArtifact(id) {
 async function loadSettingsOverview() {
     try {
         const data = await bridgeCall("get_settings_overview");
+        const formatCount = value =>
+            (typeof value === "number") ? String(value) : "—";
         // Show the friendly label in the Settings overview, falling
         // back to the short name if the catalog is missing the match.
         const defaultEntry = Array.isArray(data.available_models)
@@ -612,8 +770,12 @@ async function loadSettingsOverview() {
             : null;
         el.overviewDefaultModel.textContent =
             (defaultEntry && defaultEntry.label) || data.default_model || "—";
-        el.overviewArtifactCount.textContent =
-            (typeof data.artifact_count === "number") ? String(data.artifact_count) : "—";
+        const artifactCounts = data.artifact_counts_by_kind || {};
+        el.overviewGeneratedImageCount.textContent = formatCount(artifactCounts.generated_image);
+        el.overviewCapturedViewportCount.textContent = formatCount(artifactCounts.captured_viewport);
+        el.overviewEnhancedPromptCount.textContent = formatCount(artifactCounts.enhanced_prompt);
+        el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);
+        el.overviewArtifactCount.textContent = formatCount(data.artifact_count);
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
         if (data.has_api_key) {
             // Show the truncated preview in the input placeholder so
@@ -792,6 +954,9 @@ function init() {
     el.enhanceText = $("enhance-text");
     el.enhanceSpinner = $("enhance-spinner");
     el.enhanceHint = $("enhance-hint");
+    el.promptJsonPreview = $("prompt-json-preview");
+    el.editPromptBtn = $("edit-prompt-btn");
+    el.viewportDimsCaption = $("viewport-dims-caption");
     el.referencePreview = $("reference-preview");
     el.addReferenceBtn = $("add-reference-btn");
     el.clearReferencesBtn = $("clear-references");
@@ -827,6 +992,7 @@ function init() {
     // Gallery
     el.galleryGrid = $("gallery-grid");
     el.refreshGalleryBtn = $("refresh-gallery");
+    el.openArtifactsFolderBtn = $("open-artifacts-folder");
 
     // Settings
     el.apiKey = $("api-key");
@@ -835,6 +1001,10 @@ function init() {
     el.testApiKeyBtn = $("test-api-key");
     el.apiKeyStatus = $("api-key-status");
     el.overviewDefaultModel = $("overview-default-model");
+    el.overviewGeneratedImageCount = $("overview-generated-image-count");
+    el.overviewCapturedViewportCount = $("overview-captured-viewport-count");
+    el.overviewEnhancedPromptCount = $("overview-enhanced-prompt-count");
+    el.overviewDepthMapCount = $("overview-depth-map-count");
     el.overviewArtifactCount = $("overview-artifact-count");
     el.overviewKeyStatus = $("overview-key-status");
 
@@ -853,15 +1023,34 @@ function init() {
 
     el.captureBtn.addEventListener("click", captureViewport);
     el.viewportSelect.addEventListener("change", captureViewport);
-    el.previewImage.addEventListener("load", () =>
-        applySelectedOutputAspect(el.previewContainer, el.previewImage, el.aspectSelect));
-    el.aspectSelect.addEventListener("change", refreshPreviewFraming);
+    el.previewImage.addEventListener("load", () => {
+        // Generate preview box stays fixed; the captured bitmap uses
+        // `object-fit: contain` so the full viewport letterboxes inside
+        // the existing frame instead of resizing the surrounding layout.
+        updateViewportDimsCaption();
+    });
+    el.previewImage.addEventListener("error", () => {
+        if (el.viewportDimsCaption) el.viewportDimsCaption.classList.add("hidden");
+        showStatus("Preview image failed to load.", "error");
+    });
+    // Aspect dropdown drives the RESULT panel's output shape at generate
+    // time; it no longer reshapes the source preview. No change listener
+    // needed on this view — the value is read in `generateImage`.
     el.modelSelect.addEventListener("change", syncResolutionOptions);
     el.enhanceBtn.addEventListener("click", enhancePrompt);
+    if (el.editPromptBtn) {
+        el.editPromptBtn.addEventListener("click", () => {
+            showPromptAsTextarea();
+            el.prompt.focus();
+        });
+    }
     el.generateBtn.addEventListener("click", generateImage);
     el.newBtn.addEventListener("click", () => {
         el.resultPanel.classList.add("hidden");
         el.prompt.value = "";
+        delete el.prompt.dataset.originalPrompt;
+        el.enhanceHint.textContent = "AI-powered prompt optimization";
+        showPromptAsTextarea();
         latestArtifactId = null;
         hideStatus();
     });
@@ -900,6 +1089,7 @@ function init() {
     });
 
     el.refreshGalleryBtn.addEventListener("click", loadGallery);
+    el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
 
     el.toggleKeyBtn.addEventListener("click", () => {
         const isPassword = el.apiKey.type === "password";
@@ -918,6 +1108,9 @@ function init() {
     });
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && !el.modal.classList.contains("hidden")) closeModal();
+    });
+    document.addEventListener("contextmenu", (e) => {
+        if (e.target instanceof Element && e.target.closest("img")) e.preventDefault();
     });
 
     // Initial loads.

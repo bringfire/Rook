@@ -84,7 +84,17 @@ namespace Rook.Handlers
                 return new ApiResponse { Success = false, Data = "No active document." };
             }
 
-            var view = doc.Views.ActiveView;
+            var view = ResolveViewById(doc, request.ViewId);
+            if (view == null && !string.IsNullOrEmpty(request.ViewId))
+            {
+                return new ApiResponse
+                {
+                    Success = false,
+                    Data = "Requested viewport is no longer available.",
+                };
+            }
+
+            view ??= doc.Views.ActiveView;
             if (view == null)
             {
                 return new ApiResponse { Success = false, Data = "No active view available." };
@@ -113,8 +123,10 @@ namespace Rook.Handlers
                 //    named-view fallback). Otherwise a document with a
                 //    named view called "Top" captures different cameras
                 //    depending on captureBackend — a silent regression.
-                if (!string.IsNullOrEmpty(request.ViewName))
+                var requestedViewName = request.ViewName;
+                if (!string.IsNullOrEmpty(requestedViewName))
                 {
+                    var viewName = requestedViewName!;
                     // Pre-check: if the requested view name matches the
                     // currently active viewport's name, skip the reset.
                     // `SetProjection(DefinedViewportProjection.Perspective,
@@ -132,20 +144,20 @@ namespace Rook.Handlers
                     bool alreadyInRequestedView =
                         !string.IsNullOrEmpty(currentName)
                         && string.Equals(
-                            currentName, request.ViewName,
+                            currentName, viewName,
                             StringComparison.OrdinalIgnoreCase);
 
                     if (alreadyInRequestedView)
                     {
                         resolvedViewName = currentName!;
                     }
-                    else if (TrySetStandardView(view, request.ViewName))
+                    else if (TrySetStandardView(view, viewName))
                     {
-                        resolvedViewName = request.ViewName!;
+                        resolvedViewName = viewName;
                     }
-                    else if (TryRestoreNamedView(doc, view, request.ViewName))
+                    else if (TryRestoreNamedView(doc, view, viewName))
                     {
-                        resolvedViewName = request.ViewName!;
+                        resolvedViewName = viewName;
                     }
                     // Unknown view name: silently keep the current view
                     // (matches legacy behavior).
@@ -207,10 +219,19 @@ namespace Rook.Handlers
                     }
                 }
 
-                // 5. Capture. Size = (width, height) clamped. SA_Banana's
-                //    maxEdge helper is kept as internal scaling logic only
-                //    and is NOT exposed on the public request contract.
-                var captureSize = new Size(request.Width, request.Height);
+                // 5. Capture. If the caller did not explicitly request an
+                //    output size, capture at the selected RhinoView's current
+                //    pixel size. This keeps docked/floating viewport aspect
+                //    and framing exact even if the UI's cached list_views
+                //    dimensions are stale.
+                var viewportSize = view.ActiveViewport.Size;
+                var captureSize = new Size(
+                    request.HasExplicitWidth
+                        ? request.Width
+                        : ClampDimension(viewportSize.Width, DefaultWidth),
+                    request.HasExplicitHeight
+                        ? request.Height
+                        : ClampDimension(viewportSize.Height, DefaultHeight));
                 using var bitmap = view.CaptureToBitmap(captureSize);
                 if (bitmap == null)
                 {
@@ -236,6 +257,7 @@ namespace Rook.Handlers
                     ["format"] = "png",
                     ["width"] = bitmap.Width,
                     ["height"] = bitmap.Height,
+                    ["viewId"] = view.RuntimeSerialNumber.ToString(),
                     ["viewName"] = resolvedViewName,
                     ["displayMode"] = resolvedDisplayMode,
                     ["savedToFile"] = true,
@@ -302,6 +324,9 @@ namespace Rook.Handlers
         {
             public int Width { get; init; }
             public int Height { get; init; }
+            public bool HasExplicitWidth { get; init; }
+            public bool HasExplicitHeight { get; init; }
+            public string? ViewId { get; init; }
             public string? ViewName { get; init; }
             public string? DisplayMode { get; init; }
             public bool ZoomExtents { get; init; }
@@ -369,10 +394,16 @@ namespace Rook.Handlers
                 }
             }
 
+            var rawWidth = GetIntArg(args, "width");
+            var rawHeight = GetIntArg(args, "height");
+
             return new Tier3Request
             {
-                Width = ClampDimension(GetIntArg(args, "width"), DefaultWidth),
-                Height = ClampDimension(GetIntArg(args, "height"), DefaultHeight),
+                Width = ClampDimension(rawWidth, DefaultWidth),
+                Height = ClampDimension(rawHeight, DefaultHeight),
+                HasExplicitWidth = rawWidth.HasValue,
+                HasExplicitHeight = rawHeight.HasValue,
+                ViewId = GetStringArg(args, "viewId"),
                 ViewName = GetStringArg(args, "view"),
                 DisplayMode = GetStringArg(args, "displayMode"),
                 ZoomExtents = GetBoolArg(args, "zoomExtents"),
@@ -415,6 +446,21 @@ namespace Rook.Handlers
         }
 
         // ─── Rhino-dependent helpers (live-Rhino only) ──────────────────
+
+        internal static Rhino.Display.RhinoView? ResolveViewById(
+            RhinoDoc doc, string? viewId)
+        {
+            if (string.IsNullOrEmpty(viewId)) return null;
+            if (!uint.TryParse(viewId, out var serial)) return null;
+
+            foreach (var view in doc.Views)
+            {
+                if (view != null && view.RuntimeSerialNumber == serial)
+                    return view;
+            }
+
+            return null;
+        }
 
         internal static bool IsRaytracedMode(DisplayModeDescription? mode)
         {

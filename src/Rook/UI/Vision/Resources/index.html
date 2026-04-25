@@ -68,6 +68,7 @@
                                     <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                 </svg>
                             </div>
+                            <span id="viewport-dims-caption" class="viewport-dims-caption hidden"></span>
                         </div>
 
                         <div class="preview-container">
@@ -104,6 +105,7 @@
 
                         <div class="prompt-input-container">
                             <textarea id="prompt" placeholder="Describe your vision...&#10;&#10;e.g., Photorealistic architectural render at golden hour, warm ambient lighting, premium materials"></textarea>
+                            <pre id="prompt-json-preview" class="prompt-json-preview hidden"></pre>
                             <div class="prompt-actions">
                                 <button id="enhance-btn" class="btn btn-enhance">
                                     <svg viewBox="0 0 24 24" fill="none">
@@ -113,6 +115,7 @@
                                     <span id="enhance-spinner" class="spinner hidden"></span>
                                 </button>
                                 <span id="enhance-hint" class="hint">AI-powered prompt optimization</span>
+                                <button id="edit-prompt-btn" class="btn-edit-prompt hidden" type="button">Edit</button>
                             </div>
                         </div>
 
@@ -206,7 +209,7 @@
                     <div class="result-header">
                         <h3 class="result-title">Generated</h3>
                         <div class="result-actions">
-                            <button id="approve-btn" class="btn btn-secondary">
+                            <button id="approve-btn" class="btn btn-secondary" title="Mark this image as approved so Rook can use it as the selected concept for downstream workflows." aria-label="Mark this image as approved so Rook can use it as the selected concept for downstream workflows.">
                                 <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
@@ -386,7 +389,7 @@
                     <div class="result-header">
                         <h3 class="result-title">Generated</h3>
                         <div class="result-actions">
-                            <button id="studio-approve-btn" class="btn btn-secondary">
+                            <button id="studio-approve-btn" class="btn btn-secondary" title="Mark this image as approved so Rook can use it as the selected concept for downstream workflows." aria-label="Mark this image as approved so Rook can use it as the selected concept for downstream workflows.">
                                 <svg viewBox="0 0 24 24" fill="none">
                                     <path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
@@ -411,6 +414,11 @@
                     <button id="refresh-gallery" class="btn btn-icon" title="Refresh">
                         <svg viewBox="0 0 24 24" fill="none">
                             <path d="M4 4V9H9M20 20V15H15M20.49 9A9 9 0 005.64 5.64L4 9M3.51 15A9 9 0 0018.36 18.36L20 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <button id="open-artifacts-folder" class="btn btn-icon" title="Open artifacts folder" aria-label="Open artifacts folder">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M3 7.5A2.5 2.5 0 015.5 5H9L11 7H18.5A2.5 2.5 0 0121 9.5V17A2.5 2.5 0 0118.5 19H5.5A2.5 2.5 0 013 16.5V7.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                         </svg>
                     </button>
                 </div>
@@ -484,7 +492,23 @@
                                     <dd id="overview-default-model">—</dd>
                                 </div>
                                 <div>
-                                    <dt>Artifacts stored</dt>
+                                    <dt>Generated images</dt>
+                                    <dd id="overview-generated-image-count">—</dd>
+                                </div>
+                                <div>
+                                    <dt>Viewport captures</dt>
+                                    <dd id="overview-captured-viewport-count">—</dd>
+                                </div>
+                                <div>
+                                    <dt>Prompt enhancements</dt>
+                                    <dd id="overview-enhanced-prompt-count">—</dd>
+                                </div>
+                                <div>
+                                    <dt>Depth maps</dt>
+                                    <dd id="overview-depth-map-count">—</dd>
+                                </div>
+                                <div>
+                                    <dt>Total artifacts</dt>
                                     <dd id="overview-artifact-count">—</dd>
                                 </div>
                                 <div>
@@ -512,7 +536,7 @@
                     <p id="modal-prompt" class="modal-prompt"></p>
                     <p id="modal-meta" class="modal-meta"></p>
                     <div class="modal-actions">
-                        <button id="modal-approve-btn" class="btn btn-secondary">Approve</button>
+                        <button id="modal-approve-btn" class="btn btn-secondary" title="Mark this image as approved so Rook can use it as the selected concept for downstream workflows." aria-label="Mark this image as approved so Rook can use it as the selected concept for downstream workflows.">Approve</button>
                         <button id="modal-delete-btn" class="btn btn-secondary btn-danger">Delete</button>
                     </div>
                 </div>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -78,6 +79,9 @@ namespace Rook.Handlers
         //   capture_viewport        (UI)      — agents already have the
         //                                        `/viewport` route; this variant
         //                                        exists to produce an artifact.
+        //   preview_viewport        (UI)      — transient source preview for
+        //                                        Vision; does not create an
+        //                                        artifact.
         //   list_views              (UI)      — view enumeration for the UI's
         //                                        viewport selector.
         //   open_image_picker       (UI)      — opens an OS file dialog; no
@@ -178,13 +182,15 @@ namespace Rook.Handlers
                 {
                     "capture_depth" => CaptureDepth(args),
                     "capture_viewport" => CaptureViewport(args),
+                    "preview_viewport" => PreviewViewport(args),
                     "list_views" => ListViews(args),
                     "open_image_picker" => OpenImagePicker(args),
                     "generate" or "enhance_prompt" or "test_api_key" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
-                        or "set_api_key" or "get_settings_overview" => Fail(
+                        or "set_api_key" or "get_settings_overview"
+                        or "open_artifacts_folder" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -211,9 +217,10 @@ namespace Rook.Handlers
         /// Off-UI sync entry point. Handles the artifact-management ops
         /// (<c>list_artifacts</c>, <c>get_artifact</c>,
         /// <c>approve_artifact</c>, <c>delete_artifact</c>,
-        /// <c>consume_approved</c>) — all disk-only, no Rhino state, no
-        /// network. Runs on the threadpool so a large artifact store
-        /// doesn't stall the Rhino UI thread during scans/deletes.
+        /// <c>consume_approved</c>, <c>open_artifacts_folder</c>) — all
+        /// disk/shell-only, no Rhino state, no network. Runs on the
+        /// threadpool so a large artifact store doesn't stall the Rhino
+        /// UI thread during scans/deletes.
         /// Any other op is rejected as a defensive guard; the bridge
         /// trampoline is the primary gate.
         /// </summary>
@@ -246,8 +253,9 @@ namespace Rook.Handlers
                     "consume_approved" => ConsumeApproved(args),
                     "set_api_key" => SetApiKey(args),
                     "get_settings_overview" => GetSettingsOverview(args),
-                    "capture_depth" or "capture_viewport" or "list_views"
-                        or "open_image_picker" => Fail(
+                    "open_artifacts_folder" => OpenArtifactsFolder(args),
+                    "capture_depth" or "capture_viewport" or "preview_viewport"
+                        or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
                     "generate" or "enhance_prompt" or "test_api_key" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
@@ -317,12 +325,13 @@ namespace Rook.Handlers
                     "generate" => await GenerateAsync(args, cancellationToken).ConfigureAwait(false),
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
                     "test_api_key" => await TestApiKeyAsync(args, cancellationToken).ConfigureAwait(false),
-                    "capture_depth" or "capture_viewport" or "list_views"
-                        or "open_image_picker" => Fail(
+                    "capture_depth" or "capture_viewport" or "preview_viewport"
+                        or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
-                        or "set_api_key" or "get_settings_overview" => Fail(
+                        or "set_api_key" or "get_settings_overview"
+                        or "open_artifacts_folder" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -649,6 +658,7 @@ namespace Rook.Handlers
         /// Parameter mapping — snake_case here to camelCase on the Viewport
         /// contract, so the VisionHandler surface stays uniformly snake_case:
         /// <list type="bullet">
+        ///   <item><c>view_id</c> → <c>viewId</c></item>
         ///   <item><c>view_name</c> → <c>view</c></item>
         ///   <item><c>display_mode</c> → <c>displayMode</c></item>
         ///   <item><c>zoom_extents</c> → <c>zoomExtents</c></item>
@@ -663,30 +673,10 @@ namespace Rook.Handlers
         /// </summary>
         internal ApiResponse CaptureViewport(Dictionary<string, JsonElement> args)
         {
-            var forward = new JsonObject { ["captureBackend"] = "tier3" };
-            CopyIntArg(args, "width", forward, "width");
-            CopyIntArg(args, "height", forward, "height");
-            CopyStringArg(args, "view_name", forward, "view");
-            CopyStringArg(args, "display_mode", forward, "displayMode");
-            CopyBoolArg(args, "zoom_extents", forward, "zoomExtents");
-            CopyBoolArg(args, "raytraced_converge", forward, "raytracedConverge");
-            CopyIntArg(args, "raytraced_timeout_ms", forward, "raytracedTimeoutMs");
-
-            var viewportResp = _viewportHandler.CaptureTier3(forward.ToJsonString());
-            if (!viewportResp.Success)
-            {
-                // Pass the underlying failure message through; ViewportHandler
-                // produces the same {success:false, data:"..."} shape we use.
-                return viewportResp;
-            }
-
-            if (viewportResp.Data is not Dictionary<string, object?> data
-                || !data.TryGetValue("filePath", out var filePathObj)
-                || filePathObj is not string filePath
-                || string.IsNullOrEmpty(filePath))
-            {
-                return Fail("Tier 3 viewport capture returned no file path.");
-            }
+            var captureResp = CaptureViewportToTemp(args);
+            if (!captureResp.Success) return captureResp;
+            var data = (Dictionary<string, object?>)captureResp.Data!;
+            var filePath = (string)data["filePath"]!;
 
             byte[] pngBytes;
             try
@@ -699,6 +689,8 @@ namespace Rook.Handlers
             }
 
             var metadata = new Dictionary<string, JsonNode?>();
+            if (data.TryGetValue("viewId", out var vi) && vi is string viStr)
+                metadata["view_id"] = JsonValue.Create(viStr);
             if (data.TryGetValue("viewName", out var vn) && vn is string vnStr)
                 metadata["view_name"] = JsonValue.Create(vnStr);
             if (data.TryGetValue("displayMode", out var dm) && dm is string dmStr)
@@ -726,6 +718,65 @@ namespace Rook.Handlers
             catch { /* non-fatal — %TEMP%\rook\viewports accumulates otherwise */ }
 
             return Ok(ArtifactEnvelope(artifact));
+        }
+
+        // ─── op: preview_viewport (sync — UI thread) ───────────────────
+
+        /// <summary>
+        /// Capture a viewport for Vision's source preview without creating
+        /// a durable artifact. The returned <c>file_path</c> can be passed
+        /// directly to <c>generate</c>; <c>preview_url</c> is served by
+        /// <see cref="UI.Vision.VisionWebSurface"/> from the temp folder.
+        /// </summary>
+        internal ApiResponse PreviewViewport(Dictionary<string, JsonElement> args)
+        {
+            var captureResp = CaptureViewportToTemp(args);
+            if (!captureResp.Success) return captureResp;
+            var data = (Dictionary<string, object?>)captureResp.Data!;
+            var filePath = (string)data["filePath"]!;
+            var fileName = Path.GetFileName(filePath);
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["file_path"] = filePath,
+                ["preview_url"] = $"/viewport-preview/{fileName}",
+                ["width"] = data.TryGetValue("width", out var w) ? w : null,
+                ["height"] = data.TryGetValue("height", out var h) ? h : null,
+                ["view_id"] = data.TryGetValue("viewId", out var vi) ? vi : null,
+                ["view_name"] = data.TryGetValue("viewName", out var vn) ? vn : null,
+                ["display_mode"] = data.TryGetValue("displayMode", out var dm) ? dm : null,
+                ["capture_backend"] = data.TryGetValue("captureBackend", out var cb) ? cb : null,
+                ["captured_at"] = DateTimeOffset.UtcNow.ToString("o"),
+            });
+        }
+
+        private ApiResponse CaptureViewportToTemp(Dictionary<string, JsonElement> args)
+        {
+            var forward = new JsonObject { ["captureBackend"] = "tier3" };
+            CopyIntArg(args, "width", forward, "width");
+            CopyIntArg(args, "height", forward, "height");
+            CopyStringArg(args, "view_id", forward, "viewId");
+            CopyStringArg(args, "view_name", forward, "view");
+            CopyStringArg(args, "display_mode", forward, "displayMode");
+            CopyBoolArg(args, "zoom_extents", forward, "zoomExtents");
+            CopyBoolArg(args, "raytraced_converge", forward, "raytracedConverge");
+            CopyIntArg(args, "raytraced_timeout_ms", forward, "raytracedTimeoutMs");
+
+            var viewportResp = _viewportHandler.CaptureTier3(forward.ToJsonString());
+            if (!viewportResp.Success)
+            {
+                return viewportResp;
+            }
+
+            if (viewportResp.Data is not Dictionary<string, object?> data
+                || !data.TryGetValue("filePath", out var filePathObj)
+                || filePathObj is not string filePath
+                || string.IsNullOrEmpty(filePath))
+            {
+                return Fail("Tier 3 viewport capture returned no file path.");
+            }
+
+            return Ok(data);
         }
 
         // ─── op: list_views (sync — UI thread) ──────────────────────────
@@ -761,6 +812,7 @@ namespace Rook.Handlers
                 var vp = view.ActiveViewport;
                 views.Add(new Dictionary<string, object?>
                 {
+                    ["id"] = view.RuntimeSerialNumber.ToString(),
                     ["name"] = vp.Name ?? "(unnamed)",
                     ["is_active"] = active != null && ReferenceEquals(view, active),
                     ["width"] = vp.Size.Width,
@@ -1289,7 +1341,9 @@ namespace Rook.Handlers
 
             try
             {
-                overview["artifact_count"] = _artifactStore.List().Count;
+                var artifacts = _artifactStore.List();
+                overview["artifact_count"] = artifacts.Count;
+                overview["artifact_counts_by_kind"] = BuildArtifactCountsByKind(artifacts);
             }
             catch (Exception ex)
             {
@@ -1300,10 +1354,64 @@ namespace Rook.Handlers
                 // render so the user can fix the key.
                 RhinoApp.WriteLine($"Rook Vision: settings overview artifact_count failed: {ex.Message}");
                 overview["artifact_count"] = null;
+                overview["artifact_counts_by_kind"] = null;
             }
 
             return Ok(overview);
         }
+
+        internal static Dictionary<string, int> BuildArtifactCountsByKind(
+            IEnumerable<Artifact> artifacts)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                [ArtifactKindGeneratedImage] = 0,
+                [ArtifactKindCapturedViewport] = 0,
+                [ArtifactKindEnhancedPrompt] = 0,
+                [ArtifactKindDepthMap] = 0,
+            };
+
+            foreach (var artifact in artifacts)
+            {
+                if (artifact == null || string.IsNullOrEmpty(artifact.Kind))
+                    continue;
+
+                if (!counts.ContainsKey(artifact.Kind))
+                    counts[artifact.Kind] = 0;
+                counts[artifact.Kind]++;
+            }
+
+            return counts;
+        }
+
+        // ─── op: open_artifacts_folder (off-UI) ─────────────────────────
+
+        /// <summary>
+        /// Open the Vision artifact root in Explorer. The path is not
+        /// caller-controlled; it always resolves to
+        /// <see cref="RookPaths.ArtifactsRoot"/>.
+        /// </summary>
+        internal ApiResponse OpenArtifactsFolder(Dictionary<string, JsonElement> args)
+        {
+            _ = args;
+            var folder = RookPaths.ArtifactsRoot;
+            Directory.CreateDirectory(folder);
+
+            using var shellProcess = Process.Start(BuildOpenFolderStartInfo(folder));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["path"] = folder,
+                ["opened"] = true,
+            });
+        }
+
+        internal static ProcessStartInfo BuildOpenFolderStartInfo(string folderPath)
+            => new()
+            {
+                FileName = Path.GetFullPath(folderPath),
+                UseShellExecute = true,
+            };
 
         /// <summary>
         /// Public wrapper used by the VisionTab UI (and any in-process
