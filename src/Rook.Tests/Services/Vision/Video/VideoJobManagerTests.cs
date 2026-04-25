@@ -697,6 +697,128 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
         }
 
+        // ─── F1 (review pass 2): cancel race — no overwrite of terminal ──
+
+        [Fact]
+        public async Task Cancel_after_BG_completes_does_not_overwrite_Complete_with_Cancelled()
+        {
+            // Race scenario: at the moment CancelAsync starts, the BG
+            // task has just finished — Complete is in the ledger, the
+            // _runningJobs entry has been removed. CancelAsync MUST NOT
+            // persist a Cancelled record on top of the Complete state.
+            //
+            // The fix structurally probes _runningJobs FIRST, then reads
+            // the ledger. With _runningJobs empty (BG finished) and the
+            // ledger holding Complete, the not-running branch's terminal
+            // short-circuit fires before any provider call or overwrite.
+            var jobId = Guid.NewGuid();
+
+            // Pre-state mirrors what the BG task would have written:
+            // initial submit + transition to Polling + terminal Complete.
+            var initial = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Submitting, _clock.UtcNow());
+            var polling = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Polling, _clock.UtcNow(),
+                providerJobId: "operations/raced");
+            var artId = Guid.NewGuid();
+            var complete = VideoJobRecordFactory.WithState(
+                polling, VideoJobState.Complete, _clock.UtcNow(),
+                resultArtifactId: artId);
+            _ledger.Append(initial);
+            _ledger.Append(polling);
+            _ledger.Append(complete);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            // Terminal short-circuit: returns Ok(Complete), no provider
+            // call, no ledger write.
+            Assert.Equal(VideoJobState.Complete, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(0, providerCancelCalls);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+
+            // Latest state in ledger remains Complete with the artifact.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Complete, latest.State);
+            Assert.Equal(artId, latest.ResultArtifactId);
+        }
+
+        [Fact]
+        public async Task Cancel_after_BG_errors_does_not_overwrite_Error_with_Cancelled()
+        {
+            // Same race protection applies to all terminal states except
+            // Interrupted (which IS still cancellable for cost cleanup).
+            var jobId = Guid.NewGuid();
+
+            var initial = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Submitting, _clock.UtcNow());
+            var errored = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Error, _clock.UtcNow(),
+                providerJobId: "operations/race-err",
+                error: new VideoJobError(
+                    VideoErrorCode.ExecutionFailed, "boom", Retryable: false));
+            _ledger.Append(initial);
+            _ledger.Append(errored);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Error, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(0, providerCancelCalls);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+        }
+
+        [Fact]
+        public async Task Cancel_interrupted_no_remote_returns_Interrupted_without_appending_Cancelled()
+        {
+            // Interrupted without a provider_job_id has no remote handle
+            // to clean up — surface the persisted terminal state. (Prior
+            // logic appended a Cancelled record in this branch, which
+            // overwrote the Interrupted snapshot — same family of bug as
+            // F1 but for Interrupted state specifically.)
+            var jobId = Guid.NewGuid();
+
+            var prior = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Polling, _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Interrupted, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+        }
+
         [Fact]
         public async Task Cancel_when_provider_not_registered_returns_typed_Fail()
         {

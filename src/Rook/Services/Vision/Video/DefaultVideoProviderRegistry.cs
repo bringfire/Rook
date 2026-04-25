@@ -79,6 +79,22 @@ namespace Rook.Services.Vision.Video
                         throw new InvalidOperationException(
                             $"Provider '{reg.ProviderName}' model '{kvp.Key}' has null PricingModel.");
 
+                    // F3 (review pass 2): identity consistency. The
+                    // dictionary key is the resolved model id; cap.Id is
+                    // the same identity from the data record's perspective.
+                    // If they disagree, downstream descriptors / validation
+                    // / pricing all use one or the other inconsistently —
+                    // a registration that publishes key "runway-x" with
+                    // cap.Id "veo-3.1-lite-..." would silently corrupt
+                    // identity. Reject at construction.
+                    if (string.IsNullOrWhiteSpace(cap.Id))
+                        throw new InvalidOperationException(
+                            $"Provider '{reg.ProviderName}' model '{kvp.Key}' has empty Capability.Id.");
+                    if (!string.Equals(cap.Id, kvp.Key, StringComparison.Ordinal))
+                        throw new InvalidOperationException(
+                            $"Provider '{reg.ProviderName}' model registration key '{kvp.Key}' " +
+                            $"does not match Capability.Id '{cap.Id}'.");
+
                     if (_byId.TryGetValue(kvp.Key, out var existing))
                         throw new InvalidOperationException(
                             $"Duplicate model id '{kvp.Key}' registered by providers " +

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Rook.Services.Vision.Video
@@ -31,6 +32,20 @@ namespace Rook.Services.Vision.Video
                 return Fail(VideoErrorCode.InvalidRequest,
                     "Request.Options must be non-null.",
                     nameof(VideoGenerationRequest.Options));
+
+            // F2 (review pass 2): the public estimator seam accepts
+            // ResolvedVideoModel and VideoGenerationRequest as separate
+            // arguments. The manager's SubmitAsync resolves them
+            // together via registry, but a direct caller (test, future
+            // route handler) could pair model A's ResolvedVideoModel
+            // with model B's request and the estimator would silently
+            // validate/price against A while VideoCostEstimate.Model
+            // reports B. Guard the consistency at the boundary.
+            if (!string.Equals(request.Model, model.ModelId, StringComparison.Ordinal))
+                return Fail(VideoErrorCode.InvalidRequest,
+                    $"Resolved model id '{model.ModelId}' does not match " +
+                    $"request.Model '{request.Model}'.",
+                    nameof(VideoGenerationRequest.Model));
 
             // Step 1: capability validation (provider-neutral)
             var capResult = CapabilityValidator.Validate(model.Capability, request);
@@ -123,6 +138,7 @@ namespace Rook.Services.Vision.Video
 
                 // Framework-shape failures (null/mismatched inputs).
                 "Request" or "Cap"
+                    or nameof(VideoGenerationRequest.Model)
                     or nameof(VideoGenerationRequest.Options)
                     or nameof(VideoGenerationRequest.Prompt)
                     or nameof(VideoGenerationRequest.StartFrame)

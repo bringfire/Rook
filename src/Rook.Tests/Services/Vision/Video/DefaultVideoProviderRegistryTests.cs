@@ -361,6 +361,100 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public void Constructor_throws_on_empty_capability_id()
+        {
+            // F3 (review pass 2): cap.Id must be non-empty (identity is
+            // load-bearing for descriptors and downstream validation).
+            var capWithEmptyId = new ModelCapability(
+                Id: "  ",
+                Name: "x", Status: "preview",
+                Resolutions: new[] { "720p" },
+                Durations: new[] { 8 },
+                AspectRatios: new[] { "16:9" },
+                Modes: new[] { VideoMode.T2V },
+                SupportsReferenceImages: false,
+                MaxReferenceImages: 0,
+                Must8sWith: Array.Empty<string>());
+
+            var bad = new TestRegistration
+            {
+                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                {
+                    ["model-x"] = (capWithEmptyId, StubPricing()),
+                },
+            };
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                new DefaultVideoProviderRegistry(new[] { bad }));
+
+            Assert.Contains("Capability.Id", ex.Message);
+        }
+
+        [Fact]
+        public void Constructor_throws_when_capability_id_does_not_match_registration_key()
+        {
+            // F3 (review pass 2): registration key and cap.Id are two
+            // identity sources for the same model. If they disagree,
+            // downstream descriptors/validation/pricing would silently
+            // disagree about which model is in play. Reject at build
+            // time with a message naming both sides.
+            var capWithWrongId = new ModelCapability(
+                Id: "veo-3.1-lite-generate-preview",
+                Name: "x", Status: "preview",
+                Resolutions: new[] { "720p" },
+                Durations: new[] { 8 },
+                AspectRatios: new[] { "16:9" },
+                Modes: new[] { VideoMode.T2V },
+                SupportsReferenceImages: false,
+                MaxReferenceImages: 0,
+                Must8sWith: Array.Empty<string>());
+
+            var bad = new TestRegistration
+            {
+                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                {
+                    ["runway-x"] = (capWithWrongId, StubPricing()),
+                },
+            };
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                new DefaultVideoProviderRegistry(new[] { bad }));
+
+            Assert.Contains("runway-x", ex.Message);
+            Assert.Contains("veo-3.1-lite-generate-preview", ex.Message);
+        }
+
+        [Fact]
+        public void Constructor_accepts_when_capability_id_matches_registration_key()
+        {
+            // Sanity: matched ids work (this is the production path —
+            // VeoCapabilities is already constructed this way).
+            var goodCap = new ModelCapability(
+                Id: "matched-model",
+                Name: "x", Status: "preview",
+                Resolutions: new[] { "720p" },
+                Durations: new[] { 8 },
+                AspectRatios: new[] { "16:9" },
+                Modes: new[] { VideoMode.T2V },
+                SupportsReferenceImages: false,
+                MaxReferenceImages: 0,
+                Must8sWith: Array.Empty<string>());
+
+            var good = new TestRegistration
+            {
+                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                {
+                    ["matched-model"] = (goodCap, StubPricing()),
+                },
+            };
+
+            var registry = new DefaultVideoProviderRegistry(new[] { good });
+
+            Assert.True(registry.TryResolve("matched-model", out var resolved));
+            Assert.Equal("matched-model", resolved.Capability.Id);
+        }
+
+        [Fact]
         public void Constructor_throws_on_null_pricing_model()
         {
             var bad = new TestRegistration

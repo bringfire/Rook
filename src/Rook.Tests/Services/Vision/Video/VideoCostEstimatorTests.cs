@@ -134,6 +134,45 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
         }
 
+        // ─── F2 (review pass 2): model-id consistency guard ──────────
+
+        [Fact]
+        public void Estimate_rejects_mismatch_between_model_ModelId_and_request_Model()
+        {
+            // Public seam abuse: caller pairs model A's ResolvedVideoModel
+            // with model B's request. The estimator MUST surface this as
+            // typed InvalidRequest before validating/pricing — otherwise
+            // it would validate against A's capability, price against A's
+            // pricing model, and emit VideoCostEstimate.Model = B (data
+            // poisoning).
+            var estimator = new VideoCostEstimator();
+            var liteModel = TestVideoFixtures.VeoLiteResolved();  // model A: lite
+            var fullReq = TestVideoFixtures.DefaultT2vRequest(   // request B: full
+                model: "veo-3.1-generate-preview");
+
+            var result = estimator.Estimate(liteModel, fullReq);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(nameof(VideoGenerationRequest.Model), result.Error.Field);
+            Assert.Contains(liteModel.ModelId, result.Error.Message);
+            Assert.Contains("veo-3.1-generate-preview", result.Error.Message);
+        }
+
+        [Fact]
+        public void Estimate_accepts_consistent_model_id_pair()
+        {
+            // Sanity: the guard does not false-positive on consistent pairs.
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();  // default uses same model id
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.True(result.Success);
+            Assert.Equal(model.ModelId, result.Estimate!.Model);
+        }
+
         // ─── Pricing single-pass invariant ────────────────────────────
 
         [Fact]
