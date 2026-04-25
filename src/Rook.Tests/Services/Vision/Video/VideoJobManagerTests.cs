@@ -19,8 +19,9 @@ namespace Rook.Tests.Services.Vision.Video
         private readonly FakeVideoJobIdGenerator _idGen = new();
         private readonly FakeVideoProvider _provider = new();
         private readonly FakeVideoMediaResolver _resolver = new();
-        private readonly VideoCapabilities _catalog = VideoCapabilities.Default;
-        private readonly VeoCostEstimator _estimator;
+        private readonly IVideoProviderRegistry _registry;
+        private readonly VideoCostEstimator _estimator = new();
+        private readonly ResolvedVideoModel _resolvedModel;
 
         public VideoJobManagerTests()
         {
@@ -28,7 +29,8 @@ namespace Rook.Tests.Services.Vision.Video
                 Path.GetTempPath(),
                 $"rook-mgr-test-{Guid.NewGuid():N}");
             _artifactStore = new ArtifactStore(_artifactRoot);
-            _estimator = new VeoCostEstimator(_catalog);
+            _registry = TestVideoFixtures.RegistryWithVeo(_provider);
+            _resolvedModel = TestVideoFixtures.VeoLiteResolved(_provider);
         }
 
         public void Dispose()
@@ -39,29 +41,20 @@ namespace Rook.Tests.Services.Vision.Video
 
         private VideoJobManager Manager(TimeSpan? pollInterval = null) =>
             new(
-                provider: _provider,
+                registry: _registry,
                 mediaResolver: _resolver,
                 ledger: _ledger,
-                catalog: _catalog,
                 estimator: _estimator,
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGen,
                 pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5));
 
-        private static VideoGenerationRequest T2vRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private VideoGenerationRequest T2vRequest() =>
+            TestVideoFixtures.DefaultT2vRequest();
+
+        private VideoCostEstimate EstimateFor(VideoGenerationRequest req) =>
+            _estimator.Estimate(_resolvedModel, req).Estimate!;
 
         private static byte[] FakeMp4 => new byte[] { 0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70 };
 
@@ -230,7 +223,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Mode = VideoMode.I2V,
                 Prompt = null,
                 StartFrame = VideoMediaRef.ForPath(@"C:\nope.png"),
-                PersonGeneration = PersonGenerationPolicy.AllowAdult,
+                Options = new VeoOptions(PersonGenerationPolicy.AllowAdult),
                 Model = "veo-3.1-generate-preview",
             };
 
@@ -327,8 +320,8 @@ namespace Rook.Tests.Services.Vision.Video
             // Pre-populate ledger with an Interrupted record carrying
             // provider_job_id (the post-Reconcile state).
             var prior = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Polling, _clock.UtcNow());
             prior = VideoJobRecordFactory.WithState(
                 prior, VideoJobState.Polling, _clock.UtcNow(),
@@ -365,8 +358,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             var prior = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Interrupted, _clock.UtcNow());
             prior = VideoJobRecordFactory.WithState(
                 prior, VideoJobState.Interrupted, _clock.UtcNow(),
@@ -489,8 +482,8 @@ namespace Rook.Tests.Services.Vision.Video
             // an Interrupted record without touching the provider.
             var jobId = Guid.NewGuid();
             var staleRecord = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Polling, _clock.UtcNow());
             staleRecord = VideoJobRecordFactory.WithState(
                 staleRecord, VideoJobState.Polling, _clock.UtcNow(),
@@ -521,8 +514,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             var staleRecord = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Complete, _clock.UtcNow());
             _ledger.Append(staleRecord);
 

@@ -49,6 +49,21 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(request)));
 
+            // Provider boundary stays total (per V1c review Finding 2):
+            // a request reaching VeoProvider with non-VeoOptions is a
+            // programming error (the registry pairs Veo models with the
+            // VeoOptionsCodec/VeoProvider; mismatch means someone bypassed
+            // the registry), but we surface it as a typed envelope rather
+            // than throw so IVideoProvider's contract remains "every input
+            // shape produces an envelope."
+            if (request.Options is not VeoOptions veoOptions)
+                return ProviderSubmitResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.InvalidRequest,
+                    Message: $"Veo provider requires {nameof(VeoOptions)}; got " +
+                             $"{request.Options?.GetType().Name ?? "null"}.",
+                    Retryable: false,
+                    Field: nameof(request.Options)));
+
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrEmpty(apiKey))
                 return ProviderSubmitResult.Fail(VeoErrorMapper.MissingApiKey());
@@ -56,7 +71,8 @@ namespace Rook.Services.Vision.Video
             try
             {
                 var resp = await _client.StartGenerationAsync(
-                    apiKey!, request, resolvedMedia ?? EmptyResolved, ct).ConfigureAwait(false);
+                    apiKey!, request, veoOptions, resolvedMedia ?? EmptyResolved, ct)
+                    .ConfigureAwait(false);
 
                 if (resp.Success && !string.IsNullOrEmpty(resp.OperationName))
                     return ProviderSubmitResult.Ok(resp.OperationName!);

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
@@ -14,6 +13,14 @@ namespace Rook.Services.Vision.Video
     /// disposed on plugin unload. The per-job <see cref="CancellationTokenSource"/>
     /// chains to a manager-wide shutdown CTS so unloading Rhino mid-job
     /// triggers clean cancellation.
+    ///
+    /// V1c: provider resolution moved from a constructor-bound
+    /// <see cref="IVideoProvider"/> + <c>providerName</c> string into
+    /// <see cref="IVideoProviderRegistry.TryResolve"/>, called per-submit
+    /// against <see cref="VideoGenerationRequest.Model"/>. The resolved
+    /// <see cref="ResolvedVideoModel"/> rides on each
+    /// <see cref="RunningJob"/> so cancel/poll/fetch in the background
+    /// loop never re-resolve.
     ///
     /// Translation responsibilities (from the V1b contract repair):
     ///   - <see cref="ProviderSubmitResult"/> → ledger record + JobSubmitResult
@@ -29,19 +36,16 @@ namespace Rook.Services.Vision.Video
     /// </summary>
     public sealed class VideoJobManager : IVideoJobManager, IDisposable
     {
-        public const string DefaultProviderName = "veo";
         public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(10);
         public const int DefaultMaxConcurrentJobs = 2;
 
-        private readonly IVideoProvider _provider;
+        private readonly IVideoProviderRegistry _registry;
         private readonly IVideoMediaResolver _mediaResolver;
         private readonly IVideoJobLedger _ledger;
-        private readonly IVideoCapabilityCatalog _catalog;
         private readonly IVideoCostEstimator _estimator;
         private readonly ArtifactStore _artifactStore;
         private readonly IVideoJobClock _clock;
         private readonly IVideoJobIdGenerator _idGenerator;
-        private readonly string _providerName;
         private readonly TimeSpan _pollInterval;
 
         private readonly SemaphoreSlim _concurrency;
@@ -49,27 +53,23 @@ namespace Rook.Services.Vision.Video
         private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
 
         public VideoJobManager(
-            IVideoProvider provider,
+            IVideoProviderRegistry registry,
             IVideoMediaResolver mediaResolver,
             IVideoJobLedger ledger,
-            IVideoCapabilityCatalog catalog,
             IVideoCostEstimator estimator,
             ArtifactStore artifactStore,
             IVideoJobClock? clock = null,
             IVideoJobIdGenerator? idGenerator = null,
-            string providerName = DefaultProviderName,
             TimeSpan? pollInterval = null,
             int maxConcurrentJobs = DefaultMaxConcurrentJobs)
         {
-            _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
             _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
-            _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _clock = clock ?? new SystemVideoJobClock();
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
-            _providerName = providerName;
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
         }
@@ -86,15 +86,14 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(request)));
 
-            var validation = _catalog.Validate(request);
-            if (!validation.Success)
+            if (!_registry.TryResolve(request.Model, out var model))
                 return JobSubmitResult.Fail(new VideoJobError(
-                    Code: ClassifyValidationFailure(validation.Field),
-                    Message: validation.Message ?? "Validation failed.",
+                    Code: VideoErrorCode.InvalidRequest,
+                    Message: $"Unknown model: '{request.Model ?? "<null>"}'.",
                     Retryable: false,
-                    Field: validation.Field));
+                    Field: nameof(request.Model)));
 
-            var estimate = _estimator.Estimate(request);
+            var estimate = _estimator.Estimate(model, request);
             if (!estimate.Success)
                 return JobSubmitResult.Fail(estimate.Error!);
 
@@ -126,7 +125,7 @@ namespace Rook.Services.Vision.Video
             var jobId = _idGenerator.NewJobId();
             var now = _clock.UtcNow();
             var initial = VideoJobRecordFactory.From(
-                jobId, request, _providerName, estimate.Estimate!,
+                jobId, request, model, estimate.Estimate!,
                 VideoJobState.Queued, now);
 
             _ledger.Append(initial);
@@ -134,7 +133,7 @@ namespace Rook.Services.Vision.Video
             // Kick off background task. Caller returns immediately with
             // Queued state; the task drives the state machine.
             var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
-            var running = new RunningJob(initial, jobCts);
+            var running = new RunningJob(initial, jobCts, model);
             _runningJobs[jobId] = running;
 
             _ = Task.Run(() => RunJobAsync(jobId, request, resolved, running), jobCts.Token);
@@ -171,8 +170,8 @@ namespace Rook.Services.Vision.Video
         // ─── Cancel ───────────────────────────────────────────────────
         //
         // Cancel is cost-correctness-critical: this is the path that
-        // prevents Veo from continuing to bill for jobs the user asked
-        // to stop. Two non-obvious invariants (Codex round 6):
+        // prevents Veo (or any provider) from continuing to bill for jobs
+        // the user asked to stop. Two non-obvious invariants (Codex round 6):
         //
         //   1. Interrupted records with a persisted provider_job_id MUST
         //      still be cancellable — that's the entire reason the
@@ -197,15 +196,17 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(jobId)));
 
-            // In-flight: try remote cancel first. Only kill local CTS on
-            // confirmed remote success, so a Fail from the provider doesn't
-            // leave the user thinking the job is cancelled when the remote
-            // is still running.
+            // In-flight: provider comes from the running-job's resolved
+            // model (set at SubmitAsync). Try remote cancel first; only
+            // kill local CTS on confirmed remote success so a Fail from
+            // the provider doesn't leave the user thinking the job is
+            // cancelled when the remote is still running.
             if (_runningJobs.TryGetValue(jobId, out var running))
             {
                 if (!string.IsNullOrEmpty(running.LatestRecord.ProviderJobId))
                 {
                     var remote = await TryRemoteCancelAsync(
+                        running.Model.Provider,
                         running.LatestRecord.ProviderJobId!, ct).ConfigureAwait(false);
                     if (remote.Error is not null)
                         return remote;  // Fail; local task untouched
@@ -246,8 +247,21 @@ namespace Rook.Services.Vision.Video
 
             if (canRemoteCancel)
             {
+                // Re-resolve the provider via registry from the persisted
+                // record's model id. If the model is no longer registered
+                // (e.g., deprecated between runs), we cannot cancel
+                // remotely — surface a typed Fail rather than silently
+                // leak the remote job.
+                if (!_registry.TryResolve(record.Model, out var model))
+                    return JobCancelResult.Fail(new VideoJobError(
+                        Code: VideoErrorCode.InvalidRequest,
+                        Message: $"Cannot cancel job {jobId:D}: model '{record.Model}' " +
+                                 "is no longer registered with this manager.",
+                        Retryable: false,
+                        Field: nameof(record.Model)));
+
                 var remote = await TryRemoteCancelAsync(
-                    record.ProviderJobId!, ct).ConfigureAwait(false);
+                    model.Provider, record.ProviderJobId!, ct).ConfigureAwait(false);
                 if (remote.Error is not null)
                     return remote;  // Fail; ledger state unchanged
 
@@ -276,12 +290,12 @@ namespace Rook.Services.Vision.Video
             return JobCancelResult.Ok(VideoJobState.Cancelled);
         }
 
-        private async Task<JobCancelResult> TryRemoteCancelAsync(
-            string providerJobId, CancellationToken ct)
+        private static async Task<JobCancelResult> TryRemoteCancelAsync(
+            IVideoProvider provider, string providerJobId, CancellationToken ct)
         {
             try
             {
-                var result = await _provider.CancelAsync(providerJobId, ct)
+                var result = await provider.CancelAsync(providerJobId, ct)
                     .ConfigureAwait(false);
 
                 if (result.Error is not null)
@@ -397,6 +411,7 @@ namespace Rook.Services.Vision.Video
         {
             var ct = running.Cts.Token;
             var current = running.LatestRecord;
+            var provider = running.Model.Provider;
 
             try
             {
@@ -406,7 +421,7 @@ namespace Rook.Services.Vision.Video
                     current = AppendTransition(current, VideoJobState.Submitting);
                     running.LatestRecord = current;
 
-                    var submit = await _provider.SubmitAsync(
+                    var submit = await provider.SubmitAsync(
                         request, resolvedMedia, ct).ConfigureAwait(false);
 
                     if (submit.Error is not null)
@@ -426,7 +441,7 @@ namespace Rook.Services.Vision.Video
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var status = await _provider.GetStatusAsync(
+                        var status = await provider.GetStatusAsync(
                             submit.ProviderJobId!, ct).ConfigureAwait(false);
 
                         if (status.Error is not null)
@@ -451,7 +466,7 @@ namespace Rook.Services.Vision.Video
                     }
 
                     // Download
-                    var fetch = await _provider.FetchResultAsync(
+                    var fetch = await provider.FetchResultAsync(
                         submit.ProviderJobId!, providerResultToken, ct).ConfigureAwait(false);
 
                     if (fetch.Error is not null)
@@ -611,14 +626,6 @@ namespace Rook.Services.Vision.Video
               or VideoJobState.Cancelled
               or VideoJobState.Interrupted;
 
-        private static VideoErrorCode ClassifyValidationFailure(string? field) => field switch
-        {
-            "Resolution" or "DurationSeconds" or "AspectRatio"
-                or "Mode" or "ReferenceFrames" or "NumberOfVideos"
-                or "PersonGeneration" => VideoErrorCode.UnsupportedMedia,
-            _ => VideoErrorCode.InvalidRequest,
-        };
-
         private static string ExtensionFromMime(string mimeType) => mimeType.ToLowerInvariant() switch
         {
             "video/mp4" => "mp4",
@@ -628,16 +635,20 @@ namespace Rook.Services.Vision.Video
 
         // Per-job runtime state. Mutable LatestRecord lets the manager's
         // public methods see freshest state without a ledger round-trip;
-        // ledger remains the durable source of truth.
+        // ledger remains the durable source of truth. Model snapshot is
+        // captured at submit time so cancel/poll/fetch in this job's
+        // lifecycle never re-resolve through the registry.
         private sealed class RunningJob
         {
             public VideoJobRecord LatestRecord;
             public readonly CancellationTokenSource Cts;
+            public readonly ResolvedVideoModel Model;
 
-            public RunningJob(VideoJobRecord initial, CancellationTokenSource cts)
+            public RunningJob(VideoJobRecord initial, CancellationTokenSource cts, ResolvedVideoModel model)
             {
                 LatestRecord = initial;
                 Cts = cts;
+                Model = model;
             }
         }
     }

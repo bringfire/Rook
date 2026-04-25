@@ -1,0 +1,156 @@
+using System.Linq;
+using Rook.Services.Vision.Video;
+using Xunit;
+
+namespace Rook.Tests.Services.Vision.Video
+{
+    /// <summary>
+    /// V1c estimator orchestration tests: takes
+    /// <see cref="ResolvedVideoModel"/> + request, runs cap validation +
+    /// codec validation + pricing in single-pass order, surfaces typed
+    /// failures with correct error-code classification. Pricing math
+    /// itself is covered by <see cref="PerSecondPricingModelTests"/>.
+    /// </summary>
+    public class VideoCostEstimatorTests
+    {
+        // ─── Happy path ───────────────────────────────────────────────
+
+        [Fact]
+        public void Estimate_lite_720p_8s_includes_pricing_snapshot_and_breakdown()
+        {
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.Estimate);
+            Assert.Equal(0.40m, result.Estimate!.DollarsUsd);  // 0.05 × 8
+            Assert.Equal(0.40m, result.Estimate.Pricing.TotalUsd);
+            Assert.Equal(8, result.Estimate.Pricing.Quantity);
+            Assert.Equal("veo-rate-card-v1", result.Estimate.Pricing.PricingSource);
+        }
+
+        [Fact]
+        public void Estimate_breakdown_sums_to_total_for_single_video()
+        {
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.True(result.Success);
+            var sum = result.Estimate!.Breakdown.Sum(b => b.DollarsUsd);
+            Assert.Equal(result.Estimate.DollarsUsd, sum);
+        }
+
+        // ─── Failure classification ───────────────────────────────────
+
+        [Fact]
+        public void Estimate_unsupported_resolution_returns_UnsupportedMedia()
+        {
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest(resolution: "8k");
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal("Resolution", result.Error.Field);
+        }
+
+        [Fact]
+        public void Estimate_NumberOfVideos_greater_than_one_returns_UnsupportedMedia()
+        {
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest(numberOfVideos: 3);
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal("NumberOfVideos", result.Error.Field);
+        }
+
+        [Fact]
+        public void Estimate_invalid_PersonGeneration_returns_UnsupportedMedia()
+        {
+            // Veo 3.x T2V requires AllowAll; AllowAdult on T2V is rejected
+            // by the codec — V1c bit-identity preservation requires this
+            // surface as UnsupportedMedia (matches V1b).
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest(
+                personGeneration: PersonGenerationPolicy.AllowAdult);
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal("PersonGeneration", result.Error.Field);
+        }
+
+        [Fact]
+        public void Estimate_t2v_without_prompt_returns_InvalidRequest()
+        {
+            // Prompt is a CapabilityValidator failure not classified as
+            // UnsupportedMedia.
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest(prompt: null);
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal("Prompt", result.Error.Field);
+        }
+
+        [Fact]
+        public void Estimate_null_request_returns_typed_failure_no_throw()
+        {
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+
+            var result = estimator.Estimate(model, request: null!);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+        }
+
+        [Fact]
+        public void Estimate_null_model_returns_typed_failure_no_throw()
+        {
+            var estimator = new VideoCostEstimator();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var result = estimator.Estimate(model: null!, req);
+
+            Assert.False(result.Success);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+        }
+
+        // ─── Pricing single-pass invariant ────────────────────────────
+
+        [Fact]
+        public void Estimate_Pricing_field_matches_DollarsUsd_field()
+        {
+            // The audit invariant: VideoCostEstimate.Pricing is the same
+            // dollar amount as VideoCostEstimate.DollarsUsd. Drift would
+            // mean the estimator computed pricing twice with different
+            // results.
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.True(result.Success);
+            Assert.Equal(result.Estimate!.DollarsUsd, result.Estimate.Pricing.TotalUsd);
+        }
+    }
+}

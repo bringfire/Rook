@@ -1,20 +1,28 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Nodes;
 
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
-    /// Translates a domain <see cref="VideoGenerationRequest"/> into the
-    /// provider-neutral durable shape used by the ledger
-    /// (<see cref="VideoJobRecord"/>). Lifted out of
-    /// <see cref="VideoJobManager"/> so the durable-schema mapping is
-    /// independently testable, per Codex round 3 finding.
+    /// Translates a domain <see cref="VideoGenerationRequest"/> + the
+    /// resolved model + an already-computed <see cref="VideoCostEstimate"/>
+    /// into the provider-neutral durable shape used by the ledger
+    /// (<see cref="VideoJobRecord"/>).
     ///
-    /// V1c plan: when the registry lands, this factory becomes a thin
-    /// shim that asks the registry for the per-provider normalization,
-    /// or gets absorbed into the registry directly. Either way, the
-    /// production callers won't change.
+    /// V1c invariants:
+    /// <list type="bullet">
+    ///   <item><description>Provider name comes from
+    ///     <see cref="ResolvedVideoModel.ProviderName"/> — no string
+    ///     defaulting.</description></item>
+    ///   <item><description>Provider options blob comes from
+    ///     <see cref="IProviderOptionsCodec.Serialize"/> — no factory-side
+    ///     `if (provider == "veo")` branches.</description></item>
+    ///   <item><description><see cref="VideoJobRecord.Pricing"/> is copied
+    ///     verbatim from <see cref="VideoCostEstimate.Pricing"/>; the
+    ///     factory does NOT call any pricing function. Pricing is computed
+    ///     once by the estimator at submit time and persisted exactly as
+    ///     accepted.</description></item>
+    /// </list>
     /// </summary>
     public static class VideoJobRecordFactory
     {
@@ -28,29 +36,28 @@ namespace Rook.Services.Vision.Video
         public static VideoJobRecord From(
             Guid jobId,
             VideoGenerationRequest request,
-            string provider,
+            ResolvedVideoModel model,
             VideoCostEstimate estimate,
             VideoJobState initialState,
             DateTimeOffset now)
         {
             if (request is null) throw new ArgumentNullException(nameof(request));
+            if (model is null) throw new ArgumentNullException(nameof(model));
             if (estimate is null) throw new ArgumentNullException(nameof(estimate));
-            if (string.IsNullOrWhiteSpace(provider))
-                throw new ArgumentException("Provider must be non-empty.", nameof(provider));
             if (jobId == Guid.Empty)
                 throw new ArgumentException("JobId must be non-empty.", nameof(jobId));
 
             return new VideoJobRecord(
                 SchemaVersion: CurrentSchemaVersion,
                 JobId: jobId,
-                Provider: provider,
+                Provider: model.ProviderName,
                 Model: request.Model,
                 ProviderJobId: null,
                 ProviderResultToken: null,
                 State: initialState,
                 NormalizedRequest: BuildNormalized(request),
-                ProviderOptions: BuildProviderOptions(provider, request),
-                Pricing: BuildPricing(provider, request, estimate),
+                ProviderOptions: model.OptionsCodec.Serialize(request.Options),
+                Pricing: estimate.Pricing,
                 ResultArtifactId: null,
                 Error: null,
                 CreatedAt: now,
@@ -111,60 +118,6 @@ namespace Rook.Services.Vision.Video
             var list = new List<NormalizedMediaRef>(refs.Count);
             foreach (var r in refs) list.Add(new NormalizedMediaRef(r.Kind, r.ArtifactId, r.Path, r.Role));
             return list;
-        }
-
-        private static JsonObject BuildProviderOptions(string provider, VideoGenerationRequest req)
-        {
-            var opts = new JsonObject();
-
-            if (string.Equals(provider, "veo", StringComparison.OrdinalIgnoreCase))
-            {
-                opts["person_generation"] = MapVeoPersonGeneration(req.PersonGeneration);
-            }
-
-            return opts;
-        }
-
-        private static string MapVeoPersonGeneration(PersonGenerationPolicy p) => p switch
-        {
-            PersonGenerationPolicy.DontAllow => "dont_allow",
-            PersonGenerationPolicy.AllowAdult => "allow_adult",
-            PersonGenerationPolicy.AllowAll => "allow_all",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(p), p, "Unknown PersonGenerationPolicy."),
-        };
-
-        private static JobPricing BuildPricing(
-            string provider, VideoGenerationRequest req, VideoCostEstimate estimate)
-        {
-            // V1b: Veo is per-second. V1c will introduce IPricingModel
-            // and let each provider declare its own kind. For now we
-            // hardcode the inference per provider.
-            if (string.Equals(provider, "veo", StringComparison.OrdinalIgnoreCase))
-            {
-                var quantity = req.DurationSeconds * req.NumberOfVideos;
-                var unit = quantity > 0
-                    ? estimate.DollarsUsd / quantity
-                    : (decimal?)null;
-
-                return new JobPricing(
-                    Kind: PricingKind.PerSecond,
-                    Currency: "USD",
-                    Quantity: quantity,
-                    UnitPriceUsd: unit,
-                    TotalUsd: estimate.DollarsUsd,
-                    PricingSource: "veo-rate-card-v1");
-            }
-
-            // Unknown provider: degrade to External; V1c will replace
-            // this with a per-provider IPricingModel.
-            return new JobPricing(
-                Kind: PricingKind.External,
-                Currency: "USD",
-                Quantity: req.NumberOfVideos,
-                UnitPriceUsd: null,
-                TotalUsd: estimate.DollarsUsd,
-                PricingSource: $"{provider}-unknown");
         }
     }
 }

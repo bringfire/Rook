@@ -9,19 +9,8 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class FakeVideoProviderTests
     {
-        private static VideoGenerationRequest SampleRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private static VideoGenerationRequest SampleRequest() =>
+            TestVideoFixtures.DefaultT2vRequest();
 
         private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
             = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();

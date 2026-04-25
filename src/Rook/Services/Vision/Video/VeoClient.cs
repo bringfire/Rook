@@ -54,11 +54,12 @@ namespace Rook.Services.Vision.Video
         public async Task<VeoStartResponse> StartGenerationAsync(
             string apiKey,
             VideoGenerationRequest request,
+            VeoOptions options,
             IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia,
             CancellationToken ct)
         {
             var url = $"{BaseUrl}/models/{request.Model}:predictLongRunning";
-            var body = BuildPredictBody(request, resolvedMedia);
+            var body = BuildPredictBody(request, options, resolvedMedia);
             var json = JsonSerializer.Serialize(body, JsonOptions);
 
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -212,6 +213,7 @@ namespace Rook.Services.Vision.Video
 
         private static object BuildPredictBody(
             VideoGenerationRequest request,
+            VeoOptions options,
             IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia)
         {
             var instance = new Dictionary<string, object?>
@@ -268,7 +270,7 @@ namespace Rook.Services.Vision.Video
                 // durationSeconds MUST be a JSON number, not a string.
                 // Sending a string returns 400 INVALID_ARGUMENT.
                 ["durationSeconds"] = request.DurationSeconds,
-                ["personGeneration"] = MapPersonGeneration(request.PersonGeneration),
+                ["personGeneration"] = MapPersonGeneration(options.PersonGeneration),
                 // numberOfVideos is a Vertex parameter and is NOT supported
                 // by the Gemini generativelanguage endpoint; it returns
                 // 400 "numberOfVideos isn't supported by this model" if
