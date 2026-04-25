@@ -264,13 +264,16 @@ namespace Rook.Services.Vision.Video
             if (model is null) return (null, MissingField(lineNumber, "model"));
 
             var stateStr = TryGetString(obj, "state");
-            if (stateStr is null || !Enum.TryParse<VideoJobState>(stateStr, out var state))
+            if (stateStr is null
+                || !Enum.TryParse<VideoJobState>(stateStr, out var state)
+                || !Enum.IsDefined(typeof(VideoJobState), state))
                 return (null, MissingField(lineNumber, "state"));
 
             var normalized = TryGetObject(obj, "normalized_request");
             if (normalized is null)
                 return (null, MissingField(lineNumber, "normalized_request"));
-            var normalizedReq = DeserializeNormalizedRequest(normalized);
+            var (normalizedReq, normErr) = DeserializeNormalizedRequest(normalized, lineNumber);
+            if (normErr is not null) return (null, normErr);
 
             var pricingObj = TryGetObject(obj, "pricing");
             if (pricingObj is null)
@@ -291,7 +294,11 @@ namespace Rook.Services.Vision.Video
             VideoJobError? error = null;
             var errorObj = TryGetObject(obj, "error");
             if (errorObj is not null)
-                error = DeserializeError(errorObj);
+            {
+                var (deErr, deErrFault) = DeserializeError(errorObj, lineNumber);
+                if (deErrFault is not null) return (null, deErrFault);
+                error = deErr;
+            }
 
             // Provider options (opaque JsonObject)
             var providerOptions = (TryGetObject(obj, "provider_options")
@@ -330,7 +337,7 @@ namespace Rook.Services.Vision.Video
                 ProviderJobId: providerJobId,
                 ProviderResultToken: providerResultToken,
                 State: state,
-                NormalizedRequest: normalizedReq,
+                NormalizedRequest: normalizedReq!,
                 ProviderOptions: providerOptions,
                 Pricing: pricingResult.Pricing!,
                 ResultArtifactId: resultArtifactId,
@@ -342,50 +349,119 @@ namespace Rook.Services.Vision.Video
             return (record, null);
         }
 
-        private static NormalizedRequest DeserializeNormalizedRequest(JsonObject obj)
+        // ─── Deserialize helpers (fail-closed on missing/invalid required) ──
+        //
+        // Each helper returns (value, error). The main TryDeserialize
+        // propagates the error up; the line is recorded as a typed
+        // failure rather than silently defaulted. Codex round 6 finding:
+        // a malformed durable record must not be admitted as valid just
+        // because individual fields had `?? "default"` fallbacks.
+
+        private static (NormalizedRequest? Value, LedgerReadError? Error) DeserializeNormalizedRequest(
+            JsonObject obj, int lineNumber)
         {
             var modeStr = TryGetString(obj, "mode");
-            Enum.TryParse<VideoMode>(modeStr ?? "T2V", out var mode);
+            if (modeStr is null
+                || !Enum.TryParse<VideoMode>(modeStr, out var mode)
+                || !Enum.IsDefined(typeof(VideoMode), mode))
+                return (null, MissingField(lineNumber, "normalized_request.mode"));
 
-            var refsArr = obj["reference_frames"] as JsonArray;
+            var duration = TryGetInt(obj, "duration_seconds");
+            if (duration is null)
+                return (null, MissingField(lineNumber, "normalized_request.duration_seconds"));
+
+            var resolution = TryGetString(obj, "resolution");
+            if (resolution is null)
+                return (null, MissingField(lineNumber, "normalized_request.resolution"));
+
+            var aspect = TryGetString(obj, "aspect_ratio");
+            if (aspect is null)
+                return (null, MissingField(lineNumber, "normalized_request.aspect_ratio"));
+
+            var count = TryGetInt(obj, "number_of_videos");
+            if (count is null)
+                return (null, MissingField(lineNumber, "normalized_request.number_of_videos"));
+
+            // Optional fields
+            var prompt = TryGetString(obj, "prompt");
+            var seed = TryGetInt(obj, "seed");
+
+            // Optional nested media refs — missing OK, but if present, must validate
+            NormalizedMediaRef? startFrame = null;
+            if (obj["start_frame"] is JsonObject sf)
+            {
+                var (m, err) = DeserializeMediaRef(sf, lineNumber, "normalized_request.start_frame");
+                if (err is not null) return (null, err);
+                startFrame = m;
+            }
+
+            NormalizedMediaRef? endFrame = null;
+            if (obj["end_frame"] is JsonObject ef)
+            {
+                var (m, err) = DeserializeMediaRef(ef, lineNumber, "normalized_request.end_frame");
+                if (err is not null) return (null, err);
+                endFrame = m;
+            }
+
             IReadOnlyList<NormalizedMediaRef>? refs = null;
-            if (refsArr is not null)
+            if (obj["reference_frames"] is JsonArray refsArr)
             {
                 var list = new List<NormalizedMediaRef>(refsArr.Count);
-                foreach (var node in refsArr)
-                    if (node is JsonObject mo)
-                        list.Add(DeserializeMediaRef(mo));
+                for (int i = 0; i < refsArr.Count; i++)
+                {
+                    if (refsArr[i] is not JsonObject mo)
+                        return (null, MissingField(
+                            lineNumber, $"normalized_request.reference_frames[{i}]"));
+                    var (m, err) = DeserializeMediaRef(
+                        mo, lineNumber, $"normalized_request.reference_frames[{i}]");
+                    if (err is not null) return (null, err);
+                    list.Add(m!);
+                }
                 refs = list;
             }
 
-            return new NormalizedRequest(
+            var value = new NormalizedRequest(
                 Mode: mode,
-                DurationSeconds: TryGetInt(obj, "duration_seconds") ?? 0,
-                Resolution: TryGetString(obj, "resolution") ?? "",
-                AspectRatio: TryGetString(obj, "aspect_ratio") ?? "",
-                Prompt: TryGetString(obj, "prompt"),
-                StartFrame: obj["start_frame"] is JsonObject sf ? DeserializeMediaRef(sf) : null,
-                EndFrame: obj["end_frame"] is JsonObject ef ? DeserializeMediaRef(ef) : null,
+                DurationSeconds: duration.Value,
+                Resolution: resolution,
+                AspectRatio: aspect,
+                Prompt: prompt,
+                StartFrame: startFrame,
+                EndFrame: endFrame,
                 ReferenceFrames: refs,
-                Seed: TryGetInt(obj, "seed"),
-                NumberOfVideos: TryGetInt(obj, "number_of_videos") ?? 1);
+                Seed: seed,
+                NumberOfVideos: count.Value);
+
+            return (value, null);
         }
 
-        private static NormalizedMediaRef DeserializeMediaRef(JsonObject obj)
+        private static (NormalizedMediaRef? Value, LedgerReadError? Error) DeserializeMediaRef(
+            JsonObject obj, int lineNumber, string fieldPathPrefix)
         {
-            var kindStr = TryGetString(obj, "kind") ?? "Artifact";
-            Enum.TryParse<VideoMediaRefKind>(kindStr, out var kind);
+            var kindStr = TryGetString(obj, "kind");
+            if (kindStr is null
+                || !Enum.TryParse<VideoMediaRefKind>(kindStr, out var kind)
+                || !Enum.IsDefined(typeof(VideoMediaRefKind), kind))
+                return (null, MissingField(lineNumber, fieldPathPrefix + ".kind"));
+
+            var role = TryGetString(obj, "role");
+            if (role is null)
+                return (null, MissingField(lineNumber, fieldPathPrefix + ".role"));
 
             Guid? artifactId = null;
             var artIdStr = TryGetString(obj, "artifact_id");
-            if (artIdStr is not null && Guid.TryParse(artIdStr, out var aid))
+            if (artIdStr is not null)
+            {
+                if (!Guid.TryParse(artIdStr, out var aid))
+                    return (null, MissingField(lineNumber, fieldPathPrefix + ".artifact_id"));
                 artifactId = aid;
+            }
 
-            return new NormalizedMediaRef(
+            return (new NormalizedMediaRef(
                 Kind: kind,
                 ArtifactId: artifactId,
                 Path: TryGetString(obj, "path"),
-                Role: TryGetString(obj, "role") ?? "image");
+                Role: role), null);
         }
 
         private static (JobPricing? Pricing, LedgerReadError? Error) DeserializePricing(
@@ -408,27 +484,50 @@ namespace Rook.Services.Vision.Video
                         RawLineExcerpt: null));
             }
 
+            var currency = TryGetString(obj, "currency");
+            if (currency is null)
+                return (null, MissingField(lineNumber, "pricing.currency"));
+
+            var quantity = TryGetInt(obj, "quantity");
+            if (quantity is null)
+                return (null, MissingField(lineNumber, "pricing.quantity"));
+
+            var pricingSource = TryGetString(obj, "pricing_source");
+            if (pricingSource is null)
+                return (null, MissingField(lineNumber, "pricing.pricing_source"));
+
             return (new JobPricing(
                 Kind: kind,
-                Currency: TryGetString(obj, "currency") ?? "USD",
-                Quantity: TryGetInt(obj, "quantity") ?? 0,
+                Currency: currency,
+                Quantity: quantity.Value,
                 UnitPriceUsd: TryGetDecimal(obj, "unit_price_usd"),
                 TotalUsd: TryGetDecimal(obj, "total_usd"),
-                PricingSource: TryGetString(obj, "pricing_source") ?? "unknown"),
-                null);
+                PricingSource: pricingSource), null);
         }
 
-        private static VideoJobError DeserializeError(JsonObject obj)
+        private static (VideoJobError? Value, LedgerReadError? Error) DeserializeError(
+            JsonObject obj, int lineNumber)
         {
-            var codeStr = TryGetString(obj, "code") ?? "ExecutionFailed";
-            Enum.TryParse<VideoErrorCode>(codeStr, out var code);
+            var codeStr = TryGetString(obj, "code");
+            if (codeStr is null
+                || !Enum.TryParse<VideoErrorCode>(codeStr, out var code)
+                || !Enum.IsDefined(typeof(VideoErrorCode), code))
+                return (null, MissingField(lineNumber, "error.code"));
 
-            return new VideoJobError(
+            var message = TryGetString(obj, "message");
+            if (message is null)
+                return (null, MissingField(lineNumber, "error.message"));
+
+            var retryable = TryGetBool(obj, "retryable");
+            if (retryable is null)
+                return (null, MissingField(lineNumber, "error.retryable"));
+
+            return (new VideoJobError(
                 Code: code,
-                Message: TryGetString(obj, "message") ?? "",
-                Retryable: TryGetBool(obj, "retryable") ?? false,
+                Message: message,
+                Retryable: retryable.Value,
                 ProviderMessage: TryGetString(obj, "provider_message"),
-                Field: TryGetString(obj, "field"));
+                Field: TryGetString(obj, "field")), null);
         }
 
         // ─── JsonObject access helpers (defensive against missing/typed) ──

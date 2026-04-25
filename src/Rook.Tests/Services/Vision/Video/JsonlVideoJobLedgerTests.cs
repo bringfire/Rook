@@ -246,13 +246,10 @@ namespace Rook.Tests.Services.Vision.Video
             // Append a valid record so we know the surrounding works
             _ledger.Append(MakeRecord());
 
-            // Then a record with unknown pricing.kind
-            var bogus = "{\"schema_version\":1,\"job_id\":\"" + Guid.NewGuid() + "\","
-                + "\"provider\":\"x\",\"model\":\"y\",\"state\":\"Queued\","
-                + "\"normalized_request\":{},\"provider_options\":{},"
-                + "\"pricing\":{\"kind\":\"subscription_v2\",\"currency\":\"USD\",\"quantity\":1,\"pricing_source\":\"x\"},"
-                + "\"created_at\":\"2026-04-25T12:00:00Z\",\"updated_at\":\"2026-04-25T12:00:00Z\"}\n";
-            File.AppendAllText(_filePath, bogus, new UTF8Encoding(false));
+            // Same as ValidLine but pricing.kind is bogus.
+            var bogus = ValidLine.TrimEnd().Replace(
+                "\"kind\":\"per_second\"", "\"kind\":\"subscription_v2\"");
+            File.AppendAllText(_filePath, bogus + "\n", new UTF8Encoding(false));
 
             var read = _ledger.ReadAll();
 
@@ -343,6 +340,176 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Contains("Rook", defaultPath);
             Assert.Contains("video", defaultPath);
             Assert.EndsWith("job-ledger.jsonl", defaultPath);
+        }
+
+        // ─── Codex round 6: fail-closed on missing/invalid required ──
+        //
+        // The ledger MUST NOT silently default required fields like
+        // duration_seconds or pricing.currency — that would admit
+        // corrupt durable records as valid and corrupt the V2 contract
+        // when it ships. Each missing/invalid required field surfaces
+        // as a typed MissingRequiredField error with the field path.
+
+        private const string ValidLine =
+            "{\"schema_version\":1,\"job_id\":\"00000000-0000-0000-0000-000000000001\","
+            + "\"provider\":\"veo\",\"model\":\"veo-3.1-lite-generate-preview\",\"state\":\"Queued\","
+            + "\"normalized_request\":{\"mode\":\"T2V\",\"duration_seconds\":8,\"resolution\":\"720p\",\"aspect_ratio\":\"16:9\",\"number_of_videos\":1},"
+            + "\"provider_options\":{\"person_generation\":\"allow_all\"},"
+            + "\"pricing\":{\"kind\":\"per_second\",\"currency\":\"USD\",\"quantity\":8,\"unit_price_usd\":0.05,\"total_usd\":0.40,\"pricing_source\":\"veo-rate-card-v1\"},"
+            + "\"created_at\":\"2026-04-25T12:00:00Z\",\"updated_at\":\"2026-04-25T12:00:00Z\"}\n";
+
+        private void WriteCustomLine(string lineWithoutNewline)
+        {
+            File.WriteAllText(_filePath, lineWithoutNewline + "\n", new UTF8Encoding(false));
+        }
+
+        [Fact]
+        public void Missing_normalized_request_duration_seconds_fails_line_closed()
+        {
+            // Same as ValidLine but normalized_request omits duration_seconds.
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"duration_seconds\":8,", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.duration_seconds", error.FieldPath);
+        }
+
+        [Fact]
+        public void Missing_normalized_request_mode_fails_line_closed()
+        {
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"mode\":\"T2V\",", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.mode", error.FieldPath);
+        }
+
+        [Fact]
+        public void Missing_pricing_currency_fails_line_closed()
+        {
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"currency\":\"USD\",", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("pricing.currency", error.FieldPath);
+        }
+
+        [Fact]
+        public void Missing_pricing_pricing_source_fails_line_closed()
+        {
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                ",\"pricing_source\":\"veo-rate-card-v1\"", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("pricing.pricing_source", error.FieldPath);
+        }
+
+        [Fact]
+        public void Missing_pricing_quantity_fails_line_closed()
+        {
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"quantity\":8,", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("pricing.quantity", error.FieldPath);
+        }
+
+        [Fact]
+        public void Invalid_VideoMode_int_fails_line_closed()
+        {
+            // Out-of-range enum value via integer literal — Enum.IsDefined
+            // catches what Enum.TryParse alone permits.
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"mode\":\"T2V\"", "\"mode\":\"99\""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.mode", error.FieldPath);
+        }
+
+        [Fact]
+        public void Invalid_VideoErrorCode_in_error_field_fails_line_closed()
+        {
+            // Append an error block with bogus enum value
+            var withBadError = ValidLine.TrimEnd().Replace(
+                "\"updated_at\":\"2026-04-25T12:00:00Z\"",
+                "\"updated_at\":\"2026-04-25T12:00:00Z\",\"error\":{\"code\":\"NoSuchCode\",\"message\":\"x\",\"retryable\":false}");
+            WriteCustomLine(withBadError);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("error.code", error.FieldPath);
+        }
+
+        [Fact]
+        public void Missing_error_retryable_fails_line_closed()
+        {
+            var withBadError = ValidLine.TrimEnd().Replace(
+                "\"updated_at\":\"2026-04-25T12:00:00Z\"",
+                "\"updated_at\":\"2026-04-25T12:00:00Z\",\"error\":{\"code\":\"ExecutionFailed\",\"message\":\"x\"}");
+            WriteCustomLine(withBadError);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("error.retryable", error.FieldPath);
+        }
+
+        [Fact]
+        public void Bad_line_does_not_hide_valid_lines_around_it()
+        {
+            // Pin the "line-scoped, never file-scoped" failure semantics
+            // for the new fail-closed paths.
+            var validId1 = Guid.NewGuid();
+            var validId2 = Guid.NewGuid();
+
+            // Manually craft three lines: valid, malformed-required-field, valid
+            var line1 = ValidLine.TrimEnd().Replace(
+                "00000000-0000-0000-0000-000000000001", validId1.ToString());
+            var line2 = ValidLine.TrimEnd()
+                .Replace("\"duration_seconds\":8,", "")
+                .Replace("00000000-0000-0000-0000-000000000001", Guid.NewGuid().ToString());
+            var line3 = ValidLine.TrimEnd().Replace(
+                "00000000-0000-0000-0000-000000000001", validId2.ToString());
+
+            File.WriteAllText(
+                _filePath,
+                line1 + "\n" + line2 + "\n" + line3 + "\n",
+                new UTF8Encoding(false));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Equal(2, read.Records.Count);  // both valid records preserved
+            Assert.Single(read.Errors);            // one line-scoped failure
+            Assert.False(read.Success);
         }
     }
 }

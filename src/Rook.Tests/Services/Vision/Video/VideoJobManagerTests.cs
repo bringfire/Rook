@@ -312,6 +312,173 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("op-cancel-test", cancelCalledWith);
         }
 
+        // ─── Codex round 6: cancel correctness invariants ────────────
+        //
+        // These pin the cost-leak prevention contract that v3.1 D4 +
+        // V1b's `provider_job_id` persistence were designed to enforce:
+        // Interrupted jobs must remain remote-cancellable, and the
+        // manager must not claim cancellation when the provider rejects
+        // the cancel.
+
+        [Fact]
+        public async Task Cancel_interrupted_job_calls_provider_cancel_with_persisted_id()
+        {
+            var jobId = Guid.NewGuid();
+            // Pre-populate ledger with an Interrupted record carrying
+            // provider_job_id (the post-Reconcile state).
+            var prior = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), "veo",
+                _estimator.Estimate(T2vRequest()).Estimate!,
+                VideoJobState.Polling, _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Polling, _clock.UtcNow(),
+                providerJobId: "op-stale-456");
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                error: new VideoJobError(VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            string? cancelCalledWith = null;
+            _provider.OnCancel = id =>
+            {
+                cancelCalledWith = id;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal("op-stale-456", cancelCalledWith);
+            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.Null(result.Error);
+
+            // Final ledger record is Cancelled with Cancelled error attached.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Cancelled, latest.State);
+            Assert.NotNull(latest.Error);
+            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+            Assert.False(latest.Error.Retryable);
+        }
+
+        [Fact]
+        public async Task Cancel_interrupted_job_when_provider_fails_returns_Fail_no_state_change()
+        {
+            var jobId = Guid.NewGuid();
+            var prior = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), "veo",
+                _estimator.Estimate(T2vRequest()).Estimate!,
+                VideoJobState.Interrupted, _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "op-stale-789",
+                error: new VideoJobError(VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+                Code: VideoErrorCode.DependencyUnavailable,
+                Message: "Veo cancel rate-limited",
+                Retryable: true));
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            // CancelAsync surfaces the provider's failure to the caller.
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
+            // No new record appended — durable state stays Interrupted,
+            // provider_job_id intact for the next retry.
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Interrupted, latest.State);
+            Assert.Equal("op-stale-789", latest.ProviderJobId);
+        }
+
+        [Fact]
+        public async Task Cancel_in_flight_when_provider_fails_returns_Fail_local_task_kept_running()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            // Provider submits ok, polls forever (so the local task
+            // remains in-flight throughout the cancel attempt).
+            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-keepalive");
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling,
+                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+
+            // Provider rejects cancel.
+            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+                Code: VideoErrorCode.InvalidRequest,
+                Message: "Veo refused cancel",
+                Retryable: false));
+
+            var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            // Wait until provider_job_id is persisted (post-submit).
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (_ledger.AllRecords.Any(r => r.JobId == jobId && r.ProviderJobId is not null))
+                    break;
+                await Task.Delay(10);
+            }
+
+            var cancel = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            // Cancel surfaces Fail — not Ok(Cancelled) — because the
+            // remote may still be running and billing.
+            Assert.NotNull(cancel.Error);
+            Assert.Equal(VideoErrorCode.InvalidRequest, cancel.Error!.Code);
+
+            // Latest ledger record should NOT be Cancelled — the local
+            // task is still running.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.NotEqual(VideoJobState.Cancelled, latest.State);
+        }
+
+        [Fact]
+        public async Task Cancel_in_flight_when_provider_succeeds_persists_Cancelled_with_error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-ok");
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling,
+                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+            _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+
+            var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (_ledger.AllRecords.Any(r => r.JobId == jobId && r.ProviderJobId is not null))
+                    break;
+                await Task.Delay(10);
+            }
+
+            await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            // Wait for the background task to finalize its Cancelled write
+            // after the local CTS fires.
+            deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                var latest = _ledger.AllRecords.LastOrDefault(r => r.JobId == jobId);
+                if (latest is not null && latest.State == VideoJobState.Cancelled) break;
+                await Task.Delay(10);
+            }
+
+            var final = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Cancelled, final.State);
+            // Background task's catch path persists the Cancelled error.
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.Cancelled, final.Error!.Code);
+        }
+
         // ─── Reconcile (no auto-resume) ──────────────────────────────
 
         [Fact]

@@ -169,6 +169,24 @@ namespace Rook.Services.Vision.Video
         }
 
         // ─── Cancel ───────────────────────────────────────────────────
+        //
+        // Cancel is cost-correctness-critical: this is the path that
+        // prevents Veo from continuing to bill for jobs the user asked
+        // to stop. Two non-obvious invariants (Codex round 6):
+        //
+        //   1. Interrupted records with a persisted provider_job_id MUST
+        //      still be cancellable — that's the entire reason the
+        //      ProviderJobId was persisted across restart per v3.1 D4.
+        //      Otherwise the cancel-after-restart path leaks money.
+        //
+        //   2. CancelAsync MUST NOT report Ok when the provider rejects
+        //      cancel. The remote may keep running. Surface Fail to the
+        //      caller and don't kill the local CTS, so the local task
+        //      can still observe the eventual provider-side terminal.
+        //
+        // The Cancelled error is always persisted alongside the state
+        // transition (invariant #4) so JobStatusResult.Failed translation
+        // never has to synthesize a fallback error.
 
         public async Task<JobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
         {
@@ -179,27 +197,31 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(jobId)));
 
-            // In-flight: signal local CTS and best-effort remote cancel.
+            // In-flight: try remote cancel first. Only kill local CTS on
+            // confirmed remote success, so a Fail from the provider doesn't
+            // leave the user thinking the job is cancelled when the remote
+            // is still running.
             if (_runningJobs.TryGetValue(jobId, out var running))
             {
-                try { running.Cts.Cancel(); } catch { /* already cancelled */ }
-
                 if (!string.IsNullOrEmpty(running.LatestRecord.ProviderJobId))
                 {
-                    try
-                    {
-                        await _provider.CancelAsync(
-                            running.LatestRecord.ProviderJobId!, ct).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) { throw; }
-                    catch
-                    {
-                        // Best-effort. The local CTS already triggered cleanup;
-                        // remote cancel failure is logged via the eventual
-                        // background-task ledger entry.
-                    }
+                    var remote = await TryRemoteCancelAsync(
+                        running.LatestRecord.ProviderJobId!, ct).ConfigureAwait(false);
+                    if (remote.Error is not null)
+                        return remote;  // Fail; local task untouched
+
+                    try { running.Cts.Cancel(); } catch { /* already cancelled */ }
+                    // Background task will write its own Cancelled record
+                    // with the Cancelled error on its catch path; we just
+                    // surface the provider-reported state.
+                    return remote;
                 }
 
+                // No provider_job_id yet (job never reached SubmitAsync).
+                // Killing the local CTS is sufficient; nothing remote to
+                // cancel. The background task's catch path persists
+                // Cancelled with the Cancelled error.
+                try { running.Cts.Cancel(); } catch { /* already cancelled */ }
                 return JobCancelResult.Ok(VideoJobState.Cancelled);
             }
 
@@ -212,29 +234,75 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(jobId)));
 
+            // Interrupted records with a persisted provider_job_id are
+            // still cancellable — that's the cost-cleanup contract from
+            // v3.1 D4 + v5 amendments. Non-terminal records with
+            // provider_job_id but no in-flight task are the same shape
+            // (orphaned by a manager that didn't get to Reconcile).
+            var hasRemote = !string.IsNullOrEmpty(record.ProviderJobId);
+            var canRemoteCancel = hasRemote
+                && (record.State == VideoJobState.Interrupted
+                    || !IsTerminal(record.State));
+
+            if (canRemoteCancel)
+            {
+                var remote = await TryRemoteCancelAsync(
+                    record.ProviderJobId!, ct).ConfigureAwait(false);
+                if (remote.Error is not null)
+                    return remote;  // Fail; ledger state unchanged
+
+                // Provider confirmed cancel; persist Cancelled with
+                // the explicit Cancelled error so durable terminal
+                // state matches the result-factory invariant.
+                var cancelled = VideoJobRecordFactory.WithState(
+                    record, VideoJobState.Cancelled, _clock.UtcNow(),
+                    error: CancelledError());
+                _ledger.Append(cancelled);
+                return remote;
+            }
+
+            // Already terminal (Complete / Error / Cancelled, or
+            // Interrupted without a remote handle) — nothing to do.
             if (IsTerminal(record.State))
                 return JobCancelResult.Ok(record.State);
 
-            // Non-terminal but not in-flight — orphaned (Interrupted by
-            // restart, or somehow lost). Best-effort remote cancel using
-            // persisted provider_job_id, then persist Cancelled.
-            if (!string.IsNullOrEmpty(record.ProviderJobId))
-            {
-                try
-                {
-                    await _provider.CancelAsync(
-                        record.ProviderJobId!, ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) { throw; }
-                catch { /* best-effort */ }
-            }
-
-            var cancelled = VideoJobRecordFactory.WithState(
-                record, VideoJobState.Cancelled, _clock.UtcNow());
-            _ledger.Append(cancelled);
-
+            // Non-terminal, no provider_job_id, no in-flight task —
+            // degenerate edge case. Persist a Cancelled snapshot with
+            // the Cancelled error.
+            var localCancelled = VideoJobRecordFactory.WithState(
+                record, VideoJobState.Cancelled, _clock.UtcNow(),
+                error: CancelledError());
+            _ledger.Append(localCancelled);
             return JobCancelResult.Ok(VideoJobState.Cancelled);
         }
+
+        private async Task<JobCancelResult> TryRemoteCancelAsync(
+            string providerJobId, CancellationToken ct)
+        {
+            try
+            {
+                var result = await _provider.CancelAsync(providerJobId, ct)
+                    .ConfigureAwait(false);
+
+                if (result.Error is not null)
+                    return JobCancelResult.Fail(result.Error);
+
+                return JobCancelResult.Ok(result.State);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return JobCancelResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.DependencyUnavailable,
+                    Message: $"Provider cancel failed: {ex.Message}",
+                    Retryable: true));
+            }
+        }
+
+        private static VideoJobError CancelledError() => new(
+            Code: VideoErrorCode.Cancelled,
+            Message: "Job cancelled.",
+            Retryable: false);
 
         // ─── Fetch result ─────────────────────────────────────────────
 
