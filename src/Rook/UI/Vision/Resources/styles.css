@@ -8,15 +8,12 @@
    chrome should feel like a tool a draftsperson would respect, not a
    SaaS dashboard. */
 
-/* Self-hosted fonts (Archivo + JetBrains Mono) — TODO: drop .woff2
-   files into ./fonts/ and uncomment the @font-face block below.
-   Vision CSP pins `font-src 'self'` (see VisionWebSurface.cs), so an
-   external Google Fonts @import is silently blocked. Until the fonts
-   are vendored in, the type-stack falls back to system equivalents
-   that preserve the *structure* (sans + mono pairing) but lose the
-   character that makes the visual identity work. */
+/* Self-hosted fonts (Archivo + JetBrains Mono). Vision CSP pins
+   `font-src 'self'` (see VisionWebSurface.cs), so external font hosts
+   are blocked — these are vendored under ./fonts/ and embedded into
+   Rook.rhp. Provenance, SHAs, and the Archivo TTF→WOFF2 conversion
+   recipe live in fonts/SOURCES.md. Both families are SIL OFL 1.1. */
 
-/*
 @font-face {
     font-family: 'Archivo';
     src: url('fonts/Archivo-VariableFont_wdth_wght.woff2') format('woff2-variations');
@@ -30,7 +27,6 @@
     font-weight: 100 800;
     font-display: swap;
 }
-*/
 
 :root {
     /* Ink palette — high-contrast spine, sparse precision accents. */
