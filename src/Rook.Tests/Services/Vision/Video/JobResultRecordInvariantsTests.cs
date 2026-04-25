@@ -14,36 +14,36 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class JobResultRecordInvariantsTests
     {
-        // ─── JobSubmitResult ──────────────────────────────────────────
+        // ─── JobSubmitResult (manager output, Rook-side JobId) ────────
 
         [Fact]
-        public void Submit_Ok_constructs_with_provider_id_and_no_error()
+        public void Submit_Ok_constructs_with_job_id_and_no_error()
         {
-            var r = JobSubmitResult.Ok("job-1", VideoJobState.Queued);
+            var jobId = Guid.NewGuid();
 
-            Assert.Equal("job-1", r.ProviderJobId);
+            var r = JobSubmitResult.Ok(jobId, VideoJobState.Queued);
+
+            Assert.Equal(jobId, r.JobId);
             Assert.Equal(VideoJobState.Queued, r.State);
             Assert.Null(r.Error);
         }
 
-        [Theory]
-        [InlineData("")]
-        [InlineData("   ")]
-        public void Submit_Ok_rejects_empty_provider_id(string id)
+        [Fact]
+        public void Submit_Ok_rejects_empty_guid()
         {
             Assert.Throws<ArgumentException>(() =>
-                JobSubmitResult.Ok(id, VideoJobState.Queued));
+                JobSubmitResult.Ok(Guid.Empty, VideoJobState.Queued));
         }
 
         [Fact]
-        public void Submit_Fail_carries_error_and_no_provider_id()
+        public void Submit_Fail_carries_error_and_no_job_id()
         {
             var err = new VideoJobError(
                 VideoErrorCode.DependencyUnavailable, "auth", Retryable: true);
 
             var r = JobSubmitResult.Fail(err);
 
-            Assert.Null(r.ProviderJobId);
+            Assert.Null(r.JobId);
             Assert.Same(err, r.Error);
             Assert.Equal(VideoJobState.Error, r.State);
         }
