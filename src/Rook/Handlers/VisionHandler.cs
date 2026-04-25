@@ -1421,13 +1421,9 @@ namespace Rook.Handlers
             {
                 filePath = ResolveArtifactFilePathForReveal(_artifactStore, args);
             }
-            catch (KeyNotFoundException)
+            catch (Exception ex) when (TryMapRevealArtifactFileException(ex, out var message))
             {
-                return Fail(RevealFileUnavailableMessage);
-            }
-            catch (FileNotFoundException)
-            {
-                return Fail(RevealFileUnavailableMessage);
+                return Fail(message!);
             }
 
             using var shellProcess = Process.Start(BuildRevealFileStartInfo(filePath));
@@ -1514,6 +1510,33 @@ namespace Rook.Handlers
             var id = RequireArtifactId(args);
             var role = RequireNonEmptyString(args, "role");
             return artifactStore.GetBlobAbsolutePath(id, role);
+        }
+
+        /// <summary>
+        /// Maps reveal-time exceptions to the user-facing UX message,
+        /// or signals "not mine" so the caller propagates the original.
+        /// Only <see cref="KeyNotFoundException"/> (artifact id or role
+        /// missing in manifest) and <see cref="FileNotFoundException"/>
+        /// (manifest references a blob that no longer exists on disk)
+        /// map to <see cref="RevealFileUnavailableMessage"/> — both
+        /// share the same user remediation. Traversal/integrity
+        /// (<c>InvalidDataException</c>) and bad-input
+        /// (<c>ArgumentException</c>) deliberately do NOT map; they
+        /// surface their real messages so integrity violations and
+        /// contract bugs are visible.
+        /// </summary>
+        internal static bool TryMapRevealArtifactFileException(
+            Exception ex,
+            out string? message)
+        {
+            if (ex is KeyNotFoundException or FileNotFoundException)
+            {
+                message = RevealFileUnavailableMessage;
+                return true;
+            }
+
+            message = null;
+            return false;
         }
 
         internal static bool IsApproved(Artifact artifact)

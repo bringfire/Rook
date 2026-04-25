@@ -259,6 +259,30 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Fact]
+        public void TryMapRevealArtifactFileException_MapsMissingArtifactAndMissingBlob()
+        {
+            Assert.True(VisionHandler.TryMapRevealArtifactFileException(
+                new KeyNotFoundException("missing"), out var keyMessage));
+            Assert.Equal(VisionHandler.RevealFileUnavailableMessage, keyMessage);
+
+            Assert.True(VisionHandler.TryMapRevealArtifactFileException(
+                new FileNotFoundException("missing"), out var fileMessage));
+            Assert.Equal(VisionHandler.RevealFileUnavailableMessage, fileMessage);
+        }
+
+        [Fact]
+        public void TryMapRevealArtifactFileException_DoesNotMaskInvalidDataOrBadArgs()
+        {
+            Assert.False(VisionHandler.TryMapRevealArtifactFileException(
+                new InvalidDataException("Manifest path escapes artifact directory."), out var invalidDataMessage));
+            Assert.Null(invalidDataMessage);
+
+            Assert.False(VisionHandler.TryMapRevealArtifactFileException(
+                new ArgumentException("Missing role."), out var argumentMessage));
+            Assert.Null(argumentMessage);
+        }
+
         // ─── Model catalog + short-name resolution ──────────────────────
 
         [Fact]
