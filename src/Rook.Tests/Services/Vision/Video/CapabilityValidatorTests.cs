@@ -203,7 +203,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = CapabilityValidator.Validate(Lite.cap, request: null!);
 
             Assert.False(result.Success);
-            Assert.Equal("request", result.Field);
+            Assert.Equal("Request", result.Field);
         }
 
         [Fact]
@@ -213,7 +213,7 @@ namespace Rook.Tests.Services.Vision.Video
                 cap: null!, TestVideoFixtures.DefaultT2vRequest());
 
             Assert.False(result.Success);
-            Assert.Equal("cap", result.Field);
+            Assert.Equal("Cap", result.Field);
         }
     }
 }

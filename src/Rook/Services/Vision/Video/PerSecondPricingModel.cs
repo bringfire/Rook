@@ -54,7 +54,23 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(request.Resolution)));
 
-            var quantity = request.DurationSeconds * request.NumberOfVideos;
+            // L4: checked-arithmetic for the int multiplication. Today
+            // both factors are validator-bounded (duration in {4,5,6,8},
+            // count == 1) so overflow is impossible; the checked block
+            // is insurance for when the N==1 limit lifts in V2+ and a
+            // pathological caller submits a huge count.
+            int quantity;
+            try { quantity = checked(request.DurationSeconds * request.NumberOfVideos); }
+            catch (OverflowException)
+            {
+                return PricingResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.InvalidRequest,
+                    Message: $"Quantity overflow: duration={request.DurationSeconds} × " +
+                             $"count={request.NumberOfVideos}.",
+                    Retryable: false,
+                    Field: nameof(request.NumberOfVideos)));
+            }
+
             var total = rate * quantity;
 
             return PricingResult.Ok(new JobPricing(

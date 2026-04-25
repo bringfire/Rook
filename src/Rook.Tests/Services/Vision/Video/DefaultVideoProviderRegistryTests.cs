@@ -78,6 +78,88 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.False(ok);
         }
 
+        // ─── TryResolveProviderByName (H1 fix surface) ────────────────
+
+        [Fact]
+        public void TryResolveProviderByName_returns_registered_veo_provider()
+        {
+            var fakeProvider = new FakeVideoProvider();
+            var registry = TestVideoFixtures.RegistryWithVeo(fakeProvider);
+
+            var ok = registry.TryResolveProviderByName("veo", out var resolved);
+
+            Assert.True(ok);
+            Assert.Same(fakeProvider, resolved);
+        }
+
+        [Fact]
+        public void TryResolveProviderByName_returns_false_for_unknown_provider()
+        {
+            var registry = TestVideoFixtures.RegistryWithVeo();
+
+            var ok = registry.TryResolveProviderByName("ghost-provider", out _);
+
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void TryResolveProviderByName_returns_false_for_null_or_empty()
+        {
+            var registry = TestVideoFixtures.RegistryWithVeo();
+
+            Assert.False(registry.TryResolveProviderByName(null!, out _));
+            Assert.False(registry.TryResolveProviderByName("", out _));
+            Assert.False(registry.TryResolveProviderByName("   ", out _));
+        }
+
+        [Fact]
+        public void TryResolveProviderByName_first_registered_wins_when_duplicate_names()
+        {
+            // Codex Finding 5 explicitly allows duplicate provider names
+            // (a provider may legitimately split registrations across
+            // product families). For TryResolveProviderByName, first
+            // registration wins — assumes implementations sharing a name
+            // are interchangeable for cancel-style ops.
+            var first = new FakeVideoProvider();
+            var second = new FakeVideoProvider();
+
+            var alpha = new FakeRegistration("veo", first,
+                new System.Collections.Generic.Dictionary<string, (ModelCapability, IPricingModel)>
+                {
+                    ["alpha-model"] = (StubCap("alpha-model"), StubPricing()),
+                });
+            var beta = new FakeRegistration("veo", second,
+                new System.Collections.Generic.Dictionary<string, (ModelCapability, IPricingModel)>
+                {
+                    ["beta-model"] = (StubCap("beta-model"), StubPricing()),
+                });
+
+            var registry = new DefaultVideoProviderRegistry(new[] { alpha, beta });
+
+            Assert.True(registry.TryResolveProviderByName("veo", out var resolved));
+            Assert.Same(first, resolved);
+        }
+
+        // Mirror of TestRegistration without the init-only defaults so we
+        // can pass a specific Provider instance for the duplicate-name test.
+        private sealed class FakeRegistration : IVideoProviderRegistration
+        {
+            public string ProviderName { get; }
+            public IVideoProvider Provider { get; }
+            public IProviderOptionsCodec OptionsCodec { get; } = new VeoOptionsCodec();
+            public System.Collections.Generic.IReadOnlyDictionary<string, (ModelCapability Capability, IPricingModel PricingModel)> Models { get; }
+
+            public FakeRegistration(
+                string providerName,
+                IVideoProvider provider,
+                System.Collections.Generic.IReadOnlyDictionary<string, (ModelCapability, IPricingModel)> models)
+            {
+                ProviderName = providerName;
+                Provider = provider;
+                Models = models;
+            }
+        }
+
         // ─── EnumerateAllModels ───────────────────────────────────────
 
         [Fact]
@@ -103,6 +185,27 @@ namespace Rook.Tests.Services.Vision.Video
             var second = registry.EnumerateAllModels().Select(d => d.ModelId).ToList();
 
             Assert.Equal(first, second);
+        }
+
+        [Fact]
+        public void EnumerateAllModels_pins_documented_veo_order()
+        {
+            // M2: stability across two calls (above) doesn't catch a
+            // regression in deterministic content order. Pin the actual
+            // Veo enumeration so a UI model picker has a stable contract.
+            var registry = TestVideoFixtures.RegistryWithVeo();
+
+            var ids = registry.EnumerateAllModels().Select(d => d.ModelId).ToArray();
+
+            Assert.Equal(new[]
+            {
+                "veo-3.1-generate-preview",
+                "veo-3.1-fast-generate-preview",
+                "veo-3.1-lite-generate-preview",
+                "veo-3.0-generate-001",
+                "veo-3.0-fast-generate-001",
+                "veo-2.0-generate-001",
+            }, ids);
         }
 
         [Fact]

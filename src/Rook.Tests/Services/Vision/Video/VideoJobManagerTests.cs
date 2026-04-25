@@ -528,6 +528,205 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(beforeCount, _ledger.AllRecords.Count);
         }
 
+        // ─── Pricing single-pass invariant (M3) ───────────────────────
+
+        [Fact]
+        public async Task Pricing_model_Estimate_is_called_exactly_once_across_submit_to_complete()
+        {
+            // M3: the audit-snapshot invariant says pricing is computed
+            // once at estimate time and copied verbatim downstream. A
+            // counting pricing model proves it end-to-end — no recompute
+            // anywhere between submit and the persisted Complete record.
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+
+            var counter = new CountingPricingModel(
+                inner: VeoCapabilities.Models["veo-3.1-lite-generate-preview"].PricingModel);
+            var resolvedWithCounter = _resolvedModel with { PricingModel = counter };
+            var registryWithCounter = new SingleModelRegistry(resolvedWithCounter);
+            var mgr = new VideoJobManager(
+                registry: registryWithCounter,
+                mediaResolver: _resolver,
+                ledger: _ledger,
+                estimator: _estimator,
+                artifactStore: _artifactStore,
+                clock: _clock,
+                idGenerator: _idGen,
+                pollInterval: TimeSpan.FromMilliseconds(5));
+
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(1, counter.CallCount);
+        }
+
+        // Test pricing model that delegates to a real one but counts calls.
+        private sealed class CountingPricingModel : IPricingModel
+        {
+            private readonly IPricingModel _inner;
+            public int CallCount { get; private set; }
+
+            public CountingPricingModel(IPricingModel inner) { _inner = inner; }
+
+            public PricingKind Kind => _inner.Kind;
+            public string PricingSource => _inner.PricingSource;
+
+            public PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap)
+            {
+                CallCount++;
+                return _inner.Estimate(request, cap);
+            }
+        }
+
+        // Trivial registry holding one resolved model. Avoids the
+        // VeoProviderRegistration path so the swapped PricingModel sticks.
+        private sealed class SingleModelRegistry : IVideoProviderRegistry
+        {
+            private readonly ResolvedVideoModel _model;
+
+            public SingleModelRegistry(ResolvedVideoModel model) { _model = model; }
+
+            public bool TryResolve(string modelId, out ResolvedVideoModel model)
+            {
+                if (modelId == _model.ModelId)
+                {
+                    model = _model;
+                    return true;
+                }
+                model = null!;
+                return false;
+            }
+
+            public bool TryResolveProviderByName(string providerName, out IVideoProvider provider)
+            {
+                if (providerName == _model.ProviderName)
+                {
+                    provider = _model.Provider;
+                    return true;
+                }
+                provider = null!;
+                return false;
+            }
+
+            public IReadOnlyList<VideoModelDescriptor> EnumerateAllModels() =>
+                new[]
+                {
+                    new VideoModelDescriptor(
+                        _model.ModelId, _model.ProviderName, _model.Capability,
+                        _model.PricingModel.Kind, _model.PricingModel.PricingSource),
+                };
+        }
+
+        // ─── Submit short-circuits before media resolver on validation failure (M5) ──
+
+        [Fact]
+        public async Task Submit_with_invalid_request_does_not_invoke_media_resolver()
+        {
+            // M5: media resolution is non-trivial work (artifact lookup,
+            // disk IO). Submit must reject validation failures BEFORE
+            // touching the resolver, otherwise a bad request burns IO on
+            // every retry.
+            var resolverCalls = 0;
+            _resolver.OnResolve = _ =>
+            {
+                resolverCalls++;
+                return new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+            };
+
+            var mgr = Manager();
+            // Invalid: resolution doesn't match cap.
+            var bad = T2vRequest() with { Resolution = "8k" };
+
+            var result = await mgr.SubmitAsync(bad, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(0, resolverCalls);
+            Assert.Empty(_ledger.AllRecords);
+        }
+
+        // ─── H1 regression: cancel succeeds when model deprecated but provider still registered ──
+
+        [Fact]
+        public async Task Cancel_after_model_deprecation_resolves_provider_by_name_and_succeeds()
+        {
+            // H1: persisted record's model id may no longer be in the
+            // registry (Google sunsets a Veo model overnight while a job
+            // is mid-flight from yesterday). The cancel path must NOT
+            // refuse on model-id miss — it should resolve by provider
+            // name (which is still registered) and call CancelAsync.
+            var jobId = Guid.NewGuid();
+
+            // Pre-populate ledger with an Interrupted record using a
+            // DEPRECATED model id that's not in our registry.
+            // Construct via the production VeoProviderRegistration first
+            // to get a valid pricing snapshot, then force the model on
+            // the record.
+            var realModel = TestVideoFixtures.VeoLiteResolved(_provider);
+            var validReq = TestVideoFixtures.DefaultT2vRequest();
+            var prior = VideoJobRecordFactory.From(
+                jobId, validReq, realModel, EstimateFor(validReq),
+                VideoJobState.Polling, _clock.UtcNow())
+                with { Model = "veo-deprecated-yesterday" };  // forced
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "operations/stranded-by-deprecation",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            // Provider is still registered under the real Veo registration.
+            string? cancelCalledWith = null;
+            _provider.OnCancel = id =>
+            {
+                cancelCalledWith = id;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal("operations/stranded-by-deprecation", cancelCalledWith);
+            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.Null(result.Error);
+
+            // Final record is Cancelled with the Cancelled error attached.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Cancelled, latest.State);
+            Assert.NotNull(latest.Error);
+            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+        }
+
+        [Fact]
+        public async Task Cancel_when_provider_not_registered_returns_typed_Fail()
+        {
+            // The other side of H1: if the provider name itself is no
+            // longer registered (the entire provider was unbundled, not
+            // just one model deprecated), we cannot cancel remotely. Fail
+            // typed, surface the missing-provider name in the message.
+            var jobId = Guid.NewGuid();
+
+            var realModel = TestVideoFixtures.VeoLiteResolved(_provider);
+            var validReq = TestVideoFixtures.DefaultT2vRequest();
+            var prior = VideoJobRecordFactory.From(
+                jobId, validReq, realModel, EstimateFor(validReq),
+                VideoJobState.Polling, _clock.UtcNow())
+                with { Provider = "ghost-provider" };  // forced
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "operations/orphan",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Contains("ghost-provider", result.Error.Message);
+        }
+
         // ─── FetchResult ──────────────────────────────────────────────
 
         [Fact]

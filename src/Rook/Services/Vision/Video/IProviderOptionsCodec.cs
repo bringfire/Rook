@@ -5,27 +5,16 @@ namespace Rook.Services.Vision.Video
     /// <summary>
     /// Per-provider serialization, validation, and round-trip for
     /// <see cref="ProviderOptions"/>. Bound to a
-    /// <see cref="ResolvedVideoModel"/> at registry construction; one
-    /// codec per provider (a Veo model resolves to
-    /// <see cref="VeoOptionsCodec"/>).
+    /// <see cref="ResolvedVideoModel"/> at registry construction.
     ///
-    /// <para><see cref="Validate"/> houses provider-specific rules that
-    /// V1b kept inside <c>VideoCapabilities.Validate</c> (e.g. Veo's
-    /// model-family × image-based PersonGeneration matrix).
-    /// Provider-neutral request-shape validation lives separately in
-    /// <see cref="CapabilityValidator"/>.</para>
-    ///
-    /// <para><see cref="Serialize"/> output is the inner blob persisted
-    /// verbatim into <see cref="VideoJobRecord.ProviderOptions"/>; for
-    /// Veo it is <c>{ "person_generation": "..." }</c>, byte-identical to
-    /// V1b's <c>VideoJobRecordFactory.BuildProviderOptions</c> output.
-    /// The bit-identity fixture test guards this.</para>
-    ///
-    /// <para><see cref="Deserialize"/> exists for replay, diagnostics,
-    /// and future content-hash cache keys (per
-    /// <c>feedback_capability_extension_prep_timing.md</c>) — every
-    /// persisted options blob must round-trip back to typed
-    /// <see cref="ProviderOptions"/>.</para>
+    /// V1c implementations (e.g. <see cref="VeoOptionsCodec"/>)
+    /// fail-closed on unknown serialized values. V2+ replay consumers
+    /// reading records written by a newer binary may encounter values
+    /// added after this codec shipped; design those consumers to tolerate
+    /// a fail-closed Deserialize (e.g. surface a typed
+    /// <see cref="VideoErrorCode.UnsupportedMedia"/>) rather than crash.
+    /// If forward-compat envelope semantics are needed, add a
+    /// <c>RawProviderOptions</c> fallback subtype before V2 ships.
     /// </summary>
     public interface IProviderOptionsCodec
     {

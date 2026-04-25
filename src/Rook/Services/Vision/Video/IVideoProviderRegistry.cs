@@ -17,5 +17,17 @@ namespace Rook.Services.Vision.Video
         bool TryResolve(string modelId, out ResolvedVideoModel model);
 
         IReadOnlyList<VideoModelDescriptor> EnumerateAllModels();
+
+        /// <summary>
+        /// Resolves a provider by its registered name. Used by
+        /// <see cref="VideoJobManager.CancelAsync"/> to clean up remote
+        /// jobs whose persisted model id may have been deprecated between
+        /// runs (the persisted <c>provider</c> name is still valid even
+        /// after a model retirement). When duplicate provider names are
+        /// registered, the first-registered provider wins; this assumes
+        /// implementations sharing a name are interchangeable for
+        /// out-of-band ops like cancel.
+        /// </summary>
+        bool TryResolveProviderByName(string providerName, out IVideoProvider provider);
     }
 }

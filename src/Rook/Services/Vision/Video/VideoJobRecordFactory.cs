@@ -46,6 +46,14 @@ namespace Rook.Services.Vision.Video
             if (estimate is null) throw new ArgumentNullException(nameof(estimate));
             if (jobId == Guid.Empty)
                 throw new ArgumentException("JobId must be non-empty.", nameof(jobId));
+            // M4: VideoGenerationRequest.Options is non-nullable in the
+            // type system but C# can't enforce that at runtime. Direct
+            // factory callers (tests, future consumers) could bypass the
+            // estimator's codec.Validate path and reach the codec.Serialize
+            // call with null. Fail typed early.
+            if (request.Options is null)
+                throw new ArgumentException(
+                    "request.Options must be non-null.", nameof(request));
 
             return new VideoJobRecord(
                 SchemaVersion: CurrentSchemaVersion,

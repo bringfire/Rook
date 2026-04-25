@@ -22,10 +22,10 @@ namespace Rook.Services.Vision.Video
             ModelCapability cap, VideoGenerationRequest request)
         {
             if (request is null)
-                return ValidationResult.Fail(nameof(request), "Request is null.");
+                return ValidationResult.Fail("Request", "Request is null.");
 
             if (cap is null)
-                return ValidationResult.Fail(nameof(cap), "Capability is null.");
+                return ValidationResult.Fail("Cap", "Capability is null.");
 
             if (request.NumberOfVideos != 1)
                 return ValidationResult.Fail(

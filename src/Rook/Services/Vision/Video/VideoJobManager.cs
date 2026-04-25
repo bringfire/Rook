@@ -171,7 +171,7 @@ namespace Rook.Services.Vision.Video
         //
         // Cancel is cost-correctness-critical: this is the path that
         // prevents Veo (or any provider) from continuing to bill for jobs
-        // the user asked to stop. Two non-obvious invariants (Codex round 6):
+        // the user asked to stop. Invariants:
         //
         //   1. Interrupted records with a persisted provider_job_id MUST
         //      still be cancellable — that's the entire reason the
@@ -183,9 +183,28 @@ namespace Rook.Services.Vision.Video
         //      caller and don't kill the local CTS, so the local task
         //      can still observe the eventual provider-side terminal.
         //
-        // The Cancelled error is always persisted alongside the state
-        // transition (invariant #4) so JobStatusResult.Failed translation
-        // never has to synthesize a fallback error.
+        //   3. The Cancelled error is always persisted alongside the
+        //      state transition so JobStatusResult.Failed translation
+        //      never has to synthesize a fallback error.
+        //
+        //   4. ProviderJobId for the remote-cancel call is read from the
+        //      ledger, not from the in-memory RunningJob.LatestRecord.
+        //      The background task writes ledger.Append BEFORE assigning
+        //      LatestRecord, so a forced ledger read is the same-or-newer
+        //      view of state with a memory barrier (the ledger's lock).
+        //      Reading from LatestRecord risks seeing a stale snapshot
+        //      under .NET's relaxed memory model and missing a remote
+        //      handle that the background task just persisted (M6).
+        //
+        //   5. For the not-running case, the cancel-target provider is
+        //      resolved by record.Provider NAME (not record.Model). The
+        //      model id may have been deprecated between runs — e.g.
+        //      Google sunsets veo-3.0-fast-generate-001 while a job is
+        //      still mid-flight from yesterday. Per H1, refusing to
+        //      cancel because the model is unknown strands a remote job
+        //      and leaks billing. Provider-name resolution requires only
+        //      that the same provider implementation is still registered,
+        //      which is the realistic case.
 
         public async Task<JobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
         {
@@ -196,18 +215,28 @@ namespace Rook.Services.Vision.Video
                     Retryable: false,
                     Field: nameof(jobId)));
 
-            // In-flight: provider comes from the running-job's resolved
-            // model (set at SubmitAsync). Try remote cancel first; only
-            // kill local CTS on confirmed remote success so a Fail from
-            // the provider doesn't leave the user thinking the job is
-            // cancelled when the remote is still running.
-            if (_runningJobs.TryGetValue(jobId, out var running))
+            // Always read from ledger for cancel decisions — in-memory
+            // cache may be stale (M6).
+            var record = FindLedgerRecord(jobId);
+            if (record is null)
+                return JobCancelResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.InvalidRequest,
+                    Message: $"Unknown jobId: {jobId:D}.",
+                    Retryable: false,
+                    Field: nameof(jobId)));
+
+            var hasInFlight = _runningJobs.TryGetValue(jobId, out var running);
+            var providerJobId = record.ProviderJobId;
+            var hasRemote = !string.IsNullOrEmpty(providerJobId);
+
+            // ── In-flight branch ──
+            if (hasInFlight)
             {
-                if (!string.IsNullOrEmpty(running.LatestRecord.ProviderJobId))
+                if (hasRemote)
                 {
                     var remote = await TryRemoteCancelAsync(
-                        running.Model.Provider,
-                        running.LatestRecord.ProviderJobId!, ct).ConfigureAwait(false);
+                        running!.Model.Provider, providerJobId!, ct)
+                        .ConfigureAwait(false);
                     if (remote.Error is not null)
                         return remote;  // Fail; local task untouched
 
@@ -218,50 +247,40 @@ namespace Rook.Services.Vision.Video
                     return remote;
                 }
 
-                // No provider_job_id yet (job never reached SubmitAsync).
-                // Killing the local CTS is sufficient; nothing remote to
-                // cancel. The background task's catch path persists
-                // Cancelled with the Cancelled error.
-                try { running.Cts.Cancel(); } catch { /* already cancelled */ }
+                // No provider_job_id yet (job never reached provider
+                // SubmitAsync). Killing the local CTS is sufficient;
+                // nothing remote to cancel. The background task's catch
+                // path persists Cancelled with the Cancelled error.
+                try { running!.Cts.Cancel(); } catch { /* already cancelled */ }
                 return JobCancelResult.Ok(VideoJobState.Cancelled);
             }
 
-            // Not running locally — look up in the ledger.
-            var record = FindLatestRecord(jobId);
-            if (record is null)
-                return JobCancelResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
-                    Message: $"Unknown jobId: {jobId:D}.",
-                    Retryable: false,
-                    Field: nameof(jobId)));
-
+            // ── Not-in-flight branch ──
+            //
             // Interrupted records with a persisted provider_job_id are
             // still cancellable — that's the cost-cleanup contract from
             // v3.1 D4 + v5 amendments. Non-terminal records with
             // provider_job_id but no in-flight task are the same shape
             // (orphaned by a manager that didn't get to Reconcile).
-            var hasRemote = !string.IsNullOrEmpty(record.ProviderJobId);
             var canRemoteCancel = hasRemote
                 && (record.State == VideoJobState.Interrupted
                     || !IsTerminal(record.State));
 
             if (canRemoteCancel)
             {
-                // Re-resolve the provider via registry from the persisted
-                // record's model id. If the model is no longer registered
-                // (e.g., deprecated between runs), we cannot cancel
-                // remotely — surface a typed Fail rather than silently
-                // leak the remote job.
-                if (!_registry.TryResolve(record.Model, out var model))
+                // H1: resolve by provider NAME, not model id. A
+                // deprecated model whose provider is still registered
+                // must still be cancellable.
+                if (!_registry.TryResolveProviderByName(record.Provider, out var provider))
                     return JobCancelResult.Fail(new VideoJobError(
                         Code: VideoErrorCode.InvalidRequest,
-                        Message: $"Cannot cancel job {jobId:D}: model '{record.Model}' " +
+                        Message: $"Cannot cancel job {jobId:D}: provider '{record.Provider}' " +
                                  "is no longer registered with this manager.",
                         Retryable: false,
-                        Field: nameof(record.Model)));
+                        Field: nameof(record.Provider)));
 
                 var remote = await TryRemoteCancelAsync(
-                    model.Provider, record.ProviderJobId!, ct).ConfigureAwait(false);
+                    provider, providerJobId!, ct).ConfigureAwait(false);
                 if (remote.Error is not null)
                     return remote;  // Fail; ledger state unchanged
 
@@ -577,11 +596,24 @@ namespace Rook.Services.Vision.Video
 
         private VideoJobRecord? FindLatestRecord(Guid jobId)
         {
-            // In-memory state is the freshest (commits happen there).
+            // Used by GetStatusAsync / FetchResultAsync where stale-by-one-
+            // transition is acceptable (status is informational; fetch
+            // checks state == Complete which is terminal so the in-memory
+            // cache cannot be NEWER than the ledger for that path).
             if (_runningJobs.TryGetValue(jobId, out var running))
                 return running.LatestRecord;
 
-            // Otherwise read the ledger.
+            return FindLedgerRecord(jobId);
+        }
+
+        private VideoJobRecord? FindLedgerRecord(Guid jobId)
+        {
+            // Forces a ledger read, bypassing the in-memory cache. Used by
+            // CancelAsync for cost-correctness (M6): the background task
+            // writes ledger.Append BEFORE assigning RunningJob.LatestRecord,
+            // so the ledger view is the same-or-newer state with a memory
+            // barrier. Reading from LatestRecord risks missing a remote
+            // handle the background task just persisted.
             var read = _ledger.ReadAll();
             foreach (var r in read.Records)
                 if (r.JobId == jobId) return r;

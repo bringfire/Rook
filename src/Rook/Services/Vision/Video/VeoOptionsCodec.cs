@@ -27,19 +27,19 @@ namespace Rook.Services.Vision.Video
             ModelCapability cap)
         {
             if (request is null)
-                return ValidationResult.Fail(nameof(request), "Request is null.");
+                return ValidationResult.Fail("Request", "Request is null.");
 
             if (cap is null)
-                return ValidationResult.Fail(nameof(cap), "Capability is null.");
+                return ValidationResult.Fail("Cap", "Capability is null.");
 
             if (options is null)
                 return ValidationResult.Fail(
-                    nameof(options),
+                    nameof(VideoGenerationRequest.Options),
                     "VeoOptions are required for Veo models.");
 
             if (options is not VeoOptions veo)
                 return ValidationResult.Fail(
-                    nameof(options),
+                    nameof(VideoGenerationRequest.Options),
                     $"Veo codec requires {nameof(VeoOptions)}; got {options.GetType().Name}.");
 
             // Fail-closed on undefined enum values. C# enums are

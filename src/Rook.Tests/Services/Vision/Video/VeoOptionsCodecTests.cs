@@ -367,7 +367,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Validate(req, options: null!, Cap);
 
             Assert.False(result.Success);
-            Assert.Equal("options", result.Field);
+            Assert.Equal("Options", result.Field);
         }
 
         [Fact]
@@ -380,7 +380,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Validate(req, fake, Cap);
 
             Assert.False(result.Success);
-            Assert.Equal("options", result.Field);
+            Assert.Equal("Options", result.Field);
             Assert.Contains(nameof(VeoOptions), result.Message);
         }
 

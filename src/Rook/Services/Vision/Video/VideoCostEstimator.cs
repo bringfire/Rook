@@ -3,20 +3,13 @@ using System.Collections.Generic;
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
-    /// Provider-neutral orchestrator for validation + pricing. V1c:
-    /// renamed from V1b's <c>VeoCostEstimator</c>. Stateless; the
-    /// resolved model carries all per-provider state (capability,
-    /// pricing model, options codec).
-    ///
-    /// Order of operations on each <see cref="Estimate"/> call:
-    /// <list type="number">
-    ///   <item><description>Provider-neutral capability validation (<see cref="CapabilityValidator"/>).</description></item>
-    ///   <item><description>Provider-specific options validation (<see cref="IProviderOptionsCodec.Validate"/>).</description></item>
-    ///   <item><description>Pricing (<see cref="IPricingModel.Estimate"/>) — runs exactly once.</description></item>
-    /// </list>
-    /// The resulting <see cref="JobPricing"/> snapshot rides inside the
-    /// returned <see cref="VideoCostEstimate.Pricing"/> for verbatim
-    /// downstream copy by <see cref="VideoJobRecordFactory"/>.
+    /// Single-pass orchestration of capability validation, options
+    /// validation, and pricing. <see cref="IPricingModel.Estimate"/> is
+    /// invoked exactly once per <see cref="Estimate"/> call; the
+    /// resulting <see cref="JobPricing"/> rides inside
+    /// <see cref="VideoCostEstimate.Pricing"/> for verbatim downstream
+    /// copy by <see cref="VideoJobRecordFactory"/>. The factory must
+    /// not recompute — drift here breaks the audit-snapshot contract.
     /// </summary>
     public sealed class VideoCostEstimator : IVideoCostEstimator
     {
@@ -26,11 +19,18 @@ namespace Rook.Services.Vision.Video
         {
             if (model is null)
                 return Fail(VideoErrorCode.InvalidRequest,
-                    "Resolved model is null.", nameof(model));
+                    "Resolved model is null.", "Model");
 
             if (request is null)
                 return Fail(VideoErrorCode.InvalidRequest,
-                    "Request is null.", nameof(request));
+                    "Request is null.", "Request");
+
+            // M4: fail typed early on null Options at the manager/estimator
+            // boundary rather than relying on the codec to catch it.
+            if (request.Options is null)
+                return Fail(VideoErrorCode.InvalidRequest,
+                    "Request.Options must be non-null.",
+                    nameof(VideoGenerationRequest.Options));
 
             // Step 1: capability validation (provider-neutral)
             var capResult = CapabilityValidator.Validate(model.Capability, request);
@@ -68,40 +68,42 @@ namespace Rook.Services.Vision.Video
                 Pricing: pricing));
         }
 
-        // Build the UI-facing breakdown rows. Per-video line uses the
-        // pricing-model's UnitPriceUsd × duration; multi-video line is the
-        // remainder. Mirrors V1b's VeoCostEstimator output shape so
-        // existing UI consumers see identical rows.
+        // Build the UI-facing breakdown rows. Single-row output: the
+        // pricing model already produced TotalUsd for the full request
+        // (quantity × unit), so the breakdown just labels it. The N>1
+        // case folds the multiplier into the label so the row's dollar
+        // value is always the full TotalUsd — never a partial figure
+        // that a UI could mis-render as the total.
+        //
+        // V1c review M1: the prior shape (per-video row + remainder row)
+        // was unreachable today (CapabilityValidator rejects N!=1) and
+        // had a misleading "× N videos" label whose dollar value was
+        // (N-1) videos. Folding into one row eliminates the dead branch
+        // and the labelling ambiguity.
         private static IReadOnlyList<CostBreakdownComponent> BuildBreakdown(
             ModelCapability cap, VideoGenerationRequest request, JobPricing pricing)
         {
-            var perVideoCost = pricing.UnitPriceUsd.HasValue
-                ? pricing.UnitPriceUsd.Value * request.DurationSeconds
-                : 0m;
+            var label = request.NumberOfVideos == 1
+                ? $"{cap.Name} @ {request.Resolution} × {request.DurationSeconds}s"
+                : $"{cap.Name} @ {request.Resolution} × {request.DurationSeconds}s × {request.NumberOfVideos} videos";
 
-            var breakdown = new List<CostBreakdownComponent>
+            return new[]
             {
-                new(
-                    Label: $"{cap.Name} @ {request.Resolution} × {request.DurationSeconds}s",
-                    DollarsUsd: perVideoCost),
+                new CostBreakdownComponent(
+                    Label: label,
+                    DollarsUsd: pricing.TotalUsd ?? 0m),
             };
-
-            if (request.NumberOfVideos != 1)
-            {
-                var remainder = (pricing.TotalUsd ?? 0m) - perVideoCost;
-                breakdown.Add(new CostBreakdownComponent(
-                    Label: $"× {request.NumberOfVideos} videos",
-                    DollarsUsd: remainder));
-            }
-
-            return breakdown;
         }
 
         // Map validation failure fields onto typed VideoErrorCode values.
         // Capability-shape mismatches and Veo PersonGeneration matrix
-        // failures are UnsupportedMedia (capability mismatch); everything
-        // else (including null request, null options, codec
-        // type-mismatch) is InvalidRequest (caller-shaped).
+        // failures are UnsupportedMedia (capability mismatch); framework
+        // shape failures (null request, null cap, null/mismatched options)
+        // and unknown fields are InvalidRequest (caller-shaped).
+        //
+        // Cases are explicit (no fall-through reliance) so renaming a
+        // validator parameter or swapping nameof targets cannot silently
+        // change error classification.
         private static VideoErrorCode ClassifyValidationFailure(string? field)
         {
             if (string.IsNullOrEmpty(field))
@@ -109,10 +111,24 @@ namespace Rook.Services.Vision.Video
 
             return field switch
             {
-                "Resolution" or "DurationSeconds" or "AspectRatio"
-                    or "Mode" or "ReferenceFrames" or "NumberOfVideos"
+                // Capability-shape mismatches.
+                nameof(VideoGenerationRequest.Resolution)
+                    or nameof(VideoGenerationRequest.DurationSeconds)
+                    or nameof(VideoGenerationRequest.AspectRatio)
+                    or nameof(VideoGenerationRequest.Mode)
+                    or nameof(VideoGenerationRequest.ReferenceFrames)
+                    or nameof(VideoGenerationRequest.NumberOfVideos)
                     or nameof(VeoOptions.PersonGeneration)
                     => VideoErrorCode.UnsupportedMedia,
+
+                // Framework-shape failures (null/mismatched inputs).
+                "Request" or "Cap"
+                    or nameof(VideoGenerationRequest.Options)
+                    or nameof(VideoGenerationRequest.Prompt)
+                    or nameof(VideoGenerationRequest.StartFrame)
+                    or nameof(VideoGenerationRequest.EndFrame)
+                    => VideoErrorCode.InvalidRequest,
+
                 _ => VideoErrorCode.InvalidRequest,
             };
         }

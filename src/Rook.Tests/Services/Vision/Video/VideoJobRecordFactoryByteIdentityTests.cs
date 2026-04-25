@@ -188,6 +188,207 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(ExpectedVeoFullI2v1080p8sAllowAdultPolling, line);
         }
 
+        // ─── Fixture: Error state with full error block ───────────────
+
+        private const string ExpectedVeoLiteT2vErrorWithFullErrorBlock =
+            "{\"schema_version\":1,"
+            + "\"job_id\":\"44444444-4444-4444-4444-444444444444\","
+            + "\"provider\":\"veo\","
+            + "\"model\":\"veo-3.1-lite-generate-preview\","
+            + "\"provider_job_id\":\"operations/err-1\","
+            + "\"provider_result_token\":null,"
+            + "\"state\":\"Error\","
+            + "\"normalized_request\":{"
+                + "\"mode\":\"T2V\","
+                + "\"duration_seconds\":8,"
+                + "\"resolution\":\"720p\","
+                + "\"aspect_ratio\":\"16:9\","
+                + "\"prompt\":\"a clip\","
+                + "\"start_frame\":null,"
+                + "\"end_frame\":null,"
+                + "\"reference_frames\":null,"
+                + "\"seed\":null,"
+                + "\"number_of_videos\":1"
+            + "},"
+            + "\"provider_options\":{\"person_generation\":\"allow_all\"},"
+            + "\"pricing\":{"
+                + "\"kind\":\"per_second\","
+                + "\"currency\":\"USD\","
+                + "\"quantity\":8,"
+                + "\"unit_price_usd\":0.05,"
+                + "\"total_usd\":0.40,"
+                + "\"pricing_source\":\"veo-rate-card-v1\""
+            + "},"
+            + "\"result_artifact_id\":null,"
+            + "\"error\":{"
+                + "\"code\":\"ExecutionFailed\","
+                + "\"message\":\"Veo API returned 500\","
+                + "\"retryable\":true,"
+                + "\"provider_message\":\"upstream rate-limited\","
+                + "\"field\":null"
+            + "},"
+            + "\"created_at\":\"2026-04-25T12:00:00.0000000\\u002B00:00\","
+            + "\"updated_at\":\"2026-04-25T12:00:30.0000000\\u002B00:00\"}";
+
+        [Fact]
+        public void V1c_factory_emits_byte_identical_jsonl_for_error_state_with_full_error_block()
+        {
+            var jobId = new Guid("44444444-4444-4444-4444-444444444444");
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var initial = VideoJobRecordFactory.From(
+                jobId, req, model, EstimateFor(model, req),
+                VideoJobState.Submitting, T0);
+
+            var errored = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Error, T0.AddSeconds(30),
+                providerJobId: "operations/err-1",
+                error: new VideoJobError(
+                    Code: VideoErrorCode.ExecutionFailed,
+                    Message: "Veo API returned 500",
+                    Retryable: true,
+                    ProviderMessage: "upstream rate-limited",
+                    Field: null));
+
+            var line = AppendAndReadLine(errored);
+
+            Assert.Equal(ExpectedVeoLiteT2vErrorWithFullErrorBlock, line);
+        }
+
+        // ─── Fixture: Complete state with result_artifact_id ──────────
+
+        private const string ExpectedVeoLiteT2vCompleteWithArtifactId =
+            "{\"schema_version\":1,"
+            + "\"job_id\":\"55555555-5555-5555-5555-555555555555\","
+            + "\"provider\":\"veo\","
+            + "\"model\":\"veo-3.1-lite-generate-preview\","
+            + "\"provider_job_id\":\"operations/ok-1\","
+            + "\"provider_result_token\":\"https://veo/result/xyz\","
+            + "\"state\":\"Complete\","
+            + "\"normalized_request\":{"
+                + "\"mode\":\"T2V\","
+                + "\"duration_seconds\":8,"
+                + "\"resolution\":\"720p\","
+                + "\"aspect_ratio\":\"16:9\","
+                + "\"prompt\":\"a clip\","
+                + "\"start_frame\":null,"
+                + "\"end_frame\":null,"
+                + "\"reference_frames\":null,"
+                + "\"seed\":null,"
+                + "\"number_of_videos\":1"
+            + "},"
+            + "\"provider_options\":{\"person_generation\":\"allow_all\"},"
+            + "\"pricing\":{"
+                + "\"kind\":\"per_second\","
+                + "\"currency\":\"USD\","
+                + "\"quantity\":8,"
+                + "\"unit_price_usd\":0.05,"
+                + "\"total_usd\":0.40,"
+                + "\"pricing_source\":\"veo-rate-card-v1\""
+            + "},"
+            + "\"result_artifact_id\":\"66666666-6666-6666-6666-666666666666\","
+            + "\"error\":null,"
+            + "\"created_at\":\"2026-04-25T12:00:00.0000000\\u002B00:00\","
+            + "\"updated_at\":\"2026-04-25T12:02:00.0000000\\u002B00:00\"}";
+
+        [Fact]
+        public void V1c_factory_emits_byte_identical_jsonl_for_complete_state_with_result_artifact_id()
+        {
+            var jobId = new Guid("55555555-5555-5555-5555-555555555555");
+            var artifactId = new Guid("66666666-6666-6666-6666-666666666666");
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var initial = VideoJobRecordFactory.From(
+                jobId, req, model, EstimateFor(model, req),
+                VideoJobState.Submitting, T0);
+
+            var polling = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Polling, T0.AddSeconds(30),
+                providerJobId: "operations/ok-1");
+
+            var downloading = VideoJobRecordFactory.WithState(
+                polling, VideoJobState.Downloading, T0.AddSeconds(60),
+                providerResultToken: "https://veo/result/xyz");
+
+            var complete = VideoJobRecordFactory.WithState(
+                downloading, VideoJobState.Complete, T0.AddSeconds(120),
+                resultArtifactId: artifactId);
+
+            var line = AppendAndReadLine(complete);
+
+            Assert.Equal(ExpectedVeoLiteT2vCompleteWithArtifactId, line);
+        }
+
+        // ─── Fixture: multi-element reference_frames ──────────────────
+
+        private const string ExpectedVeoFullT2vWithTwoReferenceFrames =
+            "{\"schema_version\":1,"
+            + "\"job_id\":\"77777777-7777-7777-7777-777777777777\","
+            + "\"provider\":\"veo\","
+            + "\"model\":\"veo-3.1-generate-preview\","
+            + "\"provider_job_id\":null,"
+            + "\"provider_result_token\":null,"
+            + "\"state\":\"Queued\","
+            + "\"normalized_request\":{"
+                + "\"mode\":\"T2V\","
+                + "\"duration_seconds\":8,"
+                + "\"resolution\":\"1080p\","
+                + "\"aspect_ratio\":\"16:9\","
+                + "\"prompt\":\"a clip\","
+                + "\"start_frame\":null,"
+                + "\"end_frame\":null,"
+                + "\"reference_frames\":["
+                    + "{\"kind\":\"Artifact\",\"artifact_id\":\"88888888-8888-8888-8888-888888888888\",\"path\":null,\"role\":\"reference\"},"
+                    + "{\"kind\":\"Artifact\",\"artifact_id\":\"99999999-9999-9999-9999-999999999999\",\"path\":null,\"role\":\"reference\"}"
+                + "],"
+                + "\"seed\":null,"
+                + "\"number_of_videos\":1"
+            + "},"
+            + "\"provider_options\":{\"person_generation\":\"allow_adult\"},"
+            + "\"pricing\":{"
+                + "\"kind\":\"per_second\","
+                + "\"currency\":\"USD\","
+                + "\"quantity\":8,"
+                + "\"unit_price_usd\":0.40,"
+                + "\"total_usd\":3.20,"
+                + "\"pricing_source\":\"veo-rate-card-v1\""
+            + "},"
+            + "\"result_artifact_id\":null,"
+            + "\"error\":null,"
+            + "\"created_at\":\"2026-04-25T12:00:00.0000000\\u002B00:00\","
+            + "\"updated_at\":\"2026-04-25T12:00:00.0000000\\u002B00:00\"}";
+
+        [Fact]
+        public void V1c_factory_emits_byte_identical_jsonl_for_t2v_with_two_reference_frames()
+        {
+            var jobId = new Guid("77777777-7777-7777-7777-777777777777");
+            var ref1 = new Guid("88888888-8888-8888-8888-888888888888");
+            var ref2 = new Guid("99999999-9999-9999-9999-999999999999");
+            var refs = new[]
+            {
+                VideoMediaRef.ForArtifact(ref1, "reference"),
+                VideoMediaRef.ForArtifact(ref2, "reference"),
+            };
+            var model = TestVideoFixtures.VeoLiteResolved(modelId: "veo-3.1-generate-preview");
+            // Reference frames trigger the "image-based" rule even on T2V,
+            // so PersonGeneration must be AllowAdult.
+            var req = TestVideoFixtures.DefaultT2vRequest(
+                model: "veo-3.1-generate-preview",
+                resolution: "1080p",
+                referenceFrames: refs,
+                personGeneration: PersonGenerationPolicy.AllowAdult);
+
+            var rec = VideoJobRecordFactory.From(
+                jobId, req, model, EstimateFor(model, req),
+                VideoJobState.Queued, T0);
+
+            var line = AppendAndReadLine(rec);
+
+            Assert.Equal(ExpectedVeoFullT2vWithTwoReferenceFrames, line);
+        }
+
         // ─── Round-trip: V1c output reads back identically ────────────
 
         [Fact]

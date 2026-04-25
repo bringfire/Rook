@@ -24,6 +24,7 @@ namespace Rook.Services.Vision.Video
     public sealed class DefaultVideoProviderRegistry : IVideoProviderRegistry
     {
         private readonly Dictionary<string, ResolvedVideoModel> _byId;
+        private readonly Dictionary<string, IVideoProvider> _providerByName;
         private readonly List<ResolvedVideoModel> _ordered;
 
         public DefaultVideoProviderRegistry(IEnumerable<IVideoProviderRegistration> registrations)
@@ -32,6 +33,7 @@ namespace Rook.Services.Vision.Video
                 throw new ArgumentNullException(nameof(registrations));
 
             _byId = new Dictionary<string, ResolvedVideoModel>(StringComparer.Ordinal);
+            _providerByName = new Dictionary<string, IVideoProvider>(StringComparer.Ordinal);
             _ordered = new List<ResolvedVideoModel>();
 
             foreach (var reg in registrations)
@@ -55,6 +57,13 @@ namespace Rook.Services.Vision.Video
                 if (reg.Models is null)
                     throw new InvalidOperationException(
                         $"Provider '{reg.ProviderName}' registration has null Models.");
+
+                // First-registered-wins for provider-name → provider
+                // mapping. Used by CancelAsync's deprecated-model recovery
+                // path; assumes registrations sharing a name are
+                // interchangeable for out-of-band ops.
+                if (!_providerByName.ContainsKey(reg.ProviderName))
+                    _providerByName[reg.ProviderName] = reg.Provider;
 
                 foreach (var kvp in reg.Models)
                 {
@@ -98,6 +107,19 @@ namespace Rook.Services.Vision.Video
             }
 
             model = null!;
+            return false;
+        }
+
+        public bool TryResolveProviderByName(string providerName, out IVideoProvider provider)
+        {
+            if (!string.IsNullOrWhiteSpace(providerName)
+                && _providerByName.TryGetValue(providerName, out var found))
+            {
+                provider = found;
+                return true;
+            }
+
+            provider = null!;
             return false;
         }
 
