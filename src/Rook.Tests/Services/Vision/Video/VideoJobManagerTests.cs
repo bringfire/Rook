@@ -749,21 +749,41 @@ namespace Rook.Tests.Services.Vision.Video
                 // suffices.
                 Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
 
-                // Simulate the race: BG task transitioned to Complete in
-                // the ledger but hasn't removed itself from _runningJobs
+                // Simulate the race: BG task transitioned through Polling
+                // (persisting provider_job_id) and on to Complete in the
+                // ledger, but hasn't removed itself from _runningJobs
                 // yet (provider.SubmitAsync is still blocked at hangGate).
+                //
+                // The persisted provider_job_id on the terminal record is
+                // load-bearing: without F1b's terminal short-circuit, the
+                // in-flight branch would read this ProviderJobId and call
+                // provider.CancelAsync. The Polling-then-Complete sequence
+                // ensures the terminal record CARRIES that handle, so the
+                // test would observe a provider call (and report the wrong
+                // outcome) if the protection regressed.
                 var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var polling = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Polling, _clock.UtcNow(),
+                    providerJobId: "operations/race-complete-target");
+                _ledger.Append(polling);
+
                 var artifactId = Guid.NewGuid();
                 var complete = VideoJobRecordFactory.WithState(
-                    initial, VideoJobState.Complete, _clock.UtcNow(),
+                    polling, VideoJobState.Complete, _clock.UtcNow(),
                     resultArtifactId: artifactId);
                 _ledger.Append(complete);
+
+                // Sanity: the terminal record really does carry a
+                // provider handle, so we know the test exercises the
+                // exact branch the fix protects.
+                Assert.Equal("operations/race-complete-target", complete.ProviderJobId);
 
                 var beforeCount = _ledger.AllRecords.Count;
 
                 // Cancel: in-flight branch fires (_runningJobs has entry),
-                // ledger read returns Complete, terminal short-circuit
-                // returns Ok(Complete) without provider call.
+                // ledger read returns Complete + provider_job_id, but the
+                // terminal short-circuit fires before ProviderJobId is
+                // read → no provider call, returns Ok(Complete).
                 var result = await mgr.CancelAsync(jobId, CancellationToken.None);
 
                 Assert.Equal(VideoJobState.Complete, result.State);
@@ -810,12 +830,22 @@ namespace Rook.Tests.Services.Vision.Video
                 await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
                 Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
 
+                // Same persisted-ProviderJobId discipline as the Complete
+                // variant — terminal record carries the handle the bug
+                // would have used.
                 var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var polling = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Polling, _clock.UtcNow(),
+                    providerJobId: "operations/race-error-target");
+                _ledger.Append(polling);
+
                 var errored = VideoJobRecordFactory.WithState(
-                    initial, VideoJobState.Error, _clock.UtcNow(),
+                    polling, VideoJobState.Error, _clock.UtcNow(),
                     error: new VideoJobError(
                         VideoErrorCode.ExecutionFailed, "boom", Retryable: false));
                 _ledger.Append(errored);
+
+                Assert.Equal("operations/race-error-target", errored.ProviderJobId);
 
                 var beforeCount = _ledger.AllRecords.Count;
 
