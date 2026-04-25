@@ -289,6 +289,75 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.True(result.Success);
         }
 
+        // ─── Reference-frame coupling for PersonGeneration (Codex round 5) ──
+        //
+        // Per Google's Veo docs, reference images are grouped with
+        // image-based modes for the personGeneration rule. A Veo 3.x
+        // T2V request carrying reference frames must use AllowAdult,
+        // not AllowAll, even though Mode is T2V. SA_Banana's lift only
+        // looked at Mode; we look at refCount > 0 too.
+
+        [Theory]
+        [InlineData("veo-3.1-generate-preview")]
+        [InlineData("veo-3.1-fast-generate-preview")]
+        public void Validate_rejects_veo3_t2v_with_AllowAll_when_reference_frames_present(
+            string model)
+        {
+            // Reference-capable Veo 3.x model: T2V + ref frames + AllowAll
+            // would historically pass mode-only validation, but Veo
+            // would reject it because reference frames make it
+            // image-based for the AllowAdult rule.
+            var refs = new[] { VideoMediaRef.ForPath(@"C:\fixtures\ref.png") };
+
+            var result = VideoCapabilities.Default.Validate(DefaultRequest(
+                model: model,
+                mode: VideoMode.T2V,
+                resolution: "1080p",  // 3.1 must-8s with 1080p
+                duration: 8,
+                referenceFrames: refs,
+                personGeneration: PersonGenerationPolicy.AllowAll));
+
+            Assert.False(result.Success);
+            Assert.Equal("PersonGeneration", result.Field);
+        }
+
+        [Theory]
+        [InlineData("veo-3.1-generate-preview")]
+        [InlineData("veo-3.1-fast-generate-preview")]
+        public void Validate_accepts_veo3_t2v_with_AllowAdult_when_reference_frames_present(
+            string model)
+        {
+            // Same shape, AllowAdult. Per Google's docs this is the
+            // correct value for any image-based-effect request,
+            // including T2V + reference frames.
+            var refs = new[] { VideoMediaRef.ForPath(@"C:\fixtures\ref.png") };
+
+            var result = VideoCapabilities.Default.Validate(DefaultRequest(
+                model: model,
+                mode: VideoMode.T2V,
+                resolution: "1080p",
+                duration: 8,
+                referenceFrames: refs,
+                personGeneration: PersonGenerationPolicy.AllowAdult));
+
+            Assert.True(result.Success);
+        }
+
+        [Fact]
+        public void Validate_still_accepts_veo3_t2v_with_AllowAll_when_no_reference_frames()
+        {
+            // Sanity: the existing T2V-without-refs rule is unchanged.
+            // AllowAll on plain T2V (no refs) remains the only valid
+            // value for Veo 3.x.
+            var result = VideoCapabilities.Default.Validate(DefaultRequest(
+                model: "veo-3.1-generate-preview",
+                resolution: "720p",
+                duration: 8,
+                personGeneration: PersonGenerationPolicy.AllowAll));
+
+            Assert.True(result.Success);
+        }
+
         // ─── Undefined-enum guard (Codex round 4) ─────────────────────
         //
         // C# enums are coercible: (PersonGenerationPolicy)999 can reach

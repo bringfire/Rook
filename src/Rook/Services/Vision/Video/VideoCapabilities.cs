@@ -135,12 +135,16 @@ namespace Rook.Services.Vision.Video
 
             // PersonGeneration is a Veo API requirement, not a UI nicety.
             // Per Google's docs, only specific values are allowed per
-            // (model-family × mode) combination; Veo rejects submissions
-            // that violate the table. Lifted from SA_Banana's
-            // ValidatePersonGeneration. Regional EU/UK/CH/MENA overrides
-            // are looser on the server side and deferred to Veo.
+            // (model-family × image-based?) combination; Veo rejects
+            // submissions that violate the table. Reference frames count
+            // as image-based for this rule even when Mode == T2V — Google
+            // groups reference images with i2v/interp explicitly:
+            // https://ai.google.dev/gemini-api/docs/video#veo-api-parameters-and-specifications
+            // Regional EU/UK/CH/MENA overrides are looser on the server
+            // side and deferred to Veo.
             var personErr = ValidatePersonGeneration(
-                request.Model, request.Mode, request.PersonGeneration, cap);
+                request.Model, request.Mode, request.PersonGeneration,
+                refCount, cap);
             if (personErr is not null)
                 return ValidationResult.Fail(
                     nameof(request.PersonGeneration), personErr);
@@ -152,6 +156,7 @@ namespace Rook.Services.Vision.Video
             string modelId,
             VideoMode mode,
             PersonGenerationPolicy personGen,
+            int refCount,
             ModelCapability cap)
         {
             // Fail-closed on undefined enum values. C# enums are coercible
@@ -166,7 +171,18 @@ namespace Rook.Services.Vision.Video
 
             var isVeo2 = modelId.StartsWith(
                 "veo-2", StringComparison.OrdinalIgnoreCase);
-            var imageBased = mode == VideoMode.I2V || mode == VideoMode.Interp;
+
+            // "Image-based" for PersonGeneration purposes includes T2V
+            // requests that carry reference frames — Google's docs
+            // explicitly group reference images with i2v/interp under
+            // the allow_adult rule. SA_Banana's lift missed this; we
+            // restore the correct shape here. Earlier reference-image
+            // gating already rejects refs on models that don't support
+            // them, so refCount > 0 here implies a reference-capable
+            // Veo 3.x family member (3.1 / 3.1 Fast).
+            var imageBased = mode == VideoMode.I2V
+                          || mode == VideoMode.Interp
+                          || refCount > 0;
 
             if (isVeo2)
             {
