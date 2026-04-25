@@ -483,6 +483,145 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("error.retryable", error.FieldPath);
         }
 
+        // ─── Codex round 7: more silent-default holes ────────────────
+
+        [Fact]
+        public void Missing_provider_options_fails_line_closed()
+        {
+            // provider_options is the durable contract lane for
+            // provider-specific fields; missing must fail closed.
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"provider_options\":{\"person_generation\":\"allow_all\"},", ""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("provider_options", error.FieldPath);
+        }
+
+        [Fact]
+        public void Non_object_provider_options_fails_line_closed()
+        {
+            // Replace the object with a string — should fail.
+            WriteCustomLine(ValidLine.TrimEnd().Replace(
+                "\"provider_options\":{\"person_generation\":\"allow_all\"}",
+                "\"provider_options\":\"not-an-object\""));
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("provider_options", error.FieldPath);
+        }
+
+        [Fact]
+        public void Complete_state_without_result_artifact_id_fails_line_closed()
+        {
+            // Codex finding 2: a Complete record without result_artifact_id
+            // would crash TranslateToStatus. Fail at read time instead.
+            var withCompleteNoArtifact = ValidLine.TrimEnd()
+                .Replace("\"state\":\"Queued\"", "\"state\":\"Complete\"");
+            WriteCustomLine(withCompleteNoArtifact);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("result_artifact_id", error.FieldPath);
+        }
+
+        [Fact]
+        public void Malformed_result_artifact_id_fails_line_closed_regardless_of_state()
+        {
+            // Even on non-Complete states, a result_artifact_id present
+            // but malformed should fail. The string must be a valid Guid
+            // when set at all.
+            var withBadArtifactId = ValidLine.TrimEnd().Replace(
+                "\"updated_at\":\"2026-04-25T12:00:00Z\"",
+                "\"updated_at\":\"2026-04-25T12:00:00Z\",\"result_artifact_id\":\"not-a-guid\"");
+            WriteCustomLine(withBadArtifactId);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("result_artifact_id", error.FieldPath);
+        }
+
+        [Fact]
+        public void MediaRef_kind_Artifact_without_artifact_id_fails_line_closed()
+        {
+            // Inject a start_frame with Kind=Artifact but no artifact_id.
+            var withBadStartFrame = ValidLine.TrimEnd().Replace(
+                "\"number_of_videos\":1",
+                "\"number_of_videos\":1,\"start_frame\":{\"kind\":\"Artifact\",\"role\":\"image\"}");
+            WriteCustomLine(withBadStartFrame);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.start_frame.artifact_id", error.FieldPath);
+        }
+
+        [Fact]
+        public void MediaRef_artifact_id_empty_guid_fails_line_closed()
+        {
+            // Guid.Empty must be rejected — the V1a ForArtifact factory
+            // rejects it, so the durable shape must too.
+            var withEmptyGuid = ValidLine.TrimEnd().Replace(
+                "\"number_of_videos\":1",
+                "\"number_of_videos\":1,\"start_frame\":{\"kind\":\"Artifact\",\"artifact_id\":\""
+                + Guid.Empty + "\",\"role\":\"image\"}");
+            WriteCustomLine(withEmptyGuid);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.start_frame.artifact_id", error.FieldPath);
+        }
+
+        [Fact]
+        public void MediaRef_kind_Path_without_path_fails_line_closed()
+        {
+            // Kind=Path with no path string is the mirror failure.
+            var withBadStartFrame = ValidLine.TrimEnd().Replace(
+                "\"number_of_videos\":1",
+                "\"number_of_videos\":1,\"start_frame\":{\"kind\":\"Path\",\"role\":\"image\"}");
+            WriteCustomLine(withBadStartFrame);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.start_frame.path", error.FieldPath);
+        }
+
+        [Fact]
+        public void MediaRef_kind_Path_with_whitespace_path_fails_line_closed()
+        {
+            var withBadStartFrame = ValidLine.TrimEnd().Replace(
+                "\"number_of_videos\":1",
+                "\"number_of_videos\":1,\"start_frame\":{\"kind\":\"Path\",\"path\":\"  \",\"role\":\"image\"}");
+            WriteCustomLine(withBadStartFrame);
+
+            var read = _ledger.ReadAll();
+
+            Assert.Empty(read.Records);
+            var error = Assert.Single(read.Errors);
+            Assert.Equal(LedgerReadErrorReason.MissingRequiredField, error.Reason);
+            Assert.Equal("normalized_request.start_frame.path", error.FieldPath);
+        }
+
         [Fact]
         public void Bad_line_does_not_hide_valid_lines_around_it()
         {

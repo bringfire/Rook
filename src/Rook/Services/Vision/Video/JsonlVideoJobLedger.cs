@@ -286,10 +286,19 @@ namespace Rook.Services.Vision.Video
             var providerJobId = TryGetString(obj, "provider_job_id");
             var providerResultToken = TryGetString(obj, "provider_result_token");
 
+            // result_artifact_id: malformed string fails closed regardless
+            // of state; missing-when-required is enforced state-conditionally
+            // below (Codex round 7 finding 2 — Complete records must have it).
             Guid? resultArtifactId = null;
             var artIdStr = TryGetString(obj, "result_artifact_id");
-            if (artIdStr is not null && Guid.TryParse(artIdStr, out var aid))
+            if (artIdStr is not null)
+            {
+                if (!Guid.TryParse(artIdStr, out var aid))
+                    return (null, MissingField(lineNumber, "result_artifact_id"));
                 resultArtifactId = aid;
+            }
+            if (state == VideoJobState.Complete && resultArtifactId is null)
+                return (null, MissingField(lineNumber, "result_artifact_id"));
 
             VideoJobError? error = null;
             var errorObj = TryGetObject(obj, "error");
@@ -300,9 +309,16 @@ namespace Rook.Services.Vision.Video
                 error = deErr;
             }
 
-            // Provider options (opaque JsonObject)
-            var providerOptions = (TryGetObject(obj, "provider_options")
-                ?.DeepClone() as JsonObject) ?? new JsonObject();
+            // Provider options is required and must be a JsonObject. It's
+            // the durable contract lane for provider-specific fields
+            // (person_generation for Veo; future provider keys). Missing
+            // or non-object fails closed (Codex round 7 finding 1) — the
+            // record's provider_options must round-trip exactly.
+            if (!obj.TryGetPropertyValue("provider_options", out var poNode)
+                || poNode is null
+                || poNode is not JsonObject providerOptionsRaw)
+                return (null, MissingField(lineNumber, "provider_options"));
+            var providerOptions = (JsonObject)providerOptionsRaw.DeepClone();
 
             // Timestamps
             var createdAtStr = TryGetString(obj, "created_at");
@@ -448,19 +464,41 @@ namespace Rook.Services.Vision.Video
             if (role is null)
                 return (null, MissingField(lineNumber, fieldPathPrefix + ".role"));
 
+            // Codex round 7 finding 3: the durable shape MUST match the
+            // V1a runtime VideoMediaRef invariants (ForArtifact requires
+            // non-empty Guid; ForPath requires non-empty path). A
+            // persisted media ref that could never have been constructed
+            // through the domain factory is corrupt.
+
             Guid? artifactId = null;
             var artIdStr = TryGetString(obj, "artifact_id");
             if (artIdStr is not null)
             {
-                if (!Guid.TryParse(artIdStr, out var aid))
+                if (!Guid.TryParse(artIdStr, out var aid) || aid == Guid.Empty)
                     return (null, MissingField(lineNumber, fieldPathPrefix + ".artifact_id"));
                 artifactId = aid;
+            }
+
+            var path = TryGetString(obj, "path");
+
+            switch (kind)
+            {
+                case VideoMediaRefKind.Artifact:
+                    if (artifactId is null)
+                        return (null, MissingField(
+                            lineNumber, fieldPathPrefix + ".artifact_id"));
+                    break;
+                case VideoMediaRefKind.Path:
+                    if (string.IsNullOrWhiteSpace(path))
+                        return (null, MissingField(
+                            lineNumber, fieldPathPrefix + ".path"));
+                    break;
             }
 
             return (new NormalizedMediaRef(
                 Kind: kind,
                 ArtifactId: artifactId,
-                Path: TryGetString(obj, "path"),
+                Path: path,
                 Role: role), null);
         }
 
