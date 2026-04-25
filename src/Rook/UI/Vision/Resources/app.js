@@ -52,6 +52,7 @@ let latestArtifactId = null;          // id of the most-recently generated image
 let latestStudioArtifactId = null;    // same, Studio view
 let galleryItems = [];                // cached list for modal lookup
 let modalArtifact = null;             // currently-open gallery item
+let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
 
 // Viewport capture output (artifact envelope, keyed by view so we can
@@ -713,9 +714,9 @@ async function openArtifactModal(id) {
         showStatus(e.message, "error");
         return;
     }
-    const role = pickDisplayRole(modalArtifact);
-    const src = role
-        ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(role)}?ts=${Date.now()}`
+    modalDisplayRole = pickDisplayRole(modalArtifact);
+    const src = modalDisplayRole
+        ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(modalDisplayRole)}?ts=${Date.now()}`
         : "";
     el.modalImage.src = src;
     el.modalPrompt.textContent = (modalArtifact.metadata && modalArtifact.metadata.prompt) || "";
@@ -731,6 +732,7 @@ function closeModal() {
     el.modal.classList.add("hidden");
     el.modalImage.src = "";
     modalArtifact = null;
+    modalDisplayRole = null;
 }
 
 async function approveCurrentArtifact(id) {
@@ -739,6 +741,18 @@ async function approveCurrentArtifact(id) {
         await bridgeCall("approve_artifact", { artifact_id: id });
         showStatus("Artifact approved.", "success");
         if (currentView === "gallery") loadGallery();
+    } catch (e) {
+        showStatus(e.message, "error");
+    }
+}
+
+async function revealCurrentArtifact() {
+    if (!modalArtifact || !modalDisplayRole) return;
+    try {
+        await bridgeCall("reveal_artifact_file", {
+            artifact_id: modalArtifact.artifact_id,
+            role: modalDisplayRole,
+        });
     } catch (e) {
         showStatus(e.message, "error");
     }
@@ -1014,6 +1028,7 @@ function init() {
     el.modalPrompt = $("modal-prompt");
     el.modalMeta = $("modal-meta");
     el.modalApproveBtn = $("modal-approve-btn");
+    el.modalRevealBtn = $("modal-reveal-btn");
     el.modalDeleteBtn = $("modal-delete-btn");
     el.modalClose = document.querySelector(".modal-close");
 
@@ -1103,6 +1118,7 @@ function init() {
     el.modalApproveBtn.addEventListener("click", () => {
         if (modalArtifact) approveCurrentArtifact(modalArtifact.artifact_id);
     });
+    el.modalRevealBtn.addEventListener("click", revealCurrentArtifact);
     el.modalDeleteBtn.addEventListener("click", () => {
         if (modalArtifact) deleteCurrentArtifact(modalArtifact.artifact_id);
     });

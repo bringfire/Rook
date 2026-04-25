@@ -219,7 +219,7 @@ namespace Rook.Tests.UI.Vision
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
-                "open_artifacts_folder",
+                "open_artifacts_folder", "reveal_artifact_file",
             };
             foreach (var op in expected)
             {
@@ -251,6 +251,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("set_api_key", "OffUi")]
         [InlineData("get_settings_overview", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
+        [InlineData("reveal_artifact_file", "OffUi")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
@@ -336,6 +337,37 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void IndexHtml_Modal_ExposesRevealButtonBetweenApproveAndDelete()
+        {
+            var html = ReadVisionResource("index.html");
+            var approveIndex = html.IndexOf("id=\"modal-approve-btn\"", StringComparison.Ordinal);
+            var revealIndex = html.IndexOf("id=\"modal-reveal-btn\"", StringComparison.Ordinal);
+            var deleteIndex = html.IndexOf("id=\"modal-delete-btn\"", StringComparison.Ordinal);
+
+            Assert.True(approveIndex >= 0, "modal approve button is missing.");
+            Assert.True(revealIndex >= 0, "modal reveal button is missing.");
+            Assert.True(deleteIndex >= 0, "modal delete button is missing.");
+            Assert.True(approveIndex < revealIndex, "reveal button should come after approve.");
+            Assert.True(revealIndex < deleteIndex, "reveal button should come before delete.");
+            Assert.Contains("Show in Folder", html);
+            Assert.Contains("title=\"Show this image file in its artifact folder\"", html);
+            Assert.Contains("aria-label=\"Show this image file in its artifact folder\"", html);
+        }
+
+        [Fact]
+        public void StylesCss_ModalActions_CanWrap()
+        {
+            // Scoped check — substring-only would false-positive against
+            // unrelated `flex-wrap: wrap;` in `.reference-area` /
+            // `.reference-preview`. Regex pins the property inside the
+            // `.modal-actions` rule body specifically.
+            var css = ReadVisionResource("styles.css");
+            Assert.Matches(
+                @"\.modal-actions\s*\{[^}]*flex-wrap:\s*wrap;",
+                css);
+        }
+
+        [Fact]
         public void AppJs_AutoAspect_OmitsAspectRatioFromGeneratePayload()
         {
             var js = ReadVisionResource("app.js");
@@ -363,6 +395,19 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("async function openArtifactsFolder()", js);
             Assert.Contains("bridgeCall(\"open_artifacts_folder\", {})", js);
             Assert.Contains("el.openArtifactsFolderBtn.addEventListener(\"click\", openArtifactsFolder);", js);
+        }
+
+        [Fact]
+        public void AppJs_ModalRevealButton_RevealsCurrentArtifactRole()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("let modalDisplayRole = null;", js);
+            Assert.Contains("modalDisplayRole = pickDisplayRole(modalArtifact);", js);
+            Assert.Contains("async function revealCurrentArtifact()", js);
+            Assert.Contains("bridgeCall(\"reveal_artifact_file\"", js);
+            Assert.Contains("role: modalDisplayRole", js);
+            Assert.Contains("el.modalRevealBtn = $(\"modal-reveal-btn\");", js);
+            Assert.Contains("el.modalRevealBtn.addEventListener(\"click\", revealCurrentArtifact);", js);
         }
 
         [Fact]

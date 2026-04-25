@@ -91,6 +91,198 @@ namespace Rook.Tests.Handlers
             Assert.True(psi.UseShellExecute);
         }
 
+        // ─── Reveal artifact file ───────────────────────────────────────
+
+        private static Dictionary<string, JsonElement> ParseArgs(string json)
+            => VisionHandler.ParseObjectBody(json);
+
+        private static string CreateTempRoot(string name)
+        {
+            var root = Path.Combine(Path.GetTempPath(), name + "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            return root;
+        }
+
+        [Fact]
+        public void BuildRevealFileStartInfo_SelectsCanonicalFilePath()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "rook vision image.png");
+
+            var psi = VisionHandler.BuildRevealFileStartInfo(path);
+
+            Assert.Equal("explorer.exe", psi.FileName);
+            Assert.Equal($"/select,\"{Path.GetFullPath(path)}\"", psi.Arguments);
+        }
+
+        [Fact]
+        public void ResolveArtifactFilePathForReveal_ReturnsCanonicalBlobPath()
+        {
+            var root = CreateTempRoot("rook-vision-reveal-success");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var artifact = store.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("image", new byte[] { 1, 2, 3 }, "png") });
+                var args = ParseArgs(
+                    $"{{\"artifact_id\":\"{artifact.Id:D}\",\"role\":\"image\"}}");
+
+                var path = VisionHandler.ResolveArtifactFilePathForReveal(store, args);
+
+                Assert.Equal(Path.GetFullPath(Path.Combine(
+                    root,
+                    artifact.CreatedAt.ToString("yyyy-MM-dd"),
+                    artifact.Id.ToString("D"),
+                    "image.png")), path);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Theory]
+        [InlineData("{}")]
+        [InlineData("{\"artifact_id\":42,\"role\":\"image\"}")]
+        [InlineData("{\"artifact_id\":\"\",\"role\":\"image\"}")]
+        [InlineData("{\"artifact_id\":\"not-a-guid\",\"role\":\"image\"}")]
+        public void ResolveArtifactFilePathForReveal_RequiresArtifactId(string json)
+        {
+            var root = CreateTempRoot("rook-vision-reveal-bad-id");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var args = ParseArgs(json);
+
+                Assert.Throws<ArgumentException>(() =>
+                    VisionHandler.ResolveArtifactFilePathForReveal(store, args));
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Theory]
+        [InlineData("{\"artifact_id\":\"00000000-0000-0000-0000-000000000000\"}")]
+        [InlineData("{\"artifact_id\":\"00000000-0000-0000-0000-000000000000\",\"role\":42}")]
+        [InlineData("{\"artifact_id\":\"00000000-0000-0000-0000-000000000000\",\"role\":\"\"}")]
+        [InlineData("{\"artifact_id\":\"00000000-0000-0000-0000-000000000000\",\"role\":\"   \"}")]
+        public void ResolveArtifactFilePathForReveal_RequiresRole(string json)
+        {
+            var root = CreateTempRoot("rook-vision-reveal-bad-role");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var args = ParseArgs(json);
+
+                Assert.Throws<ArgumentException>(() =>
+                    VisionHandler.ResolveArtifactFilePathForReveal(store, args));
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ResolveArtifactFilePathForReveal_MissingRole_ThrowsKeyNotFound()
+        {
+            var root = CreateTempRoot("rook-vision-reveal-missing-role");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var artifact = store.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("thumbnail", new byte[] { 1 }, "png") });
+                var args = ParseArgs(
+                    $"{{\"artifact_id\":\"{artifact.Id:D}\",\"role\":\"image\"}}");
+
+                Assert.Throws<KeyNotFoundException>(() =>
+                    VisionHandler.ResolveArtifactFilePathForReveal(store, args));
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ResolveArtifactFilePathForReveal_MissingBlob_ThrowsFileNotFound()
+        {
+            var root = CreateTempRoot("rook-vision-reveal-missing-file");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var artifact = store.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+                var blobPath = store.GetBlobAbsolutePath(artifact.Id, "image");
+                File.Delete(blobPath);
+                var args = ParseArgs(
+                    $"{{\"artifact_id\":\"{artifact.Id:D}\",\"role\":\"image\"}}");
+
+                Assert.Throws<FileNotFoundException>(() =>
+                    VisionHandler.ResolveArtifactFilePathForReveal(store, args));
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ResolveArtifactFilePathForReveal_TraversalManifest_SurfacesInvalidData()
+        {
+            var root = CreateTempRoot("rook-vision-reveal-traversal");
+            try
+            {
+                var store = new ArtifactStore(root);
+                var artifact = store.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+                var artifactDir = Path.GetDirectoryName(store.GetBlobAbsolutePath(artifact.Id, "image"))!;
+                var manifestPath = Path.Combine(artifactDir, "manifest.json");
+                var manifest = File.ReadAllText(manifestPath)
+                    .Replace("\"path\": \"image.png\"", "\"path\": \"..\\\\outside.png\"");
+                File.WriteAllText(manifestPath, manifest);
+                var args = ParseArgs(
+                    $"{{\"artifact_id\":\"{artifact.Id:D}\",\"role\":\"image\"}}");
+
+                var ex = Assert.Throws<InvalidDataException>(() =>
+                    VisionHandler.ResolveArtifactFilePathForReveal(store, args));
+                Assert.Contains("path", ex.Message, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void TryMapRevealArtifactFileException_MapsMissingArtifactAndMissingBlob()
+        {
+            Assert.True(VisionHandler.TryMapRevealArtifactFileException(
+                new KeyNotFoundException("missing"), out var keyMessage));
+            Assert.Equal(VisionHandler.RevealFileUnavailableMessage, keyMessage);
+
+            Assert.True(VisionHandler.TryMapRevealArtifactFileException(
+                new FileNotFoundException("missing"), out var fileMessage));
+            Assert.Equal(VisionHandler.RevealFileUnavailableMessage, fileMessage);
+        }
+
+        [Fact]
+        public void TryMapRevealArtifactFileException_DoesNotMaskInvalidDataOrBadArgs()
+        {
+            Assert.False(VisionHandler.TryMapRevealArtifactFileException(
+                new InvalidDataException("Manifest path escapes artifact directory."), out var invalidDataMessage));
+            Assert.Null(invalidDataMessage);
+
+            Assert.False(VisionHandler.TryMapRevealArtifactFileException(
+                new ArgumentException("Missing role."), out var argumentMessage));
+            Assert.Null(argumentMessage);
+        }
+
         // ─── Model catalog + short-name resolution ──────────────────────
 
         [Fact]
