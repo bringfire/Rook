@@ -398,6 +398,19 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_ModalRevealButton_RevealsCurrentArtifactRole()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("let modalDisplayRole = null;", js);
+            Assert.Contains("modalDisplayRole = pickDisplayRole(modalArtifact);", js);
+            Assert.Contains("async function revealCurrentArtifact()", js);
+            Assert.Contains("bridgeCall(\"reveal_artifact_file\"", js);
+            Assert.Contains("role: modalDisplayRole", js);
+            Assert.Contains("el.modalRevealBtn = $(\"modal-reveal-btn\");", js);
+            Assert.Contains("el.modalRevealBtn.addEventListener(\"click\", revealCurrentArtifact);", js);
+        }
+
+        [Fact]
         public void AppJs_PreventsDefaultImageContextMenu()
         {
             var js = ReadVisionResource("app.js");
