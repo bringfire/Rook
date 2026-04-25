@@ -190,7 +190,7 @@ namespace Rook.Handlers
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
-                        or "open_artifacts_folder" => Fail(
+                        or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -254,6 +254,7 @@ namespace Rook.Handlers
                     "set_api_key" => SetApiKey(args),
                     "get_settings_overview" => GetSettingsOverview(args),
                     "open_artifacts_folder" => OpenArtifactsFolder(args),
+                    "reveal_artifact_file" => RevealArtifactFile(args),
                     "capture_depth" or "capture_viewport" or "preview_viewport"
                         or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
@@ -331,7 +332,7 @@ namespace Rook.Handlers
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
-                        or "open_artifacts_folder" => Fail(
+                        or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -1406,11 +1407,50 @@ namespace Rook.Handlers
             });
         }
 
+        // ─── op: reveal_artifact_file (off-UI) ───────────────────────────
+
+        /// <summary>
+        /// Reveal a specific artifact blob in Explorer. The caller supplies
+        /// the artifact id and role; the path itself is resolved through the
+        /// artifact store so callers cannot pass arbitrary filesystem paths.
+        /// </summary>
+        internal ApiResponse RevealArtifactFile(Dictionary<string, JsonElement> args)
+        {
+            string filePath;
+            try
+            {
+                filePath = ResolveArtifactFilePathForReveal(_artifactStore, args);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Fail(RevealFileUnavailableMessage);
+            }
+            catch (FileNotFoundException)
+            {
+                return Fail(RevealFileUnavailableMessage);
+            }
+
+            using var shellProcess = Process.Start(BuildRevealFileStartInfo(filePath));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["path"] = Path.GetFullPath(filePath),
+                ["opened"] = true,
+            });
+        }
+
         internal static ProcessStartInfo BuildOpenFolderStartInfo(string folderPath)
             => new()
             {
                 FileName = Path.GetFullPath(folderPath),
                 UseShellExecute = true,
+            };
+
+        internal static ProcessStartInfo BuildRevealFileStartInfo(string filePath)
+            => new()
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{Path.GetFullPath(filePath)}\"",
             };
 
         /// <summary>
@@ -1440,6 +1480,40 @@ namespace Rook.Handlers
                     $"Field 'artifact_id' is not a valid GUID: '{raw}'.");
             }
             return id;
+        }
+
+        internal const string RevealFileUnavailableMessage =
+            "Image file is no longer available on disk.";
+
+        internal static string RequireNonEmptyString(
+            Dictionary<string, JsonElement> args, string field)
+        {
+            if (!args.TryGetValue(field, out var el) || el.ValueKind != JsonValueKind.String)
+            {
+                throw new ArgumentException($"Missing or non-string field '{field}'.");
+            }
+
+            var raw = el.GetString();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new ArgumentException($"Field '{field}' must be non-empty.");
+            }
+
+            return raw;
+        }
+
+        internal static string ResolveArtifactFilePathForReveal(
+            ArtifactStore artifactStore,
+            Dictionary<string, JsonElement> args)
+        {
+            if (artifactStore is null)
+            {
+                throw new ArgumentNullException(nameof(artifactStore));
+            }
+
+            var id = RequireArtifactId(args);
+            var role = RequireNonEmptyString(args, "role");
+            return artifactStore.GetBlobAbsolutePath(id, role);
         }
 
         internal static bool IsApproved(Artifact artifact)
