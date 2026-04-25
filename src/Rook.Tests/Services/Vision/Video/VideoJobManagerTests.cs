@@ -697,6 +697,141 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
         }
 
+        // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──
+
+        [Fact]
+        public async Task Cancel_in_flight_when_BG_just_wrote_terminal_short_circuits_without_provider_call()
+        {
+            // F1b: probing _runningJobs first (F1) only protects the
+            // not-running branch. Inside the in-flight branch, the BG
+            // task can write a terminal ledger record between the
+            // _runningJobs probe and the in-flight branch's ledger read,
+            // leaving the branch with a "live" probe and a "terminal"
+            // ledger view. Calling provider.CancelAsync now would tell
+            // the user the job was Cancelled when it actually Completed —
+            // wrong outcome plus a paid unneeded cancel request.
+            //
+            // Setup uses a hang-gate to keep _runningJobs entry alive
+            // while a Complete record is appended to the ledger out of
+            // band, simulating the precise interleaving.
+
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var hangGate = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // Provider's SubmitAsync blocks → BG task stays in flight.
+            _provider.OnSubmit = (_, _) =>
+            {
+                hangGate.Task.GetAwaiter().GetResult();
+                return ProviderSubmitResult.Ok("op-never-needed");
+            };
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling, null);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            using var mgr = Manager();
+            try
+            {
+                await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+                // Wait until SubmitAsync's initial Queued record is in
+                // the ledger AND _runningJobs entry is live. SubmitAsync
+                // synchronously appends the initial record + adds to
+                // _runningJobs before returning, so a single check
+                // suffices.
+                Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+
+                // Simulate the race: BG task transitioned to Complete in
+                // the ledger but hasn't removed itself from _runningJobs
+                // yet (provider.SubmitAsync is still blocked at hangGate).
+                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var artifactId = Guid.NewGuid();
+                var complete = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Complete, _clock.UtcNow(),
+                    resultArtifactId: artifactId);
+                _ledger.Append(complete);
+
+                var beforeCount = _ledger.AllRecords.Count;
+
+                // Cancel: in-flight branch fires (_runningJobs has entry),
+                // ledger read returns Complete, terminal short-circuit
+                // returns Ok(Complete) without provider call.
+                var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+                Assert.Equal(VideoJobState.Complete, result.State);
+                Assert.Null(result.Error);
+                Assert.Equal(0, providerCancelCalls);
+                Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+            }
+            finally
+            {
+                // Always release the gate so the hung BG task can
+                // proceed; mgr.Dispose() will then cancel it cleanly.
+                hangGate.SetResult(true);
+            }
+        }
+
+        [Fact]
+        public async Task Cancel_in_flight_when_BG_just_wrote_Error_short_circuits_without_provider_call()
+        {
+            // Same race as F1b, but BG produced Error instead of Complete.
+            // Same protection should fire.
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var hangGate = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _provider.OnSubmit = (_, _) =>
+            {
+                hangGate.Task.GetAwaiter().GetResult();
+                return ProviderSubmitResult.Ok("op-x");
+            };
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling, null);
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            using var mgr = Manager();
+            try
+            {
+                await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+                Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+
+                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var errored = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Error, _clock.UtcNow(),
+                    error: new VideoJobError(
+                        VideoErrorCode.ExecutionFailed, "boom", Retryable: false));
+                _ledger.Append(errored);
+
+                var beforeCount = _ledger.AllRecords.Count;
+
+                var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+                Assert.Equal(VideoJobState.Error, result.State);
+                Assert.Null(result.Error);
+                Assert.Equal(0, providerCancelCalls);
+                Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+            }
+            finally
+            {
+                hangGate.SetResult(true);
+            }
+        }
+
         // ─── F1 (review pass 2): cancel race — no overwrite of terminal ──
 
         [Fact]

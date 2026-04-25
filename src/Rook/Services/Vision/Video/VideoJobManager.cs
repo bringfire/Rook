@@ -218,6 +218,17 @@ namespace Rook.Services.Vision.Video
         //      BG has already finished its ledger.Append, so the
         //      subsequent ledger read sees the terminal state and the
         //      terminal short-circuit fires (no overwrite).
+        //
+        //   7. The in-flight branch (probe present) ALSO checks for
+        //      terminal ledger state before using ProviderJobId. The BG
+        //      task's terminal write may land after the _runningJobs
+        //      probe but before the in-flight branch's ledger read,
+        //      leaving the branch with a "live" probe and a "terminal"
+        //      ledger view. Calling provider.CancelAsync in that window
+        //      would return Cancelled to the user even though the
+        //      durable state is Complete — the wrong outcome plus a
+        //      paid extra provider request. Short-circuit on terminal
+        //      symmetrically with invariant 6.
 
         public async Task<JobCancelResult> CancelAsync(Guid jobId, CancellationToken ct)
         {
@@ -234,6 +245,22 @@ namespace Rook.Services.Vision.Video
                 // Now read ledger for ProviderJobId per M6 (in-memory
                 // LatestRecord is racy under relaxed memory).
                 var inFlightRecord = FindLedgerRecord(jobId);
+
+                // F1b: even with _runningJobs probed first, a second race
+                // exists inside the in-flight branch — the BG task may
+                // have appended a terminal record to the ledger between
+                // the _runningJobs probe and this ledger read, but not
+                // yet executed its finally-block TryRemove. In that
+                // window the in-flight branch sees BOTH a live
+                // _runningJobs entry AND a terminal ledger view. Calling
+                // provider.CancelAsync now would return Cancelled (or
+                // Fail) to the user even though the durable state is
+                // already Complete/Error — the wrong outcome plus a paid
+                // unneeded cancel request. Short-circuit on terminal,
+                // mirroring the not-running branch's protection.
+                if (inFlightRecord is not null && IsTerminal(inFlightRecord.State))
+                    return JobCancelResult.Ok(inFlightRecord.State);
+
                 var inFlightProviderJobId = inFlightRecord?.ProviderJobId;
 
                 if (!string.IsNullOrEmpty(inFlightProviderJobId))
