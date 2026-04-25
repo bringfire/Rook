@@ -19,8 +19,9 @@ namespace Rook.Tests.Services.Vision.Video
         private readonly FakeVideoJobIdGenerator _idGen = new();
         private readonly FakeVideoProvider _provider = new();
         private readonly FakeVideoMediaResolver _resolver = new();
-        private readonly VideoCapabilities _catalog = VideoCapabilities.Default;
-        private readonly VeoCostEstimator _estimator;
+        private readonly IVideoProviderRegistry _registry;
+        private readonly VideoCostEstimator _estimator = new();
+        private readonly ResolvedVideoModel _resolvedModel;
 
         public VideoJobManagerTests()
         {
@@ -28,7 +29,8 @@ namespace Rook.Tests.Services.Vision.Video
                 Path.GetTempPath(),
                 $"rook-mgr-test-{Guid.NewGuid():N}");
             _artifactStore = new ArtifactStore(_artifactRoot);
-            _estimator = new VeoCostEstimator(_catalog);
+            _registry = TestVideoFixtures.RegistryWithVeo(_provider);
+            _resolvedModel = TestVideoFixtures.VeoLiteResolved(_provider);
         }
 
         public void Dispose()
@@ -39,29 +41,20 @@ namespace Rook.Tests.Services.Vision.Video
 
         private VideoJobManager Manager(TimeSpan? pollInterval = null) =>
             new(
-                provider: _provider,
+                registry: _registry,
                 mediaResolver: _resolver,
                 ledger: _ledger,
-                catalog: _catalog,
                 estimator: _estimator,
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGen,
                 pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5));
 
-        private static VideoGenerationRequest T2vRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private VideoGenerationRequest T2vRequest() =>
+            TestVideoFixtures.DefaultT2vRequest();
+
+        private VideoCostEstimate EstimateFor(VideoGenerationRequest req) =>
+            _estimator.Estimate(_resolvedModel, req).Estimate!;
 
         private static byte[] FakeMp4 => new byte[] { 0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70 };
 
@@ -230,7 +223,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Mode = VideoMode.I2V,
                 Prompt = null,
                 StartFrame = VideoMediaRef.ForPath(@"C:\nope.png"),
-                PersonGeneration = PersonGenerationPolicy.AllowAdult,
+                Options = new VeoOptions(PersonGenerationPolicy.AllowAdult),
                 Model = "veo-3.1-generate-preview",
             };
 
@@ -327,8 +320,8 @@ namespace Rook.Tests.Services.Vision.Video
             // Pre-populate ledger with an Interrupted record carrying
             // provider_job_id (the post-Reconcile state).
             var prior = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Polling, _clock.UtcNow());
             prior = VideoJobRecordFactory.WithState(
                 prior, VideoJobState.Polling, _clock.UtcNow(),
@@ -365,8 +358,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             var prior = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Interrupted, _clock.UtcNow());
             prior = VideoJobRecordFactory.WithState(
                 prior, VideoJobState.Interrupted, _clock.UtcNow(),
@@ -489,8 +482,8 @@ namespace Rook.Tests.Services.Vision.Video
             // an Interrupted record without touching the provider.
             var jobId = Guid.NewGuid();
             var staleRecord = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Polling, _clock.UtcNow());
             staleRecord = VideoJobRecordFactory.WithState(
                 staleRecord, VideoJobState.Polling, _clock.UtcNow(),
@@ -521,8 +514,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             var staleRecord = VideoJobRecordFactory.From(
-                jobId, T2vRequest(), "veo",
-                _estimator.Estimate(T2vRequest()).Estimate!,
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
                 VideoJobState.Complete, _clock.UtcNow());
             _ledger.Append(staleRecord);
 
@@ -533,6 +526,492 @@ namespace Rook.Tests.Services.Vision.Video
 
             // No new record appended — terminal state stays terminal.
             Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+        }
+
+        // ─── Pricing single-pass invariant (M3) ───────────────────────
+
+        [Fact]
+        public async Task Pricing_model_Estimate_is_called_exactly_once_across_submit_to_complete()
+        {
+            // M3: the audit-snapshot invariant says pricing is computed
+            // once at estimate time and copied verbatim downstream. A
+            // counting pricing model proves it end-to-end — no recompute
+            // anywhere between submit and the persisted Complete record.
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+
+            var counter = new CountingPricingModel(
+                inner: VeoCapabilities.Models["veo-3.1-lite-generate-preview"].PricingModel);
+            var resolvedWithCounter = _resolvedModel with { PricingModel = counter };
+            var registryWithCounter = new SingleModelRegistry(resolvedWithCounter);
+            var mgr = new VideoJobManager(
+                registry: registryWithCounter,
+                mediaResolver: _resolver,
+                ledger: _ledger,
+                estimator: _estimator,
+                artifactStore: _artifactStore,
+                clock: _clock,
+                idGenerator: _idGen,
+                pollInterval: TimeSpan.FromMilliseconds(5));
+
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(1, counter.CallCount);
+        }
+
+        // Test pricing model that delegates to a real one but counts calls.
+        private sealed class CountingPricingModel : IPricingModel
+        {
+            private readonly IPricingModel _inner;
+            public int CallCount { get; private set; }
+
+            public CountingPricingModel(IPricingModel inner) { _inner = inner; }
+
+            public PricingKind Kind => _inner.Kind;
+            public string PricingSource => _inner.PricingSource;
+
+            public PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap)
+            {
+                CallCount++;
+                return _inner.Estimate(request, cap);
+            }
+        }
+
+        // Trivial registry holding one resolved model. Avoids the
+        // VeoProviderRegistration path so the swapped PricingModel sticks.
+        private sealed class SingleModelRegistry : IVideoProviderRegistry
+        {
+            private readonly ResolvedVideoModel _model;
+
+            public SingleModelRegistry(ResolvedVideoModel model) { _model = model; }
+
+            public bool TryResolve(string modelId, out ResolvedVideoModel model)
+            {
+                if (modelId == _model.ModelId)
+                {
+                    model = _model;
+                    return true;
+                }
+                model = null!;
+                return false;
+            }
+
+            public bool TryResolveProviderByName(string providerName, out IVideoProvider provider)
+            {
+                if (providerName == _model.ProviderName)
+                {
+                    provider = _model.Provider;
+                    return true;
+                }
+                provider = null!;
+                return false;
+            }
+
+            public IReadOnlyList<VideoModelDescriptor> EnumerateAllModels() =>
+                new[]
+                {
+                    new VideoModelDescriptor(
+                        _model.ModelId, _model.ProviderName, _model.Capability,
+                        _model.PricingModel.Kind, _model.PricingModel.PricingSource),
+                };
+        }
+
+        // ─── Submit short-circuits before media resolver on validation failure (M5) ──
+
+        [Fact]
+        public async Task Submit_with_invalid_request_does_not_invoke_media_resolver()
+        {
+            // M5: media resolution is non-trivial work (artifact lookup,
+            // disk IO). Submit must reject validation failures BEFORE
+            // touching the resolver, otherwise a bad request burns IO on
+            // every retry.
+            var resolverCalls = 0;
+            _resolver.OnResolve = _ =>
+            {
+                resolverCalls++;
+                return new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+            };
+
+            var mgr = Manager();
+            // Invalid: resolution doesn't match cap.
+            var bad = T2vRequest() with { Resolution = "8k" };
+
+            var result = await mgr.SubmitAsync(bad, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(0, resolverCalls);
+            Assert.Empty(_ledger.AllRecords);
+        }
+
+        // ─── H1 regression: cancel succeeds when model deprecated but provider still registered ──
+
+        [Fact]
+        public async Task Cancel_after_model_deprecation_resolves_provider_by_name_and_succeeds()
+        {
+            // H1: persisted record's model id may no longer be in the
+            // registry (Google sunsets a Veo model overnight while a job
+            // is mid-flight from yesterday). The cancel path must NOT
+            // refuse on model-id miss — it should resolve by provider
+            // name (which is still registered) and call CancelAsync.
+            var jobId = Guid.NewGuid();
+
+            // Pre-populate ledger with an Interrupted record using a
+            // DEPRECATED model id that's not in our registry.
+            // Construct via the production VeoProviderRegistration first
+            // to get a valid pricing snapshot, then force the model on
+            // the record.
+            var realModel = TestVideoFixtures.VeoLiteResolved(_provider);
+            var validReq = TestVideoFixtures.DefaultT2vRequest();
+            var prior = VideoJobRecordFactory.From(
+                jobId, validReq, realModel, EstimateFor(validReq),
+                VideoJobState.Polling, _clock.UtcNow())
+                with { Model = "veo-deprecated-yesterday" };  // forced
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "operations/stranded-by-deprecation",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            // Provider is still registered under the real Veo registration.
+            string? cancelCalledWith = null;
+            _provider.OnCancel = id =>
+            {
+                cancelCalledWith = id;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal("operations/stranded-by-deprecation", cancelCalledWith);
+            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.Null(result.Error);
+
+            // Final record is Cancelled with the Cancelled error attached.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Cancelled, latest.State);
+            Assert.NotNull(latest.Error);
+            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+        }
+
+        // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──
+
+        [Fact]
+        public async Task Cancel_in_flight_when_BG_just_wrote_terminal_short_circuits_without_provider_call()
+        {
+            // F1b: probing _runningJobs first (F1) only protects the
+            // not-running branch. Inside the in-flight branch, the BG
+            // task can write a terminal ledger record between the
+            // _runningJobs probe and the in-flight branch's ledger read,
+            // leaving the branch with a "live" probe and a "terminal"
+            // ledger view. Calling provider.CancelAsync now would tell
+            // the user the job was Cancelled when it actually Completed —
+            // wrong outcome plus a paid unneeded cancel request.
+            //
+            // Setup uses a hang-gate to keep _runningJobs entry alive
+            // while a Complete record is appended to the ledger out of
+            // band, simulating the precise interleaving.
+
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var hangGate = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // Provider's SubmitAsync blocks → BG task stays in flight.
+            _provider.OnSubmit = (_, _) =>
+            {
+                hangGate.Task.GetAwaiter().GetResult();
+                return ProviderSubmitResult.Ok("op-never-needed");
+            };
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling, null);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            using var mgr = Manager();
+            try
+            {
+                await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+                // Wait until SubmitAsync's initial Queued record is in
+                // the ledger AND _runningJobs entry is live. SubmitAsync
+                // synchronously appends the initial record + adds to
+                // _runningJobs before returning, so a single check
+                // suffices.
+                Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+
+                // Simulate the race: BG task transitioned through Polling
+                // (persisting provider_job_id) and on to Complete in the
+                // ledger, but hasn't removed itself from _runningJobs
+                // yet (provider.SubmitAsync is still blocked at hangGate).
+                //
+                // The persisted provider_job_id on the terminal record is
+                // load-bearing: without F1b's terminal short-circuit, the
+                // in-flight branch would read this ProviderJobId and call
+                // provider.CancelAsync. The Polling-then-Complete sequence
+                // ensures the terminal record CARRIES that handle, so the
+                // test would observe a provider call (and report the wrong
+                // outcome) if the protection regressed.
+                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var polling = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Polling, _clock.UtcNow(),
+                    providerJobId: "operations/race-complete-target");
+                _ledger.Append(polling);
+
+                var artifactId = Guid.NewGuid();
+                var complete = VideoJobRecordFactory.WithState(
+                    polling, VideoJobState.Complete, _clock.UtcNow(),
+                    resultArtifactId: artifactId);
+                _ledger.Append(complete);
+
+                // Sanity: the terminal record really does carry a
+                // provider handle, so we know the test exercises the
+                // exact branch the fix protects.
+                Assert.Equal("operations/race-complete-target", complete.ProviderJobId);
+
+                var beforeCount = _ledger.AllRecords.Count;
+
+                // Cancel: in-flight branch fires (_runningJobs has entry),
+                // ledger read returns Complete + provider_job_id, but the
+                // terminal short-circuit fires before ProviderJobId is
+                // read → no provider call, returns Ok(Complete).
+                var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+                Assert.Equal(VideoJobState.Complete, result.State);
+                Assert.Null(result.Error);
+                Assert.Equal(0, providerCancelCalls);
+                Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+            }
+            finally
+            {
+                // Always release the gate so the hung BG task can
+                // proceed; mgr.Dispose() will then cancel it cleanly.
+                hangGate.SetResult(true);
+            }
+        }
+
+        [Fact]
+        public async Task Cancel_in_flight_when_BG_just_wrote_Error_short_circuits_without_provider_call()
+        {
+            // Same race as F1b, but BG produced Error instead of Complete.
+            // Same protection should fire.
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var hangGate = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _provider.OnSubmit = (_, _) =>
+            {
+                hangGate.Task.GetAwaiter().GetResult();
+                return ProviderSubmitResult.Ok("op-x");
+            };
+            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
+                VideoJobState.Polling, null);
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            using var mgr = Manager();
+            try
+            {
+                await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+                Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+
+                // Same persisted-ProviderJobId discipline as the Complete
+                // variant — terminal record carries the handle the bug
+                // would have used.
+                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var polling = VideoJobRecordFactory.WithState(
+                    initial, VideoJobState.Polling, _clock.UtcNow(),
+                    providerJobId: "operations/race-error-target");
+                _ledger.Append(polling);
+
+                var errored = VideoJobRecordFactory.WithState(
+                    polling, VideoJobState.Error, _clock.UtcNow(),
+                    error: new VideoJobError(
+                        VideoErrorCode.ExecutionFailed, "boom", Retryable: false));
+                _ledger.Append(errored);
+
+                Assert.Equal("operations/race-error-target", errored.ProviderJobId);
+
+                var beforeCount = _ledger.AllRecords.Count;
+
+                var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+                Assert.Equal(VideoJobState.Error, result.State);
+                Assert.Null(result.Error);
+                Assert.Equal(0, providerCancelCalls);
+                Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+            }
+            finally
+            {
+                hangGate.SetResult(true);
+            }
+        }
+
+        // ─── F1 (review pass 2): cancel race — no overwrite of terminal ──
+
+        [Fact]
+        public async Task Cancel_after_BG_completes_does_not_overwrite_Complete_with_Cancelled()
+        {
+            // Race scenario: at the moment CancelAsync starts, the BG
+            // task has just finished — Complete is in the ledger, the
+            // _runningJobs entry has been removed. CancelAsync MUST NOT
+            // persist a Cancelled record on top of the Complete state.
+            //
+            // The fix structurally probes _runningJobs FIRST, then reads
+            // the ledger. With _runningJobs empty (BG finished) and the
+            // ledger holding Complete, the not-running branch's terminal
+            // short-circuit fires before any provider call or overwrite.
+            var jobId = Guid.NewGuid();
+
+            // Pre-state mirrors what the BG task would have written:
+            // initial submit + transition to Polling + terminal Complete.
+            var initial = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Submitting, _clock.UtcNow());
+            var polling = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Polling, _clock.UtcNow(),
+                providerJobId: "operations/raced");
+            var artId = Guid.NewGuid();
+            var complete = VideoJobRecordFactory.WithState(
+                polling, VideoJobState.Complete, _clock.UtcNow(),
+                resultArtifactId: artId);
+            _ledger.Append(initial);
+            _ledger.Append(polling);
+            _ledger.Append(complete);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            // Terminal short-circuit: returns Ok(Complete), no provider
+            // call, no ledger write.
+            Assert.Equal(VideoJobState.Complete, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(0, providerCancelCalls);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+
+            // Latest state in ledger remains Complete with the artifact.
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Complete, latest.State);
+            Assert.Equal(artId, latest.ResultArtifactId);
+        }
+
+        [Fact]
+        public async Task Cancel_after_BG_errors_does_not_overwrite_Error_with_Cancelled()
+        {
+            // Same race protection applies to all terminal states except
+            // Interrupted (which IS still cancellable for cost cleanup).
+            var jobId = Guid.NewGuid();
+
+            var initial = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Submitting, _clock.UtcNow());
+            var errored = VideoJobRecordFactory.WithState(
+                initial, VideoJobState.Error, _clock.UtcNow(),
+                providerJobId: "operations/race-err",
+                error: new VideoJobError(
+                    VideoErrorCode.ExecutionFailed, "boom", Retryable: false));
+            _ledger.Append(initial);
+            _ledger.Append(errored);
+
+            var providerCancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                providerCancelCalls++;
+                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            };
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Error, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(0, providerCancelCalls);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+        }
+
+        [Fact]
+        public async Task Cancel_interrupted_no_remote_returns_Interrupted_without_appending_Cancelled()
+        {
+            // Interrupted without a provider_job_id has no remote handle
+            // to clean up — surface the persisted terminal state. (Prior
+            // logic appended a Cancelled record in this branch, which
+            // overwrote the Interrupted snapshot — same family of bug as
+            // F1 but for Interrupted state specifically.)
+            var jobId = Guid.NewGuid();
+
+            var prior = VideoJobRecordFactory.From(
+                jobId, T2vRequest(), _resolvedModel,
+                EstimateFor(T2vRequest()),
+                VideoJobState.Polling, _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            var beforeCount = _ledger.AllRecords.Count;
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Interrupted, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal(beforeCount, _ledger.AllRecords.Count);
+        }
+
+        [Fact]
+        public async Task Cancel_when_provider_not_registered_returns_typed_Fail()
+        {
+            // The other side of H1: if the provider name itself is no
+            // longer registered (the entire provider was unbundled, not
+            // just one model deprecated), we cannot cancel remotely. Fail
+            // typed, surface the missing-provider name in the message.
+            var jobId = Guid.NewGuid();
+
+            var realModel = TestVideoFixtures.VeoLiteResolved(_provider);
+            var validReq = TestVideoFixtures.DefaultT2vRequest();
+            var prior = VideoJobRecordFactory.From(
+                jobId, validReq, realModel, EstimateFor(validReq),
+                VideoJobState.Polling, _clock.UtcNow())
+                with { Provider = "ghost-provider" };  // forced
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "operations/orphan",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            var mgr = Manager();
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Contains("ghost-provider", result.Error.Message);
         }
 
         // ─── FetchResult ──────────────────────────────────────────────

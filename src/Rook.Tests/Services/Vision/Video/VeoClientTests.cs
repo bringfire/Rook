@@ -16,33 +16,23 @@ namespace Rook.Tests.Services.Vision.Video
     {
         private const string ApiKey = "test-key";
 
-        private static VideoGenerationRequest T2vRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private static VideoGenerationRequest T2vRequest() =>
+            TestVideoFixtures.DefaultT2vRequest();
 
-        private static VideoGenerationRequest I2vRequest(VideoMediaRef start) => new(
-            Model: "veo-3.1-generate-preview",
-            Mode: VideoMode.I2V,
-            DurationSeconds: 8,
-            Resolution: "1080p",
-            AspectRatio: "16:9",
-            Prompt: "camera pushes forward",
-            StartFrame: start,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAdult,
-            NumberOfVideos: 1);
+        private static VeoOptions T2vOptions() =>
+            new(PersonGenerationPolicy.AllowAll);
+
+        private static VideoGenerationRequest I2vRequest(VideoMediaRef start) =>
+            TestVideoFixtures.DefaultT2vRequest(
+                model: "veo-3.1-generate-preview",
+                mode: VideoMode.I2V,
+                resolution: "1080p",
+                prompt: "camera pushes forward",
+                startFrame: start,
+                personGeneration: PersonGenerationPolicy.AllowAdult);
+
+        private static VeoOptions I2vOptions() =>
+            new(PersonGenerationPolicy.AllowAdult);
 
         private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
             = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
@@ -67,7 +57,7 @@ namespace Rook.Tests.Services.Vision.Video
                 JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc-123\"}"));
 
             var resp = await client.StartGenerationAsync(
-                ApiKey, T2vRequest(), NoMedia, CancellationToken.None);
+                ApiKey, T2vRequest(), T2vOptions(), NoMedia, CancellationToken.None);
 
             Assert.True(resp.Success);
             Assert.Equal("operations/abc-123", resp.OperationName);
@@ -84,7 +74,7 @@ namespace Rook.Tests.Services.Vision.Video
                 JsonResponse(HttpStatusCode.BadRequest, "{\"error\":\"bad request body\"}"));
 
             var resp = await client.StartGenerationAsync(
-                ApiKey, T2vRequest(), NoMedia, CancellationToken.None);
+                ApiKey, T2vRequest(), T2vOptions(), NoMedia, CancellationToken.None);
 
             Assert.False(resp.Success);
             Assert.Equal(400, resp.StatusCode);
@@ -98,7 +88,7 @@ namespace Rook.Tests.Services.Vision.Video
                 JsonResponse(HttpStatusCode.OK, "{\"unexpected\":true}"));
 
             var resp = await client.StartGenerationAsync(
-                ApiKey, T2vRequest(), NoMedia, CancellationToken.None);
+                ApiKey, T2vRequest(), T2vOptions(), NoMedia, CancellationToken.None);
 
             Assert.False(resp.Success);
             Assert.Contains("missing 'name'", resp.ErrorBody);
@@ -124,12 +114,51 @@ namespace Rook.Tests.Services.Vision.Video
             };
 
             await client.StartGenerationAsync(
-                ApiKey, I2vRequest(startRef), resolved, CancellationToken.None);
+                ApiKey, I2vRequest(startRef), I2vOptions(), resolved, CancellationToken.None);
 
             Assert.NotNull(capturedBody);
             Assert.Contains("bytesBase64Encoded", capturedBody);
             Assert.Contains("image/png", capturedBody);
             Assert.Contains("\"image\":", capturedBody);  // i2v top-level "image" key
+        }
+
+        [Theory]
+        [InlineData(PersonGenerationPolicy.AllowAll, "allow_all")]
+        [InlineData(PersonGenerationPolicy.AllowAdult, "allow_adult")]
+        [InlineData(PersonGenerationPolicy.DontAllow, "dont_allow")]
+        public async Task StartGenerationAsync_personGeneration_string_matches_codec_serialization(
+            PersonGenerationPolicy policy, string expected)
+        {
+            // L3: VeoClient.MapPersonGeneration (Veo HTTP body shape) and
+            // VeoOptionsCodec.Serialize (persisted ledger shape) happen to
+            // emit the same enum strings, but they're independent contracts.
+            // Drift between them would corrupt either the wire payload or
+            // the audit record. This test pins both layers' agreement.
+            string? capturedBody = null;
+            var (client, _) = MakeClient(req =>
+            {
+                capturedBody = req.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                return JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/x\"}");
+            });
+
+            // Choose a request shape valid for the requested policy on
+            // some Veo model — Veo 2 T2V accepts any policy.
+            var req = TestVideoFixtures.DefaultT2vRequest(
+                model: "veo-2.0-generate-001",
+                resolution: "720p",
+                personGeneration: policy);
+            var options = new VeoOptions(policy);
+
+            await client.StartGenerationAsync(ApiKey, req, options, NoMedia, CancellationToken.None);
+
+            Assert.NotNull(capturedBody);
+            // Wire body uses the same string the codec would serialize.
+            Assert.Contains($"\"personGeneration\":\"{expected}\"", capturedBody);
+
+            // Cross-check: codec produces the same string for the
+            // persisted shape (different JSON key, same value).
+            var codecJson = new VeoOptionsCodec().Serialize(options);
+            Assert.Equal(expected, codecJson["person_generation"]?.GetValue<string>());
         }
 
         [Fact]
@@ -144,7 +173,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var veo2 = T2vRequest() with { Model = "veo-2.0-generate-001" };
 
-            await client.StartGenerationAsync(ApiKey, veo2, NoMedia, CancellationToken.None);
+            await client.StartGenerationAsync(ApiKey, veo2, T2vOptions(), NoMedia, CancellationToken.None);
 
             Assert.NotNull(capturedBody);
             Assert.DoesNotContain("\"resolution\"", capturedBody);

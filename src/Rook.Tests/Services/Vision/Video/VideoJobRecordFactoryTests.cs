@@ -1,43 +1,46 @@
 using System;
-using System.Linq;
 using Rook.Services.Vision.Video;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
 {
+    /// <summary>
+    /// V1c factory contract: takes <see cref="ResolvedVideoModel"/> +
+    /// already-computed <see cref="VideoCostEstimate"/>, produces a
+    /// durable <see cref="VideoJobRecord"/> by:
+    /// <list type="bullet">
+    ///   <item><description>Provider name from <c>model.ProviderName</c></description></item>
+    ///   <item><description>Provider options blob from <c>model.OptionsCodec.Serialize</c></description></item>
+    ///   <item><description><see cref="VideoJobRecord.Pricing"/> copied verbatim
+    ///     from <c>estimate.Pricing</c> (no recompute)</description></item>
+    /// </list>
+    /// </summary>
     public class VideoJobRecordFactoryTests
     {
         private static readonly DateTimeOffset T0 = new(2026, 4, 25, 12, 0, 0, TimeSpan.Zero);
 
-        private static VideoGenerationRequest BasicRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        // Helpers — tests build a real estimator-produced estimate so the
+        // pricing snapshot carried into the factory matches the production
+        // single-pass flow. Avoids hand-fabricating a JobPricing.
+        private static VideoCostEstimate EstimateFor(
+            ResolvedVideoModel model, VideoGenerationRequest req)
+        {
+            var result = new VideoCostEstimator().Estimate(model, req);
+            Assert.True(result.Success, $"Estimator failed: {result.Error?.Message}");
+            return result.Estimate!;
+        }
 
-        private static VideoCostEstimate BasicEstimate() => new(
-            DollarsUsd: 0.40m,
-            Model: "veo-3.1-lite-generate-preview",
-            Resolution: "720p",
-            DurationSeconds: 8,
-            NumberOfVideos: 1,
-            Breakdown: new[] { new CostBreakdownComponent("test", 0.40m) });
+        // ─── Initial record shape ─────────────────────────────────────
 
         [Fact]
         public void From_initial_record_has_null_provider_job_id_and_null_token()
         {
             var jobId = Guid.NewGuid();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
 
             var rec = VideoJobRecordFactory.From(
-                jobId, BasicRequest(), "veo", BasicEstimate(),
+                jobId, req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
             Assert.Equal(jobId, rec.JobId);
@@ -48,10 +51,28 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public void From_provider_field_comes_from_resolved_model()
+        {
+            // Guardrail #3: Veo provider name pinned to "veo".
+            var jobId = Guid.NewGuid();
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var rec = VideoJobRecordFactory.From(
+                jobId, req, model, EstimateFor(model, req),
+                VideoJobState.Queued, T0);
+
+            Assert.Equal("veo", rec.Provider);
+        }
+
+        [Fact]
         public void From_persists_neutral_request_shape()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
             var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
             Assert.Equal(VideoMode.T2V, rec.NormalizedRequest.Mode);
@@ -63,29 +84,49 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
-        public void From_puts_PersonGeneration_in_provider_options_not_normalized_request()
+        public void From_provider_options_serialized_via_codec()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
             var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
-            // Provider-specific field lives in provider_options.
             Assert.NotNull(rec.ProviderOptions["person_generation"]);
             Assert.Equal("allow_all", rec.ProviderOptions["person_generation"]!.GetValue<string>());
         }
 
         [Fact]
-        public void From_pricing_for_veo_is_per_second_with_correct_quantity()
+        public void From_pricing_field_is_estimate_pricing_verbatim()
         {
-            var req = BasicRequest() with { DurationSeconds = 8, NumberOfVideos = 1 };
+            // Single-pass audit invariant: the factory copies
+            // estimate.Pricing into VideoJobRecord.Pricing without
+            // recomputing.
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var estimate = EstimateFor(model, req);
 
             var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), req, "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, estimate,
+                VideoJobState.Queued, T0);
+
+            Assert.Same(estimate.Pricing, rec.Pricing);
+        }
+
+        [Fact]
+        public void From_pricing_for_veo_lite_t2v_8s_has_expected_per_second_values()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var rec = VideoJobRecordFactory.From(
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
             Assert.Equal(PricingKind.PerSecond, rec.Pricing.Kind);
             Assert.Equal("USD", rec.Pricing.Currency);
-            Assert.Equal(8, rec.Pricing.Quantity);  // duration × count
+            Assert.Equal(8, rec.Pricing.Quantity);
             Assert.Equal(0.40m, rec.Pricing.TotalUsd);
             Assert.Equal(0.05m, rec.Pricing.UnitPriceUsd);
             Assert.Equal("veo-rate-card-v1", rec.Pricing.PricingSource);
@@ -94,8 +135,11 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void From_includes_schema_version_and_timestamps()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
             var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
             Assert.Equal(VideoJobRecordFactory.CurrentSchemaVersion, rec.SchemaVersion);
@@ -103,11 +147,15 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(T0, rec.UpdatedAt);
         }
 
+        // ─── WithState transitions ────────────────────────────────────
+
         [Fact]
         public void WithState_preserves_CreatedAt_and_advances_UpdatedAt()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
             var initial = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
             var t1 = T0.AddSeconds(30);
 
@@ -121,8 +169,10 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void WithState_threading_provider_job_id_persists_it()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
             var initial = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Submitting, T0);
 
             var next = VideoJobRecordFactory.WithState(
@@ -135,8 +185,10 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void WithState_threading_provider_result_token_persists_it()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
             var initial = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Polling, T0);
 
             var next = VideoJobRecordFactory.WithState(
@@ -149,8 +201,10 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void WithState_threading_result_artifact_id_persists_it()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
             var initial = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Saving, T0);
             var artifactId = Guid.NewGuid();
 
@@ -162,19 +216,23 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Complete, next.State);
         }
 
+        // ─── Media ref normalization ──────────────────────────────────
+
         [Fact]
         public void From_with_media_refs_normalizes_to_NormalizedMediaRef()
         {
             var artId = Guid.NewGuid();
-            var req = BasicRequest() with
-            {
-                Mode = VideoMode.I2V,
-                StartFrame = VideoMediaRef.ForArtifact(artId, VideoMediaRoles.Image),
-                PersonGeneration = PersonGenerationPolicy.AllowAdult,
-            };
+            var model = TestVideoFixtures.VeoLiteResolved(modelId: "veo-3.1-generate-preview");
+            // Use full 3.1 (supports I2V) with AllowAdult per Veo rule
+            var req = TestVideoFixtures.DefaultT2vRequest(
+                model: "veo-3.1-generate-preview",
+                mode: VideoMode.I2V,
+                prompt: null,
+                startFrame: VideoMediaRef.ForArtifact(artId, VideoMediaRoles.Image),
+                personGeneration: PersonGenerationPolicy.AllowAdult);
 
             var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), req, "veo", BasicEstimate(),
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
                 VideoJobState.Queued, T0);
 
             Assert.NotNull(rec.NormalizedRequest.StartFrame);
@@ -183,23 +241,55 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("image", rec.NormalizedRequest.StartFrame.Role);
         }
 
-        [Fact]
-        public void From_with_unknown_provider_uses_external_pricing_kind()
-        {
-            var rec = VideoJobRecordFactory.From(
-                Guid.NewGuid(), BasicRequest(), "future-provider", BasicEstimate(),
-                VideoJobState.Queued, T0);
-
-            Assert.Equal(PricingKind.External, rec.Pricing.Kind);
-            Assert.Null(rec.Pricing.UnitPriceUsd);
-        }
+        // ─── Argument validation ──────────────────────────────────────
 
         [Fact]
         public void From_rejects_empty_jobId()
         {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
             Assert.Throws<ArgumentException>(() =>
                 VideoJobRecordFactory.From(
-                    Guid.Empty, BasicRequest(), "veo", BasicEstimate(),
+                    Guid.Empty, req, model, EstimateFor(model, req),
+                    VideoJobState.Queued, T0));
+        }
+
+        [Fact]
+        public void From_rejects_null_request()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var estimate = EstimateFor(model, req);
+
+            Assert.Throws<ArgumentNullException>(() =>
+                VideoJobRecordFactory.From(
+                    Guid.NewGuid(), null!, model, estimate,
+                    VideoJobState.Queued, T0));
+        }
+
+        [Fact]
+        public void From_rejects_null_model()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var estimate = EstimateFor(model, req);
+
+            Assert.Throws<ArgumentNullException>(() =>
+                VideoJobRecordFactory.From(
+                    Guid.NewGuid(), req, null!, estimate,
+                    VideoJobState.Queued, T0));
+        }
+
+        [Fact]
+        public void From_rejects_null_estimate()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            Assert.Throws<ArgumentNullException>(() =>
+                VideoJobRecordFactory.From(
+                    Guid.NewGuid(), req, model, estimate: null!,
                     VideoJobState.Queued, T0));
         }
     }

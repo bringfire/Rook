@@ -32,27 +32,17 @@ namespace Rook.Tests.Services.Vision.Video
 
         // ─── Helpers ──────────────────────────────────────────────────
 
-        private static VideoGenerationRequest BasicRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: 42,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private static readonly ResolvedVideoModel ResolvedModel =
+            TestVideoFixtures.VeoLiteResolved();
 
-        private static VideoCostEstimate BasicEstimate() => new(
-            DollarsUsd: 0.40m,
-            Model: "veo-3.1-lite-generate-preview",
-            Resolution: "720p",
-            DurationSeconds: 8,
-            NumberOfVideos: 1,
-            Breakdown: new[] { new CostBreakdownComponent("test", 0.40m) });
+        private static VideoGenerationRequest BasicRequest() =>
+            TestVideoFixtures.DefaultT2vRequest(seed: 42);
+
+        private static VideoCostEstimate BasicEstimate()
+        {
+            var result = new VideoCostEstimator().Estimate(ResolvedModel, BasicRequest());
+            return result.Estimate!;
+        }
 
         private static VideoJobRecord MakeRecord(
             Guid? jobId = null,
@@ -62,7 +52,7 @@ namespace Rook.Tests.Services.Vision.Video
             Guid? resultArtifactId = null) =>
             VideoJobRecordFactory.From(
                 jobId ?? Guid.NewGuid(),
-                BasicRequest(), "veo", BasicEstimate(),
+                BasicRequest(), ResolvedModel, BasicEstimate(),
                 state, T0)
             with
             {

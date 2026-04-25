@@ -12,19 +12,8 @@ namespace Rook.Tests.Services.Vision.Video
 {
     public class VeoProviderTests
     {
-        private static VideoGenerationRequest T2vRequest() => new(
-            Model: "veo-3.1-lite-generate-preview",
-            Mode: VideoMode.T2V,
-            DurationSeconds: 8,
-            Resolution: "720p",
-            AspectRatio: "16:9",
-            Prompt: "a clip",
-            StartFrame: null,
-            EndFrame: null,
-            ReferenceFrames: null,
-            Seed: null,
-            PersonGeneration: PersonGenerationPolicy.AllowAll,
-            NumberOfVideos: 1);
+        private static VideoGenerationRequest T2vRequest() =>
+            TestVideoFixtures.DefaultT2vRequest();
 
         private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
             = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
@@ -239,6 +228,31 @@ namespace Rook.Tests.Services.Vision.Video
             // mapped to NetworkError, which is DependencyUnavailable.
             Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
         }
+
+        // ─── Options mismatch (V1c provider boundary totality) ───────
+
+        [Fact]
+        public async Task SubmitAsync_with_non_VeoOptions_returns_typed_InvalidRequest()
+        {
+            // Per V1c review Finding 2: provider boundary stays total.
+            // A request reaching VeoProvider with non-VeoOptions is a
+            // programming error (registry bypass), but surfaces as a
+            // typed envelope rather than throwing.
+            var (provider, _) = MakeProvider(_ =>
+                JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc\"}"));
+            var bad = T2vRequest() with { Options = new ForeignProviderOptions() };
+
+            var result = await provider.SubmitAsync(
+                bad, NoMedia, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal("Options", result.Error.Field);
+            Assert.Contains(nameof(VeoOptions), result.Error.Message);
+        }
+
+        // Test-only ProviderOptions subtype to exercise the cast guard.
+        private sealed record ForeignProviderOptions : ProviderOptions;
 
         // ─── Constructor ──────────────────────────────────────────────
 

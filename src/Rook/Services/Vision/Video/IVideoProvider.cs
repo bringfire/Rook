@@ -38,6 +38,16 @@ namespace Rook.Services.Vision.Video
         /// <see cref="VideoMediaRef"/> in the request into bytes via
         /// <see cref="IVideoMediaResolver"/>; this keeps providers
         /// independent of Rook's artifact storage layout.
+        ///
+        /// <para>Implementations must cast <c>request.Options</c> to
+        /// their provider's <see cref="ProviderOptions"/> subtype and
+        /// return a typed
+        /// <see cref="ProviderSubmitResult.Fail"/> with
+        /// <see cref="VideoErrorCode.InvalidRequest"/> on mismatch — the
+        /// provider boundary stays total, no exceptions cross it. The
+        /// registry's per-model codec/provider pairing makes mismatch a
+        /// programming error in practice, but the typed envelope is the
+        /// contract.</para>
         /// </summary>
         Task<ProviderSubmitResult> SubmitAsync(
             VideoGenerationRequest request,
