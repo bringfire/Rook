@@ -24,14 +24,16 @@ namespace Rook.UI.Vision
     ///   <item><c>generate</c>, <c>enhance_prompt</c>, <c>test_api_key</c>
     ///         → <see cref="VisionHandler.DispatchAsync"/> (network,
     ///         cancellable).</item>
-    ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
-    ///         <c>list_views</c>, <c>open_image_picker</c>
+        ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
+        ///         <c>preview_viewport</c>, <c>list_views</c>,
+        ///         <c>open_image_picker</c>
     ///         → <see cref="VisionHandler.Dispatch"/> on the Rhino UI
     ///         thread (viewport state / modal dialog).</item>
-    ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
-    ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
-    ///         <c>consume_approved</c>, <c>set_api_key</c>,
-    ///         <c>get_settings_overview</c>
+        ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
+        ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
+        ///         <c>consume_approved</c>, <c>set_api_key</c>,
+        ///         <c>get_settings_overview</c>,
+        ///         <c>open_artifacts_folder</c>
     ///         → <see cref="VisionHandler.DispatchOffUi"/> (disk or secret
     ///         store; threadpool-offloaded so a large artifact store
     ///         scan doesn't stall Rhino).</item>
@@ -130,6 +132,7 @@ p { margin: 8px 0; line-height: 1.4; }
 
                 ["capture_depth"] = VisionOpRoute.Ui,
                 ["capture_viewport"] = VisionOpRoute.Ui,
+                ["preview_viewport"] = VisionOpRoute.Ui,
                 ["list_views"] = VisionOpRoute.Ui,
                 ["open_image_picker"] = VisionOpRoute.Ui,
 
@@ -140,6 +143,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["consume_approved"] = VisionOpRoute.OffUi,
                 ["set_api_key"] = VisionOpRoute.OffUi,
                 ["get_settings_overview"] = VisionOpRoute.OffUi,
+                ["open_artifacts_folder"] = VisionOpRoute.OffUi,
             };
 
         // ─── Timeouts ─────────────────────────────────────────────────
@@ -377,7 +381,7 @@ p { margin: 8px 0; line-height: 1.4; }
         internal static JsonNode BuildFailure(string message)
             => new JsonObject { ["success"] = false, ["data"] = message };
 
-        // ─── Virtual resource: /blob/{artifact_id}/{role} ─────────────
+        // ─── Virtual resources: /blob/* and /viewport-preview/* ───────
 
         /// <summary>
         /// Test-only accessor for <see cref="TryResolveVirtualResource"/>.
@@ -391,6 +395,30 @@ p { margin: 8px 0; line-height: 1.4; }
 
         protected override VirtualResource? TryResolveVirtualResource(Uri uri)
         {
+            if (IsViewportPreviewPath(uri))
+            {
+                if (!TryParseViewportPreviewUri(uri, out var previewFileName))
+                    return BuildPlainText404($"Invalid viewport preview URI: {uri.AbsolutePath}");
+
+                var previewPath = Path.Combine(GetViewportPreviewRoot(), previewFileName);
+                if (!File.Exists(previewPath))
+                    return BuildPlainText404($"Viewport preview not found: {previewFileName}");
+
+                try
+                {
+                    var previewStream = new FileStream(
+                        previewPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return new VirtualResource(
+                        previewStream, "image/png", 200,
+                        extraHeaders: "Cache-Control: no-store");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Rook: viewport preview stream open failed for {previewPath}: {ex.Message}");
+                    return BuildPlainText404("Viewport preview unavailable.");
+                }
+            }
+
             if (!TryParseBlobUri(uri, out var artifactId, out var role))
             {
                 // Not a blob URI — let the substrate fall through to the
@@ -471,6 +499,13 @@ p { margin: 8px 0; line-height: 1.4; }
                 || trimmed.Equals("blob", StringComparison.Ordinal);
         }
 
+        internal static bool IsViewportPreviewPath(Uri uri)
+        {
+            var trimmed = uri.AbsolutePath.TrimStart('/');
+            return trimmed.StartsWith("viewport-preview/", StringComparison.Ordinal)
+                || trimmed.Equals("viewport-preview", StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Validate a <c>/blob/{artifact_id}/{role}</c> URI. Returns
         /// false for any shape deviation — 3 segments exactly, first
@@ -497,6 +532,49 @@ p { margin: 8px 0; line-height: 1.4; }
             role = candidateRole;
             return true;
         }
+
+        internal static bool TryParseViewportPreviewUri(Uri uri, out string fileName)
+        {
+            fileName = string.Empty;
+
+            var absPath = uri.AbsolutePath;
+            if (string.IsNullOrEmpty(absPath)) return false;
+
+            var segments = absPath.TrimStart('/').Split('/');
+            if (segments.Length != 2) return false;
+            if (!string.Equals(segments[0], "viewport-preview", StringComparison.Ordinal))
+                return false;
+
+            var candidate = segments[1];
+            if (candidate.Length != "viewport_yyyyMMdd_HHmmss_fff.png".Length)
+                return false;
+            if (!candidate.StartsWith("viewport_", StringComparison.Ordinal))
+                return false;
+            if (!candidate.EndsWith(".png", StringComparison.Ordinal))
+                return false;
+
+            var timestamp = candidate.Substring(
+                "viewport_".Length,
+                "yyyyMMdd_HHmmss_fff".Length);
+            for (int i = 0; i < timestamp.Length; i++)
+            {
+                var c = timestamp[i];
+                if (i == 8 || i == 15)
+                {
+                    if (c != '_') return false;
+                }
+                else if (!char.IsDigit(c))
+                {
+                    return false;
+                }
+            }
+
+            fileName = candidate;
+            return true;
+        }
+
+        internal static string GetViewportPreviewRoot()
+            => Path.Combine(Path.GetTempPath(), "rook", "viewports");
 
         /// <summary>
         /// Mirror the artifact-store role pattern — lowercase start,

@@ -214,10 +214,12 @@ namespace Rook.Tests.UI.Vision
             var expected = new[]
             {
                 "generate", "enhance_prompt", "test_api_key",
-                "capture_depth", "capture_viewport", "list_views", "open_image_picker",
+                "capture_depth", "capture_viewport", "preview_viewport",
+                "list_views", "open_image_picker",
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
+                "open_artifacts_folder",
             };
             foreach (var op in expected)
             {
@@ -238,6 +240,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("test_api_key", "Async")]
         [InlineData("capture_depth", "Ui")]
         [InlineData("capture_viewport", "Ui")]
+        [InlineData("preview_viewport", "Ui")]
         [InlineData("list_views", "Ui")]
         [InlineData("open_image_picker", "Ui")]
         [InlineData("list_artifacts", "OffUi")]
@@ -247,6 +250,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("consume_approved", "OffUi")]
         [InlineData("set_api_key", "OffUi")]
         [InlineData("get_settings_overview", "OffUi")]
+        [InlineData("open_artifacts_folder", "OffUi")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
@@ -298,6 +302,40 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void IndexHtml_SettingsOverview_HasArtifactBreakdownRows()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("Generated images", html);
+            Assert.Contains("id=\"overview-generated-image-count\"", html);
+            Assert.Contains("Viewport captures", html);
+            Assert.Contains("id=\"overview-captured-viewport-count\"", html);
+            Assert.Contains("Prompt enhancements", html);
+            Assert.Contains("id=\"overview-enhanced-prompt-count\"", html);
+            Assert.Contains("Depth maps", html);
+            Assert.Contains("id=\"overview-depth-map-count\"", html);
+            Assert.Contains("Total artifacts", html);
+        }
+
+        [Fact]
+        public void IndexHtml_ApproveButtons_ExplainDownstreamUse()
+        {
+            var html = ReadVisionResource("index.html");
+            const string tooltip =
+                "Mark this image as approved so Rook can use it as the selected concept for downstream workflows.";
+            Assert.Equal(3, CountOccurrences(html, $"title=\"{tooltip}\""));
+            Assert.Equal(3, CountOccurrences(html, $"aria-label=\"{tooltip}\""));
+        }
+
+        [Fact]
+        public void IndexHtml_GalleryToolbar_ExposesArtifactsFolderButton()
+        {
+            var html = ReadVisionResource("index.html");
+            Assert.Contains("id=\"open-artifacts-folder\"", html);
+            Assert.Contains("title=\"Open artifacts folder\"", html);
+            Assert.Contains("aria-label=\"Open artifacts folder\"", html);
+        }
+
+        [Fact]
         public void AppJs_AutoAspect_OmitsAspectRatioFromGeneratePayload()
         {
             var js = ReadVisionResource("app.js");
@@ -305,6 +343,35 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("if (aspectRatio) args.aspect_ratio = aspectRatio;", js);
             Assert.DoesNotContain("aspect_ratio: el.aspectSelect.value", js);
             Assert.DoesNotContain("aspect_ratio: el.studioAspectSelect.value", js);
+        }
+
+        [Fact]
+        public void AppJs_SettingsOverview_RendersArtifactBreakdown()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("const artifactCounts = data.artifact_counts_by_kind || {};", js);
+            Assert.Contains("el.overviewGeneratedImageCount.textContent = formatCount(artifactCounts.generated_image);", js);
+            Assert.Contains("el.overviewCapturedViewportCount.textContent = formatCount(artifactCounts.captured_viewport);", js);
+            Assert.Contains("el.overviewEnhancedPromptCount.textContent = formatCount(artifactCounts.enhanced_prompt);", js);
+            Assert.Contains("el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);", js);
+        }
+
+        [Fact]
+        public void AppJs_GalleryToolbar_OpensArtifactsFolder()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("async function openArtifactsFolder()", js);
+            Assert.Contains("bridgeCall(\"open_artifacts_folder\", {})", js);
+            Assert.Contains("el.openArtifactsFolderBtn.addEventListener(\"click\", openArtifactsFolder);", js);
+        }
+
+        [Fact]
+        public void AppJs_PreventsDefaultImageContextMenu()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("document.addEventListener(\"contextmenu\"", js);
+            Assert.Contains("e.target.closest(\"img\")", js);
+            Assert.Contains("e.preventDefault();", js);
         }
 
         [Fact]
@@ -316,6 +383,55 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("function parseRatio", js);
             Assert.Contains("--preview-width-cap", js);
             Assert.Contains("removeProperty(\"--preview-width-cap\")", js);
+        }
+
+        [Fact]
+        public void AppJs_CaptureViewport_TracksSelectedViewDimensions()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("viewportOptionsByValue.set", js);
+            Assert.Contains("const selectedViewport = viewportOptionsByValue.get(selectedKey)", js);
+            Assert.Contains("width: Number(v.width)", js);
+            Assert.Contains("height: Number(v.height)", js);
+            Assert.DoesNotContain("args.width = selectedViewport.width;", js);
+            Assert.DoesNotContain("args.height = selectedViewport.height;", js);
+        }
+
+        [Fact]
+        public void AppJs_CaptureViewport_UsesOpenViewIdsForViewportOptions()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("const optionValue = `view:${v.id}`;", js);
+            Assert.Contains("viewId: v.id", js);
+            Assert.Contains("if (selectedViewport.viewId) args.view_id = selectedViewport.viewId;", js);
+            Assert.Contains("if (selectedViewport.viewName) args.view_name = selectedViewport.viewName;", js);
+            Assert.DoesNotContain("if (viewName) args.view_name = viewName;", js);
+        }
+
+        [Fact]
+        public void AppJs_CaptureViewport_UsesTransientPreviewOp()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("bridgeCall(\"preview_viewport\", args)", js);
+            Assert.Contains("capture.preview_url", js);
+            Assert.DoesNotContain("bridgeCall(\"capture_viewport\", args)", js);
+        }
+
+        [Fact]
+        public void AppJs_CaptureViewport_StoresEachOpenViewportOwnDimensions()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("width: Number(v.width)", js);
+            Assert.Contains("height: Number(v.height)", js);
+            Assert.DoesNotContain("viewportOptionsByValue.set(v.name || \"\", activeCaptureSize)", js);
+        }
+
+        [Fact]
+        public void AppJs_GeneratePreview_DoesNotResizeContainingBoxToImageAspect()
+        {
+            var js = ReadVisionResource("app.js");
+            Assert.Contains("Generate preview box stays fixed", js);
+            Assert.DoesNotContain("applyImageAspect(el.previewContainer, el.previewImage)", js);
         }
 
         [Fact]
@@ -384,6 +500,17 @@ namespace Rook.Tests.UI.Vision
             Assert.Equal(expected, VisionWebSurface.IsBlobPath(new Uri(url)));
         }
 
+        [Theory]
+        [InlineData("https://app.rook.invalid/viewport-preview/viewport_20260424_101501_123.png", true)]
+        [InlineData("https://app.rook.invalid/viewport-preview", true)]
+        [InlineData("https://app.rook.invalid/viewport-preview/", true)]
+        [InlineData("https://app.rook.invalid/viewport-preview/../x.png", false)]
+        [InlineData("https://app.rook.invalid/viewport-previews/viewport_20260424_101501_123.png", false)]
+        public void IsViewportPreviewPath_DetectsShape(string url, bool expected)
+        {
+            Assert.Equal(expected, VisionWebSurface.IsViewportPreviewPath(new Uri(url)));
+        }
+
         [Fact]
         public void TryParseBlobUri_ValidShape_ReturnsIdAndRole()
         {
@@ -421,6 +548,28 @@ namespace Rook.Tests.UI.Vision
             Assert.False(VisionWebSurface.TryParseBlobUri(
                 new Uri("https://app.rook.invalid/blob/not-a-guid/image"),
                 out _, out _));
+        }
+
+        [Fact]
+        public void TryParseViewportPreviewUri_ValidShape_ReturnsFilename()
+        {
+            var ok = VisionWebSurface.TryParseViewportPreviewUri(
+                new Uri("https://app.rook.invalid/viewport-preview/viewport_20260424_101501_123.png"),
+                out var fileName);
+
+            Assert.True(ok);
+            Assert.Equal("viewport_20260424_101501_123.png", fileName);
+        }
+
+        [Theory]
+        [InlineData("https://app.rook.invalid/viewport-preview")]
+        [InlineData("https://app.rook.invalid/viewport-preview/not-a-viewport.png")]
+        [InlineData("https://app.rook.invalid/viewport-preview/viewport_20260424_101501_123.jpg")]
+        [InlineData("https://app.rook.invalid/viewport-preview/../viewport_20260424_101501_123.png")]
+        public void TryParseViewportPreviewUri_InvalidShape_Fails(string url)
+        {
+            Assert.False(VisionWebSurface.TryParseViewportPreviewUri(
+                new Uri(url), out _));
         }
 
         [Theory]

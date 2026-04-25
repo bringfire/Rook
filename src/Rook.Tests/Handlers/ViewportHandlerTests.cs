@@ -146,6 +146,8 @@ namespace Rook.Tests.Handlers
             Assert.False(r.RaytracedConverge);
             Assert.Null(r.DisplayMode);
             Assert.Null(r.ViewName);
+            Assert.False(r.HasExplicitWidth);
+            Assert.False(r.HasExplicitHeight);
         }
 
         [Fact]
@@ -163,9 +165,23 @@ namespace Rook.Tests.Handlers
             var r = ViewportHandler.ParseRequest(body);
             Assert.Equal(1024, r.Width);
             Assert.Equal(1024, r.Height);
+            Assert.True(r.HasExplicitWidth);
+            Assert.True(r.HasExplicitHeight);
             Assert.Equal("Raytraced", r.DisplayMode);
             Assert.True(r.RaytracedConverge);
             Assert.Equal(15000, r.RaytracedTimeoutMs);
+        }
+
+        [Fact]
+        public void ParseRequest_ViewId_Accepted()
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                captureBackend = "tier3",
+                viewId = "12345",
+            });
+            var r = ViewportHandler.ParseRequest(body);
+            Assert.Equal("12345", r.ViewId);
         }
 
         [Fact]

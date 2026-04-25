@@ -45,6 +45,52 @@ namespace Rook.Tests.Handlers
             Assert.Equal("captured_viewport", VisionHandler.ArtifactKindCapturedViewport);
         }
 
+        [Fact]
+        public void BuildArtifactCountsByKind_IncludesAllVisionKinds()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(),
+                "rook-vision-artifact-counts-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var artifactStore = new ArtifactStore(tempDir);
+                artifactStore.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("image", new byte[] { 1 }, "png") });
+                artifactStore.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[] { new BlobInput("image", new byte[] { 2 }, "png") });
+                artifactStore.Create(
+                    VisionHandler.ArtifactKindCapturedViewport,
+                    new[] { new BlobInput("image", new byte[] { 3 }, "png") });
+                artifactStore.Create(
+                    VisionHandler.ArtifactKindEnhancedPrompt,
+                    new[] { new BlobInput("prompt", new byte[] { 4 }, "json") });
+
+                var counts = VisionHandler.BuildArtifactCountsByKind(artifactStore.List());
+
+                Assert.Equal(2, counts[VisionHandler.ArtifactKindGeneratedImage]);
+                Assert.Equal(1, counts[VisionHandler.ArtifactKindCapturedViewport]);
+                Assert.Equal(1, counts[VisionHandler.ArtifactKindEnhancedPrompt]);
+                Assert.Equal(0, counts[VisionHandler.ArtifactKindDepthMap]);
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void BuildOpenFolderStartInfo_UsesShellExecuteForCanonicalFolderPath()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "rook-vision-artifacts-test");
+
+            var psi = VisionHandler.BuildOpenFolderStartInfo(path);
+
+            Assert.Equal(Path.GetFullPath(path), psi.FileName);
+            Assert.True(psi.UseShellExecute);
+        }
+
         // ─── Model catalog + short-name resolution ──────────────────────
 
         [Fact]
