@@ -144,6 +144,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["set_api_key"] = VisionOpRoute.OffUi,
                 ["get_settings_overview"] = VisionOpRoute.OffUi,
                 ["open_artifacts_folder"] = VisionOpRoute.OffUi,
+                ["reveal_artifact_file"] = VisionOpRoute.OffUi,
             };
 
         // ─── Timeouts ─────────────────────────────────────────────────

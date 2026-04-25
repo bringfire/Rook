@@ -219,7 +219,7 @@ namespace Rook.Tests.UI.Vision
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
-                "open_artifacts_folder",
+                "open_artifacts_folder", "reveal_artifact_file",
             };
             foreach (var op in expected)
             {
@@ -251,6 +251,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("set_api_key", "OffUi")]
         [InlineData("get_settings_overview", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
+        [InlineData("reveal_artifact_file", "OffUi")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
