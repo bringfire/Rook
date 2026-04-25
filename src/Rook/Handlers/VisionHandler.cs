@@ -217,7 +217,8 @@ namespace Rook.Handlers
         /// Off-UI sync entry point. Handles the artifact-management ops
         /// (<c>list_artifacts</c>, <c>get_artifact</c>,
         /// <c>approve_artifact</c>, <c>delete_artifact</c>,
-        /// <c>consume_approved</c>, <c>open_artifacts_folder</c>) — all
+        /// <c>consume_approved</c>, <c>open_artifacts_folder</c>,
+        /// <c>reveal_artifact_file</c>) — all
         /// disk/shell-only, no Rhino state, no network. Runs on the
         /// threadpool so a large artifact store doesn't stall the Rhino
         /// UI thread during scans/deletes.
