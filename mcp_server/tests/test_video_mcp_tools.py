@@ -135,7 +135,7 @@ async def test_video_tool_required_fields_match_managed_contract():
 @pytest.mark.asyncio
 async def test_render_video_dispatches_post_with_body():
     args_in = {
-        "model": "veo-3.0-fast", "mode": "t2v",
+        "model": "veo-3.0-fast-generate-001", "mode": "t2v",
         "duration_seconds": 8, "resolution": "720p",
         "aspect_ratio": "16:9",
         "options": {"person_generation": "dont_allow"},
@@ -152,7 +152,7 @@ async def test_render_video_dispatches_post_with_body():
 @pytest.mark.asyncio
 async def test_video_estimate_dispatches_post_with_body():
     args_in = {
-        "model": "veo-3.0-fast", "mode": "t2v",
+        "model": "veo-3.0-fast-generate-001", "mode": "t2v",
         "duration_seconds": 8, "resolution": "720p",
         "aspect_ratio": "16:9",
         "options": {"person_generation": "dont_allow"},
@@ -451,8 +451,8 @@ def _normalize_call_rhino_args(call_args) -> tuple:
 
     # endpoint is always positional[0]
     endpoint = args[0]
-    # method default 'POST' (matches call_rhino signature default)
-    method = args[1] if len(args) >= 2 else kwargs.get("method", "POST")
+    # method default 'GET' (matches call_rhino signature default in bridge.py)
+    method = args[1] if len(args) >= 2 else kwargs.get("method", "GET")
     # data default None
     data = args[2] if len(args) >= 3 else kwargs.get("data", None)
     # port default None
@@ -487,7 +487,7 @@ def _assert_parity(server_tuple: tuple, dispatcher_tuple: tuple, name: str) -> N
 @pytest.mark.asyncio
 async def test_parity_render_video():
     args_in = {
-        "model": "veo-3.0-fast", "mode": "t2v",
+        "model": "veo-3.0-fast-generate-001", "mode": "t2v",
         "duration_seconds": 8, "resolution": "720p",
         "aspect_ratio": "16:9",
         "options": {"person_generation": "dont_allow"},
@@ -499,7 +499,7 @@ async def test_parity_render_video():
 @pytest.mark.asyncio
 async def test_parity_video_estimate():
     args_in = {
-        "model": "veo-3.0-fast", "mode": "t2v",
+        "model": "veo-3.0-fast-generate-001", "mode": "t2v",
         "duration_seconds": 8, "resolution": "720p",
         "aspect_ratio": "16:9",
         "options": {"person_generation": "dont_allow"},

@@ -856,10 +856,11 @@ def _video_cancel(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
         err["_pre_dispatch_failure"] = True
         return None, "", err
     # Body shape MUST match server.call_tool's invocation
-    # (call_rhino(..., "POST", {}, port=port)) so the parity tests can
-    # compare raw call_args. None would be mechanically accepted by
-    # call_rhino but document-context handling can synthesize a body
-    # when data is None — silently diverging from the MCP path.
+    # (call_rhino(..., "POST", {}, port=port)) so the parity tests
+    # see equivalent (endpoint, method, data, port) tuples after
+    # normalization. None would be mechanically accepted by call_rhino
+    # but document-context handling can synthesize a body when data is
+    # None — silently diverging from the MCP path.
     return f"/vision/video/jobs/{encoded}/cancel", "POST", {}
 
 
