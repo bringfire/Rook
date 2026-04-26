@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Rhino;
 using Rook.Handlers;
+using Rook.Services.Vision;
 
 namespace Rook.InternalBridge
 {
@@ -28,7 +29,81 @@ namespace Rook.InternalBridge
         private static readonly TextureMappingHandler TextureMapping = new();
         private static readonly GameExportHandler GameExport = new();
         private static readonly ViewportHandler Viewport = new();
-        private static readonly VisionHandler Vision = new();
+        // Image handler. Shares the same ArtifactStore + VisionSecretStore
+        // as the Vision tab and the V2 video subsystem via
+        // RookSubsystemRoot.Instance. Codex review of step 7 caught that
+        // a fresh `new VisionHandler()` here would spawn independent
+        // store instances pointing at the same disk root — they'd see
+        // each other's writes through disk but hold separate in-memory
+        // caches, defeating the V2 shared-singleton invariant.
+        // BuildSharedVisionHandler mirrors VisionWebSurface's helper.
+        private static readonly VisionHandler Vision = BuildSharedVisionHandler();
+
+        private static VisionHandler BuildSharedVisionHandler()
+        {
+            return new VisionHandler(
+                artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
+                secrets: RookSubsystemRoot.Instance.SharedSecretStore,
+                gemini: new GeminiClient(),
+                enhancer: new PromptEnhancer(),
+                viewportHandler: new ViewportHandler());
+        }
+
+        // V2 video. Lazy so processes that never touch video (image-only,
+        // command-only) don't pay the registry-validation + Veo-provider
+        // construction cost. The Lazy is process-scoped via the registrar's
+        // type-init lifetime; first video op triggers RookSubsystemRoot.Video
+        // which itself lazily builds the bundle. Both lazies are
+        // ExecutionAndPublication-safe.
+        private static readonly Lazy<VideoOpHandler> _videoOpHandler =
+            new(() =>
+            {
+                var bundle = RookSubsystemRoot.Instance.Video;
+                return new VideoOpHandler(
+                    bundle.Manager, bundle.Registry, bundle.Estimator);
+            }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+        // Authoritative set of vision ops the trampoline routes. Used by
+        // the unknown-op error-message builder so the rejection message
+        // stays in sync with the switch. If a new op is added to the
+        // switch but not to this set, the message will say "Unknown
+        // vision op" without listing it — drift signal that tests catch.
+        internal static readonly IReadOnlyCollection<string> ExpectedVisionOps =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                // Image (PR-5a/5b)
+                "capture_depth",
+                "generate",
+                "enhance_prompt",
+                "list_artifacts",
+                "get_artifact",
+                "approve_artifact",
+                "delete_artifact",
+                "consume_approved",
+                // V2 video
+                VideoOpHandler.OpSubmit,
+                VideoOpHandler.OpStatus,
+                VideoOpHandler.OpCancel,
+                VideoOpHandler.OpResult,
+                VideoOpHandler.OpEstimate,
+            };
+
+        /// <summary>
+        /// Build the structured "Unknown vision op" message. Pulls the
+        /// expected list from <see cref="ExpectedVisionOps"/> so the
+        /// message and the switch share a single source of truth.
+        /// </summary>
+        internal static string BuildUnknownOpMessage(string? op)
+        {
+            if (string.IsNullOrEmpty(op))
+                return "Vision request missing required 'op' discriminator.";
+
+            var sorted = new List<string>(ExpectedVisionOps);
+            sorted.Sort(StringComparer.Ordinal);
+            var quoted = new List<string>(sorted.Count);
+            foreach (var s in sorted) quoted.Add($"'{s}'");
+            return $"Unknown vision op '{op}'. Expected one of: {string.Join(", ", quoted)}.";
+        }
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -1522,14 +1597,44 @@ namespace Rook.InternalBridge
                         reqJson => Vision.DispatchOffUi(reqJson),
                         timeoutSeconds: 30);
 
+                case VideoOpHandler.OpSubmit:
+                case VideoOpHandler.OpCancel:
+                    // V2 video async path. Submit kicks off a background
+                    // job (returns Queued quickly); cancel makes a
+                    // provider HTTP call. Same 180 s ceiling as image
+                    // async ops — provider HTTP is the dominant cost and
+                    // shares the same envelope.
+                    return ExecuteAsyncApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        (reqJson, ct) => _videoOpHandler.Value.DispatchAsync(reqJson, ct),
+                        timeoutSeconds: 180);
+
+                case VideoOpHandler.OpStatus:
+                case VideoOpHandler.OpResult:
+                case VideoOpHandler.OpEstimate:
+                    // V2 video off-UI sync path — ledger reads and pure-
+                    // CPU pricing arithmetic. 30 s cap mirrors the
+                    // artifact-management ops; bounded I/O.
+                    return ExecuteOffUiApiResponseCallback(
+                        responseJsonUtf8,
+                        responseJsonCapacity,
+                        responseJsonLength,
+                        httpStatusCode,
+                        requestJson,
+                        reqJson => _videoOpHandler.Value.DispatchOffUi(reqJson),
+                        timeoutSeconds: 30);
+
                 default:
                     // Reject unknown/missing op before selecting a
                     // dispatcher. Defense-in-depth against a future
                     // registration mistake where a new route forgets to
-                    // extend this switch.
-                    var message = string.IsNullOrEmpty(op)
-                        ? "Vision request missing required 'op' discriminator."
-                        : $"Unknown vision op '{op}'. Expected 'generate', 'enhance_prompt', 'capture_depth', 'list_artifacts', 'get_artifact', 'approve_artifact', 'delete_artifact', or 'consume_approved'.";
+                    // extend this switch. The expected-op list comes from
+                    // ExpectedVisionOps so message/switch share a single
+                    // source of truth.
                     return WriteUtf8Response(
                         responseJsonUtf8,
                         responseJsonCapacity,
@@ -1538,7 +1643,7 @@ namespace Rook.InternalBridge
                         JsonSerializer.Serialize(new
                         {
                             success = false,
-                            data = message
+                            data = BuildUnknownOpMessage(op),
                         }, JsonOptions),
                         400);
             }
@@ -1565,6 +1670,24 @@ namespace Rook.InternalBridge
                 return null;
             }
         }
+
+        /// <summary>
+        /// Map an <see cref="ApiResponse"/> to the HTTP status code the
+        /// native bridge should write. Honors an explicit
+        /// <see cref="ApiResponse.HttpStatus"/> when set; falls back to
+        /// the legacy <c>Success ? 200 : 400</c> rule otherwise. Shared
+        /// by the async and off-UI executors so the fallback rule has a
+        /// single point of truth.
+        ///
+        /// Caller contract: <paramref name="result"/> is non-null. Both
+        /// production callers (the async and off-UI executors) read
+        /// <c>result.Success</c> for the JSON envelope before invoking
+        /// this helper, so a null value would NRE earlier. Codex step 1
+        /// review noted the prior defensive null-guard was unreachable
+        /// and dropped here.
+        /// </summary>
+        internal static int MapBridgeStatus(ApiResponse result) =>
+            result.HttpStatus ?? (result.Success ? 200 : 400);
 
         /// <summary>
         /// Async variant of <see cref="ExecuteApiResponseCallback"/> —
@@ -1644,7 +1767,7 @@ namespace Rook.InternalBridge
                         success = result.Success,
                         data = result.Data,
                     }, JsonOptions);
-                    statusCode = result.Success ? 200 : 400;
+                    statusCode = MapBridgeStatus(result);
                 }
 
                 return WriteUtf8Response(
@@ -1731,7 +1854,7 @@ namespace Rook.InternalBridge
                         success = result.Success,
                         data = result.Data,
                     }, JsonOptions);
-                    statusCode = result.Success ? 200 : 400;
+                    statusCode = MapBridgeStatus(result);
                 }
 
                 return WriteUtf8Response(

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -213,6 +214,7 @@ namespace Rook.Tests.UI.Vision
         {
             var expected = new[]
             {
+                // Image (PR-5a/5b)
                 "generate", "enhance_prompt", "test_api_key",
                 "capture_depth", "capture_viewport", "preview_viewport",
                 "list_views", "open_image_picker",
@@ -220,6 +222,10 @@ namespace Rook.Tests.UI.Vision
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
                 "open_artifacts_folder", "reveal_artifact_file",
+                // V2 video — bridge mirrors of the native HTTP routes.
+                "submit_video_job", "cancel_video_job",
+                "get_video_job", "get_video_job_result",
+                "estimate_video_job",
             };
             foreach (var op in expected)
             {
@@ -252,11 +258,98 @@ namespace Rook.Tests.UI.Vision
         [InlineData("get_settings_overview", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
         [InlineData("reveal_artifact_file", "OffUi")]
+        // V2 video ops — submit/cancel are async (provider HTTP via
+        // manager); status/result/estimate are off-UI sync.
+        [InlineData("submit_video_job", "Async")]
+        [InlineData("cancel_video_job", "Async")]
+        [InlineData("get_video_job", "OffUi")]
+        [InlineData("get_video_job_result", "OffUi")]
+        [InlineData("estimate_video_job", "OffUi")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
                 typeof(VisionWebSurface.VisionOpRoute), expectedRouteName);
             Assert.Equal(expected, VisionWebSurface.OpRoutes[op]);
+        }
+
+        [Theory]
+        [InlineData("submit_video_job")]
+        [InlineData("cancel_video_job")]
+        [InlineData("get_video_job")]
+        [InlineData("get_video_job_result")]
+        [InlineData("estimate_video_job")]
+        public void VideoOps_Set_Tracks_VideoOpHandler_Constants(string op)
+        {
+            // Pin: bridge-side video op set is wired to VideoOpHandler's
+            // canonical op constants (the same names native uses). If
+            // either drifts, this trips.
+            Assert.Contains(op, VisionWebSurface.VideoOps);
+        }
+
+        [Fact]
+        public void VideoOps_Set_HasExactly5Entries()
+        {
+            // Defensive count pin — no drift between OpRoutes-side video
+            // entries and VideoOps-side membership.
+            Assert.Equal(5, VisionWebSurface.VideoOps.Count);
+        }
+
+        [Theory]
+        [InlineData("generate")]
+        [InlineData("capture_depth")]
+        [InlineData("list_artifacts")]
+        public void VideoOps_Set_DoesNotContainImageOps(string op)
+        {
+            // Negative pin — image ops MUST NOT route to VideoOpHandler.
+            Assert.DoesNotContain(op, VisionWebSurface.VideoOps);
+        }
+
+        [Fact]
+        public void BuildSharedVisionHandler_UsesSharedArtifactStore()
+        {
+            // Codex review of step 6 caught that the production ctor
+            // was building VisionHandler() with its parameterless
+            // default — which spawns a FRESH ArtifactStore instance
+            // even though the surface field uses the shared one. Pin
+            // the fix: the helper must thread the shared singleton
+            // through. Reflection over the private _artifactStore
+            // field is the only mechanism short of a public getter,
+            // and a regression here would silently revert the layering
+            // discipline the v2 scope locked.
+            var handler = InvokeBuildSharedVisionHandler();
+            var fieldInfo = typeof(VisionHandler).GetField(
+                "_artifactStore",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(fieldInfo);
+            var actual = fieldInfo!.GetValue(handler);
+
+            Assert.Same(RookSubsystemRoot.Instance.SharedArtifactStore, actual);
+        }
+
+        [Fact]
+        public void BuildSharedVisionHandler_UsesSharedSecretStore()
+        {
+            // Same pin for VisionSecretStore — single API-key source
+            // across tab and native HTTP paths.
+            var handler = InvokeBuildSharedVisionHandler();
+            var fieldInfo = typeof(VisionHandler).GetField(
+                "_secrets",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(fieldInfo);
+            var actual = fieldInfo!.GetValue(handler);
+
+            Assert.Same(RookSubsystemRoot.Instance.SharedSecretStore, actual);
+        }
+
+        private static VisionHandler InvokeBuildSharedVisionHandler()
+        {
+            var method = typeof(VisionWebSurface).GetMethod(
+                "BuildSharedVisionHandler",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var result = method!.Invoke(null, Array.Empty<object?>());
+            Assert.NotNull(result);
+            return (VisionHandler)result!;
         }
 
         [Fact]

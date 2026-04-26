@@ -827,6 +827,30 @@ void CRookServer::RegisterRoutes()
     m_server->Delete(R"(/vision/artifacts/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionDeleteArtifact(req, res);
     });
+
+    // PR-V2: video routes. All five forward through the same
+    // vision_dispatch bridge callback (ABI v14 unchanged). Long-form
+    // op names are injected by the C++ handlers and matched by C#
+    // canonically — no translation layer. The more-specific routes
+    // (estimate, /cancel, /result) register BEFORE the generic
+    // /vision/video/jobs/{job_id} so httplib's first-match semantics
+    // route them correctly, mirroring the artifact-route discipline.
+    m_server->Post("/vision/video/jobs", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoSubmit(req, res);
+    });
+    m_server->Post("/vision/video/estimate", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoEstimate(req, res);
+    });
+    m_server->Post(R"(/vision/video/jobs/([^/]+)/cancel)", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoCancel(req, res);
+    });
+    m_server->Get(R"(/vision/video/jobs/([^/]+)/result)", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoResult(req, res);
+    });
+    m_server->Get(R"(/vision/video/jobs/([^/]+))", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoStatus(req, res);
+    });
+
     m_server->Get("/display-modes", [this](const httplib::Request& req, httplib::Response& res) {
         HandleGetDisplayModes(req, res);
     });
