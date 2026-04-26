@@ -162,6 +162,10 @@ async def test_models_list_returns_models_envelope():
         "id", "name", "status",
         "resolutions", "durations", "aspect_ratios",
         "modes", "supports_reference_images", "max_reference_images",
+        # `must_8s_with` is part of the wire shape per
+        # VideoOpHandler.CapabilityToObj — agents need the field even
+        # when the value is null, so the schema has to surface it.
+        "must_8s_with",
     ):
         assert required in cap, f"capability missing '{required}': {cap!r}"
 
@@ -397,12 +401,26 @@ async def test_estimate_happy_path_returns_pricing():
         "options": {"person_generation": "dont_allow"},
     }
     status, body, _ = await _post_video("estimate", body_in)
-    # Registry may have moved the model to a different id; tolerate
-    # InvalidRequest gracefully here so the test isn't brittle to
-    # registry shifts. The point is shape-pin when it succeeds.
-    if status != 200:
-        assert body["success"] is False
-        return
+
+    # Tolerate ONE specific drift: the model id may have been retired
+    # or renamed in the registry. In that case we expect a typed
+    # InvalidRequest with field=Model, NOT a 500/503/etc. Anything
+    # else is a real failure that this test must surface.
+    if status == 400 and not body.get("success"):
+        data = body.get("data", {})
+        if isinstance(data, dict) and data.get("field") == "Model":
+            pytest.skip(
+                f"Model {body_in['model']!r} no longer registered — "
+                f"shape-pin test inapplicable. Update model id when "
+                f"the registry shifts."
+            )
+        # Some other 400 — fall through to the strict assertions
+        # below, which will fail with the real envelope for diagnosis.
+
+    assert status == 200, (
+        f"expected 200, got {status} body={body!r}"
+    )
+    assert body["success"] is True
     data = body["data"]
     for required in (
         "dollars_usd", "model", "resolution", "duration_seconds",
