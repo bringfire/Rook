@@ -58,16 +58,31 @@ namespace Rook.Tests.UI.Vision
         // ─── CSP override pin ─────────────────────────────────────────
 
         [Fact]
-        public void ContentSecurityPolicy_Pinned_v1()
+        public void ContentSecurityPolicy_Pinned_v3()
         {
+            // PR-V3: media-src 'self' added so generated_video blobs
+            // play through <video src="/blob/{id}/video">. Without this
+            // directive media-src defaults to default-src ('none') under
+            // CSP3 and <video>/<audio> are blocked even when the blob
+            // would resolve.
             const string expected =
                 "default-src 'none'; " +
                 "script-src 'self'; " +
                 "style-src 'self' 'unsafe-inline'; " +
                 "font-src 'self'; " +
                 "img-src 'self' data:; " +
+                "media-src 'self'; " +
                 "connect-src 'none';";
             Assert.Equal(expected, VisionWebSurface.VisionContentSecurityPolicy);
+        }
+
+        [Fact]
+        public void ContentSecurityPolicy_AllowsSelfMediaSrc_ForVideoPlayback()
+        {
+            // Regression: PR-V3 added media-src 'self' for the video
+            // queue/result panels. Pin so a future tightening doesn't
+            // silently break <video> playback.
+            Assert.Contains("media-src 'self'", VisionWebSurface.VisionContentSecurityPolicy);
         }
 
         [Fact]
@@ -226,6 +241,8 @@ namespace Rook.Tests.UI.Vision
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
                 "estimate_video_job",
+                // V3 video — bridge-only (NOT in native trampoline).
+                "list_video_jobs", "list_video_models",
             };
             foreach (var op in expected)
             {
@@ -265,6 +282,9 @@ namespace Rook.Tests.UI.Vision
         [InlineData("get_video_job", "OffUi")]
         [InlineData("get_video_job_result", "OffUi")]
         [InlineData("estimate_video_job", "OffUi")]
+        // V3 video — both off-UI: ledger reads + registry enumeration.
+        [InlineData("list_video_jobs", "OffUi")]
+        [InlineData("list_video_models", "OffUi")]
         public void OpRoutes_Map_To_Correct_Dispatchers(string op, string expectedRouteName)
         {
             var expected = (VisionWebSurface.VisionOpRoute)Enum.Parse(
@@ -278,20 +298,25 @@ namespace Rook.Tests.UI.Vision
         [InlineData("get_video_job")]
         [InlineData("get_video_job_result")]
         [InlineData("estimate_video_job")]
+        [InlineData("list_video_jobs")]
+        [InlineData("list_video_models")]
         public void VideoOps_Set_Tracks_VideoOpHandler_Constants(string op)
         {
             // Pin: bridge-side video op set is wired to VideoOpHandler's
-            // canonical op constants (the same names native uses). If
-            // either drifts, this trips.
+            // canonical op constants (the same names native uses, where
+            // applicable). If either drifts, this trips. PR-V3 expanded
+            // the set with two bridge-only read ops.
             Assert.Contains(op, VisionWebSurface.VideoOps);
         }
 
         [Fact]
-        public void VideoOps_Set_HasExactly5Entries()
+        public void VideoOps_Set_HasExactly7Entries()
         {
             // Defensive count pin — no drift between OpRoutes-side video
             // entries and VideoOps-side membership.
-            Assert.Equal(5, VisionWebSurface.VideoOps.Count);
+            //   5 V2 ops (submit/cancel/status/result/estimate)
+            // + 2 V3 bridge-only ops (list_video_jobs, list_video_models)
+            Assert.Equal(7, VisionWebSurface.VideoOps.Count);
         }
 
         [Theory]
@@ -622,6 +647,32 @@ namespace Rook.Tests.UI.Vision
         public void PeekOp_ReturnsNull_ForMalformedJson()
         {
             Assert.Null(VisionWebSurface.PeekOp("{bogus"));
+        }
+
+        // ─── GuessBlobContentType (PR-V3 MIME map) ────────────────────
+
+        [Theory]
+        [InlineData("/x/y/foo.png", "image/png")]
+        [InlineData("/x/y/foo.jpg", "image/jpeg")]
+        [InlineData("/x/y/foo.jpeg", "image/jpeg")]
+        [InlineData("/x/y/foo.webp", "image/webp")]
+        [InlineData("/x/y/foo.gif", "image/gif")]
+        [InlineData("/x/y/foo.bmp", "image/bmp")]
+        // PR-V3 additions — without these, generated_video blobs would
+        // be served as application/octet-stream and <video> would refuse
+        // to play them even with media-src 'self' in the CSP.
+        [InlineData("/x/y/foo.mp4", "video/mp4")]
+        [InlineData("/x/y/foo.webm", "video/webm")]
+        // Case-insensitive on the extension (the helper lowercases).
+        [InlineData("/x/y/FOO.MP4", "video/mp4")]
+        [InlineData("/x/y/Foo.WebM", "video/webm")]
+        [InlineData("/x/y/foo.json", "application/json; charset=utf-8")]
+        [InlineData("/x/y/foo.txt", "text/plain; charset=utf-8")]
+        [InlineData("/x/y/foo.bin", "application/octet-stream")]
+        [InlineData("/x/y/no-extension", "application/octet-stream")]
+        public void GuessBlobContentType_MapsExtensionsCorrectly(string path, string expected)
+        {
+            Assert.Equal(expected, VisionWebSurface.GuessBlobContentType(path));
         }
 
         // ─── IsBlobPath / TryParseBlobUri / IsValidRole ───────────────

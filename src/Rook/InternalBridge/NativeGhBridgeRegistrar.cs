@@ -1548,6 +1548,29 @@ namespace Rook.InternalBridge
 
             var op = PeekVisionOp(requestJson);
 
+            // PR-V3 (Codex review): ExpectedVisionOps is the runtime
+            // allowlist, not just a documentation set. Any op not in
+            // the set is rejected before reaching the switch — so a
+            // future PR that adds a case here without also updating
+            // ExpectedVisionOps cannot accidentally promote a bridge-
+            // only op (list_video_jobs, list_video_models) to native
+            // HTTP. The negative containment tests pin the set; this
+            // guard pins the runtime gate.
+            if (!string.IsNullOrEmpty(op) && !ExpectedVisionOps.Contains(op))
+            {
+                return WriteUtf8Response(
+                    responseJsonUtf8,
+                    responseJsonCapacity,
+                    responseJsonLength,
+                    httpStatusCode,
+                    JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        data = BuildUnknownOpMessage(op),
+                    }, JsonOptions),
+                    400);
+            }
+
             switch (op)
             {
                 case "capture_depth":

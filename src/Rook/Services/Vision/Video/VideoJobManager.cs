@@ -440,6 +440,194 @@ namespace Rook.Services.Vision.Video
                 record.ResultArtifactId.Value, files));
         }
 
+        // ─── List jobs (PR-V3) ────────────────────────────────────────
+
+        /// <summary>
+        /// Hard ceiling for <see cref="ListJobsAsync"/>'s
+        /// <c>limit</c> argument. Any caller-supplied value above this
+        /// is clamped and surfaced via
+        /// <see cref="JobListResult.AppliedLimit"/>. The ceiling exists
+        /// so a malformed request (or future MCP client) cannot demand
+        /// an unbounded ledger scan + JSON projection.
+        /// </summary>
+        public const int MaxListLimit = 200;
+
+        public Task<JobListResult> ListJobsAsync(int limit, CancellationToken ct)
+        {
+            if (limit < 1)
+                throw new ArgumentOutOfRangeException(
+                    nameof(limit), limit,
+                    "limit must be a positive integer; reject before calling.");
+
+            var applied = limit > MaxListLimit ? MaxListLimit : limit;
+
+            var read = _ledger.ReadAll();
+            var warnings = ProjectWarnings(read.Errors);
+
+            // Snapshot the in-memory running records. ConcurrentDictionary
+            // enumeration is safe; we capture the LatestRecord field (a
+            // reference read) per running job into a plain list so the
+            // merge step is over an immutable snapshot.
+            var runningSnapshots = new List<VideoJobRecord>(_runningJobs.Count);
+            foreach (var kvp in _runningJobs)
+            {
+                var live = kvp.Value.LatestRecord;
+                if (live is not null) runningSnapshots.Add(live);
+            }
+
+            var merged = MergeByFreshness(read.Records, runningSnapshots);
+
+            // Sort newest first; tie-break on JobId descending so the
+            // order is deterministic across reads.
+            var ordered = new List<VideoJobRecord>(merged.Values);
+            ordered.Sort((a, b) =>
+            {
+                int byTime = b.UpdatedAt.CompareTo(a.UpdatedAt);
+                if (byTime != 0) return byTime;
+                return b.JobId.CompareTo(a.JobId);
+            });
+
+            // Apply limit AFTER sorting — caller asked for the N newest.
+            if (ordered.Count > applied)
+                ordered.RemoveRange(applied, ordered.Count - applied);
+
+            var entries = new List<JobListEntry>(ordered.Count);
+            foreach (var r in ordered)
+                entries.Add(ProjectEntry(r));
+
+            return Task.FromResult(new JobListResult(entries, warnings, applied));
+        }
+
+        /// <summary>
+        /// Pure freshness-merge over (ledger snapshot, in-memory running
+        /// snapshots). Codex sign-off correction (v3 implementation
+        /// review): the tie rule is stricter than the original "terminal
+        /// wins on tie" — when timestamps are equal, ledger only wins if
+        /// ledger is terminal; otherwise running wins. The asymmetry
+        /// protects against a future ordering inversion in
+        /// <c>RunJobAsync</c> (assigning <c>LatestRecord</c> before
+        /// <c>ledger.Append</c>) that would otherwise let a stale
+        /// non-terminal ledger pin the in-memory record.
+        ///
+        /// Rule per job_id:
+        /// <list type="bullet">
+        ///   <item>only ledger → use ledger</item>
+        ///   <item>only running → use running (defensive — current submit
+        ///         path appends initial ledger record before adding to
+        ///         <c>_runningJobs</c>, so this shouldn't happen)</item>
+        ///   <item>both, running newer → running wins</item>
+        ///   <item>both, ledger newer → ledger wins</item>
+        ///   <item>both, tied + ledger terminal → ledger wins</item>
+        ///   <item>both, tied + ledger non-terminal → running wins</item>
+        /// </list>
+        ///
+        /// Note that the tied-non-terminal-ledger case includes the
+        /// "running is also non-terminal" path: if both records are at
+        /// the same instant and neither is terminal, prefer the in-memory
+        /// view because that's the side that races ahead in the future-
+        /// ordering scenario.
+        ///
+        /// Internal so it's unit-testable in isolation (the integration
+        /// path goes through a real background task, which is harder to
+        /// pose specific freshness scenarios on).
+        /// </summary>
+        internal static IReadOnlyDictionary<Guid, VideoJobRecord> MergeByFreshness(
+            IReadOnlyList<VideoJobRecord> ledgerRecords,
+            IReadOnlyList<VideoJobRecord> runningSnapshots)
+        {
+            var merged = new Dictionary<Guid, VideoJobRecord>(ledgerRecords.Count);
+            foreach (var r in ledgerRecords)
+                merged[r.JobId] = r;
+
+            foreach (var live in runningSnapshots)
+            {
+                if (!merged.TryGetValue(live.JobId, out var ledger))
+                {
+                    merged[live.JobId] = live;
+                    continue;
+                }
+
+                if (live.UpdatedAt > ledger.UpdatedAt)
+                {
+                    merged[live.JobId] = live;
+                }
+                else if (live.UpdatedAt < ledger.UpdatedAt)
+                {
+                    // ledger wins (already in dict).
+                }
+                else
+                {
+                    // Tied. Ledger keeps the slot ONLY if it is itself
+                    // terminal — otherwise running wins (Codex tie rule).
+                    if (!IsTerminal(ledger.State))
+                        merged[live.JobId] = live;
+                }
+            }
+
+            return merged;
+        }
+
+        private static JobListEntry ProjectEntry(VideoJobRecord record)
+        {
+            // Model id comes from the top-level VideoJobRecord.Model, not
+            // NormalizedRequest (which by contract does not carry the
+            // model id — see NormalizedRequest docstring).
+            var summary = new JobRequestSummary(
+                Model: record.Model,
+                Mode: record.NormalizedRequest.Mode,
+                DurationSeconds: record.NormalizedRequest.DurationSeconds,
+                Resolution: record.NormalizedRequest.Resolution,
+                AspectRatio: record.NormalizedRequest.AspectRatio);
+
+            return new JobListEntry(
+                JobId: record.JobId,
+                State: record.State,
+                UpdatedAt: record.UpdatedAt,
+                Summary: summary,
+                ResultArtifactId: record.ResultArtifactId,
+                Error: record.Error);
+        }
+
+        private static IReadOnlyList<LedgerWarning> ProjectWarnings(
+            IReadOnlyList<LedgerReadError> errors)
+        {
+            if (errors.Count == 0) return System.Array.Empty<LedgerWarning>();
+            var list = new List<LedgerWarning>(errors.Count);
+            foreach (var e in errors)
+            {
+                // PR-V3 sanitization (Codex review of v3 implementation):
+                // Drop RawLineExcerpt and OffendingValue (handled by not
+                // copying them) AND synthesize a per-reason message
+                // rather than forwarding e.Message. The original
+                // LedgerReadError.Message can interpolate user-supplied
+                // content (e.g. JsonlVideoJobLedger emits
+                //   "Unknown pricing.kind: '{kindStr}'."
+                // — which round-trips a raw provider-options value into
+                // any consumer that surfaces the warning). The
+                // synthesized message is reason-only; the line number +
+                // field path are sufficient operator triage signal.
+                list.Add(new LedgerWarning(
+                    LineNumber: e.LineNumber,
+                    Reason: e.Reason,
+                    Message: SanitizedWarningMessage(e.Reason),
+                    FieldPath: e.FieldPath));
+            }
+            return list;
+        }
+
+        private static string SanitizedWarningMessage(LedgerReadErrorReason reason) => reason switch
+        {
+            LedgerReadErrorReason.MalformedJson =>
+                "Ledger line could not be parsed as JSON.",
+            LedgerReadErrorReason.UnsupportedSchemaVersion =>
+                "Ledger line uses an unsupported schema version.",
+            LedgerReadErrorReason.UnknownPricingKind =>
+                "Ledger line carries an unknown pricing kind.",
+            LedgerReadErrorReason.MissingRequiredField =>
+                "Ledger line is missing a required field.",
+            _ => "Ledger line could not be loaded.",
+        };
+
         // ─── Reconcile ────────────────────────────────────────────────
 
         public void ReconcileInterruptedJobs()

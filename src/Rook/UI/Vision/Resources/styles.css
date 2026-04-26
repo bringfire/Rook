@@ -1789,10 +1789,14 @@ body {
 
     .nav {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        /* PR-V3: 5 tabs (Generate / Studio / Video / Gallery / Settings).
+           At narrow widths, fall back to a 3-column grid so labels stay
+           legible — the first four tabs land 3+2 on the first row, and
+           the last drops to its own row. */
+        grid-template-columns: repeat(5, 1fr);
     }
 
-    /* At narrow WebView widths the four equal columns can't hold
+    /* At narrow WebView widths the five equal columns can't hold
        "GENERATE" + "SETTINGS" at the desktop tracking, so dial both
        padding and letter-spacing back. Tracking lives in CSS, not JS,
        so this stays pure layout. */
@@ -1839,4 +1843,466 @@ body {
     .gallery-grid {
         grid-template-columns: 1fr;
     }
+
+    /* At very narrow widths 5 columns of label text becomes unreadable.
+       Wrap to a 3+2 layout — Generate/Studio/Video on row 1,
+       Gallery/Settings on row 2. The last-of-row right-border rule
+       below keeps the grid edges clean. */
+    .nav {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .nav-btn:nth-child(3n) {
+        border-right: none;
+    }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   VIDEO VIEW (PR-V3)
+   ═══════════════════════════════════════════════════════════════ */
+
+.video-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: 0 var(--space-5) var(--space-5);
+}
+
+@media (max-width: 1024px) {
+    .video-layout { grid-template-columns: 1fr; }
+}
+
+.video-form-panel,
+.video-queue-panel {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+}
+
+.video-form-panel { padding: var(--space-4); }
+.video-queue-panel { padding: var(--space-3) var(--space-4); }
+
+.video-form-panel .options-grid {
+    margin: var(--space-3) 0;
+}
+
+.option-group-wide { grid-column: span 2; }
+
+.video-mode-radios {
+    display: flex;
+    gap: var(--space-1);
+    border: 1px solid var(--rule);
+    padding: 4px;
+    background: var(--paper-tone);
+}
+
+.video-mode-radio {
+    flex: 1;
+    text-align: center;
+    cursor: pointer;
+    padding: 6px 8px;
+    font-family: var(--type-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    transition: background 0.15s, color 0.15s;
+}
+
+.video-mode-radio input { display: none; }
+.video-mode-radio:has(input:checked) {
+    background: var(--ink);
+    color: var(--paper-bright);
+}
+.video-mode-radio:has(input:disabled) {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.video-frames-section {
+    border-top: 1px solid var(--rule);
+    padding-top: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.video-frames-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+
+.video-frame-slot.video-frame-slot-references {
+    grid-column: 1 / -1;
+}
+
+.video-frame-slot {
+    border: 1px dashed var(--rule);
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+/* PR-V3: greyed-out + non-interactive state for slots that don't
+   apply to the current mode + capability combination (T2V hides
+   start/end, models without supports_reference_images hide refs).
+   pointer-events:none is the load-bearing rule — opacity alone
+   wouldn't stop clicks from registering on the slot's buttons. */
+.video-frame-slot.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    user-select: none;
+}
+
+.video-frame-slot.disabled .video-frame-label::after {
+    content: " — not used in this mode";
+    color: var(--ink-soft);
+    font-style: italic;
+}
+
+.video-frame-label {
+    font-family: var(--type-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+}
+
+.video-frame-thumb {
+    background: var(--paper-tone);
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.video-frame-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.video-frame-empty {
+    color: var(--ink-soft);
+    font-family: var(--type-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.video-frame-actions {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+}
+
+.video-cost-strip {
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--rule);
+    background: var(--paper-tone);
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.video-cost-label {
+    font-family: var(--type-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-soft);
+}
+
+.video-cost-amount {
+    font-family: var(--type-display);
+    font-size: 22px;
+    font-feature-settings: var(--tabular);
+    color: var(--ink);
+    letter-spacing: -0.01em;
+}
+
+.video-cost-detail {
+    font-family: var(--type-mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-left: auto;
+}
+
+.video-form-panel .btn-generate {
+    margin-top: var(--space-3);
+    width: 100%;
+}
+
+/* Queue panel */
+
+.video-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+}
+
+.video-queue-empty {
+    padding: var(--space-5) var(--space-3);
+    background: var(--paper-tone);
+    text-align: center;
+    color: var(--ink-soft);
+}
+
+.video-queue-empty span {
+    display: block;
+    font-family: var(--type-mono);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: var(--space-1);
+}
+
+.video-queue-empty p { font-size: 13px; }
+
+.video-queue-warnings {
+    margin: var(--space-2) 0;
+    padding: 6px var(--space-2);
+    background: var(--accent-amber);
+    color: var(--paper-bright);
+    font-family: var(--type-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.video-queue-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--paper);
+    align-items: center;
+}
+
+.video-queue-row-state {
+    font-family: var(--type-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    background: var(--ink);
+    color: var(--paper-bright);
+    display: inline-block;
+    margin-bottom: 4px;
+}
+
+.video-queue-row.state-complete .video-queue-row-state { background: var(--accent-green); }
+.video-queue-row.state-error .video-queue-row-state,
+.video-queue-row.state-cancelled .video-queue-row-state,
+.video-queue-row.state-interrupted .video-queue-row-state { background: var(--accent-red); }
+.video-queue-row.state-queued .video-queue-row-state,
+.video-queue-row.state-submitting .video-queue-row-state,
+.video-queue-row.state-polling .video-queue-row-state,
+.video-queue-row.state-downloading .video-queue-row-state,
+.video-queue-row.state-saving .video-queue-row-state { background: var(--accent-cyan); }
+
+.video-queue-row-id {
+    font-family: var(--type-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-left: var(--space-1);
+}
+
+.video-queue-row-summary {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-top: 2px;
+}
+
+.video-queue-row-error {
+    color: var(--accent-red);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.video-queue-row-actions {
+    display: flex;
+    gap: var(--space-1);
+}
+
+/* Cost-confirm modal */
+
+.modal-content-cost,
+.modal-content-picker {
+    background: var(--paper);
+    color: var(--ink);
+    padding: var(--space-5);
+    max-width: 520px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    border: 1px solid var(--rule);
+}
+
+.modal-content-picker { max-width: 720px; }
+
+.modal-title {
+    font-family: var(--type-display);
+    font-size: 22px;
+    margin-bottom: var(--space-1);
+}
+
+.modal-subtitle {
+    color: var(--ink-soft);
+    font-size: 13px;
+    margin-bottom: var(--space-3);
+}
+
+.video-cost-summary {
+    border: 1px solid var(--rule);
+    padding: var(--space-3);
+    margin: var(--space-3) 0;
+    background: var(--paper-tone);
+}
+
+.video-cost-headline {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.video-cost-headline-label {
+    font-family: var(--type-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-soft);
+}
+
+.video-cost-headline-amount {
+    font-family: var(--type-display);
+    font-size: 32px;
+    font-feature-settings: var(--tabular);
+}
+
+.video-cost-meta {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-1) var(--space-2);
+    font-size: 12px;
+    margin-bottom: var(--space-2);
+}
+
+.video-cost-meta dt {
+    color: var(--ink-soft);
+    font-family: var(--type-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.video-cost-meta dd { font-feature-settings: var(--tabular); }
+
+.video-cost-breakdown {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.video-cost-breakdown th,
+.video-cost-breakdown td {
+    text-align: left;
+    padding: 4px 6px;
+    border-top: 1px solid var(--rule);
+}
+
+.video-cost-breakdown th {
+    font-family: var(--type-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+}
+
+.video-cost-breakdown-amount {
+    text-align: right;
+    font-feature-settings: var(--tabular);
+}
+
+/* Picker modal */
+
+.video-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.video-picker-item {
+    border: 1px solid var(--rule);
+    cursor: pointer;
+    background: var(--paper);
+    transition: border-color 0.15s;
+}
+
+.video-picker-item:hover {
+    border-color: var(--accent-cyan);
+}
+
+.video-picker-thumb {
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: var(--paper-tone);
+}
+
+.video-picker-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.video-picker-meta {
+    display: block;
+    padding: 4px 6px;
+    font-family: var(--type-mono);
+    font-size: 10px;
+    color: var(--ink-soft);
+}
+
+/* Modal video — same containing rules as the modal image. */
+
+#modal-video {
+    max-width: 100%;
+    max-height: 70vh;
+    width: 100%;
+    background: #000;
+}
+
+#modal-video.hidden,
+#modal-image.hidden {
+    display: none;
+}
+
+/* Gallery video tiles */
+
+.gallery-item-video .gallery-thumb-wrap video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.gallery-kind-badge {
+    position: absolute;
+    top: var(--space-1);
+    left: var(--space-1);
+    background: var(--ink);
+    color: var(--paper-bright);
+    padding: 2px 6px;
+    font-family: var(--type-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+

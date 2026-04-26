@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,6 +54,21 @@ namespace Rook.Handlers
         public const string OpResult = "get_video_job_result";
         public const string OpEstimate = "estimate_video_job";
 
+        // PR-V3: bridge-only read ops. Wired into VisionWebSurface.OpRoutes
+        // (off-UI dispatcher) but deliberately NOT added to the native
+        // HTTP allowlist in NativeGhBridgeRegistrar — V3 keeps these ops
+        // tab-only; PR-V4 lands the native HTTP + MCP-tool parity.
+        public const string OpListJobs = "list_video_jobs";
+        public const string OpListModels = "list_video_models";
+
+        /// <summary>
+        /// Default <c>limit</c> for <see cref="OpListJobs"/> when the
+        /// caller omits the field. Mirrors <c>list_artifacts</c>'s
+        /// default-100/hard-max-500 shape but smaller — the queue panel
+        /// scope is "active + recent" not full history.
+        /// </summary>
+        public const int DefaultListJobsLimit = 50;
+
         private readonly IVideoJobManager _manager;
         private readonly IVideoProviderRegistry _registry;
         private readonly IVideoCostEstimator _estimator;
@@ -89,7 +105,7 @@ namespace Rook.Handlers
                 {
                     OpSubmit => await SubmitAsync(args, cancellationToken).ConfigureAwait(false),
                     OpCancel => await CancelAsync(args, cancellationToken).ConfigureAwait(false),
-                    OpStatus or OpResult or OpEstimate => FailInvalidRequest(
+                    OpStatus or OpResult or OpEstimate or OpListJobs or OpListModels => FailInvalidRequest(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => FailInvalidRequest($"Unknown video op '{op}'."),
                 };
@@ -128,6 +144,8 @@ namespace Rook.Handlers
                     OpStatus => GetStatus(args),
                     OpResult => GetResult(args),
                     OpEstimate => Estimate(args),
+                    OpListJobs => ListJobs(args),
+                    OpListModels => ListModels(),
                     OpSubmit or OpCancel => FailInvalidRequest(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
                     _ => FailInvalidRequest($"Unknown video op '{op}'."),
@@ -275,6 +293,140 @@ namespace Rook.Handlers
                 ["pricing"] = PricingToObj(estimate.Pricing),
             });
         }
+
+        // ─── List ops (PR-V3) ────────────────────────────────────────────
+
+        private ApiResponse ListJobs(Dictionary<string, JsonElement> args)
+        {
+            // Strict-parse the optional limit. Absent → default; integer
+            // ≥1 → used (clamped by the manager); anything else (string,
+            // negative, fractional, wrong type) → InvalidRequest with
+            // field:"limit". This is intentionally stricter than
+            // TryGetInt's "default to 0 on bad input" behavior — the
+            // contract for limit is positive integer or absent.
+            var (limitParsed, limitErr) = TryGetOptionalPositiveInt(args, "limit");
+            if (limitErr is not null) return FailWithError(limitErr);
+            var limit = limitParsed ?? DefaultListJobsLimit;
+
+            var result = _manager.ListJobsAsync(limit, default).GetAwaiter().GetResult();
+
+            var jobs = new List<Dictionary<string, object?>>(result.Jobs.Count);
+            foreach (var entry in result.Jobs)
+                jobs.Add(JobListEntryToObj(entry));
+
+            var warnings = new List<Dictionary<string, object?>>(result.Warnings.Count);
+            foreach (var w in result.Warnings)
+                warnings.Add(WarningToObj(w));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["jobs"] = jobs,
+                ["warnings"] = warnings,
+                ["applied_limit"] = result.AppliedLimit,
+            });
+        }
+
+        private ApiResponse ListModels()
+        {
+            var descriptors = _registry.EnumerateAllModels();
+            var models = new List<Dictionary<string, object?>>(descriptors.Count);
+            foreach (var d in descriptors)
+                models.Add(ModelDescriptorToObj(d));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["models"] = models,
+            });
+        }
+
+        private static Dictionary<string, object?> JobListEntryToObj(JobListEntry entry) =>
+            new()
+            {
+                ["job_id"] = entry.JobId.ToString("D"),
+                ["state"] = StateToString(entry.State),
+                // ISO 8601 with offset — preserves the persisted invariant.
+                // DateTimeOffset.ToString("o") is the round-trip format;
+                // callers parse with new Date(...) on the JS side.
+                ["updated_at"] = entry.UpdatedAt.ToString("o", CultureInfo.InvariantCulture),
+                ["request_summary"] = new Dictionary<string, object?>
+                {
+                    ["model"] = entry.Summary.Model,
+                    ["mode"] = ModeToString(entry.Summary.Mode),
+                    ["duration_seconds"] = entry.Summary.DurationSeconds,
+                    ["resolution"] = entry.Summary.Resolution,
+                    ["aspect_ratio"] = entry.Summary.AspectRatio,
+                },
+                ["result_artifact_id"] = entry.ResultArtifactId?.ToString("D"),
+                ["error"] = entry.Error is null ? null : ErrorToObj(entry.Error),
+            };
+
+        private static Dictionary<string, object?> WarningToObj(LedgerWarning w) =>
+            // PR-V3 wire shape per signed-off scope: {line, reason, field}.
+            // Drop the synthesized Message — `reason` already encodes the
+            // same information as a snake_case enum, and the smaller
+            // surface keeps the wire contract tight. Domain-side
+            // LedgerWarning still carries Message for in-process logging.
+            new()
+            {
+                ["line"] = w.LineNumber,
+                ["reason"] = LedgerReasonToString(w.Reason),
+                ["field"] = w.FieldPath,
+            };
+
+        private static Dictionary<string, object?> ModelDescriptorToObj(VideoModelDescriptor d) =>
+            new()
+            {
+                ["model_id"] = d.ModelId,
+                ["provider_name"] = d.ProviderName,
+                ["pricing_kind"] = PricingKindToString(d.PricingKind),
+                ["pricing_source"] = d.PricingSource,
+                ["capability"] = CapabilityToObj(d.Capability),
+            };
+
+        private static Dictionary<string, object?> CapabilityToObj(ModelCapability c)
+        {
+            var modes = new List<string>(c.Modes.Count);
+            foreach (var m in c.Modes) modes.Add(ModeToString(m));
+
+            return new Dictionary<string, object?>
+            {
+                ["id"] = c.Id,
+                ["name"] = c.Name,
+                ["status"] = c.Status,
+                ["resolutions"] = c.Resolutions,
+                ["durations"] = c.Durations,
+                ["aspect_ratios"] = c.AspectRatios,
+                ["modes"] = modes,
+                ["supports_reference_images"] = c.SupportsReferenceImages,
+                ["max_reference_images"] = c.MaxReferenceImages,
+                ["must_8s_with"] = c.Must8sWith,
+            };
+        }
+
+        private static string ModeToString(VideoMode mode) => mode switch
+        {
+            VideoMode.T2V => "t2v",
+            VideoMode.I2V => "i2v",
+            VideoMode.Interp => "interp",
+            _ => mode.ToString().ToLowerInvariant(),
+        };
+
+        private static string PricingKindToString(PricingKind kind) => kind switch
+        {
+            PricingKind.PerSecond => "per_second",
+            PricingKind.PerGeneration => "per_generation",
+            PricingKind.External => "external",
+            _ => kind.ToString().ToLowerInvariant(),
+        };
+
+        private static string LedgerReasonToString(LedgerReadErrorReason reason) => reason switch
+        {
+            LedgerReadErrorReason.MalformedJson => "malformed_json",
+            LedgerReadErrorReason.UnsupportedSchemaVersion => "unsupported_schema_version",
+            LedgerReadErrorReason.UnknownPricingKind => "unknown_pricing_kind",
+            LedgerReadErrorReason.MissingRequiredField => "missing_required_field",
+            _ => reason.ToString().ToLowerInvariant(),
+        };
 
         // ─── Request parsing ─────────────────────────────────────────────
 
@@ -674,6 +826,37 @@ namespace Rook.Handlers
             if (!args.TryGetValue(key, out var el)) return false;
             if (el.ValueKind != JsonValueKind.Number) return false;
             return el.TryGetInt32(out value);
+        }
+
+        /// <summary>
+        /// Strict optional-positive-int reader. Distinguishes:
+        /// <list type="bullet">
+        ///   <item>absent (key not in the JSON object) → <c>(null, null)</c>;</item>
+        ///   <item>integer ≥ 1 → <c>(value, null)</c>;</item>
+        ///   <item>any other shape — explicit JSON <c>null</c>, string
+        ///         <c>"50"</c>, <c>0</c>, <c>-1</c>, fractional, boolean —
+        ///         <c>(null, InvalidRequest)</c> with <c>field = key</c>.</item>
+        /// </list>
+        /// PR-V3 Codex review: only <i>absent</i> falls through to the
+        /// caller's default; <i>explicit null</i> is a present-but-empty
+        /// value and must be rejected like any other wrong type. The v3
+        /// contract is "positive integer or absent"; null is neither.
+        /// </summary>
+        private static (int? Value, VideoJobError? Error) TryGetOptionalPositiveInt(
+            Dictionary<string, JsonElement> args, string key)
+        {
+            if (!args.TryGetValue(key, out var el)) return (null, null);
+            if (el.ValueKind != JsonValueKind.Number)
+                return (null, BadField(key,
+                    $"'{key}' must be a positive integer when present " +
+                    $"(got {el.ValueKind})."));
+            if (!el.TryGetInt32(out var value))
+                return (null, BadField(key,
+                    $"'{key}' must fit in a 32-bit signed integer."));
+            if (value < 1)
+                return (null, BadField(key,
+                    $"'{key}' must be ≥ 1 (got {value})."));
+            return (value, null);
         }
 
         /// <summary>

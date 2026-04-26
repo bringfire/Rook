@@ -31,10 +31,34 @@ async function bridgeCall(op, args) {
     if (response.success === true) {
         return response.data;
     }
-    const msg = typeof response.data === "string"
-        ? response.data
-        : "Vision op failed.";
-    throw new Error(msg);
+    // PR-V3: surface structured errors from VideoOpHandler.FailWithError —
+    // the response data carries {code, message, retryable, field} so the
+    // UI can show typed, field-specific feedback. The thrown error keeps
+    // backward compatibility (string-y `.message` still works for callers
+    // that only display it) but adds .code/.field/.retryable so video
+    // forms can highlight the offending input.
+    const data = response.data;
+    let err;
+    if (typeof data === "string") {
+        err = new Error(data);
+    } else if (data && typeof data === "object" && typeof data.message === "string") {
+        err = new Error(data.message);
+        err.code = data.code;
+        err.field = data.field;
+        err.retryable = data.retryable;
+    } else {
+        err = new Error("Vision op failed.");
+    }
+    throw err;
+}
+
+// Helper for status strips: render a structured error's user-facing
+// text. Includes the offending field where present so the user can
+// see "options.person_generation: ..." rather than just the message.
+function errorToText(e) {
+    if (!e) return "Vision op failed.";
+    if (e.field) return `${e.field}: ${e.message}`;
+    return e.message || "Vision op failed.";
 }
 
 // ─── State ────────────────────────────────────────────────────────
@@ -81,6 +105,7 @@ function switchView(view) {
 
     if (view === "gallery") loadGallery();
     if (view === "settings") loadSettingsOverview();
+    if (view === "video") loadVideoView();
 }
 
 // ─── Generate View ────────────────────────────────────────────────
@@ -640,11 +665,28 @@ async function studioGenerate() {
 async function loadGallery() {
     el.galleryGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
     try {
-        const data = await bridgeCall("list_artifacts", {
-            kind: "generated_image",
-            limit: 100,
+        // PR-V3: gallery shows both generated_image AND generated_video.
+        // list_artifacts takes a single `kind` filter, so we issue both
+        // calls in parallel and merge on the client. Sort: created_at
+        // desc with artifact_id desc as the deterministic tie-breaker
+        // (Codex sign-off note — equal-timestamp items must not jitter
+        // between reloads).
+        const [imgData, vidData] = await Promise.all([
+            bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
+            bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
+        ]);
+        galleryItems = [
+            ...(imgData.artifacts || []),
+            ...(vidData.artifacts || []),
+        ].sort((a, b) => {
+            const tA = a.created_at || "";
+            const tB = b.created_at || "";
+            const byTime = tB.localeCompare(tA);
+            if (byTime !== 0) return byTime;
+            const idA = a.artifact_id || "";
+            const idB = b.artifact_id || "";
+            return idB.localeCompare(idA);
         });
-        galleryItems = data.artifacts || [];
 
         if (galleryItems.length === 0) {
             el.galleryGrid.innerHTML = `
@@ -658,14 +700,41 @@ async function loadGallery() {
         el.galleryGrid.innerHTML = galleryItems.map(item => {
             const id = item.artifact_id;
             const approved = item.flags && item.flags.approved;
+            const isVideo = item.kind === "generated_video";
             const role = pickDisplayRole(item);
             const thumbUrl = role
                 ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(role)}`
                 : "";
+            // PR-V3 Codex review: video gallery tiles MUST NOT eagerly
+            // preload N MP4s when the user opens Gallery. Use the poster
+            // image for the tile if the artifact has one; only fall back
+            // to <video preload="none"> if no poster exists, and even
+            // then the actual playback only happens in the modal.
+            const posterRole = isVideo
+                ? (item.files || []).find(f => f.role === "poster")?.role
+                : null;
+            const posterUrl = posterRole
+                ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(posterRole)}`
+                : "";
+            let thumbMarkup;
+            if (isVideo) {
+                if (posterUrl) {
+                    thumbMarkup = `<img src="${posterUrl}" alt="Video poster">`;
+                } else if (thumbUrl) {
+                    thumbMarkup = `<video src="${thumbUrl}" muted preload="none"></video>`;
+                } else {
+                    thumbMarkup = '<div class="gallery-thumb-stub">no video</div>';
+                }
+            } else {
+                thumbMarkup = thumbUrl
+                    ? `<img src="${thumbUrl}" alt="Artifact thumbnail">`
+                    : '<div class="gallery-thumb-stub">no image</div>';
+            }
             return `
-                <div class="gallery-item ${approved ? "is-approved" : ""}" data-id="${escapeAttr(id)}">
+                <div class="gallery-item ${approved ? "is-approved" : ""} ${isVideo ? "gallery-item-video" : ""}" data-id="${escapeAttr(id)}">
                     <div class="gallery-thumb-wrap">
-                        ${thumbUrl ? `<img src="${thumbUrl}" alt="Artifact thumbnail">` : '<div class="gallery-thumb-stub">no image</div>'}
+                        ${thumbMarkup}
+                        ${isVideo ? '<div class="gallery-kind-badge">VIDEO</div>' : ""}
                         ${approved ? '<div class="gallery-type-badge">APPROVED</div>' : ""}
                     </div>
                     <div class="gallery-item-info">
@@ -693,16 +762,22 @@ async function openArtifactsFolder() {
 }
 
 function pickDisplayRole(summary) {
-    // Gallery summary embeds the `files[]` list. Pick an image-role
-    // blob for the thumbnail.
+    // Gallery summary embeds the `files[]` list. PR-V3: pick the
+    // playback-or-image role appropriate to the artifact kind.
     if (!summary || !Array.isArray(summary.files)) return null;
-    const preferred = ["image", "thumbnail", "preview"];
+    const isVideo = summary.kind === "generated_video";
+    const preferred = isVideo
+        ? ["video", "primary", "media"]
+        : ["image", "thumbnail", "preview"];
     for (const role of preferred) {
         if (summary.files.some(f => f.role === role)) return role;
     }
-    // Fall back to the first file whose extension looks like an image.
+    // Fall back to the first file whose extension matches the kind.
+    const re = isVideo
+        ? /\.(mp4|webm|mov)$/i
+        : /\.(png|jpe?g|webp|gif|bmp)$/i;
     for (const f of summary.files) {
-        if (/\.(png|jpe?g|webp|gif|bmp)$/i.test(f.path || "")) return f.role;
+        if (re.test(f.path || "")) return f.role;
     }
     return null;
 }
@@ -718,7 +793,32 @@ async function openArtifactModal(id) {
     const src = modalDisplayRole
         ? `/blob/${encodeURIComponent(id)}/${encodeURIComponent(modalDisplayRole)}?ts=${Date.now()}`
         : "";
-    el.modalImage.src = src;
+
+    // PR-V3: kind-aware render. Image artifacts use <img>; video
+    // artifacts use <video controls>. Both elements live in the modal
+    // markup; we toggle the inactive one.
+    const isVideo = modalArtifact.kind === "generated_video";
+    if (isVideo) {
+        el.modalImage.classList.add("hidden");
+        el.modalImage.src = "";
+        if (el.modalVideo) {
+            el.modalVideo.classList.remove("hidden");
+            el.modalVideo.src = src;
+            // Try to autoplay muted as a preview affordance — controls
+            // remain available so the user can pause / unmute.
+            try { el.modalVideo.load(); } catch { /* ignore */ }
+        }
+    } else {
+        if (el.modalVideo) {
+            el.modalVideo.pause?.();
+            el.modalVideo.removeAttribute("src");
+            el.modalVideo.load?.();
+            el.modalVideo.classList.add("hidden");
+        }
+        el.modalImage.classList.remove("hidden");
+        el.modalImage.src = src;
+    }
+
     el.modalPrompt.textContent = (modalArtifact.metadata && modalArtifact.metadata.prompt) || "";
     const model = (modalArtifact.metadata && modalArtifact.metadata.model) || "";
     const when = formatTimestamp(modalArtifact.created_at);
@@ -731,6 +831,12 @@ async function openArtifactModal(id) {
 function closeModal() {
     el.modal.classList.add("hidden");
     el.modalImage.src = "";
+    if (el.modalVideo) {
+        el.modalVideo.pause?.();
+        el.modalVideo.removeAttribute("src");
+        el.modalVideo.load?.();
+        el.modalVideo.classList.add("hidden");
+    }
     modalArtifact = null;
     modalDisplayRole = null;
 }
@@ -1025,12 +1131,20 @@ function init() {
     // Modal
     el.modal = $("image-modal");
     el.modalImage = $("modal-image");
+    el.modalVideo = $("modal-video"); // PR-V3 — kind-aware playback
     el.modalPrompt = $("modal-prompt");
     el.modalMeta = $("modal-meta");
     el.modalApproveBtn = $("modal-approve-btn");
     el.modalRevealBtn = $("modal-reveal-btn");
     el.modalDeleteBtn = $("modal-delete-btn");
-    el.modalClose = document.querySelector(".modal-close");
+    // PR-V3: scope by the modal container — three modals now have a
+    // .modal-close button (image artifact, video cost, video picker)
+    // and the global selector returns whichever sits first in DOM
+    // order. Each modal owns its own close.
+    el.modalClose = el.modal.querySelector(".modal-close");
+
+    // Video view (PR-V3)
+    Video.cacheEls();
 
     // ── Wire events ────────────────────────────────────────────
 
@@ -1114,7 +1228,14 @@ function init() {
     el.testApiKeyBtn.addEventListener("click", testApiKey);
 
     el.modalClose.addEventListener("click", closeModal);
-    el.modal.addEventListener("click", (e) => { if (e.target === el.modal) closeModal(); });
+    el.modal.addEventListener("click", (e) => {
+        // Close on click on the modal container OR the backdrop child;
+        // ignore clicks on the .modal-content (where interactive
+        // elements live).
+        if (e.target === el.modal || e.target.classList.contains("modal-backdrop")) {
+            closeModal();
+        }
+    });
     el.modalApproveBtn.addEventListener("click", () => {
         if (modalArtifact) approveCurrentArtifact(modalArtifact.artifact_id);
     });
@@ -1129,7 +1250,949 @@ function init() {
         if (e.target instanceof Element && e.target.closest("img")) e.preventDefault();
     });
 
+    // Video view event wiring (PR-V3).
+    Video.wireEvents();
+
     // Initial loads.
     loadViewports().then(captureViewport).catch(() => {});
     loadSettingsOverview();
 }
+
+// Trigger called by switchView when entering the Video tab.
+function loadVideoView() {
+    Video.onEnter();
+}
+
+// ─── Video module (PR-V3) ───────────────────────────────────────────
+//
+// Video state lives in its own namespace to keep it cleanly separated
+// from the image-side `modelCatalog` / `currentView` globals (Codex
+// sign-off note: video uses full model_id and capability matrices, not
+// the image side's short_name + supported_resolutions shape — sharing
+// state would risk dropdown-sync breakage).
+//
+// All bridge calls go through the same `bridgeCall(op, args)` helper
+// the image side uses; video op names match VideoOpHandler constants.
+
+const Video = (() => {
+    // Catalog + form state.
+    let catalog = [];                 // VideoModelDescriptor projections.
+    let catalogLoaded = false;
+    let selectedCapability = null;
+    let userPersonGenOverride = null;  // null = follow defaults; else sticky.
+    let estimateTimer = null;
+    let estimatePending = null;
+
+    // Frame-picker state.
+    let pickerSlot = null;             // "start" | "end" | "reference"
+    let startFrame = null;             // {kind, artifact_id, role, thumb_url?}
+    let endFrame = null;
+    let referenceFrames = [];
+
+    // Queue state.
+    /** @type {Map<string, {entry: object, pollerId?: number, polling: boolean}>} */
+    const queue = new Map();
+    const POLL_INTERVAL_MS = 1500;
+    const TERMINAL_STATES = new Set([
+        "complete", "error", "cancelled", "interrupted",
+    ]);
+    const IN_FLIGHT_STATES = new Set([
+        "queued", "submitting", "polling", "downloading", "saving",
+    ]);
+
+    // DOM cache (filled by cacheEls()).
+    const ve = {};
+
+    function cacheEls() {
+        ve.modelSelect = $("video-model-select");
+        ve.modelHint = $("video-model-hint");
+        ve.durationSelect = $("video-duration-select");
+        ve.durationHint = $("video-duration-hint");
+        ve.resolutionSelect = $("video-resolution-select");
+        ve.aspectSelect = $("video-aspect-select");
+        ve.personGenSelect = $("video-person-gen-select");
+        ve.modeRadios = document.querySelectorAll('input[name="video-mode"]');
+        ve.prompt = $("video-prompt");
+        ve.promptHint = $("video-prompt-hint");
+        ve.framesSection = $("video-frames-section");
+        ve.startSlot = $("video-start-frame-slot");
+        ve.startThumb = $("video-start-frame-thumb");
+        ve.endSlot = $("video-end-frame-slot");
+        ve.endThumb = $("video-end-frame-thumb");
+        ve.referencesSlot = $("video-references-slot");
+        ve.referencesPreview = $("video-references-preview");
+        ve.referencesLabel = $("video-references-label");
+        ve.addReferenceBtn = $("video-add-reference-btn");
+        ve.clearFramesBtn = $("video-clear-frames");
+        ve.costStrip = $("video-cost-strip");
+        ve.costAmount = $("video-cost-amount");
+        ve.costDetail = $("video-cost-detail");
+        ve.generateBtn = $("video-generate-btn");
+        ve.generateText = $("video-generate-text");
+        ve.generateSpinner = $("video-generate-spinner");
+        ve.statusMessage = $("video-status-message");
+        ve.refreshQueueBtn = $("video-refresh-queue");
+        ve.queueList = $("video-queue-list");
+        ve.queueWarnings = $("video-queue-warnings");
+
+        // Cost-confirm modal.
+        ve.costModal = $("video-cost-modal");
+        ve.costModalClose = $("video-cost-modal-close");
+        ve.costModalAmount = $("video-cost-modal-amount");
+        ve.costModalModel = $("video-cost-modal-model");
+        ve.costModalResolution = $("video-cost-modal-resolution");
+        ve.costModalDuration = $("video-cost-modal-duration");
+        ve.costModalSource = $("video-cost-modal-source");
+        ve.costBreakdownBody = $("video-cost-breakdown-body");
+        ve.costCancelBtn = $("video-cost-cancel-btn");
+        ve.costConfirmBtn = $("video-cost-confirm-btn");
+
+        // Picker modal.
+        ve.pickerModal = $("video-picker-modal");
+        ve.pickerModalClose = $("video-picker-modal-close");
+        ve.pickerTitle = $("video-picker-modal-title");
+        ve.pickerGrid = $("video-picker-grid");
+    }
+
+    function wireEvents() {
+        ve.modelSelect.addEventListener("change", onModelChange);
+        ve.modeRadios.forEach(r => r.addEventListener("change", onModeChange));
+        ve.durationSelect.addEventListener("change", scheduleEstimate);
+        ve.resolutionSelect.addEventListener("change", () => {
+            applyMust8sLock();
+            scheduleEstimate();
+        });
+        ve.aspectSelect.addEventListener("change", scheduleEstimate);
+        ve.personGenSelect.addEventListener("change", () => {
+            // User override is sticky until model/mode/refs change.
+            userPersonGenOverride = ve.personGenSelect.value;
+            scheduleEstimate();
+        });
+        ve.prompt.addEventListener("input", () => {
+            updateGenerateEnablement();
+            scheduleEstimate();
+        });
+        ve.addReferenceBtn.addEventListener("click", () => openPicker("reference"));
+        ve.clearFramesBtn.addEventListener("click", clearAllFrames);
+        ve.framesSection.querySelectorAll(".btn-pick-frame").forEach(btn => {
+            btn.addEventListener("click", () => openPicker(btn.dataset.slot));
+        });
+        ve.framesSection.querySelectorAll(".btn-clear-frame").forEach(btn => {
+            btn.addEventListener("click", () => clearFrame(btn.dataset.slot));
+        });
+        ve.generateBtn.addEventListener("click", onGenerateClicked);
+        ve.refreshQueueBtn.addEventListener("click", refreshQueue);
+
+        // Cost modal.
+        ve.costModalClose.addEventListener("click", closeCostModal);
+        ve.costCancelBtn.addEventListener("click", closeCostModal);
+        ve.costConfirmBtn.addEventListener("click", submitJob);
+        ve.costModal.addEventListener("click", e => {
+            if (e.target === ve.costModal
+                || e.target.classList.contains("modal-backdrop")) {
+                closeCostModal();
+            }
+        });
+
+        // Picker modal.
+        ve.pickerModalClose.addEventListener("click", closePicker);
+        ve.pickerModal.addEventListener("click", e => {
+            if (e.target === ve.pickerModal
+                || e.target.classList.contains("modal-backdrop")) {
+                closePicker();
+            }
+        });
+
+        document.addEventListener("keydown", e => {
+            if (e.key !== "Escape") return;
+            if (!ve.costModal.classList.contains("hidden")) closeCostModal();
+            else if (!ve.pickerModal.classList.contains("hidden")) closePicker();
+        });
+    }
+
+    async function onEnter() {
+        if (!catalogLoaded) {
+            await hydrateCatalog();
+        }
+        await refreshQueue();
+    }
+
+    async function hydrateCatalog() {
+        try {
+            const data = await bridgeCall("list_video_models");
+            catalog = data.models || [];
+            catalogLoaded = true;
+            populateModelDropdown();
+            if (catalog.length > 0) {
+                ve.modelSelect.value = catalog[0].model_id;
+                onModelChange();
+            } else {
+                showVideoStatus("No video models registered.", "error");
+            }
+        } catch (e) {
+            showVideoStatus(`Could not load models: ${errorToText(e)}`, "error");
+        }
+    }
+
+    function populateModelDropdown() {
+        ve.modelSelect.innerHTML = catalog.map(m => {
+            const cap = m.capability || {};
+            const label = cap.name || m.model_id;
+            const status = cap.status ? ` (${cap.status})` : "";
+            return `<option value="${escapeAttr(m.model_id)}">${escapeHtml(label)}${escapeHtml(status)}</option>`;
+        }).join("");
+    }
+
+    function currentModel() {
+        const id = ve.modelSelect.value;
+        return catalog.find(m => m.model_id === id) || null;
+    }
+
+    function onModelChange() {
+        const m = currentModel();
+        selectedCapability = m ? m.capability : null;
+        ve.modelHint.textContent = m
+            ? `${m.provider_name} · ${m.pricing_kind.replace("_", " ")} · ${m.pricing_source}`
+            : "";
+
+        if (!selectedCapability) {
+            disableForm();
+            return;
+        }
+
+        // Reset user override on model change so the new model's
+        // per-mode default applies (Codex sign-off table).
+        userPersonGenOverride = null;
+        // Frames may not be supported on the new model — drop them.
+        if (!selectedCapability.supports_reference_images) {
+            referenceFrames = [];
+            renderReferenceFrames();
+        }
+
+        repopulateModeRadios();
+        repopulateDurationSelect();
+        repopulateResolutionSelect();
+        repopulateAspectSelect();
+        applyModeGating();
+        applyMust8sLock();
+        applyPersonGenDefault();
+        updateGenerateEnablement();
+        scheduleEstimate();
+    }
+
+    function disableForm() {
+        ve.durationSelect.innerHTML = '<option value="">—</option>';
+        ve.resolutionSelect.innerHTML = '<option value="">—</option>';
+        ve.aspectSelect.innerHTML = '<option value="">—</option>';
+        ve.generateBtn.disabled = true;
+    }
+
+    function repopulateModeRadios() {
+        const supported = new Set(selectedCapability.modes || ["t2v"]);
+        ve.modeRadios.forEach(r => {
+            const ok = supported.has(r.value);
+            r.disabled = !ok;
+            // Switch to a supported mode if the previously-selected one
+            // isn't in the new model's set.
+            if (r.checked && !ok) r.checked = false;
+        });
+        if (![...ve.modeRadios].some(r => r.checked)) {
+            const firstOk = [...ve.modeRadios].find(r => !r.disabled);
+            if (firstOk) firstOk.checked = true;
+        }
+    }
+
+    function repopulateDurationSelect() {
+        const durations = selectedCapability.durations || [];
+        const previous = parseInt(ve.durationSelect.value, 10);
+        ve.durationSelect.innerHTML = durations
+            .map(d => `<option value="${d}">${d}s</option>`).join("");
+        const preferred = durations.includes(previous) ? previous : durations[durations.length - 1];
+        if (preferred !== undefined) ve.durationSelect.value = String(preferred);
+    }
+
+    function repopulateResolutionSelect() {
+        const resolutions = selectedCapability.resolutions || [];
+        const previous = ve.resolutionSelect.value;
+        ve.resolutionSelect.innerHTML = resolutions
+            .map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join("");
+        ve.resolutionSelect.value = resolutions.includes(previous) ? previous : resolutions[0] || "";
+    }
+
+    function repopulateAspectSelect() {
+        const aspects = selectedCapability.aspect_ratios || [];
+        const previous = ve.aspectSelect.value;
+        ve.aspectSelect.innerHTML = aspects
+            .map(a => `<option value="${escapeAttr(a)}">${escapeHtml(a)}</option>`).join("");
+        ve.aspectSelect.value = aspects.includes(previous) ? previous : aspects[0] || "";
+    }
+
+    function currentMode() {
+        const checked = [...ve.modeRadios].find(r => r.checked);
+        return checked ? checked.value : "t2v";
+    }
+
+    function onModeChange() {
+        userPersonGenOverride = null; // Re-derive default for the new mode.
+        applyModeGating();
+        applyPersonGenDefault();
+        updateGenerateEnablement();
+        scheduleEstimate();
+    }
+
+    function applyModeGating() {
+        const mode = currentMode();
+        // T2V: no frame slots; I2V: start only; Interp: start + end.
+        const allowStart = mode === "i2v" || mode === "interp";
+        const allowEnd = mode === "interp";
+        const allowRefs = !!(selectedCapability && selectedCapability.supports_reference_images);
+
+        // PR-V3 implementation review: slots use a .disabled class +
+        // pointer-events:none rather than the [hidden] attribute. CSS
+        // specificity on .video-frame-slot { display:flex } beats the
+        // user-agent [hidden] { display:none } rule, so setting
+        // hidden=true left the slot visually present and clickable —
+        // the user could pick a start frame in T2V mode and submit a
+        // request that the provider rejected. The .disabled class
+        // gives a discoverable greyed-out treatment AND blocks
+        // interaction at the CSS level, plus we disable the buttons
+        // explicitly as defense-in-depth.
+        applySlotEnablement(ve.startSlot, allowStart);
+        applySlotEnablement(ve.endSlot, allowEnd);
+        applySlotEnablement(ve.referencesSlot, allowRefs);
+        if (selectedCapability) {
+            ve.referencesLabel.textContent = `References (max ${selectedCapability.max_reference_images})`;
+        }
+
+        // The frames section is shown whenever ANY slot is allowed; if
+        // the current model + mode combination has none, hide the
+        // entire region (uses the codebase's .hidden class for
+        // !important display:none — same trap as above otherwise).
+        const anyAllowed = allowStart || allowEnd || allowRefs;
+        ve.framesSection.classList.toggle("hidden", !anyAllowed);
+
+        // Drop frames that don't apply to the new mode (data hygiene
+        // even if the user never re-clicks Pick).
+        if (!allowStart) startFrame = null;
+        if (!allowEnd) endFrame = null;
+        renderFrameThumb("start");
+        renderFrameThumb("end");
+
+        // Prompt is required for T2V; optional otherwise.
+        if (mode === "t2v") {
+            ve.promptHint.textContent = "Required for T2V.";
+        } else {
+            ve.promptHint.textContent = "Optional for I2V/Interp.";
+        }
+    }
+
+    function applySlotEnablement(slot, allowed) {
+        if (!slot) return;
+        slot.classList.toggle("disabled", !allowed);
+        // Defense-in-depth: even if a future CSS rule un-blocks pointer
+        // events on the slot, the buttons themselves stay disabled.
+        slot.querySelectorAll("button").forEach(btn => {
+            btn.disabled = !allowed;
+        });
+    }
+
+    function isSlotAllowedNow(slot) {
+        const mode = currentMode();
+        if (slot === "start") return mode === "i2v" || mode === "interp";
+        if (slot === "end") return mode === "interp";
+        if (slot === "reference") {
+            return !!(selectedCapability && selectedCapability.supports_reference_images);
+        }
+        return false;
+    }
+
+    function applyMust8sLock() {
+        const tokens = (selectedCapability && selectedCapability.must_8s_with) || [];
+        const res = ve.resolutionSelect.value;
+        const hasRefs = referenceFrames.length > 0;
+        const triggers = tokens.some(t =>
+            (t === "1080p" && res === "1080p") ||
+            (t === "4k" && res === "4k") ||
+            (t === "referenceImages" && hasRefs));
+
+        if (triggers && [...ve.durationSelect.options].some(o => o.value === "8")) {
+            ve.durationSelect.value = "8";
+            ve.durationSelect.disabled = true;
+            ve.durationHint.textContent = "Locked to 8 s by capability.";
+        } else {
+            ve.durationSelect.disabled = false;
+            ve.durationHint.textContent = "";
+        }
+    }
+
+    // PR-V3 sign-off table: defaults vary by model family + mode + refs.
+    //   Veo 2.x:  any                  → allow_adult
+    //   Veo 3.x:  T2V w/o refs         → allow_all
+    //   Veo 3.x:  T2V w/ refs          → allow_adult  (image-based)
+    //   Veo 3.x:  I2V or Interp        → allow_adult
+    function applyPersonGenDefault() {
+        if (userPersonGenOverride !== null) {
+            ve.personGenSelect.value = userPersonGenOverride;
+            return;
+        }
+        const m = currentModel();
+        if (!m) return;
+        const isVeo2 = m.model_id.startsWith("veo-2");
+        const mode = currentMode();
+        const hasRefs = referenceFrames.length > 0;
+
+        let def;
+        if (isVeo2) {
+            def = "allow_adult";
+        } else if (mode === "t2v" && !hasRefs) {
+            def = "allow_all";
+        } else {
+            def = "allow_adult";
+        }
+        ve.personGenSelect.value = def;
+    }
+
+    // ─── Frame picker ───────────────────────────────────────────────
+
+    async function openPicker(slot) {
+        // Defense-in-depth: refuse to open the picker for a slot that's
+        // not allowed in the current mode + capability combination.
+        // applyModeGating already disables the slot's buttons, but a
+        // keyboard-triggered click or a future bug-induced direct call
+        // shouldn't be able to bypass the contract.
+        if (!isSlotAllowedNow(slot)) {
+            showVideoStatus(
+                `'${slot}' is not available in the current mode.`,
+                "error");
+            return;
+        }
+        pickerSlot = slot;
+        ve.pickerTitle.textContent = slot === "reference"
+            ? "Pick a reference frame"
+            : `Pick the ${slot} frame`;
+        ve.pickerGrid.innerHTML = '<div class="gallery-empty"><span>Loading…</span></div>';
+        ve.pickerModal.classList.remove("hidden");
+
+        try {
+            // PR-V3: image-kind artifacts only (videos cannot serve as
+            // input frames). list_artifacts takes a single `kind`, so
+            // we issue parallel calls for the three image-bearing kinds
+            // — generated_image, captured_viewport, depth_map — and
+            // merge by created_at desc with artifact_id desc as the
+            // deterministic tie-breaker.
+            const [genData, capData, depthData] = await Promise.all([
+                bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "captured_viewport", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "depth_map", limit: 100 }),
+            ]);
+            const items = [
+                ...(genData.artifacts || []),
+                ...(capData.artifacts || []),
+                ...(depthData.artifacts || []),
+            ].sort((a, b) => {
+                const t = (b.created_at || "").localeCompare(a.created_at || "");
+                if (t !== 0) return t;
+                return (b.artifact_id || "").localeCompare(a.artifact_id || "");
+            });
+            if (items.length === 0) {
+                ve.pickerGrid.innerHTML = `
+                    <div class="gallery-empty">
+                        <span>No image artifacts</span>
+                        <p>Generate an image, capture a viewport, or capture depth to use it as a frame.</p>
+                    </div>`;
+                return;
+            }
+            ve.pickerGrid.innerHTML = items.map(a => {
+                const role = pickDisplayRole(a) || "image";
+                const url = `/blob/${encodeURIComponent(a.artifact_id)}/${encodeURIComponent(role)}`;
+                const when = formatTimestamp(a.created_at);
+                const kind = a.kind || "";
+                return `
+                    <div class="video-picker-item" data-id="${escapeAttr(a.artifact_id)}" data-role="${escapeAttr(role)}">
+                        <div class="video-picker-thumb"><img src="${url}" alt="Picker thumbnail"></div>
+                        <span class="video-picker-meta">${escapeHtml(kind)}</span>
+                        <span class="video-picker-meta">${escapeHtml(when)}</span>
+                    </div>`;
+            }).join("");
+            ve.pickerGrid.querySelectorAll(".video-picker-item").forEach(item => {
+                item.addEventListener("click", () => {
+                    onArtifactPicked(item.dataset.id, item.dataset.role);
+                });
+            });
+        } catch (e) {
+            ve.pickerGrid.innerHTML =
+                `<div class="gallery-empty"><span>${escapeHtml(e.message)}</span></div>`;
+        }
+    }
+
+    function closePicker() {
+        ve.pickerModal.classList.add("hidden");
+        pickerSlot = null;
+    }
+
+    function onArtifactPicked(artifactId, role) {
+        const ref = {
+            kind: "artifact_id",
+            artifact_id: artifactId,
+            role,
+            // Cached display URL. Not sent to the server — it's the
+            // wire ref (kind/artifact_id/role) the C# parser accepts.
+            thumb_url: `/blob/${encodeURIComponent(artifactId)}/${encodeURIComponent(role)}`,
+        };
+        if (pickerSlot === "start") {
+            startFrame = ref;
+            renderFrameThumb("start");
+        } else if (pickerSlot === "end") {
+            endFrame = ref;
+            renderFrameThumb("end");
+        } else if (pickerSlot === "reference") {
+            const max = selectedCapability ? selectedCapability.max_reference_images : 0;
+            if (referenceFrames.length >= max) {
+                showVideoStatus(`Max ${max} reference frames for this model.`, "error");
+                closePicker();
+                return;
+            }
+            referenceFrames.push(ref);
+            renderReferenceFrames();
+            // Codex v3 review: reference-frame count changes recompute
+            // the person_generation default (Veo 3.x T2V flips
+            // allow_all → allow_adult once any reference is present).
+            // Clear the sticky override so the new default applies.
+            userPersonGenOverride = null;
+            applyMust8sLock();
+            applyPersonGenDefault();
+        }
+        closePicker();
+        updateGenerateEnablement();
+        scheduleEstimate();
+    }
+
+    function clearFrame(slot) {
+        if (slot === "start") { startFrame = null; renderFrameThumb("start"); }
+        if (slot === "end") { endFrame = null; renderFrameThumb("end"); }
+        applyMust8sLock();
+        applyPersonGenDefault();
+        updateGenerateEnablement();
+        scheduleEstimate();
+    }
+
+    function clearAllFrames() {
+        startFrame = null;
+        endFrame = null;
+        referenceFrames = [];
+        // Reference count just dropped to zero; flip back to the no-refs
+        // default for the current model+mode.
+        userPersonGenOverride = null;
+        renderFrameThumb("start");
+        renderFrameThumb("end");
+        renderReferenceFrames();
+        applyMust8sLock();
+        applyPersonGenDefault();
+        updateGenerateEnablement();
+        scheduleEstimate();
+    }
+
+    function renderFrameThumb(slot) {
+        const ref = slot === "start" ? startFrame : endFrame;
+        const target = slot === "start" ? ve.startThumb : ve.endThumb;
+        if (!target) return;
+        if (ref && ref.thumb_url) {
+            target.innerHTML = `<img src="${escapeAttr(ref.thumb_url)}" alt="${slot} frame thumbnail">`;
+        } else {
+            target.innerHTML = '<div class="video-frame-empty">none</div>';
+        }
+    }
+
+    function renderReferenceFrames() {
+        if (!ve.referencesPreview) return;
+        ve.referencesPreview.innerHTML = referenceFrames.map((ref, i) => `
+            <div class="reference-thumb">
+                <img src="${escapeAttr(ref.thumb_url)}" alt="Reference">
+                <button class="remove-ref" data-index="${i}" title="Remove">&times;</button>
+            </div>`).join("");
+        ve.referencesPreview.querySelectorAll(".remove-ref").forEach(btn => {
+            btn.addEventListener("click", () => {
+                referenceFrames.splice(parseInt(btn.dataset.index, 10), 1);
+                renderReferenceFrames();
+                // Reference removal also flips the person_generation
+                // default (T2V w/ refs → T2V w/o refs on Veo 3.x).
+                userPersonGenOverride = null;
+                applyMust8sLock();
+                applyPersonGenDefault();
+                updateGenerateEnablement();
+                scheduleEstimate();
+            });
+        });
+    }
+
+    // ─── Estimate / submit ──────────────────────────────────────────
+
+    function buildSubmitArgs() {
+        if (!selectedCapability) return null;
+        const m = currentModel();
+        const mode = currentMode();
+        const args = {
+            model: m.model_id,
+            mode,
+            duration_seconds: parseInt(ve.durationSelect.value, 10),
+            resolution: ve.resolutionSelect.value,
+            aspect_ratio: ve.aspectSelect.value,
+            options: { person_generation: ve.personGenSelect.value },
+            // PR-V3: number_of_videos locked to 1 — domain
+            // CapabilityValidator rejects everything else.
+            number_of_videos: 1,
+        };
+        const prompt = ve.prompt.value.trim();
+        if (prompt) args.prompt = prompt;
+        if (startFrame) args.start_frame = stripThumbUrl(startFrame);
+        if (endFrame) args.end_frame = stripThumbUrl(endFrame);
+        if (referenceFrames.length > 0) {
+            args.reference_frames = referenceFrames.map(stripThumbUrl);
+        }
+        return args;
+    }
+
+    function stripThumbUrl(ref) {
+        const { thumb_url, ...wire } = ref;
+        return wire;
+    }
+
+    function isFormReady() {
+        if (!selectedCapability) return false;
+        if (!ve.durationSelect.value) return false;
+        if (!ve.resolutionSelect.value) return false;
+        if (!ve.aspectSelect.value) return false;
+        const mode = currentMode();
+        if (mode === "t2v" && !ve.prompt.value.trim()) return false;
+        if (mode === "i2v" && !startFrame) return false;
+        if (mode === "interp" && (!startFrame || !endFrame)) return false;
+        return true;
+    }
+
+    function updateGenerateEnablement() {
+        ve.generateBtn.disabled = !isFormReady();
+    }
+
+    function scheduleEstimate() {
+        if (estimateTimer) clearTimeout(estimateTimer);
+        // Codex review: any price-bearing field change MUST invalidate
+        // the cached estimate immediately, regardless of whether the
+        // form is currently valid. Otherwise the user can change inputs,
+        // hit a debounce/error window, and confirm a modal showing the
+        // PREVIOUS price while submitJob() sends the NEW request.
+        clearCachedEstimate();
+        if (!isFormReady()) {
+            ve.costAmount.textContent = "—";
+            ve.costDetail.textContent = "";
+            return;
+        }
+        estimateTimer = setTimeout(runEstimate, 250);
+    }
+
+    function clearCachedEstimate() {
+        delete ve.costStrip.dataset.lastEstimate;
+        delete ve.costStrip.dataset.lastEstimateArgs;
+        // PR-V3 Codex review: also invalidate the in-flight estimate
+        // token. Without this, an in-flight runEstimate that started
+        // BEFORE the field change can resolve AFTER scheduleEstimate
+        // ran, pass its `estimatePending === token` check, and write
+        // stale numbers back into the cache. Setting pending to a fresh
+        // sentinel ensures any prior in-flight response no longer
+        // matches.
+        estimatePending = {};
+    }
+
+    async function runEstimate() {
+        const args = buildSubmitArgs();
+        if (!args) return;
+        const argsJson = JSON.stringify(args);
+        const token = {};
+        estimatePending = token;
+        try {
+            const data = await bridgeCall("estimate_video_job", args);
+            if (estimatePending !== token) return;
+            ve.costAmount.textContent = `$${formatDollars(data.dollars_usd)}`;
+            ve.costDetail.textContent =
+                `${data.resolution} · ${data.duration_seconds}s · ${data.number_of_videos}×`;
+            // Cache BOTH the estimate response AND the args it was
+            // computed against. submitJob() rejects if the cached args
+            // don't match the args it's about to submit.
+            ve.costStrip.dataset.lastEstimate = JSON.stringify(data);
+            ve.costStrip.dataset.lastEstimateArgs = argsJson;
+        } catch (e) {
+            if (estimatePending !== token) return;
+            ve.costAmount.textContent = "—";
+            ve.costDetail.textContent = errorToText(e);
+            // Estimate failed → cached estimate is stale by definition.
+            clearCachedEstimate();
+        }
+    }
+
+    function formatDollars(n) {
+        if (typeof n !== "number" || !Number.isFinite(n)) return "0.00";
+        return n.toFixed(2);
+    }
+
+    function onGenerateClicked() {
+        if (!isFormReady()) {
+            showVideoStatus("Fill in the required fields first.", "error");
+            return;
+        }
+        // Re-run estimate one more time before showing the modal so the
+        // breakdown reflects the latest form state regardless of debounce.
+        runEstimate().then(openCostModalIfHaveEstimate);
+    }
+
+    function openCostModalIfHaveEstimate() {
+        const raw = ve.costStrip.dataset.lastEstimate;
+        const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
+        const currentArgs = JSON.stringify(buildSubmitArgs() || {});
+        if (!raw || cachedArgs !== currentArgs) {
+            // The cached estimate doesn't match the form right now —
+            // either it never ran, or the user changed something between
+            // the debounced runEstimate and the click. Refuse to open
+            // the modal with potentially stale numbers.
+            showVideoStatus(
+                "Cost estimate is out of date — adjust a field to retry.",
+                "error");
+            return;
+        }
+        const data = JSON.parse(raw);
+        ve.costModalAmount.textContent = `$${formatDollars(data.dollars_usd)}`;
+        ve.costModalModel.textContent = data.model || "—";
+        ve.costModalResolution.textContent = data.resolution || "—";
+        ve.costModalDuration.textContent =
+            data.duration_seconds ? `${data.duration_seconds} s` : "—";
+        ve.costModalSource.textContent =
+            (data.pricing && data.pricing.pricing_source) || "—";
+        ve.costBreakdownBody.innerHTML = (data.breakdown || []).map(row => `
+            <tr>
+                <td>${escapeHtml(row.label || "")}</td>
+                <td class="video-cost-breakdown-amount">$${formatDollars(row.dollars_usd)}</td>
+            </tr>`).join("");
+        ve.costModal.classList.remove("hidden");
+    }
+
+    function closeCostModal() {
+        ve.costModal.classList.add("hidden");
+    }
+
+    async function submitJob() {
+        const args = buildSubmitArgs();
+        if (!args) return;
+        // Defense-in-depth: even though openCostModalIfHaveEstimate gates
+        // before opening, recheck right before the bridge call. If the
+        // user changed a field while the modal was open, fail closed.
+        const cachedArgs = ve.costStrip.dataset.lastEstimateArgs;
+        if (cachedArgs !== JSON.stringify(args)) {
+            closeCostModal();
+            showVideoStatus(
+                "Form changed since estimate — re-running estimate.",
+                "error");
+            scheduleEstimate();
+            return;
+        }
+        ve.costConfirmBtn.disabled = true;
+        ve.costConfirmBtn.textContent = "Submitting…";
+        try {
+            const data = await bridgeCall("submit_video_job", args);
+            closeCostModal();
+            showVideoStatus(`Job ${data.job_id.slice(0, 8)}… queued.`, "success");
+            // Optimistically add to the queue and start polling. The
+            // first poll will replace the optimistic record with a
+            // real one carrying request_summary etc.
+            const optimistic = {
+                job_id: data.job_id,
+                state: data.state,
+                updated_at: new Date().toISOString(),
+                request_summary: {
+                    model: args.model,
+                    mode: args.mode,
+                    duration_seconds: args.duration_seconds,
+                    resolution: args.resolution,
+                    aspect_ratio: args.aspect_ratio,
+                },
+                result_artifact_id: null,
+                error: null,
+            };
+            queue.set(data.job_id, { entry: optimistic, polling: false });
+            renderQueue();
+            startPolling(data.job_id);
+        } catch (e) {
+            // PR-V3 Codex review: surface the typed `field` from
+            // structured server errors so the user sees e.g.
+            // "options.person_generation: ..." not just the bare message.
+            showVideoStatus(`Submit failed: ${errorToText(e)}`, "error");
+        } finally {
+            ve.costConfirmBtn.disabled = false;
+            ve.costConfirmBtn.textContent = "Confirm & generate";
+        }
+    }
+
+    // ─── Queue ──────────────────────────────────────────────────────
+
+    async function refreshQueue() {
+        try {
+            const data = await bridgeCall("list_video_jobs", { limit: 50 });
+            // Reconcile: replace queue-state with fresh server state but
+            // preserve in-flight pollers.
+            const serverIds = new Set();
+            (data.jobs || []).forEach(j => {
+                serverIds.add(j.job_id);
+                const existing = queue.get(j.job_id);
+                queue.set(j.job_id, {
+                    entry: j,
+                    polling: existing ? existing.polling : false,
+                });
+            });
+            // Drop optimistic-only entries the server didn't return
+            // (would only happen if list ran before ledger saw the
+            // submit, which the V1c ordering rules out).
+            for (const id of [...queue.keys()]) {
+                if (!serverIds.has(id)) queue.delete(id);
+            }
+            renderWarnings(data.warnings || []);
+            renderQueue();
+            // Resume polling for any in-flight jobs that lost their poller
+            // (fresh page load, or the prior poller errored out).
+            for (const [id, st] of queue) {
+                if (IN_FLIGHT_STATES.has(st.entry.state) && !st.polling) {
+                    startPolling(id);
+                }
+            }
+        } catch (e) {
+            showVideoStatus(`Queue refresh failed: ${errorToText(e)}`, "error");
+        }
+    }
+
+    function startPolling(jobId) {
+        const st = queue.get(jobId);
+        if (!st || st.polling) return;
+        st.polling = true;
+        const tick = async () => {
+            const cur = queue.get(jobId);
+            if (!cur) return; // disappeared from queue
+            try {
+                const data = await bridgeCall("get_video_job", { job_id: jobId });
+                cur.entry = {
+                    ...cur.entry,
+                    state: data.state,
+                    updated_at: new Date().toISOString(),
+                    result_artifact_id: data.result_artifact_id || null,
+                    error: data.error || null,
+                };
+                renderQueue();
+                if (TERMINAL_STATES.has(data.state)) {
+                    cur.polling = false;
+                    if (data.state === "complete") {
+                        // Refresh gallery if user is on Gallery view.
+                        if (currentView === "gallery") loadGallery();
+                    }
+                    return;
+                }
+            } catch (e) {
+                cur.polling = false;
+                showVideoStatus(`Poll failed for ${jobId.slice(0, 8)}: ${errorToText(e)}`, "error");
+                return;
+            }
+            // Schedule next tick with small jitter to avoid herding.
+            const jitter = Math.floor(Math.random() * 400) - 200;
+            setTimeout(tick, POLL_INTERVAL_MS + jitter);
+        };
+        tick();
+    }
+
+    async function cancelJob(jobId) {
+        if (!window.confirm("Cancel this job?")) return;
+        try {
+            await bridgeCall("cancel_video_job", { job_id: jobId });
+            // Server has flipped state; let the next poll surface it.
+            // No optimistic write — the cancel race is handled domain-
+            // side and we want to display the authoritative outcome.
+        } catch (e) {
+            showVideoStatus(`Cancel failed: ${errorToText(e)}`, "error");
+        }
+    }
+
+    function renderQueue() {
+        const entries = [...queue.values()]
+            .map(st => st.entry)
+            .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+
+        if (entries.length === 0) {
+            ve.queueList.innerHTML = `
+                <div class="video-queue-empty">
+                    <span>No jobs yet</span>
+                    <p>Generate a video to see it tracked here.</p>
+                </div>`;
+            return;
+        }
+
+        ve.queueList.innerHTML = entries.map(j => {
+            const inFlight = IN_FLIGHT_STATES.has(j.state);
+            const summary = j.request_summary || {};
+            const subtitle = [
+                summary.model || "",
+                summary.mode || "",
+                summary.resolution ? `${summary.resolution} · ${summary.duration_seconds || "?"}s` : "",
+            ].filter(Boolean).join(" · ");
+            const errMsg = j.error && j.error.message ? j.error.message : "";
+
+            const actions = [];
+            if (inFlight) {
+                actions.push(`<button class="btn btn-secondary btn-cancel-job" data-id="${escapeAttr(j.job_id)}">Cancel</button>`);
+            }
+            if (j.state === "complete" && j.result_artifact_id) {
+                actions.push(`<button class="btn btn-primary btn-open-job" data-id="${escapeAttr(j.result_artifact_id)}">Open</button>`);
+            }
+
+            return `
+                <div class="video-queue-row state-${escapeAttr(j.state)}">
+                    <div class="video-queue-row-main">
+                        <div class="video-queue-row-state">${escapeHtml(j.state)}</div>
+                        <div class="video-queue-row-id" title="${escapeAttr(j.job_id)}">${escapeHtml(j.job_id.slice(0, 8))}</div>
+                        <div class="video-queue-row-summary">${escapeHtml(subtitle)}</div>
+                        ${errMsg ? `<div class="video-queue-row-error">${escapeHtml(errMsg)}</div>` : ""}
+                    </div>
+                    <div class="video-queue-row-actions">${actions.join("")}</div>
+                </div>`;
+        }).join("");
+
+        ve.queueList.querySelectorAll(".btn-cancel-job").forEach(btn => {
+            btn.addEventListener("click", () => cancelJob(btn.dataset.id));
+        });
+        ve.queueList.querySelectorAll(".btn-open-job").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                // Switching to Gallery and opening the modal gives
+                // unified playback + approve/delete controls.
+                switchView("gallery");
+                await loadGallery();
+                openArtifactModal(btn.dataset.id);
+            });
+        });
+    }
+
+    function renderWarnings(warnings) {
+        if (!warnings.length) {
+            ve.queueWarnings.classList.add("hidden");
+            ve.queueWarnings.textContent = "";
+            return;
+        }
+        ve.queueWarnings.classList.remove("hidden");
+        ve.queueWarnings.textContent =
+            `Ledger warnings: ${warnings.length}. Some records may be omitted.`;
+    }
+
+    function showVideoStatus(message, type) {
+        ve.statusMessage.textContent = message;
+        ve.statusMessage.className = `status-message ${type || "info"}`;
+        ve.statusMessage.classList.remove("hidden");
+    }
+
+    return {
+        cacheEls,
+        wireEvents,
+        onEnter,
+    };
+})();
+

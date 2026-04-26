@@ -292,6 +292,20 @@ namespace Rook.UI.Web
                 _disposeWebView = DisposeWebView;
 
 #if NET7_0_OR_GREATER
+                // Recurring focus-blackout fix (see memory:
+                // project_webview_focus_blackout.md). When the host
+                // window or Eto tab loses focus and regains it, the
+                // WebView2 swap chain can land in a state where it
+                // renders solid background-color until something
+                // forces a re-present. Wiring GotFocus + Shown to
+                // toggle the controller's IsVisible flag (and notify
+                // it of position changes) is the documented workaround
+                // for the WebView2 black-screen-on-focus-loss bug. Cost:
+                // two extra event subscriptions per panel; benefit:
+                // recovers Vision/Chat/KG panels automatically.
+                _webView.GotFocus += OnWebViewGotFocus;
+                _webView.Shown += OnWebViewShown;
+
                 if (TrySetupVirtualHost())
                 {
                     return _webView;
@@ -306,6 +320,73 @@ namespace Rook.UI.Web
                 return CreateFallbackControl();
             }
         }
+
+#if NET7_0_OR_GREATER
+        /// <summary>
+        /// Force the WebView2 swap chain to re-present after a focus
+        /// transition that left the surface stale. Pulls the
+        /// <c>CoreWebView2Controller</c> off the native control via
+        /// reflection (the property name is the same on the WPF and
+        /// WinForms hosts), then runs the documented two-step
+        /// IsVisible toggle plus a parent-window-position-changed
+        /// notification. All operations are best-effort: a failure
+        /// here must never throw, since these handlers fire on every
+        /// focus transition for the lifetime of the panel.
+        /// </summary>
+        private void TryForceWebViewRepaint()
+        {
+            if (_disposed || _webView == null) return;
+            try
+            {
+                var nativeControl = _webView.ControlObject;
+                if (nativeControl == null) return;
+
+                var controllerProp = nativeControl.GetType()
+                    .GetProperty("CoreWebView2Controller");
+                if (controllerProp == null) return;
+
+                var controller = controllerProp.GetValue(nativeControl);
+                if (controller == null) return;
+
+                var controllerType = controller.GetType();
+
+                // Toggle IsVisible false → true. The off-frame is what
+                // actually clears the bad swap-chain state; the on-frame
+                // re-presents the live document.
+                var isVisibleProp = controllerType.GetProperty("IsVisible");
+                if (isVisibleProp != null && isVisibleProp.CanWrite)
+                {
+                    try
+                    {
+                        isVisibleProp.SetValue(controller, false);
+                        isVisibleProp.SetValue(controller, true);
+                    }
+                    catch { /* best-effort */ }
+                }
+
+                // Belt-and-suspenders: notify the controller that the
+                // parent window may have moved/resized, which forces a
+                // recompute of the visual bounds and another present.
+                var notifyMethod = controllerType.GetMethod(
+                    "NotifyParentWindowPositionChanged",
+                    Type.EmptyTypes);
+                try { notifyMethod?.Invoke(controller, null); }
+                catch { /* best-effort */ }
+            }
+            catch
+            {
+                // Never let a focus-handler exception escape — would
+                // create an unhandled-exception loop on every focus
+                // transition.
+            }
+        }
+
+        private void OnWebViewGotFocus(object? sender, EventArgs e)
+            => TryForceWebViewRepaint();
+
+        private void OnWebViewShown(object? sender, EventArgs e)
+            => TryForceWebViewRepaint();
+#endif
 
         /// <summary>
         /// Execute JavaScript in the WebView on the UI thread.
@@ -815,6 +896,15 @@ namespace Rook.UI.Web
         {
             try { _webView!.DocumentLoaded -= OnDocumentLoaded; }
             catch { }
+#if NET7_0_OR_GREATER
+            // Match the subscriptions added in CreateWebContent so the
+            // surface doesn't leak handlers across tab close / open
+            // cycles.
+            try { _webView!.GotFocus -= OnWebViewGotFocus; }
+            catch { }
+            try { _webView!.Shown -= OnWebViewShown; }
+            catch { }
+#endif
             try { _webView!.Dispose(); }
             catch { }
             _webView = null;
