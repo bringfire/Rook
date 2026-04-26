@@ -392,13 +392,23 @@ async def test_estimate_unknown_model_rejected_with_field_model():
 async def test_estimate_happy_path_returns_pricing():
     # Live registry resolution + pure-CPU pricing arithmetic. No Veo
     # API call. Uses a known-registered model id.
+    #
+    # The estimator runs the same CapabilityValidator as submit, so a
+    # t2v body must include `prompt` (validator rejects with
+    # field=Prompt otherwise — verified live, 2026-04-26 deploy).
     body_in = {
         "model": "veo-3.0-fast-generate-001",
         "mode": "t2v",
         "duration_seconds": 8,
         "resolution": "720p",
         "aspect_ratio": "16:9",
-        "options": {"person_generation": "dont_allow"},
+        # Veo 3 Fast requires PersonGeneration=AllowAll for t2v
+        # (verified live, 2026-04-26: rejects 'dont_allow' with
+        # code=unsupported_media field=PersonGeneration). The Veo
+        # capability matrix is per-model + per-mode; consult
+        # rhino_video_models for the agent-facing listing.
+        "options": {"person_generation": "allow_all"},
+        "prompt": "test prompt for cost estimate",
     }
     status, body, _ = await _post_video("estimate", body_in)
 
