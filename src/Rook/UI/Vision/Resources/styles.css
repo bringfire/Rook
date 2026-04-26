@@ -1942,6 +1942,23 @@ body {
     gap: var(--space-1);
 }
 
+/* PR-V3: greyed-out + non-interactive state for slots that don't
+   apply to the current mode + capability combination (T2V hides
+   start/end, models without supports_reference_images hide refs).
+   pointer-events:none is the load-bearing rule — opacity alone
+   wouldn't stop clicks from registering on the slot's buttons. */
+.video-frame-slot.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    user-select: none;
+}
+
+.video-frame-slot.disabled .video-frame-label::after {
+    content: " — not used in this mode";
+    color: var(--ink-soft);
+    font-style: italic;
+}
+
 .video-frame-label {
     font-family: var(--type-mono);
     font-size: 11px;

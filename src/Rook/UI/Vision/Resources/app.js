@@ -1543,22 +1543,38 @@ const Video = (() => {
     function applyModeGating() {
         const mode = currentMode();
         // T2V: no frame slots; I2V: start only; Interp: start + end.
-        const showStart = mode === "i2v" || mode === "interp";
-        const showEnd = mode === "interp";
-        const showRefs = !!(selectedCapability && selectedCapability.supports_reference_images);
+        const allowStart = mode === "i2v" || mode === "interp";
+        const allowEnd = mode === "interp";
+        const allowRefs = !!(selectedCapability && selectedCapability.supports_reference_images);
 
-        ve.startSlot.hidden = !showStart;
-        ve.endSlot.hidden = !showEnd;
-        ve.referencesSlot.hidden = !showRefs;
+        // PR-V3 implementation review: slots use a .disabled class +
+        // pointer-events:none rather than the [hidden] attribute. CSS
+        // specificity on .video-frame-slot { display:flex } beats the
+        // user-agent [hidden] { display:none } rule, so setting
+        // hidden=true left the slot visually present and clickable —
+        // the user could pick a start frame in T2V mode and submit a
+        // request that the provider rejected. The .disabled class
+        // gives a discoverable greyed-out treatment AND blocks
+        // interaction at the CSS level, plus we disable the buttons
+        // explicitly as defense-in-depth.
+        applySlotEnablement(ve.startSlot, allowStart);
+        applySlotEnablement(ve.endSlot, allowEnd);
+        applySlotEnablement(ve.referencesSlot, allowRefs);
         if (selectedCapability) {
             ve.referencesLabel.textContent = `References (max ${selectedCapability.max_reference_images})`;
         }
 
-        ve.framesSection.hidden = !(showStart || showEnd || showRefs);
+        // The frames section is shown whenever ANY slot is allowed; if
+        // the current model + mode combination has none, hide the
+        // entire region (uses the codebase's .hidden class for
+        // !important display:none — same trap as above otherwise).
+        const anyAllowed = allowStart || allowEnd || allowRefs;
+        ve.framesSection.classList.toggle("hidden", !anyAllowed);
 
-        // Drop frames that don't apply to the new mode.
-        if (!showStart) startFrame = null;
-        if (!showEnd) endFrame = null;
+        // Drop frames that don't apply to the new mode (data hygiene
+        // even if the user never re-clicks Pick).
+        if (!allowStart) startFrame = null;
+        if (!allowEnd) endFrame = null;
         renderFrameThumb("start");
         renderFrameThumb("end");
 
@@ -1568,6 +1584,26 @@ const Video = (() => {
         } else {
             ve.promptHint.textContent = "Optional for I2V/Interp.";
         }
+    }
+
+    function applySlotEnablement(slot, allowed) {
+        if (!slot) return;
+        slot.classList.toggle("disabled", !allowed);
+        // Defense-in-depth: even if a future CSS rule un-blocks pointer
+        // events on the slot, the buttons themselves stay disabled.
+        slot.querySelectorAll("button").forEach(btn => {
+            btn.disabled = !allowed;
+        });
+    }
+
+    function isSlotAllowedNow(slot) {
+        const mode = currentMode();
+        if (slot === "start") return mode === "i2v" || mode === "interp";
+        if (slot === "end") return mode === "interp";
+        if (slot === "reference") {
+            return !!(selectedCapability && selectedCapability.supports_reference_images);
+        }
+        return false;
     }
 
     function applyMust8sLock() {
@@ -1619,6 +1655,17 @@ const Video = (() => {
     // ─── Frame picker ───────────────────────────────────────────────
 
     async function openPicker(slot) {
+        // Defense-in-depth: refuse to open the picker for a slot that's
+        // not allowed in the current mode + capability combination.
+        // applyModeGating already disables the slot's buttons, but a
+        // keyboard-triggered click or a future bug-induced direct call
+        // shouldn't be able to bypass the contract.
+        if (!isSlotAllowedNow(slot)) {
+            showVideoStatus(
+                `'${slot}' is not available in the current mode.`,
+                "error");
+            return;
+        }
         pickerSlot = slot;
         ve.pickerTitle.textContent = slot === "reference"
             ? "Pick a reference frame"
