@@ -107,59 +107,27 @@ namespace Rook.Tests.InternalBridge
             Assert.Contains(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
         }
 
+        [Theory]
+        [InlineData(VideoOpHandler.OpListJobs)]
+        [InlineData(VideoOpHandler.OpListModels)]
+        public void ExpectedVisionOps_ContainsV4VideoListOps(string op)
+        {
+            // V4 promoted the two list ops from bridge-only (V3) to
+            // native HTTP. They route through DispatchOffUi alongside
+            // status/result/estimate. If a future PR removes them
+            // without updating this test, agent-direct + curl access
+            // would silently break.
+            Assert.Contains(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
+        }
+
         [Fact]
-        public void ExpectedVisionOps_HasExactly13Ops()
+        public void ExpectedVisionOps_HasExactly15Ops()
         {
-            // Pinned count: 8 image + 5 V2 video. If this drifts, either
-            // a new op landed (update both the count and the per-op test
-            // above) or one was removed (intentional retirement).
-            //
-            // PR-V3 deliberately does NOT add list_video_jobs /
-            // list_video_models here — those are bridge-only in V3 (see
-            // bridge-only containment tests below); native HTTP + MCP
-            // parity for them lands in PR-V4.
-            Assert.Equal(13, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
-        }
-
-        // ─── PR-V3 bridge-only containment ───────────────────────────────
-
-        [Theory]
-        [InlineData(VideoOpHandler.OpListJobs)]
-        [InlineData(VideoOpHandler.OpListModels)]
-        public void ExpectedVisionOps_DoesNotContainV3BridgeOnlyOps(string op)
-        {
-            // PR-V3 introduces two read ops (list_video_jobs,
-            // list_video_models) on VideoOpHandler that are routed via
-            // the JS bridge ONLY. They are intentionally absent from the
-            // native trampoline allowlist — so a curl against the native
-            // /vision endpoint with op=list_video_jobs should hit the
-            // unknown-op rejection path.
-            //
-            // PR-V4 lands the native HTTP route + MCP-tool parity. Until
-            // then, this negative test prevents accidental promotion.
-            Assert.DoesNotContain(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
-        }
-
-        [Theory]
-        [InlineData(VideoOpHandler.OpListJobs)]
-        [InlineData(VideoOpHandler.OpListModels)]
-        public void BuildUnknownOpMessage_RejectsV3BridgeOnlyOps(string op)
-        {
-            // The unknown-op rejection message lists every ExpectedVisionOps
-            // entry — and ONLY those. A bridge-only op submitted to the
-            // native trampoline must be quoted in the rejection message
-            // as the offending op, not appear as one of the "expected"
-            // values.
-            var msg = NativeGhBridgeRegistrar.BuildUnknownOpMessage(op);
-            Assert.Contains($"'{op}'", msg);
-            // Also verify the op does NOT appear in the "Expected one of"
-            // tail of the message — a regression that promoted these ops
-            // to native silently would otherwise pass this test.
-            //   "Unknown vision op '<op>'. Expected one of: 'a', 'b', ..."
-            var idx = msg.IndexOf("Expected one of:", StringComparison.Ordinal);
-            Assert.True(idx >= 0, "rejection message must contain 'Expected one of:' tail.");
-            var expectedTail = msg.Substring(idx);
-            Assert.DoesNotContain($"'{op}'", expectedTail);
+            // Pinned count: 8 image + 5 V2 video + 2 V4 video list ops.
+            // If this drifts, either a new op landed (update both the
+            // count and the per-op test above) or one was removed
+            // (intentional retirement).
+            Assert.Equal(15, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
         }
 
         // ─── BuildUnknownOpMessage ───────────────────────────────────────
