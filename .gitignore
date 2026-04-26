@@ -11,6 +11,14 @@ docs/KNOWLEDGE_SYSTEMS_ARCHITECTURE.md
 docs/FEATURE_ROADMAP.md
 docs/knowledge/
 
+# rook_docs/ imported 2026-04-26 (formerly a sibling repo). Track the
+# design memos and our own promoted scripts, but exclude the external
+# script-reference clones (~545 MB across 9 cloned repos) and the
+# extracted-PDF artifact directory. The source PDF is tracked.
+docs/rook_docs/script-reference/*/
+!docs/rook_docs/script-reference/promoted/
+docs/rook_docs/tencent_api_md/
+
 # Build results
 [Bb]in/
 [Oo]bj/
