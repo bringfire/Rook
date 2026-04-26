@@ -172,6 +172,81 @@ void DispatchVisionOpWithPathId(
     ForwardVisionDispatch(res, op, body);
 }
 
+// V4: strict integer-string grammar /^-?[0-9]+$/. Used by the video
+// jobs-list query folding to decide whether ?limit=N parses as a JSON
+// Number or stays a JSON String.
+//
+// Stricter than std::stoi — std::stoi accepts leading whitespace, '+',
+// and certain locale digit shapes. The V3 contract pins
+// VideoOpHandler.TryGetOptionalPositiveInt as the SINGLE validation
+// boundary for `limit`. C++ admitting " 5" or "+5" as a Number would
+// produce a state managed cannot reproduce on its own, breaking the
+// "same envelope whether MCP, agent, or curl" parity. So we only
+// promote to Number when the input is unambiguously a canonical
+// integer; everything else forwards as a String for managed to reject
+// with the typed `field:"limit"` envelope.
+//
+// Negative values DO match this grammar and forward as Numbers —
+// managed's `value < 1` arm rejects with the same `field:"limit"`
+// envelope (different message text, same code).
+bool IsCanonicalIntegerString(const std::string& s)
+{
+    if (s.empty()) return false;
+    std::size_t i = 0;
+    if (s[0] == '-')
+    {
+        if (s.size() == 1) return false;       // bare "-"
+        i = 1;
+    }
+    for (; i < s.size(); ++i)
+    {
+        if (s[i] < '0' || s[i] > '9') return false;
+    }
+    return true;
+}
+
+// V4: GET /vision/video/jobs query folding.
+//
+// Unlike DispatchVisionListWithQuery (image-side artifacts list), this
+// helper does NOT pre-reject malformed `limit` at C++. The V3 contract
+// pins managed VideoOpHandler.TryGetOptionalPositiveInt as the single
+// validation boundary; C++ pre-rejection would lose the typed
+// `field:"limit"` discriminator and break agent error handling.
+//
+// Strategy:
+//   - Canonical integer string → forward as JSON Number (managed's
+//     TryGetOptionalPositiveInt then handles the value<1 case via the
+//     same `field:"limit"` envelope).
+//   - Anything else (whitespace, "+5", "0x10", "abc", "", overflow) →
+//     forward as raw JSON String so managed's wrong-kind arm rejects
+//     with the established envelope.
+void DispatchVideoJobsList(httplib::Response& res, const httplib::Request& req)
+{
+    nlohmann::json body = nlohmann::json::object();
+
+    if (req.has_param("limit"))
+    {
+        const auto raw = req.get_param_value("limit");
+        if (IsCanonicalIntegerString(raw))
+        {
+            try
+            {
+                body["limit"] = std::stoi(raw);   // safe: grammar pre-validated
+            }
+            catch (const std::out_of_range&)
+            {
+                body["limit"] = raw;              // overflow → forward as String
+            }
+        }
+        else
+        {
+            body["limit"] = raw;                  // bad shape → forward as String
+        }
+    }
+
+    ForwardVisionDispatch(res, "list_video_jobs", body);
+}
+
 // Query-param dispatch: fold whitelisted query parameters into the
 // body before forwarding. Used by GET /vision/artifacts (list).
 // Only known filter params are forwarded — unknown query strings are
@@ -330,6 +405,21 @@ void HandleVisionVideoResult(const httplib::Request& req, httplib::Response& res
 void HandleVisionVideoEstimate(const httplib::Request& req, httplib::Response& res)
 {
     DispatchVisionOp(req, res, "estimate_video_job");
+}
+
+// ─── V4 video list routes ───────────────────────────────────────────
+
+void HandleVisionVideoJobsList(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVideoJobsList(res, req);
+}
+
+void HandleVisionVideoModelsList(const httplib::Request& /*req*/, httplib::Response& res)
+{
+    // No params, no body — forward an empty JSON object. Managed
+    // VideoOpHandler.ListModels reads no fields beyond `op`.
+    nlohmann::json body = nlohmann::json::object();
+    ForwardVisionDispatch(res, "list_video_models", body);
 }
 
 } // namespace Handlers

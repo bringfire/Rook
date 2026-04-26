@@ -104,5 +104,24 @@ void HandleVisionVideoResult(const httplib::Request& req, httplib::Response& res
 // sink consume this route.
 void HandleVisionVideoEstimate(const httplib::Request& req, httplib::Response& res);
 
+// ─── V4 video list routes ───────────────────────────────────────────
+// V3 shipped these as bridge-only ops on VideoOpHandler. V4 promotes
+// both to native HTTP per the parity rule. Both forward through the
+// existing vision_dispatch callback (ABI v14 unchanged).
+
+// GET /vision/video/jobs — List recent video jobs from the durable
+// ledger. Optional ?limit=N query param. Limit validation lives at
+// the managed boundary (VideoOpHandler.TryGetOptionalPositiveInt) —
+// this handler folds canonical integer strings into JSON Numbers
+// and forwards anything else as raw JSON Strings so managed rejects
+// with a typed `field:"limit"` envelope. Returns
+// {jobs: [...], warnings: [...], applied_limit}.
+void HandleVisionVideoJobsList(const httplib::Request& req, httplib::Response& res);
+
+// GET /vision/video/models — List all video models registered with
+// the runtime. No params. Returns {models: [...]} where each entry
+// describes model_id, provider, pricing, and capability matrix.
+void HandleVisionVideoModelsList(const httplib::Request& req, httplib::Response& res);
+
 } // namespace Handlers
 } // namespace Rook

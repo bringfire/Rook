@@ -835,8 +835,20 @@ void CRookServer::RegisterRoutes()
     // (estimate, /cancel, /result) register BEFORE the generic
     // /vision/video/jobs/{job_id} so httplib's first-match semantics
     // route them correctly, mirroring the artifact-route discipline.
+    //
+    // PR-V4: + GET /vision/video/jobs (list, before the regex
+    // /vision/video/jobs/{job_id}) and GET /vision/video/models.
+    // Both forward through the same vision_dispatch callback. Limit
+    // validation lives at the managed boundary; C++ folds canonical
+    // integer strings only.
     m_server->Post("/vision/video/jobs", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionVideoSubmit(req, res);
+    });
+    m_server->Get("/vision/video/jobs", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoJobsList(req, res);
+    });
+    m_server->Get("/vision/video/models", [](const httplib::Request& req, httplib::Response& res) {
+        Rook::Handlers::HandleVisionVideoModelsList(req, res);
     });
     m_server->Post("/vision/video/estimate", [](const httplib::Request& req, httplib::Response& res) {
         Rook::Handlers::HandleVisionVideoEstimate(req, res);
