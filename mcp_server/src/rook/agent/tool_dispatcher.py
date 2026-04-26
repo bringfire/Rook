@@ -386,6 +386,16 @@ BRIDGE_ROUTES: Dict[str, Tuple[str, str]] = {
     # --- Native road intersection orchestration ---
     "road_intersection_candidates": ("/road/intersection/candidates", "POST"),
     "road_intersection_resolve":    ("/road/intersection/resolve", "POST"),
+
+    # --- Vision Video (PR-V4) ---
+    # Body-only / no-param tools live here. Path-param tools
+    # (status / cancel / result) and the limit-folding list tool
+    # (jobs) live in TRANSFORM_FUNCTIONS so the dispatcher can
+    # construct the URL by hand and bypass call_rhino's None-stripping
+    # behavior on GET params.
+    "rhino_render_video":   ("/vision/video/jobs", "POST"),
+    "rhino_video_estimate": ("/vision/video/estimate", "POST"),
+    "rhino_video_models":   ("/vision/video/models", "GET"),
 }
 
 
@@ -776,6 +786,113 @@ def _transform_rhino_command(params: dict) -> Tuple[str, str, dict]:
     return "/command", "POST", params
 
 
+# ─── Vision Video transforms (PR-V4) ───────────────────────────────────
+#
+# Path-param video tools and rhino_video_jobs (manual ?limit folding).
+# Mirrors the per-route shape used by server.call_tool exactly so the
+# server↔dispatcher parity tests pass after normalizing
+# (endpoint, method, data, port) — server passes port as kwarg, this
+# dispatcher passes it positionally; the wire request is the same.
+# Rationale (Codex review of scope v3):
+#   - Path-param routes: cpp-httplib decodes URL-encoded characters
+#     BEFORE route matching, so a literal '/' in job_id reroutes to
+#     a generic 404. Reject slash/backslash here so the structured
+#     Rook envelope returns instead.
+#   - rhino_video_jobs: call_rhino drops None GET params (bridge.py
+#     :549). A bridge-passthrough {"limit": None} would silently
+#     become "absent → default 50" instead of the typed
+#     InvalidRequest field:"limit" envelope managed produces. Build
+#     the query string manually so explicit null/empty/garbage all
+#     reach managed unchanged.
+
+def _encode_video_job_id(jid: Any) -> tuple[str | None, dict | None]:
+    """Pre-validate and URL-encode a video job_id for path-param routes
+    (/vision/video/jobs/{job_id}, .../{job_id}/cancel, .../{job_id}/result).
+
+    Returns ``(encoded, None)`` on success or ``(None, error_dict)`` on
+    rejection — callers early-return the error as the tool result.
+
+    Same posture as server.py's ``_encode_vision_artifact_id``: native
+    httplib decodes URL-encoded characters before route matching, so a
+    literal slash in job_id misroutes to a generic 404 with no managed
+    envelope. Reject slash/backslash here so the structured Rook envelope
+    returns instead. ``RequireArtifactId``-equivalent GUID validation
+    happens at the managed boundary (``VideoOpHandler.TryParseJobId``).
+
+    The dispatcher transform attaches ``_pre_dispatch_failure: True`` to
+    the error dict so ``ToolDispatcher`` skips post-dispatch verification
+    annotation. ``server.call_tool`` does not consume that flag.
+    """
+    from urllib.parse import quote as _quote
+
+    if not isinstance(jid, str) or not jid:
+        return None, {
+            "success": False,
+            "data": "job_id must be a non-empty string.",
+        }
+    if "/" in jid or "\\" in jid:
+        return None, {
+            "success": False,
+            "data": (
+                f"job_id must not contain '/' or '\\\\' "
+                f"(got: {jid!r}). Supply a canonical GUID — e.g. "
+                "12345678-1234-1234-1234-123456789abc."
+            ),
+        }
+    return _quote(jid, safe=""), None
+
+
+def _video_status(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_video_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    return f"/vision/video/jobs/{encoded}", "GET", None
+
+
+def _video_cancel(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_video_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    # Body shape MUST match server.call_tool's invocation
+    # (call_rhino(..., "POST", {}, port=port)) so the parity tests can
+    # compare raw call_args. None would be mechanically accepted by
+    # call_rhino but document-context handling can synthesize a body
+    # when data is None — silently diverging from the MCP path.
+    return f"/vision/video/jobs/{encoded}/cancel", "POST", {}
+
+
+def _video_result(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    encoded, err = _encode_video_job_id(params.get("job_id", ""))
+    if err is not None:
+        err["_pre_dispatch_failure"] = True
+        return None, "", err
+    return f"/vision/video/jobs/{encoded}/result", "GET", None
+
+
+def _video_jobs(params: dict) -> Tuple[Optional[str], str, Optional[dict]]:
+    """list_video_jobs — manual ?limit folding.
+
+    Forwards whatever the caller sent (int, string, null, anything) so
+    the managed VideoOpHandler.TryGetOptionalPositiveInt is the single
+    validation boundary for ``limit``. Bad shapes surface as the typed
+    InvalidRequest envelope with ``field:"limit"`` — same wire response
+    whether the caller used MCP, agent dispatcher, or curl.
+    """
+    from urllib.parse import quote as _quote
+
+    if "limit" in params:
+        raw = params["limit"]
+        limit_str = "" if raw is None else str(raw)
+        return (
+            f"/vision/video/jobs?limit={_quote(limit_str, safe='')}",
+            "GET",
+            None,
+        )
+    return "/vision/video/jobs", "GET", None
+
+
 # Registry of all transform functions
 TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "rhino_command":           _transform_rhino_command,
@@ -808,6 +925,12 @@ TRANSFORM_FUNCTIONS: Dict[str, Callable[[dict], Tuple[str, str, dict]]] = {
     "gh_document_open":        _transform_gh_document_open,
     "gh_inspect_output":       _transform_gh_inspect_output,
     "rhino_execute":           _transform_execute,
+
+    # --- Vision Video (PR-V4) ---
+    "rhino_video_status":      _video_status,
+    "rhino_video_cancel":      _video_cancel,
+    "rhino_video_result":      _video_result,
+    "rhino_video_jobs":        _video_jobs,
 }
 
 

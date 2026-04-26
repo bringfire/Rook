@@ -10645,6 +10645,181 @@ Returns the full profile JSON including features, surfaces, and elements.""",
                 "required": [],
             },
         ),
+
+        # ─── Vision Video (PR-V4) ───────────────────────────────────────
+        # Seven MCP tools wrapping the V2/V3 video routes plus the two
+        # V4-new list routes (jobs, models). All seven are also wired
+        # for agent-direct dispatch via tool_dispatcher.BRIDGE_ROUTES
+        # (body-only/no-param) and TRANSFORM_FUNCTIONS (path-param +
+        # query-fold) — see rook_docs/2026-04-22-v3-video-decisions.md
+        # for the locked v3.1 contract.
+        #
+        # Submit/estimate accept media references by artifact_id ONLY.
+        # Inline base64 and local file paths are rejected at the
+        # managed boundary (VideoOpHandler.ParseMediaRef) per D2.1.
+        # Generation requires a Veo API key persisted via Vision
+        # settings; managed surfaces a clear error envelope otherwise.
+        Tool(
+            name="rhino_render_video",
+            description=(
+                "Submit a video generation job to a video provider (Veo). "
+                "Takes a model id (see rhino_video_models for the catalog), "
+                "mode (t2v/i2v/interp), duration, resolution, aspect ratio, "
+                "prompt, and provider-specific options. Optional start_frame / "
+                "end_frame / reference_frames reference uploaded media by "
+                "artifact_id only — inline base64 and local paths are rejected "
+                "at the boundary. Returns {job_id, state} immediately; the job "
+                "runs in the background. Poll rhino_video_status for progress, "
+                "then rhino_video_result once state == 'complete'. Use "
+                "rhino_video_estimate to dry-run cost before submitting. "
+                "Requires a Veo API key persisted via Vision settings."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "Model id from rhino_video_models (e.g. 'veo-3.0-fast-generate-001'). Use rhino_video_models to enumerate valid ids — short forms like 'veo-3.0-fast' are NOT registered."},
+                    "mode": {"type": "string", "description": "Generation mode: 't2v' (text-to-video), 'i2v' (image-to-video), or 'interp' (frame interpolation between start_frame and end_frame)."},
+                    "duration_seconds": {"type": "integer", "description": "Clip length in seconds (model-dependent — see capability.durations)."},
+                    "resolution": {"type": "string", "description": "Output resolution (model-dependent — see capability.resolutions)."},
+                    "aspect_ratio": {"type": "string", "description": "Output aspect ratio (model-dependent — see capability.aspect_ratios)."},
+                    "options": {"type": "object", "description": "Provider-specific typed options. For Veo: {person_generation: 'dont_allow'|'allow_adult'|'allow_all'}."},
+                    "prompt": {"type": "string", "description": "Optional generation prompt."},
+                    "start_frame": {"type": "object", "description": "Optional input frame for i2v / interp. Shape: {kind: 'artifact_id', artifact_id: '<uuid>', role?: '<role>'}."},
+                    "end_frame": {"type": "object", "description": "Optional terminal frame for interp mode. Same shape as start_frame."},
+                    "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional style/identity reference frames. Each entry shares the start_frame shape."},
+                    "seed": {"type": "integer", "description": "Optional deterministic seed."},
+                    "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator). Multi-variant generation is not yet supported."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["model", "mode", "duration_seconds", "resolution", "aspect_ratio", "options"],
+            },
+        ),
+        Tool(
+            name="rhino_video_status",
+            description=(
+                "Read status of a submitted video job. Returns "
+                "{job_id, state, progress?, result_artifact_id?, error?}. "
+                "Terminal states (complete / error / cancelled / interrupted) "
+                "are returned in a successful response — only InvalidRequest "
+                "(e.g. unknown job_id) surfaces as an error envelope. Poll "
+                "on a 1-2 s interval for active jobs."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical GUID returned by rhino_render_video."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_video_cancel",
+            description=(
+                "Request cancellation of a submitted video job. Returns "
+                "{job_id, state} reflecting the post-cancel terminal state — "
+                "typically 'cancelled', but may be 'complete' if the job "
+                "finished between intent and provider acknowledgement."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical GUID of the job to cancel."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_video_result",
+            description=(
+                "Read terminal result for a complete video job. Returns "
+                "{job_id, state, result_artifact_id, files: [{role, path}]}. "
+                "Fails with InvalidRequest if the job is not yet 'complete' "
+                "or the result artifact is missing. The MP4 + poster frames "
+                "are accessible via the returned file paths; no inline bytes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Canonical GUID of the complete job."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="rhino_video_estimate",
+            description=(
+                "Dry-run cost estimation for a video job. Same body shape as "
+                "rhino_render_video (model, mode, duration, resolution, "
+                "aspect_ratio, options, optional number_of_videos). Returns "
+                "{dollars_usd, model, resolution, duration_seconds, "
+                "number_of_videos, breakdown[], pricing}. No provider call, "
+                "no job created — pure pricing math against the resolved "
+                "model's PricingModel."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string", "description": "Model id from rhino_video_models (use the full registered id, e.g. 'veo-3.0-fast-generate-001')."},
+                    "mode": {"type": "string", "description": "Generation mode: 't2v', 'i2v', or 'interp'."},
+                    "duration_seconds": {"type": "integer", "description": "Clip length in seconds."},
+                    "resolution": {"type": "string", "description": "Output resolution."},
+                    "aspect_ratio": {"type": "string", "description": "Output aspect ratio."},
+                    "options": {"type": "object", "description": "Provider-specific typed options (same shape as rhino_render_video)."},
+                    "prompt": {"type": "string", "description": "Optional prompt (not used for pricing; accepted for parity with submit)."},
+                    "start_frame": {"type": "object", "description": "Optional media ref (same shape as rhino_render_video)."},
+                    "end_frame": {"type": "object", "description": "Optional media ref."},
+                    "reference_frames": {"type": "array", "items": {"type": "object"}, "description": "Optional reference media refs."},
+                    "seed": {"type": "integer", "description": "Optional seed (not used for pricing)."},
+                    "number_of_videos": {"type": "integer", "description": "Omit or set to 1; v1 policy rejects any other value (CapabilityValidator)."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": ["model", "mode", "duration_seconds", "resolution", "aspect_ratio", "options"],
+            },
+        ),
+        Tool(
+            name="rhino_video_jobs",
+            description=(
+                "List recent video jobs from the durable ledger. Returns "
+                "{jobs: [...], warnings: [...], applied_limit}. Each job "
+                "entry: {job_id, state, updated_at, request_summary, "
+                "result_artifact_id?, error?}. Default limit 50. Pass "
+                "'limit' (positive integer) to override; non-integer or "
+                "non-positive values return an InvalidRequest envelope "
+                "with field='limit'. 'warnings' describes any malformed "
+                "ledger lines surfaced during the read."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max jobs to return (positive integer; default 50)."},
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="rhino_video_models",
+            description=(
+                "List all video models registered with the runtime. Returns "
+                "{models: [...]} where each entry: {model_id, provider_name, "
+                "pricing_kind, pricing_source, capability: {id, name, status, "
+                "resolutions, durations, aspect_ratios, modes, "
+                "supports_reference_images, max_reference_images, "
+                "must_8s_with}}. Use this to discover supported models, valid "
+                "mode/resolution/aspect_ratio/duration combinations, and "
+                "reference-image limits before calling rhino_render_video."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "port": {"type": "integer", "description": "Specific Rhino port to target."},
+                },
+                "required": [],
+            },
+        ),
     ]
 
     return all_tools
@@ -11109,6 +11284,42 @@ def _encode_vision_artifact_id(aid: Any) -> tuple[str | None, dict | None]:
             ),
         }
     return _quote(aid, safe=""), None
+
+
+def _encode_video_job_id(jid: Any) -> tuple[str | None, dict | None]:
+    """Pre-validate and URL-encode a video job_id for path-param routes
+    (/vision/video/jobs/{job_id}, .../{job_id}/cancel, .../{job_id}/result).
+
+    Same posture as ``_encode_vision_artifact_id``: native cpp-httplib
+    decodes URL-encoded characters BEFORE route matching, so a literal
+    slash in job_id misroutes to a generic 404 with no managed envelope.
+    Reject slash/backslash here so the structured Rook envelope returns
+    instead. Managed ``VideoOpHandler.TryParseJobId`` is the GUID-format
+    authority — anything that survives this pre-check ships off to native
+    URL-encoded.
+
+    Duplicated rather than refactored across both modules (server +
+    tool_dispatcher) so V4's diff stays scoped. The
+    ``_encode_*`` rename to a generic ``_encode_path_id`` is a
+    mechanical follow-up.
+    """
+    from urllib.parse import quote as _quote
+
+    if not isinstance(jid, str) or not jid:
+        return None, {
+            "success": False,
+            "data": "job_id must be a non-empty string.",
+        }
+    if "/" in jid or "\\" in jid:
+        return None, {
+            "success": False,
+            "data": (
+                f"job_id must not contain '/' or '\\\\' "
+                f"(got: {jid!r}). Supply a canonical GUID — e.g. "
+                "12345678-1234-1234-1234-123456789abc."
+            ),
+        }
+    return _quote(jid, safe=""), None
 
 
 @mcp.call_tool()
@@ -17437,6 +17648,70 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         case "rhino_vision_consume_approved":
             result = await call_rhino(
                 "/vision/artifacts/consume-approved", "POST", arguments, port=port
+            )
+
+        # ─── Vision Video (PR-V4) ────────────────────────────────────
+        # All seven calls pass explicit method + data so the wire
+        # request matches the dispatcher's transform output. The parity
+        # tests normalize (endpoint, method, data, port) before
+        # comparing — server passes port as kwarg, dispatcher passes
+        # it positionally — so the parity is on the request shape, not
+        # the Python call shape. Path-param tools URL-encode job_id
+        # and pre-reject slash/backslash before any HTTP touch — same
+        # posture as rhino_vision_get_artifact / _approve / _delete.
+        # rhino_video_jobs builds the ?limit query manually so explicit
+        # null/empty/garbage all reach managed unchanged (call_rhino's
+        # GET-params builder would silently drop None).
+        case "rhino_render_video":
+            result = await call_rhino(
+                "/vision/video/jobs", "POST", arguments, port=port
+            )
+
+        case "rhino_video_status":
+            _encoded, _err = _encode_video_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/video/jobs/{_encoded}", "GET", None, port=port
+                )
+
+        case "rhino_video_cancel":
+            _encoded, _err = _encode_video_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/video/jobs/{_encoded}/cancel", "POST", {}, port=port
+                )
+
+        case "rhino_video_result":
+            _encoded, _err = _encode_video_job_id(arguments.get("job_id", ""))
+            if _err is not None:
+                result = _err
+            else:
+                result = await call_rhino(
+                    f"/vision/video/jobs/{_encoded}/result", "GET", None, port=port
+                )
+
+        case "rhino_video_estimate":
+            result = await call_rhino(
+                "/vision/video/estimate", "POST", arguments, port=port
+            )
+
+        case "rhino_video_jobs":
+            from urllib.parse import quote as _quote_v4
+            if "limit" in arguments:
+                _raw_limit = arguments["limit"]
+                _limit_str = "" if _raw_limit is None else str(_raw_limit)
+                _endpoint = f"/vision/video/jobs?limit={_quote_v4(_limit_str, safe='')}"
+            else:
+                _endpoint = "/vision/video/jobs"
+            result = await call_rhino(_endpoint, "GET", None, port=port)
+
+        case "rhino_video_models":
+            result = await call_rhino(
+                "/vision/video/models", "GET", None, port=port
             )
 
         case _:

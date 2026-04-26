@@ -212,6 +212,26 @@ TOOL_GROUPS: Dict[str, List[str]] = {
         "rhino_vision_consume_approved",
     ],
 
+    # --- Vision Video (PR-V4): Veo generation + job lifecycle ---
+    # Agent-direct dispatch is wired via BRIDGE_ROUTES (render_video,
+    # estimate, models) and TRANSFORM_FUNCTIONS (status, cancel, result,
+    # jobs) in tool_dispatcher.py — NOT in MCP_ONLY_GROUPS. Image-side
+    # vision groups remain MCP-only by separate decision; flipping them
+    # is a follow-up scope.
+    "video": [
+        "rhino_render_video", "rhino_video_estimate",
+        "rhino_video_status", "rhino_video_cancel", "rhino_video_result",
+        "rhino_video_jobs", "rhino_video_models",
+    ],
+    # Read-only subset: excludes render_video (spends API quota,
+    # creates a job) and cancel (mutates job state). Estimate stays
+    # in — it's a pure pricing read.
+    "video_readonly": [
+        "rhino_video_estimate",
+        "rhino_video_status", "rhino_video_result",
+        "rhino_video_jobs", "rhino_video_models",
+    ],
+
     # --- Rhino Commands (direct) ---
     "rhino_commands": [
         "rhino_command", "rhino_execute",
