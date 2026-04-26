@@ -86,6 +86,11 @@ namespace Rook.InternalBridge
                 VideoOpHandler.OpCancel,
                 VideoOpHandler.OpResult,
                 VideoOpHandler.OpEstimate,
+                // V4 video — list ops promoted from bridge-only (V3) to
+                // native HTTP. Routed via DispatchOffUi (30 s timeout)
+                // alongside the V2 status/result/estimate read ops.
+                VideoOpHandler.OpListJobs,
+                VideoOpHandler.OpListModels,
             };
 
         /// <summary>
@@ -1552,10 +1557,11 @@ namespace Rook.InternalBridge
             // allowlist, not just a documentation set. Any op not in
             // the set is rejected before reaching the switch — so a
             // future PR that adds a case here without also updating
-            // ExpectedVisionOps cannot accidentally promote a bridge-
-            // only op (list_video_jobs, list_video_models) to native
-            // HTTP. The negative containment tests pin the set; this
-            // guard pins the runtime gate.
+            // ExpectedVisionOps cannot accidentally promote a hidden
+            // op to native HTTP. The containment tests pin the set;
+            // this guard pins the runtime gate. (V4 added list_video_
+            // jobs / list_video_models to both the set and the switch
+            // intentionally.)
             if (!string.IsNullOrEmpty(op) && !ExpectedVisionOps.Contains(op))
             {
                 return WriteUtf8Response(
@@ -1639,9 +1645,15 @@ namespace Rook.InternalBridge
                 case VideoOpHandler.OpStatus:
                 case VideoOpHandler.OpResult:
                 case VideoOpHandler.OpEstimate:
+                case VideoOpHandler.OpListJobs:
+                case VideoOpHandler.OpListModels:
                     // V2 video off-UI sync path — ledger reads and pure-
                     // CPU pricing arithmetic. 30 s cap mirrors the
                     // artifact-management ops; bounded I/O.
+                    //
+                    // V4: list_video_jobs and list_video_models join
+                    // this arm — both are pure ledger / registry reads
+                    // shaped identically to status/result/estimate.
                     return ExecuteOffUiApiResponseCallback(
                         responseJsonUtf8,
                         responseJsonCapacity,

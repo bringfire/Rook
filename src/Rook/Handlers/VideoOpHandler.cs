@@ -54,10 +54,12 @@ namespace Rook.Handlers
         public const string OpResult = "get_video_job_result";
         public const string OpEstimate = "estimate_video_job";
 
-        // PR-V3: bridge-only read ops. Wired into VisionWebSurface.OpRoutes
-        // (off-UI dispatcher) but deliberately NOT added to the native
-        // HTTP allowlist in NativeGhBridgeRegistrar — V3 keeps these ops
-        // tab-only; PR-V4 lands the native HTTP + MCP-tool parity.
+        // V3 introduced these as bridge-only read ops (VisionWebSurface
+        // .OpRoutes only). PR-V4 promotes them to native HTTP + MCP
+        // parity per the parity rule: every video op now has a native
+        // route, an MCP tool, and a bridge op. The C# handler arm is
+        // unchanged — V4 just lights up the trampoline allowlist
+        // entry and the C++ route handler.
         public const string OpListJobs = "list_video_jobs";
         public const string OpListModels = "list_video_models";
 
