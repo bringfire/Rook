@@ -30,6 +30,10 @@
                     <span class="nav-label">Studio</span>
                     <span class="nav-indicator"></span>
                 </button>
+                <button class="nav-btn" data-view="video">
+                    <span class="nav-label">Video</span>
+                    <span class="nav-indicator"></span>
+                </button>
                 <button class="nav-btn" data-view="gallery">
                     <span class="nav-label">Gallery</span>
                     <span class="nav-indicator"></span>
@@ -404,6 +408,242 @@
                 </div>
             </section>
 
+            <!-- Video View (PR-V3) -->
+            <section id="video-view" class="view">
+                <div class="view-header">
+                    <h1 class="view-title">Video</h1>
+                    <p class="view-subtitle">Generate motion via Veo</p>
+                </div>
+
+                <div class="video-layout">
+                    <!-- Generation form -->
+                    <div class="panel video-form-panel">
+                        <div class="panel-header">
+                            <span class="panel-number">01</span>
+                            <h2 class="panel-title">Generate</h2>
+                        </div>
+
+                        <!-- Model + mode -->
+                        <div class="options-grid">
+                            <div class="option-group option-group-wide">
+                                <label class="select-label" for="video-model-select">Model</label>
+                                <div class="select-wrapper">
+                                    <select id="video-model-select">
+                                        <option value="">Loading models…</option>
+                                    </select>
+                                    <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                                <span id="video-model-hint" class="option-hint"></span>
+                            </div>
+                            <div class="option-group">
+                                <label class="select-label">Mode</label>
+                                <div class="video-mode-radios" role="radiogroup" aria-label="Generation mode">
+                                    <label class="video-mode-radio">
+                                        <input type="radio" name="video-mode" value="t2v" checked>
+                                        <span>T2V</span>
+                                    </label>
+                                    <label class="video-mode-radio">
+                                        <input type="radio" name="video-mode" value="i2v">
+                                        <span>I2V</span>
+                                    </label>
+                                    <label class="video-mode-radio">
+                                        <input type="radio" name="video-mode" value="interp">
+                                        <span>Interp</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Capability-driven dropdowns -->
+                        <div class="options-grid">
+                            <div class="option-group">
+                                <label class="select-label" for="video-duration-select">Duration</label>
+                                <div class="select-wrapper">
+                                    <select id="video-duration-select">
+                                        <option value="">—</option>
+                                    </select>
+                                    <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                                <span id="video-duration-hint" class="option-hint"></span>
+                            </div>
+                            <div class="option-group">
+                                <label class="select-label" for="video-resolution-select">Resolution</label>
+                                <div class="select-wrapper">
+                                    <select id="video-resolution-select">
+                                        <option value="">—</option>
+                                    </select>
+                                    <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="option-group">
+                                <label class="select-label" for="video-aspect-select">Aspect</label>
+                                <div class="select-wrapper">
+                                    <select id="video-aspect-select">
+                                        <option value="">—</option>
+                                    </select>
+                                    <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="option-group">
+                                <label class="select-label" for="video-person-gen-select">People</label>
+                                <div class="select-wrapper">
+                                    <select id="video-person-gen-select">
+                                        <option value="dont_allow">Don't allow</option>
+                                        <option value="allow_adult">Allow adult</option>
+                                        <option value="allow_all" selected>Allow all</option>
+                                    </select>
+                                    <svg class="select-arrow" viewBox="0 0 24 24" fill="none">
+                                        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                                <span class="option-hint">Provider safety policy</span>
+                            </div>
+                        </div>
+
+                        <!-- Prompt -->
+                        <div class="prompt-input-container">
+                            <textarea id="video-prompt" placeholder="Describe the motion or scene…&#10;&#10;e.g., A slow drone shot of a glass-walled atrium at golden hour, gentle camera dolly forward, cinematic"></textarea>
+                            <div class="prompt-actions">
+                                <span id="video-prompt-hint" class="hint">Required for T2V; optional for I2V/Interp.</span>
+                            </div>
+                        </div>
+
+                        <!-- Frames (mode-gated) -->
+                        <div id="video-frames-section" class="video-frames-section">
+                            <div class="reference-header">
+                                <span class="section-label">Frames &amp; references</span>
+                                <button id="video-clear-frames" class="btn-text">Clear all</button>
+                            </div>
+                            <div class="video-frames-grid">
+                                <div id="video-start-frame-slot" class="video-frame-slot" data-slot="start" hidden>
+                                    <span class="video-frame-label">Start frame</span>
+                                    <div class="video-frame-thumb" id="video-start-frame-thumb"></div>
+                                    <div class="video-frame-actions">
+                                        <button class="btn btn-secondary btn-pick-frame" data-slot="start">Pick</button>
+                                        <button class="btn-text btn-clear-frame" data-slot="start">Clear</button>
+                                    </div>
+                                </div>
+                                <div id="video-end-frame-slot" class="video-frame-slot" data-slot="end" hidden>
+                                    <span class="video-frame-label">End frame</span>
+                                    <div class="video-frame-thumb" id="video-end-frame-thumb"></div>
+                                    <div class="video-frame-actions">
+                                        <button class="btn btn-secondary btn-pick-frame" data-slot="end">Pick</button>
+                                        <button class="btn-text btn-clear-frame" data-slot="end">Clear</button>
+                                    </div>
+                                </div>
+                                <div id="video-references-slot" class="video-frame-slot video-frame-slot-references" hidden>
+                                    <span class="video-frame-label" id="video-references-label">References</span>
+                                    <div class="reference-preview" id="video-references-preview"></div>
+                                    <div class="video-frame-actions">
+                                        <button class="btn btn-secondary" id="video-add-reference-btn">Add reference</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Inline cost strip (live re-estimate) -->
+                        <div id="video-cost-strip" class="video-cost-strip" aria-live="polite">
+                            <span class="video-cost-label">Estimated cost</span>
+                            <span id="video-cost-amount" class="video-cost-amount">—</span>
+                            <span id="video-cost-detail" class="video-cost-detail"></span>
+                        </div>
+
+                        <button id="video-generate-btn" class="btn btn-generate">
+                            <span id="video-generate-text">Generate</span>
+                            <span id="video-generate-spinner" class="spinner hidden"></span>
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+
+                        <div id="video-status-message" class="status-message hidden"></div>
+                    </div>
+
+                    <!-- Queue panel -->
+                    <div class="panel video-queue-panel">
+                        <div class="panel-header">
+                            <span class="panel-number">02</span>
+                            <h2 class="panel-title">Queue</h2>
+                            <button id="video-refresh-queue" class="btn btn-icon" title="Refresh queue" aria-label="Refresh queue">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M4 4V9H9M20 20V15H15M20.49 9A9 9 0 005.64 5.64L4 9M3.51 15A9 9 0 0018.36 18.36L20 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="video-queue-warnings" class="video-queue-warnings hidden"></div>
+                        <div id="video-queue-list" class="video-queue-list">
+                            <div class="video-queue-empty">
+                                <span>No jobs yet</span>
+                                <p>Generate a video to see it tracked here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Cost-confirmation modal (PR-V3) -->
+            <div id="video-cost-modal" class="modal hidden">
+                <div class="modal-backdrop"></div>
+                <div class="modal-content modal-content-cost">
+                    <button class="modal-close" id="video-cost-modal-close" title="Close">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <h2 class="modal-title">Confirm video generation</h2>
+                    <p class="modal-subtitle">This API call spends real BYOK credit. Review the breakdown before proceeding.</p>
+
+                    <div class="video-cost-summary">
+                        <div class="video-cost-headline">
+                            <span class="video-cost-headline-label">Estimated total</span>
+                            <span id="video-cost-modal-amount" class="video-cost-headline-amount">—</span>
+                        </div>
+                        <dl class="video-cost-meta">
+                            <div><dt>Model</dt><dd id="video-cost-modal-model">—</dd></div>
+                            <div><dt>Resolution</dt><dd id="video-cost-modal-resolution">—</dd></div>
+                            <div><dt>Duration</dt><dd id="video-cost-modal-duration">—</dd></div>
+                            <div><dt>Pricing source</dt><dd id="video-cost-modal-source">—</dd></div>
+                        </dl>
+                        <table class="video-cost-breakdown">
+                            <thead>
+                                <tr><th scope="col">Line</th><th scope="col">USD</th></tr>
+                            </thead>
+                            <tbody id="video-cost-breakdown-body"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button id="video-cost-cancel-btn" class="btn btn-secondary">Cancel</button>
+                        <button id="video-cost-confirm-btn" class="btn btn-primary">Confirm &amp; generate</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Artifact picker modal (PR-V3 — for picking start/end/reference frames from gallery) -->
+            <div id="video-picker-modal" class="modal hidden">
+                <div class="modal-backdrop"></div>
+                <div class="modal-content modal-content-picker">
+                    <button class="modal-close" id="video-picker-modal-close" title="Close">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <h2 class="modal-title" id="video-picker-modal-title">Pick a frame</h2>
+                    <p class="modal-subtitle">Choose an existing artifact. Path-based file uploads aren't accepted by the video pipeline.</p>
+                    <div id="video-picker-grid" class="video-picker-grid">
+                        <div class="gallery-empty"><span>Loading…</span></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Gallery View -->
             <section id="gallery-view" class="view">
                 <div class="view-header">
@@ -532,6 +772,7 @@
                     </svg>
                 </button>
                 <img id="modal-image" src="" alt="Full size image">
+                <video id="modal-video" class="hidden" controls preload="metadata"></video>
                 <div class="modal-info">
                     <p id="modal-prompt" class="modal-prompt"></p>
                     <p id="modal-meta" class="modal-meta"></p>

@@ -830,6 +830,291 @@ namespace Rook.Tests.Handlers
             Assert.Equal(expectedHttp, VideoOpHandler.MapStatusFromCode(code));
         }
 
+        // ─── ListJobs (PR-V3) ────────────────────────────────────────────
+
+        [Fact]
+        public void ListJobs_AbsentLimit_DefaultsTo50()
+        {
+            var stub = new StubManager
+            {
+                ListImpl = limit => new JobListResult(
+                    Array.Empty<JobListEntry>(),
+                    Array.Empty<LedgerWarning>(),
+                    AppliedLimit: limit),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_jobs"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            Assert.Equal(50, stub.LastListLimit);
+            var data = AssertDataDict(resp);
+            Assert.Equal(50, data["applied_limit"]);
+        }
+
+        [Theory]
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":""50""}")]
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":-1}")]
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":0}")]
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":1.5}")]
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":true}")]
+        // PR-V3 implementation review: explicit null is a present-but-
+        // empty value; the v3 contract says only ABSENT defaults, every
+        // other shape rejects. Pin the rejection.
+        [InlineData(@"{""op"":""list_video_jobs"",""limit"":null}")]
+        public void ListJobs_BadLimit_RejectedAsInvalidRequest(string body)
+        {
+            var stub = new StubManager();
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi(body);
+
+            AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, "limit");
+            // Manager must NOT be called for any rejected limit shape.
+            Assert.Equal(0, stub.ListCallCount);
+        }
+
+        [Fact]
+        public void ListJobs_ValidLimit_PassedThrough()
+        {
+            var stub = new StubManager();
+            var handler = NewHandler(stub);
+
+            handler.DispatchOffUi("""{"op":"list_video_jobs","limit":25}""");
+
+            Assert.Equal(25, stub.LastListLimit);
+        }
+
+        [Fact]
+        public void ListJobs_EmptyManager_ReturnsEmptyArrays()
+        {
+            var stub = new StubManager(); // ListImpl null → returns empty result
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_jobs"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var jobs = Assert.IsType<List<Dictionary<string, object?>>>(data["jobs"]);
+            var warnings = Assert.IsType<List<Dictionary<string, object?>>>(data["warnings"]);
+            Assert.Empty(jobs);
+            Assert.Empty(warnings);
+        }
+
+        [Fact]
+        public void ListJobs_ProjectsEntriesAsSnakeCase()
+        {
+            var jobId = SampleJobId;
+            var resultArtifactId = SampleResultArtifactId;
+            var updatedAt = new DateTimeOffset(
+                2026, 4, 25, 12, 0, 0, TimeSpan.FromHours(-7));
+
+            var entry = new JobListEntry(
+                JobId: jobId,
+                State: VideoJobState.Polling,
+                UpdatedAt: updatedAt,
+                Summary: new JobRequestSummary(
+                    Model: "veo-3.1-lite-generate-preview",
+                    Mode: VideoMode.T2V,
+                    DurationSeconds: 8,
+                    Resolution: "720p",
+                    AspectRatio: "16:9"),
+                ResultArtifactId: resultArtifactId,
+                Error: null);
+
+            var stub = new StubManager
+            {
+                ListImpl = limit => new JobListResult(
+                    new[] { entry }, Array.Empty<LedgerWarning>(), AppliedLimit: limit),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_jobs"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var jobs = (List<Dictionary<string, object?>>)data["jobs"]!;
+            var row = Assert.Single(jobs);
+
+            Assert.Equal(jobId.ToString("D"), row["job_id"]);
+            Assert.Equal("polling", row["state"]);
+            Assert.Equal(resultArtifactId.ToString("D"), row["result_artifact_id"]);
+            Assert.Null(row["error"]);
+
+            // ISO 8601 round-trip with explicit offset preserved.
+            var updatedStr = Assert.IsType<string>(row["updated_at"]);
+            var roundTripped = DateTimeOffset.Parse(
+                updatedStr, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind);
+            Assert.Equal(updatedAt, roundTripped);
+
+            var summary = Assert.IsType<Dictionary<string, object?>>(row["request_summary"]);
+            Assert.Equal("veo-3.1-lite-generate-preview", summary["model"]);
+            Assert.Equal("t2v", summary["mode"]);
+            Assert.Equal(8, summary["duration_seconds"]);
+            Assert.Equal("720p", summary["resolution"]);
+            Assert.Equal("16:9", summary["aspect_ratio"]);
+        }
+
+        [Fact]
+        public void ListJobs_WarningWireShape_MatchesScopeContract()
+        {
+            // PR-V3 signed-off scope: each warning is {line, reason, field}.
+            // Drop the synthesized message field, drop raw_line_excerpt
+            // and offending_value — both can carry user-supplied content.
+            // Reason is the typed snake_case enum that encodes the same
+            // information the message would.
+            var stub = new StubManager
+            {
+                ListImpl = limit => new JobListResult(
+                    Array.Empty<JobListEntry>(),
+                    new[]
+                    {
+                        new LedgerWarning(
+                            LineNumber: 7,
+                            Reason: LedgerReadErrorReason.MalformedJson,
+                            Message: "Ledger line could not be parsed as JSON.",
+                            FieldPath: "pricing.kind"),
+                    },
+                    AppliedLimit: limit),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_jobs"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var warnings = (List<Dictionary<string, object?>>)data["warnings"]!;
+            var w = Assert.Single(warnings);
+
+            // Wire-shape pin: scope-mandated keys present.
+            Assert.Equal(7, w["line"]);
+            Assert.Equal("malformed_json", w["reason"]);
+            Assert.Equal("pricing.kind", w["field"]);
+
+            // Wire-shape pin: drift / leak-prone keys absent.
+            Assert.False(w.ContainsKey("line_number"));
+            Assert.False(w.ContainsKey("field_path"));
+            Assert.False(w.ContainsKey("message"));
+            Assert.False(w.ContainsKey("raw_line_excerpt"));
+            Assert.False(w.ContainsKey("offending_value"));
+        }
+
+        [Fact]
+        public void ListJobs_ReportsAppliedLimitFromManager()
+        {
+            // The manager is the authority on applied_limit — it does the
+            // clamping. Handler trusts and forwards it. Pin: handler echoes
+            // whatever the manager returns.
+            var stub = new StubManager
+            {
+                ListImpl = _ => new JobListResult(
+                    Array.Empty<JobListEntry>(),
+                    Array.Empty<LedgerWarning>(),
+                    AppliedLimit: 200),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_jobs","limit":500}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            Assert.Equal(200, data["applied_limit"]);
+        }
+
+        // ─── ListModels (PR-V3) ──────────────────────────────────────────
+
+        [Fact]
+        public void ListModels_ReturnsRegisteredModels_AsSnakeCase()
+        {
+            // Uses the real production registry fixture (TestVideoFixtures
+            // → DefaultVideoProviderRegistry over VeoProviderRegistration)
+            // so this test asserts against the actual capability matrix
+            // and catches drift between the catalog and the projection.
+            var handler = NewHandler();
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_models"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var models = Assert.IsType<List<Dictionary<string, object?>>>(data["models"]);
+            Assert.NotEmpty(models);
+
+            // Pick the default Veo Lite entry that the test fixture
+            // pins as DefaultModelId. Capability shape comes from the
+            // real VeoCapabilities table — the test asserts shape, not
+            // example text. If the real capability flips
+            // SupportsReferenceImages, this test still passes because it
+            // doesn't hardcode the boolean — it just asserts the field
+            // is present and is a bool.
+            var lite = models.Find(m =>
+                (string?)m["model_id"] == TestVideoFixtures.DefaultModelId);
+            Assert.NotNull(lite);
+
+            Assert.Equal(TestVideoFixtures.VeoProviderName, lite!["provider_name"]);
+            Assert.IsType<string>(lite["pricing_kind"]);
+            Assert.IsType<string>(lite["pricing_source"]);
+
+            var cap = Assert.IsType<Dictionary<string, object?>>(lite["capability"]);
+            Assert.IsType<string>(cap["id"]);
+            Assert.IsType<string>(cap["name"]);
+            Assert.IsType<string>(cap["status"]);
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["resolutions"]);
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["durations"]);
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["aspect_ratios"]);
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["modes"]);
+            Assert.IsType<bool>(cap["supports_reference_images"]);
+            Assert.IsType<int>(cap["max_reference_images"]);
+            Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["must_8s_with"]);
+        }
+
+        [Fact]
+        public void ListModels_ProjectsModesAsSnakeCaseStrings()
+        {
+            var handler = NewHandler();
+            var resp = handler.DispatchOffUi("""{"op":"list_video_models"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var models = (List<Dictionary<string, object?>>)data["models"]!;
+            foreach (var m in models)
+            {
+                var cap = (Dictionary<string, object?>)m["capability"]!;
+                var modes = (System.Collections.IEnumerable)cap["modes"]!;
+                foreach (var mode in modes)
+                {
+                    var s = Assert.IsType<string>(mode);
+                    // Snake-case lower; one of the known VideoMode values.
+                    Assert.Contains(s, new[] { "t2v", "i2v", "interp" });
+                }
+            }
+        }
+
+        [Fact]
+        public async Task ListJobs_RejectedOnAsyncDispatcher()
+        {
+            // Defense: dispatcher fork must reject list ops if they
+            // arrive on the async path. (VisionWebSurface.OpRoutes routes
+            // them OffUi, but a future trampoline change shouldn't be
+            // able to silently land them on the async path either.)
+            var handler = NewHandler();
+            var resp = await handler.DispatchAsync("""{"op":"list_video_jobs"}""");
+
+            AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertMessageContains(resp, "off-UI");
+        }
+
+        [Fact]
+        public async Task ListModels_RejectedOnAsyncDispatcher()
+        {
+            var handler = NewHandler();
+            var resp = await handler.DispatchAsync("""{"op":"list_video_models"}""");
+
+            AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertMessageContains(resp, "off-UI");
+        }
+
         // ─── Helpers ─────────────────────────────────────────────────────
 
         private static VideoOpHandler NewHandler(IVideoJobManager? manager = null)
@@ -935,11 +1220,14 @@ namespace Rook.Tests.Handlers
             public Func<Guid, JobStatusResult>? StatusImpl { get; set; }
             public Func<Guid, CancellationToken, JobCancelResult>? CancelImpl { get; set; }
             public Func<Guid, JobFetchResult>? FetchImpl { get; set; }
+            public Func<int, JobListResult>? ListImpl { get; set; }
 
             public int SubmitCallCount;
             public int StatusCallCount;
             public int CancelCallCount;
             public int FetchCallCount;
+            public int ListCallCount;
+            public int LastListLimit;
 
             public Task<JobSubmitResult> SubmitAsync(
                 VideoGenerationRequest request, CancellationToken ct)
@@ -984,6 +1272,17 @@ namespace Rook.Tests.Handlers
                             Code: VideoErrorCode.ExecutionFailed,
                             Message: "Stub: FetchImpl not configured.",
                             Retryable: false)));
+            }
+
+            public Task<JobListResult> ListJobsAsync(int limit, CancellationToken ct)
+            {
+                Interlocked.Increment(ref ListCallCount);
+                LastListLimit = limit;
+                return Task.FromResult(ListImpl?.Invoke(limit)
+                    ?? new JobListResult(
+                        Array.Empty<JobListEntry>(),
+                        Array.Empty<LedgerWarning>(),
+                        AppliedLimit: limit));
             }
 
             public void ReconcileInterruptedJobs() { }

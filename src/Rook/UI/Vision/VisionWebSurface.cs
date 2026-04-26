@@ -125,6 +125,12 @@ p { margin: 8px 0; line-height: 1.4; }
             "style-src 'self' 'unsafe-inline'; " +
             "font-src 'self'; " +
             "img-src 'self' data:; " +
+            // PR-V3: <video src="/blob/{id}/video"> for generated video
+            // playback. media-src defaults to default-src ('none') under
+            // CSP3, so omitting this directive blocks <video>/<audio>
+            // even though img-src 'self' covers <img>. Same-origin only;
+            // does not relax network egress (connect-src 'none' stands).
+            "media-src 'self'; " +
             "connect-src 'none';";
 
         protected override string ContentSecurityPolicy => VisionContentSecurityPolicy;
@@ -178,6 +184,12 @@ p { margin: 8px 0; line-height: 1.4; }
                 [VideoOpHandler.OpStatus] = VisionOpRoute.OffUi,
                 [VideoOpHandler.OpResult] = VisionOpRoute.OffUi,
                 [VideoOpHandler.OpEstimate] = VisionOpRoute.OffUi,
+
+                // PR-V3 (bridge-only, NOT in native trampoline allowlist):
+                // ledger reads + registry enumeration. Kept off the native
+                // HTTP surface in V3; PR-V4 lands native + MCP-tool parity.
+                [VideoOpHandler.OpListJobs] = VisionOpRoute.OffUi,
+                [VideoOpHandler.OpListModels] = VisionOpRoute.OffUi,
             };
 
         /// <summary>
@@ -195,6 +207,8 @@ p { margin: 8px 0; line-height: 1.4; }
                 VideoOpHandler.OpStatus,
                 VideoOpHandler.OpResult,
                 VideoOpHandler.OpEstimate,
+                VideoOpHandler.OpListJobs,
+                VideoOpHandler.OpListModels,
             };
 
         // ─── Timeouts ─────────────────────────────────────────────────
@@ -766,6 +780,11 @@ p { margin: 8px 0; line-height: 1.4; }
                 ".webp" => "image/webp",
                 ".gif" => "image/gif",
                 ".bmp" => "image/bmp",
+                // PR-V3: video kinds. Without these, generated_video
+                // blobs would be served as application/octet-stream and
+                // browser <video> would refuse to play them.
+                ".mp4" => "video/mp4",
+                ".webm" => "video/webm",
                 ".json" => "application/json; charset=utf-8",
                 ".txt" => "text/plain; charset=utf-8",
                 _ => "application/octet-stream",
