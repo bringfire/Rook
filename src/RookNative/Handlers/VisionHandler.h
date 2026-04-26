@@ -1,11 +1,17 @@
 // VisionHandler.h
 //
-// Native HTTP entry points for the /vision/* routes. All three route
-// handlers proxy through a single managed bridge callback
-// (vision_dispatch, ABI v14) with an op discriminator in the request
-// body. The managed VisionHandler.cs routes by op to the appropriate
-// internal method, which is the single validation boundary for the
-// vision domain (PR-5a).
+// Native HTTP entry points for the /vision/* routes. All handlers
+// proxy through a single managed bridge callback (vision_dispatch,
+// ABI v14) with a long-form op discriminator in the request body.
+// The managed trampoline (NativeGhBridgeRegistrar.HandleVisionDispatch)
+// routes by op to the right managed handler:
+//
+//   - Image ops (generate, enhance_prompt, capture_depth, list/get/
+//     approve/delete artifacts, consume_approved) → VisionHandler.cs
+//   - V2 video ops (submit_video_job, get_video_job, cancel_video_job,
+//     get_video_job_result, estimate_video_job) → VideoOpHandler.cs
+//
+// Each managed handler is the validation boundary for its domain.
 
 #pragma once
 
@@ -60,6 +66,43 @@ void HandleVisionDeleteArtifact(const httplib::Request& req, httplib::Response& 
 // document filtering (the manifest schema doesn't carry them).
 // Returns {artifact: {...} | null}.
 void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response& res);
+
+// ─── V2 video routes ────────────────────────────────────────────────
+// All five proxy through the same vision_dispatch bridge callback
+// (ABI v14, no bump). Long-form op names are injected by native and
+// matched by C# canonically; the per-route op string is the wire
+// contract that v3.1 D5 pinned. See rook_docs/2026-04-22-v3-video-decisions.md.
+
+// POST /vision/video/jobs — Submit a video generation job. Body
+// references input media by artifact_id (D2.1: no inline base64,
+// no path refs in V2). Returns {job_id, state} on success;
+// returns the typed VideoJobError envelope with HTTP status mapped
+// from VideoErrorCode (400/415/500/503) on failure.
+void HandleVisionVideoSubmit(const httplib::Request& req, httplib::Response& res);
+
+// GET /vision/video/jobs/{job_id} — Read job status. Returns
+// {job_id, state, progress?, result_artifact_id?, error?}.
+void HandleVisionVideoStatus(const httplib::Request& req, httplib::Response& res);
+
+// POST /vision/video/jobs/{job_id}/cancel — Request cancellation.
+// Returns {job_id, state} where state reflects the post-cancel
+// terminal state (typically Cancelled; may be Complete if the job
+// finished between the user's intent and the cancel reaching the
+// provider).
+void HandleVisionVideoCancel(const httplib::Request& req, httplib::Response& res);
+
+// GET /vision/video/jobs/{job_id}/result — Read terminal result.
+// Returns {job_id, state, result_artifact_id, files[]}. Fails when
+// the job is not Complete or the result artifact is missing.
+void HandleVisionVideoResult(const httplib::Request& req, httplib::Response& res);
+
+// POST /vision/video/estimate — First-class cost estimation (v3.1 D3).
+// Same body shape as submit; pricing-relevant fields only (model,
+// duration, resolution, options, number_of_videos). Returns
+// {dollars_usd, model, resolution, duration_seconds, breakdown[],
+// pricing}. Both the tab UI's gating modal and a future GH dry-run
+// sink consume this route.
+void HandleVisionVideoEstimate(const httplib::Request& req, httplib::Response& res);
 
 } // namespace Handlers
 } // namespace Rook

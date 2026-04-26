@@ -1,13 +1,21 @@
 // VisionHandler.cpp
 //
-// Native HTTP routes for /vision/*. All three handlers are thin: parse
-// body, inject the op discriminator, forward to the managed
-// vision_dispatch bridge callback (ABI v14). The managed VisionHandler
-// is the single validation boundary — native does transport only.
+// Native HTTP routes for /vision/*. All handlers are thin: parse body,
+// inject the op discriminator (and a path id field where applicable),
+// forward to the managed vision_dispatch bridge callback (ABI v14).
+// Native owns transport only; managed handlers are the validation
+// boundary — image ops dispatch to VisionHandler.cs (the original
+// single boundary for the image domain, PR-5a/5b), and the V2 video
+// ops dispatch to VideoOpHandler.cs (validates VideoGenerationRequest
+// shape, rejects kind:"path" media refs, maps VideoErrorCode → typed
+// HTTP status via ApiResponse.HttpStatus).
 //
-// Single-callback shape rationale: keeps ABI stable as PR-5b adds more
-// vision routes (list/get/approve/delete/consume) without requiring a
-// per-route slot. The op discriminator lives in the request JSON.
+// Single-callback shape rationale: keeps ABI stable as new vision
+// routes land (list/get/approve/delete/consume in PR-5b; submit/
+// status/cancel/result/estimate in V2) without requiring a per-route
+// callback slot. The op discriminator lives in the request JSON; the
+// managed trampoline (NativeGhBridgeRegistrar.HandleVisionDispatch)
+// peeks the op and routes to the right managed handler.
 
 #include "stdafx.h"
 #include "Handlers/VisionHandler.h"
@@ -125,12 +133,21 @@ void DispatchVisionOp(
 }
 
 // Path-param dispatch: extract {id} from req.matches[1], inject into
-// body as artifact_id, then forward. Used by GET/DELETE/POST routes
-// where the id is a path segment and any request body is also merged.
+// body under the supplied field name, then forward. Used by GET/
+// DELETE/POST routes where the id is a path segment and any request
+// body is also merged.
+//
+// V2 (Codex review of step 2 follow-ups): the field name was previously
+// hardcoded to "artifact_id". Image-side artifact routes still pass
+// "artifact_id"; video-side routes pass "job_id". A native unit-test
+// gap remains for this helper — the function lives in an anonymous
+// namespace to avoid project-file churn. Coverage lands in C# at the
+// vision_dispatch boundary (step 8 video route smoke tests).
 void DispatchVisionOpWithPathId(
     const httplib::Request& req,
     httplib::Response& res,
-    const char* op)
+    const char* op,
+    const char* path_id_field)
 {
     nlohmann::json body;
     if (!ParseBodyAsObject(req, res, op, body)) return;
@@ -139,18 +156,18 @@ void DispatchVisionOpWithPathId(
     {
         CRookServer::SendError(
             res,
-            std::string("/vision/artifacts/{id}/") + op +
+            std::string("/vision/.../") + op +
                 ": path id match missing.");
         res.status = 500;
         res.set_header("X-Rook-Vision-Op", op);
         return;
     }
 
-    // Path id takes precedence over any body-supplied artifact_id —
+    // Path id takes precedence over any body-supplied id field —
     // native owns both the op discriminator and the primary identity
     // the route URL claimed. Callers cannot smuggle a different id
     // through the body.
-    body["artifact_id"] = req.matches[1].str();
+    body[path_id_field] = req.matches[1].str();
 
     ForwardVisionDispatch(res, op, body);
 }
@@ -270,22 +287,49 @@ void HandleVisionListArtifacts(const httplib::Request& req, httplib::Response& r
 
 void HandleVisionGetArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "get_artifact");
+    DispatchVisionOpWithPathId(req, res, "get_artifact", "artifact_id");
 }
 
 void HandleVisionApproveArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "approve_artifact");
+    DispatchVisionOpWithPathId(req, res, "approve_artifact", "artifact_id");
 }
 
 void HandleVisionDeleteArtifact(const httplib::Request& req, httplib::Response& res)
 {
-    DispatchVisionOpWithPathId(req, res, "delete_artifact");
+    DispatchVisionOpWithPathId(req, res, "delete_artifact", "artifact_id");
 }
 
 void HandleVisionConsumeApproved(const httplib::Request& req, httplib::Response& res)
 {
     DispatchVisionOp(req, res, "consume_approved");
+}
+
+// ─── Video routes (V2 — long-form ops; C# accepts these names canonically) ──
+
+void HandleVisionVideoSubmit(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "submit_video_job");
+}
+
+void HandleVisionVideoStatus(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "get_video_job", "job_id");
+}
+
+void HandleVisionVideoCancel(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "cancel_video_job", "job_id");
+}
+
+void HandleVisionVideoResult(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOpWithPathId(req, res, "get_video_job_result", "job_id");
+}
+
+void HandleVisionVideoEstimate(const httplib::Request& req, httplib::Response& res)
+{
+    DispatchVisionOp(req, res, "estimate_video_job");
 }
 
 } // namespace Handlers

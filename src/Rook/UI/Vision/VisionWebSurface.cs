@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Artifacts;
 using Rook.Handlers;
+using Rook.Services.Vision;
+using Rook.Services.Vision.Video;
 using Rook.UI.Web;
 
 namespace Rook.UI.Vision
@@ -19,25 +21,46 @@ namespace Rook.UI.Vision
     /// under the single method <c>vision</c>, discriminated by the inner
     /// <c>op</c> field.
     ///
-    /// Routing:
+    /// Routing splits into two handler tracks. Image ops go to
+    /// <see cref="VisionHandler"/>; V2 video ops go to
+    /// <see cref="VideoOpHandler"/>. The handler choice is made per-op
+    /// via <see cref="VideoOps"/> membership; the dispatcher kind
+    /// (Async / Ui / OffUi) comes from <see cref="OpRoutes"/>.
+    ///
     /// <list type="bullet">
     ///   <item><c>generate</c>, <c>enhance_prompt</c>, <c>test_api_key</c>
     ///         → <see cref="VisionHandler.DispatchAsync"/> (network,
     ///         cancellable).</item>
-        ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
-        ///         <c>preview_viewport</c>, <c>list_views</c>,
-        ///         <c>open_image_picker</c>
+    ///   <item><c>capture_depth</c>, <c>capture_viewport</c>,
+    ///         <c>preview_viewport</c>, <c>list_views</c>,
+    ///         <c>open_image_picker</c>
     ///         → <see cref="VisionHandler.Dispatch"/> on the Rhino UI
     ///         thread (viewport state / modal dialog).</item>
-        ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
-        ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
-        ///         <c>consume_approved</c>, <c>set_api_key</c>,
-        ///         <c>get_settings_overview</c>,
-        ///         <c>open_artifacts_folder</c>
+    ///   <item><c>list_artifacts</c>, <c>get_artifact</c>,
+    ///         <c>approve_artifact</c>, <c>delete_artifact</c>,
+    ///         <c>consume_approved</c>, <c>set_api_key</c>,
+    ///         <c>get_settings_overview</c>,
+    ///         <c>open_artifacts_folder</c>,
+    ///         <c>reveal_artifact_file</c>
     ///         → <see cref="VisionHandler.DispatchOffUi"/> (disk or secret
     ///         store; threadpool-offloaded so a large artifact store
     ///         scan doesn't stall Rhino).</item>
+    ///   <item><c>submit_video_job</c>, <c>cancel_video_job</c>
+    ///         → <see cref="VideoOpHandler.DispatchAsync"/> (network
+    ///         via the Veo provider; cancellable). Submit kicks off a
+    ///         background job and returns Queued; cancel makes a
+    ///         provider HTTP call.</item>
+    ///   <item><c>get_video_job</c>, <c>get_video_job_result</c>,
+    ///         <c>estimate_video_job</c>
+    ///         → <see cref="VideoOpHandler.DispatchOffUi"/> (ledger
+    ///         reads + pure-CPU pricing; threadpool-offloaded).</item>
     /// </list>
+    ///
+    /// The native HTTP trampoline at
+    /// <c>NativeGhBridgeRegistrar.HandleVisionDispatch</c> mirrors this
+    /// fork so the tab and GH NLE consumers go through the same
+    /// <see cref="VideoJobManager"/> instance via
+    /// <see cref="RookSubsystemRoot.Video"/>.
     ///
     /// Unknown ops return a structured failure envelope
     /// (<c>{success:false, data:"Unknown vision op..."}</c>) instead of
@@ -145,6 +168,33 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["get_settings_overview"] = VisionOpRoute.OffUi,
                 ["open_artifacts_folder"] = VisionOpRoute.OffUi,
                 ["reveal_artifact_file"] = VisionOpRoute.OffUi,
+
+                // V2 video ops — routed to VideoOpHandler instead of
+                // VisionHandler. The dispatcher kind (Async / OffUi)
+                // matches the native trampoline's mapping; the handler
+                // fork happens at the bridge level via VideoOps lookup.
+                [VideoOpHandler.OpSubmit] = VisionOpRoute.Async,
+                [VideoOpHandler.OpCancel] = VisionOpRoute.Async,
+                [VideoOpHandler.OpStatus] = VisionOpRoute.OffUi,
+                [VideoOpHandler.OpResult] = VisionOpRoute.OffUi,
+                [VideoOpHandler.OpEstimate] = VisionOpRoute.OffUi,
+            };
+
+        /// <summary>
+        /// Long-form video op names handled by <see cref="VideoOpHandler"/>
+        /// rather than <see cref="VisionHandler"/>. Lookup is O(1) so the
+        /// per-call routing fork is cheap. Source of truth is
+        /// <see cref="VideoOpHandler"/>'s op constants — if those drift,
+        /// this set drifts in lockstep.
+        /// </summary>
+        internal static readonly HashSet<string> VideoOps =
+            new(StringComparer.Ordinal)
+            {
+                VideoOpHandler.OpSubmit,
+                VideoOpHandler.OpCancel,
+                VideoOpHandler.OpStatus,
+                VideoOpHandler.OpResult,
+                VideoOpHandler.OpEstimate,
             };
 
         // ─── Timeouts ─────────────────────────────────────────────────
@@ -163,13 +213,58 @@ p { margin: 8px 0; line-height: 1.4; }
         // ─── State ────────────────────────────────────────────────────
 
         private readonly VisionHandler _handler;
+        private readonly VideoOpHandler? _videoHandler;
         private readonly ArtifactStore _artifactStore;
 
-        public VisionWebSurface() : this(new VisionHandler(), new ArtifactStore()) { }
+        /// <summary>
+        /// Production constructor. Wires every long-lived dependency
+        /// against the shared <see cref="RookSubsystemRoot"/> singletons
+        /// so the tab, the native HTTP trampoline, and any future
+        /// consumer (GH NLE) observe the SAME instances:
+        /// <list type="bullet">
+        ///   <item><see cref="ArtifactStore"/> — single in-memory cache
+        ///         and write coordinator (writes from one entry point
+        ///         are visible to the other without disk re-reads).</item>
+        ///   <item><see cref="VisionSecretStore"/> — single API-key
+        ///         source. A user setting the key in the tab's settings
+        ///         pane is visible to the native HTTP path on its next
+        ///         provider call.</item>
+        ///   <item><see cref="VideoJobManager"/> via
+        ///         <see cref="RookSubsystemRoot.Video"/> — single
+        ///         running-jobs dict, single ledger writer.</item>
+        /// </list>
+        /// Codex review of step 6 caught this: the prior ctor built
+        /// <see cref="VisionHandler"/> with its parameterless default,
+        /// which spawned fresh <see cref="ArtifactStore"/> +
+        /// <see cref="VisionSecretStore"/> instances pointing at the
+        /// same disk root but holding independent in-memory state. The
+        /// explicit internal ctor below threads the shared singletons
+        /// through correctly.
+        /// </summary>
+        public VisionWebSurface() : this(
+            BuildSharedVisionHandler(),
+            BuildSharedVideoHandler(),
+            RookSubsystemRoot.Instance.SharedArtifactStore)
+        { }
 
+        /// <summary>
+        /// Legacy two-arg test constructor. Test rigs that don't
+        /// exercise V2 video ops can keep this signature; the bridge
+        /// handler null-guards video routing so a test that
+        /// accidentally sends a video op gets a structured failure
+        /// instead of an NRE. New test rigs should prefer the three-
+        /// arg ctor with an explicit (possibly stub) video handler.
+        /// </summary>
         internal VisionWebSurface(VisionHandler handler, ArtifactStore artifactStore)
+            : this(handler, videoHandler: null, artifactStore) { }
+
+        internal VisionWebSurface(
+            VisionHandler handler,
+            VideoOpHandler? videoHandler,
+            ArtifactStore artifactStore)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+            _videoHandler = videoHandler;
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
 
             // Register the single op-discriminated bridge method. Must
@@ -177,6 +272,26 @@ p { margin: 8px 0; line-height: 1.4; }
             // before ConfigureVirtualHost runs and the bridge-unavailable
             // lifecycle fires.
             RegisterBridgeHandler("vision", HandleVisionBridgeCallAsync);
+        }
+
+        private static VideoOpHandler BuildSharedVideoHandler()
+        {
+            var bundle = RookSubsystemRoot.Instance.Video;
+            return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator);
+        }
+
+        private static VisionHandler BuildSharedVisionHandler()
+        {
+            // Threads the shared ArtifactStore + VisionSecretStore from
+            // RookSubsystemRoot through VisionHandler's explicit internal
+            // ctor. GeminiClient/PromptEnhancer/ViewportHandler are
+            // stateless leaves — fresh instances are correct here.
+            return new VisionHandler(
+                artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
+                secrets: RookSubsystemRoot.Instance.SharedSecretStore,
+                gemini: new GeminiClient(),
+                enhancer: new PromptEnhancer(),
+                viewportHandler: new ViewportHandler());
         }
 
         // ─── Bridge handler ───────────────────────────────────────────
@@ -201,31 +316,58 @@ p { margin: 8px 0; line-height: 1.4; }
                 return BuildFailure($"Unknown vision op '{op}'.");
             }
 
+            // V2: video ops (submit/cancel/status/result/estimate) route
+            // to VideoOpHandler instead of VisionHandler. The dispatcher
+            // kind (Async / OffUi) still comes from OpRoutes; the
+            // handler choice is the per-op fork. UI-only ops never
+            // belong to VideoOps (video has no Rhino-touching ops in V2).
+            var isVideoOp = VideoOps.Contains(op!);
+
+            if (isVideoOp && _videoHandler is null)
+            {
+                // Defensive: legacy 2-arg test rigs that don't wire a
+                // video handler. Production paths always use the
+                // parameterless ctor or pass an explicit handler.
+                return BuildFailure(
+                    "Video subsystem unavailable in this surface (no VideoOpHandler injected).");
+            }
+
             ApiResponse response;
             try
             {
                 switch (route)
                 {
                     case VisionOpRoute.Async:
-                        response = await DispatchAsyncWithTimeoutAsync(
-                            op!, body).ConfigureAwait(false);
+                        response = isVideoOp
+                            ? await DispatchVideoAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
+                            : await DispatchAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false);
                         break;
                     case VisionOpRoute.Ui:
+                        // No video op routes through Ui — capture_depth
+                        // and friends are image-only. Defensive: if a
+                        // future video op needs UI thread (it shouldn't
+                        // — video doesn't touch Rhino state), this
+                        // branch would land at _handler.Dispatch and
+                        // fail with "unknown op." That's the right
+                        // failure — a misconfigured route should NOT
+                        // silently land in the wrong handler.
                         response = await InvokeOnUiAsync(
                             () => _handler.Dispatch(body)).ConfigureAwait(false);
                         break;
                     case VisionOpRoute.OffUi:
                         // Off-UI ops are disk-only (artifact store) or
-                        // secret-store reads. VisionHandler.DispatchOffUi
-                        // is sync with no CancellationToken parameter; a
-                        // Task.Run wrapper cannot cooperatively cancel
-                        // its body. The native trampoline wraps these in
-                        // a 30 s wait at the transport layer; the JS
-                        // bridge relies on the disk I/O being bounded
-                        // (the v1 artifact store has no indexing and
-                        // scans day buckets).
-                        response = await Task.Run(
-                            () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
+                        // secret-store reads, plus video ledger reads
+                        // and estimator pricing. VisionHandler.DispatchOffUi
+                        // and VideoOpHandler.DispatchOffUi are both sync
+                        // with no CancellationToken; the native
+                        // trampoline wraps these in a 30 s wait at the
+                        // transport layer. JS bridge relies on bounded
+                        // disk I/O (v1 artifact store has no indexing).
+                        response = isVideoOp
+                            ? await Task.Run(
+                                () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                            : await Task.Run(
+                                () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
                         break;
                     default:
                         return BuildFailure($"Unhandled route for op '{op}'.");
@@ -240,6 +382,18 @@ p { margin: 8px 0; line-height: 1.4; }
 
             return ApiResponseToJsonNode(response);
         }
+
+        /// <summary>
+        /// Video-side analog of <see cref="DispatchAsyncWithTimeoutAsync"/>
+        /// — same <see cref="AsyncOpTimeout"/>, same timeout-rewrite
+        /// rules (see <see cref="DispatchWithTimeoutAsync"/>), but
+        /// dispatches through <see cref="VideoOpHandler.DispatchAsync"/>.
+        /// </summary>
+        private Task<ApiResponse> DispatchVideoAsyncWithTimeoutAsync(string op, string? body)
+            => DispatchWithTimeoutAsync(
+                op,
+                AsyncOpTimeout,
+                token => _videoHandler!.DispatchAsync(body, token));
 
         /// <summary>
         /// Instance entry point: dispatch an async op through

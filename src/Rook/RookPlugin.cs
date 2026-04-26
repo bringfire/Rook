@@ -199,6 +199,28 @@ namespace Rook
                     // in companion mode (IsRunning is always false).  Removed to
                     // avoid confusion.  The C++ native plugin writes the only
                     // discovery file that bridge.py reads.
+
+                    // V2: reconcile any non-terminal video jobs left by a
+                    // prior session (per v3.1 D4). The root's
+                    // ReconcileVideoJobsOnce is Interlocked-guarded so a
+                    // double-call across plugin reload paths is safe.
+                    // Reconcile failures are non-fatal — startup continues.
+                    // The Interlocked flag inside ReconcileVideoJobsOnce
+                    // resets on throw so a future plugin reload retries
+                    // fresh.
+                    try
+                    {
+                        RookSubsystemRoot.Instance.ReconcileVideoJobsOnce();
+                        TraceStartup("Video subsystem reconciled (or no-op if never used previously)");
+                    }
+                    catch (Exception ex)
+                    {
+                        TraceStartup($"Video reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                        RhinoApp.WriteLine(
+                            "Rook: video reconcile failed at startup; continuing without reconcile. " +
+                            $"Reason: {ex.GetType().Name}.");
+                    }
+
                     RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
                     StopStartupRetries();
                     TraceStartup("GH bridge registered — companion startup complete");
@@ -298,14 +320,67 @@ namespace Rook
 
         /// <summary>
         /// Called when the plugin is unloaded.
+        ///
+        /// Order of operations matters:
+        /// <list type="number">
+        ///   <item>Detach Idle handlers — stops new TryInitializeRuntime
+        ///         calls from racing with the rest of shutdown.</item>
+        ///   <item>StopStartupRetries — cancels the background timer.</item>
+        ///   <item>NativeGhBridgeRegistrar.ClearRegistration — removes
+        ///         the C++→C# vision_dispatch callback so no new video
+        ///         (or image) ops can be routed.</item>
+        ///   <item>ChatServiceManager.Shutdown — independent subsystem.</item>
+        ///   <item>RookSubsystemRoot.DisposeVideoSubsystemIfCreated —
+        ///         disposes the VideoJobManager (cancels in-flight
+        ///         jobs via shutdown CTS, releases resources). After
+        ///         this returns, the root rejects further Video access
+        ///         per its post-dispose contract. No-op when video was
+        ///         never built (image-only sessions).</item>
+        /// </list>
+        /// All teardown steps that touch external state are wrapped in
+        /// try/catch — a single failure must not abort the others.
         /// </summary>
         protected override void OnShutdown()
         {
             RhinoApp.Idle -= OnRhinoIdle;
             RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
             StopStartupRetries();
-            NativeGhBridgeRegistrar.ClearRegistration();
-            ChatServiceManager.Instance.Shutdown();
+
+            // Codex review of step 7: each external-state teardown step
+            // gets its own try/catch. A failure in ClearRegistration
+            // (e.g., ABI-bridge cleanup throws) MUST NOT skip chat
+            // shutdown, video dispose, or base.OnShutdown — those are
+            // independent contracts that all need to fire.
+            try
+            {
+                NativeGhBridgeRegistrar.ClearRegistration();
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Native GH bridge clear failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            try
+            {
+                ChatServiceManager.Instance.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Chat service shutdown failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // V2: dispose the video subsystem if it was ever built.
+            // Idempotent + IsValueCreated-guarded inside the root —
+            // image-only sessions pay nothing here, and a double-call
+            // (e.g., AppDomain unload race) is safe.
+            try
+            {
+                RookSubsystemRoot.Instance.DisposeVideoSubsystemIfCreated();
+            }
+            catch (Exception ex)
+            {
+                TraceStartup($"Video subsystem dispose failed: {ex.GetType().Name}: {ex.Message}");
+            }
 
             // NOTE: SessionRecorder and SceneGraph shutdown removed — C++ owns both.
             // The C# companion never initializes these in companion mode.
