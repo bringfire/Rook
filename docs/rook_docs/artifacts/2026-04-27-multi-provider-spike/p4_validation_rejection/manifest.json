@@ -8,7 +8,9 @@
     "provider": "fal.ai"
   },
   "notes": {
+    "fetch_status_code": 422,
+    "outcome_correction": "Original manifest written by the harness recorded outcome=complete because the check was based solely on submit response.is_success. The submit DID succeed (200) and queue lifecycle DID reach COMPLETED, but the response_url fetch returned HTTP 422 with a FastAPI invalid_parameter envelope ('Image resolution only support [128, 5000]') because the synthetic 1x1 PNG fixture was below Hunyuan3D's minimum input size. After the harness was patched to compute outcome from fetch status (commit-pending), this manifest was hand-corrected to validation_failed. The fixture was then bumped to 256x256 (commit 850c228); the successful run is captured in p4/.",
     "submit_elapsed_seconds": 0.36277559999143705
   },
-  "outcome": "complete"
+  "outcome": "validation_failed"
 }
