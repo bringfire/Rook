@@ -164,3 +164,6 @@ installer/output/
 
 # Private drafts (announcements, marketing, internal notes)
 drafts/
+
+# Scratch / spike runtime trees (raw evidence stays out of the repo)
+.scratch/
