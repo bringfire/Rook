@@ -23,6 +23,12 @@ ARTIFACTS_ROOT = (REPO_ROOT / "docs" / "rook_docs" / "artifacts").resolve()
 # brackets, or closing parens (covers prose, code fences, and exception messages).
 URL_IN_MARKDOWN_RE = re.compile(r"https?://[^\s<>)]+")
 
+# Cap on serialized response.body size in curated captures (in JSON characters, not
+# bytes). Keeps shape evidence while dropping public-catalog dumps and other noise.
+# Real probe responses are typically <2 KB; large bodies indicate either catalog dumps
+# (Replicate /v1/models = 480 KB) or unintended payload bulk.
+CURATED_RESPONSE_BODY_CAP = 8000
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Curate redacted spike captures for commit.")
@@ -54,6 +60,7 @@ def main() -> None:
         for source in sorted(probe_dir.glob("*.json")):
             payload = json.loads(source.read_text(encoding="utf-8"))
             curated = _drop_binary_values(redact_capture(payload))
+            curated = _cap_response_body(curated)
             (out_dir / source.name).write_text(
                 json.dumps(curated, indent=2, sort_keys=True),
                 encoding="utf-8",
@@ -67,6 +74,47 @@ def main() -> None:
             (out_dir / md_file.name).write_text(redacted, encoding="utf-8")
 
     print(dest)
+
+
+def _cap_response_body(payload: Any) -> Any:
+    """Truncate `response.body` if its serialized form exceeds `CURATED_RESPONSE_BODY_CAP`.
+
+    Operates on the standard capture envelope shape:
+        {"response": {"status_code": ..., "headers": {...}, "body": <any>}, ...}
+
+    Replaces oversized `body` values with a small descriptor that preserves type and
+    size metadata (no schema evidence is lost; the calling capture's stage,
+    status_code, and headers all stay intact). Headers, request, and other top-level
+    fields are not capped — only the response body, which is the noisy field in
+    practice (e.g., Replicate /v1/models returning the public catalog).
+    """
+    if not isinstance(payload, dict):
+        return payload
+    response = payload.get("response")
+    if not isinstance(response, dict):
+        return payload
+    body = response.get("body")
+    if body is None:
+        return payload
+    serialized = json.dumps(body, sort_keys=True)
+    if len(serialized) <= CURATED_RESPONSE_BODY_CAP:
+        return payload
+    descriptor: dict[str, Any] = {
+        "<response_body_truncated_by_curation>": True,
+        "original_size_chars": len(serialized),
+        "cap_chars": CURATED_RESPONSE_BODY_CAP,
+        "preview": serialized[:CURATED_RESPONSE_BODY_CAP],
+    }
+    if isinstance(body, dict):
+        descriptor["original_type"] = "object"
+        descriptor["top_level_keys"] = sorted(body.keys())[:20]
+    elif isinstance(body, list):
+        descriptor["original_type"] = "array"
+        descriptor["original_length"] = len(body)
+    else:
+        descriptor["original_type"] = type(body).__name__
+    response["body"] = descriptor
+    return payload
 
 
 def _redact_markdown(text: str) -> str:
