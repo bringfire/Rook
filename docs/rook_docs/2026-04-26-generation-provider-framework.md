@@ -76,7 +76,7 @@ Verified against `main` at commit `f4ecb4e`:
 
 ## Phase 0 Evidence Summary (added v0.2)
 
-Phase 0's spike (commits `7550e56` → `73c2f89` on `spike/multi-provider-phase0`; ~$1.13 of $25 hard stop spent) captured ground-truth contracts and produced testable Phase 1 bindings for all six contract decisions:
+Phase 0's spike on `spike/multi-provider-phase0` (harness + curated evidence land in `7550e56` … `73c2f89`, with subsequent commits adding the spike doc and review-pass corrections — see `git log main..spike/multi-provider-phase0` for the full sequence; ~$1.13 of $25 hard stop spent) captured ground-truth contracts and produced testable Phase 1 bindings for all six contract decisions:
 
 | Decision | Phase 1 binding (from spike) |
 |---|---|
@@ -472,4 +472,4 @@ Each phase ships independently. If we stop after Phase 2, users have ~15 new mod
 ## Iteration log
 
 - **v0.1 (2026-04-26):** Initial draft. Captures the strategic framing (aggregator-aware, multi-modal, hybrid direct + aggregator), the V1c-as-template observation, the capability lattice, product/UX dimensions, implementation framework layered design, and a five-phase rollout. Open for review.
-- **v0.2 (2026-04-27):** Phase 0 spike folded in. All six contract decisions resolved with empirical evidence; gate satisfied; Phase 1 unblocked. Open Questions 1–3 + 6–7 resolved (with citations to spike doc); 4, 5, 8, 9, 11 still open (Phase 2 scope); 10 + 12 deferred. Roadblocks (a)/(b)/(h)/(j) confirmed in shape with Phase 1 bindings; (c)/(d)/(e)/(f)/(g)/(i) still open. New "Phase 0 Evidence Summary" section near top with one-line Phase 1 binding per decision. Phase 0 bullet in Phased Rollout flipped to ✅ complete with evidence pointers. Tencent direct identified as Phase 4 priority backend (substantially more capability than fal-hosted Hunyuan). See [spike doc](2026-04-27-multi-provider-spike.md) for full evidence rows + side-by-side cross-provider comparison tables.
+- **v0.2 (2026-04-27):** Phase 0 spike folded in. All six contract decisions resolved with empirical evidence; gate satisfied; Phase 1 unblocked. Open Questions 1–3 + 7 resolved (with citations to spike doc); 6 **constrained by spike evidence but exact C# shape left to Phase 1**; 4, 5, 8, 9, 11 still open (Phase 2 scope); 10 + 12 deferred. Roadblocks (a)/(b)/(h)/(j) confirmed in shape with Phase 1 bindings; (c)/(d)/(e)/(f)/(g)/(i) still open. New "Phase 0 Evidence Summary" section near top with one-line Phase 1 binding per decision. Phase 0 bullet in Phased Rollout flipped to ✅ complete with evidence pointers. Tencent direct identified as Phase 4 priority backend (substantially more capability than fal-hosted Hunyuan). See [spike doc](2026-04-27-multi-provider-spike.md) for full evidence rows + side-by-side cross-provider comparison tables.
