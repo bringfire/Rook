@@ -1,8 +1,9 @@
 # Generation Provider Framework: Aggregators, Multi-Modality, and the 2D→3D Foundation
 
-**Date:** 2026-04-26
-**Status:** Draft v0.1 — open for iteration
+**Date:** 2026-04-27 (v0.2)
+**Status:** v0.2 — Phase 0 evidence folded in; Phase 1 unblocked
 **Related:**
+- [`2026-04-27-multi-provider-spike.md`](2026-04-27-multi-provider-spike.md) — **Phase 0 spike evidence** (six contract decisions bound, all probes complete, gate satisfied)
 - [`2026-04-22-v3-video-decisions.md`](2026-04-22-v3-video-decisions.md) — v3.1 video contract; the seam shapes (`IVideoProvider`, `IPricingModel`, `IProviderOptionsCodec`, `ResolvedVideoModel`) that this doc proposes to generalize.
 - [`2026-04-26-video-nle-bridge-design.md`](2026-04-26-video-nle-bridge-design.md) — the NLE realization roadmap; this framework's outputs feed the NLE's "swap models per node" capability.
 - [`2026-04-08-sa-banana-integration.md`](2026-04-08-sa-banana-integration.md) — image-track architecture; the visual-subsystem pattern that this framework extends across modalities.
@@ -67,7 +68,30 @@ Verified against `main` at commit `f4ecb4e`:
 - **No catalog persistence beyond hardcoded registries.** Adding a model means a code change.
 - **No model-picker UX beyond a flat dropdown.** Won't scale past ~20 entries; aggregator catalogs have hundreds.
 
-**The gap, stated precisely:** the video-side abstraction is correctly shaped for multi-provider/multi-aggregator extension, but it has only ever been exercised with one provider. The image side has none of the abstraction. The 3D side doesn't exist. Aggregator support — the keystone — is wholly absent.
+**The gap, stated precisely:** the video-side abstraction is correctly shaped for multi-provider/multi-aggregator extension, but it has only ever been exercised with one provider. The image side has none of the abstraction. The 3D side doesn't exist. Aggregator support — the keystone — is wholly absent. Phase 0 scratch harnesses do not count as production provider implementations.
+
+> **Phase 0 update (2026-04-27):** the spike captured live evidence against four providers (fal.ai sync, fal.ai queue, Replicate prediction, Gemini direct) plus a Tencent direct-API documentation+SDK audit. Phase 1's design now has empirically grounded bindings for all six contract decisions; see Phase 0 Evidence Summary below and the [spike doc](2026-04-27-multi-provider-spike.md).
+
+---
+
+## Phase 0 Evidence Summary (added v0.2)
+
+Phase 0's spike (commits `7550e56` → `73c2f89` on `spike/multi-provider-phase0`; ~$1.13 of $25 hard stop spent) captured ground-truth contracts and produced testable Phase 1 bindings for all six contract decisions:
+
+| Decision | Phase 1 binding (from spike) |
+|---|---|
+| **1. Provider lifecycle** | Sync ≠ async — `IGenerationProvider` submit must encode invocation mode discriminately. Provider adapters normalize state-name casing (Replicate lowercase, fal queue UPPERCASE). fal queue's `COMPLETED` is *terminal not success* — fetch step is where success/failure is discriminated; lifecycle adapter must inspect fetch HTTP status + body shape. Cancellation methods vary (`PUT` for fal Hunyuan, `POST` for Replicate). |
+| **2. Capability schema** | Per-route capability flags (not flat per-provider booleans). Image and video bound; 3D-specific advanced features (segmentation, retopology, UV editing — Tencent-direct only) **deferred per design carve-out**. Phase 1 must not freeze 3D semantics beyond opaque modality/capability descriptors. |
+| **3. Pricing estimate shape** | Five distinct patterns documented (per-MP, per-output-second × tier, per-call flat + add-ons, per-compute-second, per-token-by-modality). Two metadata locations (response header vs body). fal alone uses three different per-unit rates for the same `x-fal-billable-units` header, so the header is not a portable cost signal. `IPricingModel` is per-provider, possibly per-model, with `CostEstimate { Min, Max, IsExact, Provenance }` typed return. |
+| **4. Options codec boundaries** | At least five distinct submission contracts captured. Replicate has dual-endpoint variation (community vs official); fal has per-model input field name variation (`image` vs `image_url` vs `input_image_url`). Tencent direct is an SDK-mediated category, structurally different from raw-HTTP providers. Per-provider, per-route options codec — no shared shape. |
+| **5. Result/artifact roles** | Five fundamentally different envelope shapes. Critical structural axis: **URL-referenced (fal/Replicate) vs inline-bytes (Gemini)** delivery. Multi-format dispatch is first-class for 3D (Hunyuan returns up to 6 format variants per call, some null). Error envelope (FastAPI-style `detail` array) is distinct from result envelope and discriminated at fetch step. |
+| **6. Secret-key namespace** | Three distinct auth header conventions (`Authorization: Key/Token/...`, `x-goog-api-key`). Tencent introduces paired-credential signature-scheme providers (SecretId+SecretKey, TC3-HMAC-SHA256 via SDK). `ISecretStore` must support both single-token and multi-key shapes; header construction is per-provider, not a shared formatter. |
+
+**Strict gate verdict (per design Section 1):** satisfied. All four hard-no-defer decisions (lifecycle, pricing shape, options codec, secret-key namespace) bound with evidence. 3D-specific carve-out applied (Hunyuan evidence captured via P4 + P5; Phase 1 not to freeze 3D abstractions).
+
+**Phase 4 strategic finding:** Tencent's direct Hunyuan service exposes substantially more functionality (Rapid tier, Part Segmentation, Smart Topology, UV Unwrapping, Texture Editing, Format Conversion) than fal's hosted endpoint. If 3D becomes a flagship product surface, Tencent direct should be the primary backend with fal as a lighter alternative. Phase 4 starter kit assembled (SDK pattern, env vars, endpoint, sample code, Quickstart PDF).
+
+See the spike doc for full evidence rows, side-by-side cross-provider comparison tables, and per-Decision "what would reopen this" conditions.
 
 ---
 
@@ -321,14 +345,15 @@ Settings UI is a new tab or expanded section in the Vision panel.
 
 ## Phased rollout
 
-### Phase 0: Audit + spike (this doc + small scratch work)
+### Phase 0: Audit + spike (✅ COMPLETE 2026-04-27)
 
-- Read V1c provider abstraction in detail; document the seam shapes.
-- One real fal.ai call (image gen, e.g., FLUX schnell — cheap and fast); capture the request/response JSON.
-- One real Replicate call (same model if possible); capture the request/response JSON.
-- One real Tencent Studio API call (Hunyuan3D-2 image-to-mesh); capture request/response.
-- Document differences, error envelopes, polling cadences, auth shapes.
-- Output: a `2026-04-NN-multi-provider-spike.md` doc capturing concrete payloads.
+- ✅ V1c provider abstraction read in detail; seam shapes documented.
+- ✅ Live fal.ai calls captured (FLUX schnell sync + queue, Wan v2.7 video, Hunyuan3D Pro v3.1 3D — both validation rejection and successful run).
+- ✅ Live Replicate call captured (FLUX schnell official-model endpoint).
+- ✅ Live Gemini call captured (gemini-3.1-flash-image-preview — establishes inline-bytes delivery axis).
+- ✅ Tencent Hunyuan3D-2 direct API audit (docs + SDK pattern; live call deferred to Phase 4 kickoff).
+- ✅ Differences documented: error envelopes (FastAPI `detail` for fal queue; structurally different per provider), polling cadences, auth shapes (four distinct), result delivery (URL vs inline-bytes).
+- ✅ **Output:** [`2026-04-27-multi-provider-spike.md`](2026-04-27-multi-provider-spike.md). All six contract decisions bound. Strict gate satisfied. Phase 1 unblocked.
 
 ### Phase 1: Generalize the abstraction
 
@@ -374,33 +399,33 @@ Settings UI is a new tab or expanded section in the Vision panel.
 
 ## Open questions / audits needed
 
-1. **fal.ai response shape for video gen?** The polling/result envelope likely differs from Veo's operation-style responses. Spike required.
-2. **Replicate response shape for prediction-style API?** Webhooks vs. polling decision.
-3. **Tencent Hunyuan3D-2 direct API:** is it available outside the Hugging Face hosted demo? Pricing? Auth model?
-4. **Aggregator margin numbers.** Need real-world calibration on representative jobs to tune the cost-estimator UX disclosure.
-5. **Cold-start latency:** how often does fal.ai cold-start on the models we'd use most? Affects first-call UX.
-6. **Capability schema:** discriminated union or polymorphic record? Decision affects all downstream picker code.
-7. **Per-modality capability mismatch:** what does the contract say when a `IThreeDProvider` is asked for an image-to-mesh job but the model is text-to-mesh only? Where does that validation live?
-8. **Catalog identity stability:** if fal.ai renames a model, does our cache (and the NLE cache_index) survive? Need explicit handling.
-9. **Trust posture:** do we surface "this prompt will be sent to a third-party aggregator" warnings? Per-prompt? Per-session? Settings toggle?
-10. **Local models (e.g., via Ollama):** in scope or deferred? They're "providers" too, conceptually.
-11. **Cross-aggregator price comparison:** if FLUX is on both fal.ai and Replicate, does the picker show both entries with a price comparison, or do we de-dupe?
-12. **MCP tool surface:** does this generalization mean `rhino_render_view` becomes `rhino_generate_image(model_id=...)` or do we keep capability-specific verbs? Affects agent UX.
+1. ~~**fal.ai response shape for video gen?**~~ → **Resolved (Phase 0 P2 spike).** fal queue submit returns `{request_id, status_url, response_url, cancel_url, status: "IN_QUEUE", queue_position, metrics: {}}`. Polled status returns same envelope with `metrics.inference_time` added at terminal `COMPLETED`. Result body lives at `response_url` (separate fetch): `{video: {url, content_type, duration, fps, num_frames, ...}, seed, actual_prompt}`. Billing in `x-fal-billable-units` response header. See spike doc Decision 1, 3, 5.
+2. ~~**Replicate response shape for prediction-style API?**~~ → **Resolved (Phase 0 P3 spike).** Polling-based; submit returns `{id, status: "starting", urls.{get, cancel, stream, web}}`; terminal poll body includes `output: [<url>]`. Lifecycle states `starting → processing → succeeded`. `metrics.predict_time` for cost. Streaming endpoint exists (`urls.stream`) but not exercised; webhook delivery model not exercised.
+3. ~~**Tencent Hunyuan3D-2 direct API: is it available, pricing, auth?**~~ → **Resolved (Phase 0 P5 audit).** Yes — Tencent Cloud Hunyuan service v20230901 with seven endpoint pairs covering Pro/Rapid/Part/SmartTopology/TextureEdit/UV/FormatConvert. Auth via paired SecretId+SecretKey + TC3-HMAC-SHA256 signing (handled by `tencentcloud-sdk-python`). Pricing public per-product on Tencent docs; live call deferred to Phase 4 kickoff (CAM sub-user setup ~30–60 min).
+4. **Aggregator margin numbers.** Still open — Phase 2 cost estimator UX needs concrete margin observations vs raw provider pricing.
+5. **Cold-start latency:** Still open — Phase 0 observed multi-minute cold-starts on fal Wan + Hunyuan3D Pro but didn't measure systematically. Phase 2 should profile across providers.
+6. ~~**Capability schema: discriminated union or polymorphic record?**~~ → **Spike provides evidence; Phase 1 design call.** Per-route capability flags are required (image+video+3D structurally differ). Exact C# shape (discriminated union vs polymorphic base + modality-specific subclasses) is a Phase 1 design decision; the *constraint* is that flat per-provider booleans are insufficient. See spike Decision 2.
+7. ~~**Per-modality capability mismatch:** where does validation live?~~ → **Resolved.** Provider adapters validate at registration time (capability flags declare what's supported) and at submit time (request shape vs declared capability). See spike Decision 4.
+8. **Catalog identity stability:** Still open. Phase 2 will need explicit handling for "model renamed/removed" — Phase 0 didn't observe a rename mid-spike but the risk is real for long-lived NLE cache references.
+9. **Trust posture:** Still open. Phase 2 UX question — per-prompt warning, per-session toggle, or settings opt-in for "send to third-party aggregator." Spike captured the privacy axis (URL vs inline-bytes delivery) which is relevant input.
+10. **Local models (e.g., via Ollama):** Still deferred — out of Phase 0 scope. Conceptually a provider; no compelling case observed in spike.
+11. **Cross-aggregator price comparison:** Still open. With pricing now shape-mapped (Decision 3), Phase 2 picker UX can decide whether to surface both entries side-by-side or de-dupe to "cheapest provider for this model."
+12. **MCP tool surface (`rhino_render_view` rename?):** Still deferred — Phase 2 product/UX decision. Spike doesn't change the calculus.
 
 ---
 
 ## Roadblocks
 
-- **(a) Gemini and Veo aren't on aggregators.** Aggregator-only is not a viable product posture; we always need direct integrations for Google models. Mitigation: hybrid posture is explicit in the framework from day one.
-- **(b) Aggregator margin invalidates per-second precision.** Cost estimator's exact-figure UX from V1c may need to disclose ranges for aggregator routes. Mitigation: per-pricing-model "exact vs. estimate" flag surfaced in UI.
-- **(c) Catalog drift.** When an aggregator removes a model, in-flight jobs fail and saved workflows break. Mitigation: catalog lookups must handle "model not found" as a typed error with a "find similar" suggestion path.
-- **(d) Settings sprawl.** Six providers means six API key fields. Mitigation: provider sections in settings, "I don't have a key for this" is a first-class state, picker shows configurable models with "configure key" affordance.
-- **(e) Picker scaling.** A flat dropdown with 200 models is unusable. Mitigation: capability-first browsing, search, recommended/recent sections — non-trivial UI work that's its own scope pass.
-- **(f) Multi-provider key validation.** "Test" buttons in settings need to actually call each provider; a failed key shouldn't silently disable the model. Mitigation: explicit `TestKeyAsync` per provider with structured result.
-- **(g) Prompt/image leakage to aggregators.** Some users (architecture firms with NDA'd projects) cannot send client images to third parties. Mitigation: per-provider trust toggle in settings; picker hides aggregator routes for users who toggle "direct only."
-- **(h) Cost estimation across heterogeneous pricing surfaces.** A user composing a GH NLE graph needs an aggregate cost across nodes that might use Veo (per-output-second), fal.ai Kling (per-call), and Replicate Stable Video (per-compute-second). Mitigation: estimator returns a typed `CostEstimate { Min, Max, IsExact, Provenance }` instead of a single dollar figure.
-- **(i) MCP tool naming.** `rhino_render_view` is image-track-specific naming; in a multi-provider world, do agents call `rhino_generate_image(model="flux-pro")` instead? Renaming churns agent behavior. Mitigation: keep `rhino_render_view` as the default-Gemini convenience tool; add `rhino_generate_image` as the multi-provider general-purpose tool. Both available; users/agents choose the right one.
-- **(j) Provider-specific OptionsCodec proliferation.** N providers × M models = a lot of codec variants. Mitigation: most aggregator routes share a small option set; only specialized models need bespoke codecs.
+- **(a) Gemini and Veo aren't on aggregators.** **Confirmed (Phase 0).** Aggregator-only is not a viable product posture; we always need direct integrations for Google models. Hybrid posture preserved in framework.
+- **(b) Aggregator margin invalidates per-second precision.** **Confirmed in shape (Phase 0); specific numbers still TBD.** Five distinct pricing patterns mapped (per-MP, per-output-second × tier, per-call flat + add-ons, per-compute-second, per-token-by-modality). `IPricingModel` returns `CostEstimate { Min, Max, IsExact, Provenance }` per Phase 0 binding for Decision 3.
+- **(c) Catalog drift.** Still open. Phase 0 didn't observe a rename mid-spike but the risk for long-lived references (NLE cache_index) is real. Phase 2 explicit handling needed.
+- **(d) Settings sprawl.** Still open (Phase 2 UX scope). Phase 0's secret-key namespace work (Decision 6) confirmed at least four credential shapes — single-token providers + paired-credential signature-scheme providers (Tencent). Phase 2's settings UI must accommodate both.
+- **(e) Picker scaling.** Still open (Phase 2 UX scope). Phase 0 didn't change the calculus.
+- **(f) Multi-provider key validation.** Still open (Phase 1 implementation). Phase 0's `verify_credentials.py` probe surfaced a useful subtlety: some providers' "list" endpoints are public (fal `/models` returns 308/200 without validating the key — `auth_only_unproven` outcome). Phase 1's `TestKeyAsync` should distinguish "key present and validates" from "key present but endpoint can't prove it" — first paid call is sometimes the only real check.
+- **(g) Prompt/image leakage to aggregators.** Still open (Phase 2 UX/trust). Phase 0 surfaced an additional axis: **delivery mechanism** (URL on provider CDN vs inline-bytes in API response). Different trust postures.
+- **(h) Cost estimation across heterogeneous pricing surfaces.** **Confirmed (Phase 0); five distinct shapes documented.** Phase 1 binding: `IPricingModel` is per-provider, possibly per-model. Cost estimator must read both response headers AND response body depending on provider. See spike Decision 3.
+- **(i) MCP tool naming.** Still deferred (Phase 2 product question). Phase 0 doesn't change the calculus.
+- **(j) Provider-specific OptionsCodec proliferation.** **Confirmed (Phase 0); at least five distinct codecs documented.** Replicate has internal dual-endpoint variation (community vs official); fal has per-model input field name variation; Tencent introduces SDK-mediated providers as a structurally distinct category. Phase 1 binding: per-provider, per-route options codec — no shared shape. See spike Decision 4.
 
 ---
 
@@ -447,3 +472,4 @@ Each phase ships independently. If we stop after Phase 2, users have ~15 new mod
 ## Iteration log
 
 - **v0.1 (2026-04-26):** Initial draft. Captures the strategic framing (aggregator-aware, multi-modal, hybrid direct + aggregator), the V1c-as-template observation, the capability lattice, product/UX dimensions, implementation framework layered design, and a five-phase rollout. Open for review.
+- **v0.2 (2026-04-27):** Phase 0 spike folded in. All six contract decisions resolved with empirical evidence; gate satisfied; Phase 1 unblocked. Open Questions 1–3 + 6–7 resolved (with citations to spike doc); 4, 5, 8, 9, 11 still open (Phase 2 scope); 10 + 12 deferred. Roadblocks (a)/(b)/(h)/(j) confirmed in shape with Phase 1 bindings; (c)/(d)/(e)/(f)/(g)/(i) still open. New "Phase 0 Evidence Summary" section near top with one-line Phase 1 binding per decision. Phase 0 bullet in Phased Rollout flipped to ✅ complete with evidence pointers. Tencent direct identified as Phase 4 priority backend (substantially more capability than fal-hosted Hunyuan). See [spike doc](2026-04-27-multi-provider-spike.md) for full evidence rows + side-by-side cross-provider comparison tables.
