@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,13 @@ from .env import CAPTURE_ROOT, REPO_ROOT
 from .redact import redact_capture
 
 
+# Keys whose *string* values should be dropped as opaque blobs. Object/list values under these
+# keys are preserved (and recursed into) — vendors sometimes return schema-bearing envelopes
+# under `data`, e.g. `{"data": {"id": ..., "status": ...}}`.
 BINARY_VALUE_KEYS = {"data", "image_base64", "b64_json", "bytes"}
+
+SPIKE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ARTIFACTS_ROOT = (REPO_ROOT / "docs" / "rook_docs" / "artifacts").resolve()
 
 
 def main() -> None:
@@ -18,7 +25,18 @@ def main() -> None:
     parser.add_argument("--spike-date", required=True, help="Completion date, e.g. 2026-04-29")
     args = parser.parse_args()
 
-    dest = REPO_ROOT / "docs" / "rook_docs" / "artifacts" / f"{args.spike_date}-multi-provider-spike"
+    if not SPIKE_DATE_RE.match(args.spike_date):
+        raise SystemExit(f"--spike-date must be YYYY-MM-DD, got: {args.spike_date!r}")
+
+    dest = (ARTIFACTS_ROOT / f"{args.spike_date}-multi-provider-spike").resolve()
+    # Defense in depth: refuse to write/rmtree anywhere outside the artifacts root.
+    try:
+        dest.relative_to(ARTIFACTS_ROOT)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Resolved destination {dest} escapes artifacts root {ARTIFACTS_ROOT}; aborting"
+        ) from exc
+
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -36,9 +54,9 @@ def main() -> None:
                 json.dumps(curated, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-        notes = probe_dir / "notes.md"
-        if notes.exists():
-            shutil.copyfile(notes, out_dir / "notes.md")
+        # Copy all probe-written markdown evidence (notes.md, cancel_evidence.md, future *.md).
+        for md_file in sorted(probe_dir.glob("*.md")):
+            shutil.copyfile(md_file, out_dir / md_file.name)
 
     print(dest)
 
@@ -48,7 +66,9 @@ def _drop_binary_values(value: Any) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             lowered = key.lower()
-            if lowered in BINARY_VALUE_KEYS:
+            if lowered in BINARY_VALUE_KEYS and isinstance(item, str):
+                # Drop string values under binary-suspect keys (data URIs, base64 blobs, opaque tokens).
+                # Object/list values are preserved by falling through to the recursive branch.
                 result[key] = "<DROPPED_BINARY_OR_BASE64>"
             else:
                 result[key] = _drop_binary_values(item)

@@ -35,6 +35,9 @@ public sealed class ProviderBodyShape
     [JsonPropertyName("urls")]
     public Dictionary<string, JsonElement>? Urls { get; set; }
 
+    // JsonExtensionData kept for forward compatibility (lets unknown fields round-trip),
+    // but unknown fields do NOT count as a lifecycle/result signal — otherwise arbitrary
+    // payloads and error bodies would silently pass the shape check.
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; set; }
 
@@ -44,6 +47,5 @@ public sealed class ProviderBodyShape
            || Output.ValueKind != JsonValueKind.Undefined
            || !string.IsNullOrWhiteSpace(ResultUrl)
            || !string.IsNullOrWhiteSpace(OutputUrl)
-           || (Urls is not null && Urls.Count > 0)
-           || (Extra is not null && Extra.Count > 0);
+           || (Urls is not null && Urls.Count > 0);
 }

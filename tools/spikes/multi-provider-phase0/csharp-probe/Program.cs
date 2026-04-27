@@ -42,9 +42,14 @@ foreach (var probeId in requiredProbeIds)
         return 3;
     }
 
+    int checkedCount = 0;
+    bool hasSubmit = false;
+    bool hasResultEvidence = false;  // fetch.json, fetch_head.json, or any status_*.json
+
     foreach (var file in Directory.GetFiles(probeDir, "*.json").OrderBy(path => path))
     {
-        if (Path.GetFileName(file).Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+        var fileName = Path.GetFileName(file);
+        if (fileName.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
             continue;
 
         var json = File.ReadAllText(file);
@@ -83,6 +88,28 @@ foreach (var probeId in requiredProbeIds)
             Console.Error.WriteLine($"Round-trip lost response payload in {file}");
             return 8;
         }
+
+        checkedCount++;
+        var stem = Path.GetFileNameWithoutExtension(fileName).ToLowerInvariant();
+        if (stem == "submit") hasSubmit = true;
+        if (stem == "fetch" || stem == "fetch_head" || stem.StartsWith("status_"))
+            hasResultEvidence = true;
+    }
+
+    if (checkedCount == 0)
+    {
+        Console.Error.WriteLine($"Probe {probeId}: no JSON evidence files checked (only manifest.json or empty directory). Probe contract requires submit plus at least one result/status artifact.");
+        return 9;
+    }
+    if (!hasSubmit)
+    {
+        Console.Error.WriteLine($"Probe {probeId}: missing submit.json. Required by contract.");
+        return 10;
+    }
+    if (!hasResultEvidence)
+    {
+        Console.Error.WriteLine($"Probe {probeId}: missing fetch.json / fetch_head.json / status_*.json. Required by contract (need at least one result or polling artifact).");
+        return 11;
     }
 }
 
