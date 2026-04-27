@@ -13,19 +13,19 @@
       "Content-Type": "application/json"
     },
     "method": "GET",
-    "url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/019dd0a1-48fc-7df0-8a94-cb2ec783b1b0/status"
+    "url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/<REQUEST_ID>/status"
   },
   "response": {
     "body": {
-      "cancel_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/019dd0a1-48fc-7df0-8a94-cb2ec783b1b0/cancel",
+      "cancel_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/<REQUEST_ID>/cancel",
       "logs": null,
       "metrics": {
         "inference_time": 250.47890400886536
       },
-      "request_id": "019dd0a1-48fc-7df0-8a94-cb2ec783b1b0",
-      "response_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/019dd0a1-48fc-7df0-8a94-cb2ec783b1b0",
+      "request_id": "<JOB_ID>",
+      "response_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/<REQUEST_ID>",
       "status": "COMPLETED",
-      "status_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/019dd0a1-48fc-7df0-8a94-cb2ec783b1b0/status"
+      "status_url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/<REQUEST_ID>/status"
     },
     "headers": {
       "access-control-allow-credentials": "true",

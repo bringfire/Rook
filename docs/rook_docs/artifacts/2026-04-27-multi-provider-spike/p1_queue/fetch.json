@@ -15,14 +15,14 @@
   },
   "response": {
     "body": {
-      "cancel_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c/cancel",
+      "cancel_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>/cancel",
       "logs": null,
       "metrics": {},
       "queue_position": 0,
-      "request_id": "019dd020-1dfb-7522-88bd-397bf8fa535c",
-      "response_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c",
+      "request_id": "<JOB_ID>",
+      "response_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>",
       "status": "IN_QUEUE",
-      "status_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c/status"
+      "status_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>/status"
     },
     "headers": {},
     "status_code": null

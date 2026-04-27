@@ -13,17 +13,17 @@
       "Content-Type": "application/json"
     },
     "method": "GET",
-    "url": "https://queue.fal.run/fal-ai/wan/requests/019dd07d-7a04-7a60-b61e-5361e9b784a6/status"
+    "url": "https://queue.fal.run/fal-ai/wan/requests/<REQUEST_ID>/status"
   },
   "response": {
     "body": {
-      "cancel_url": "https://queue.fal.run/fal-ai/wan/requests/019dd07d-7a04-7a60-b61e-5361e9b784a6/cancel",
+      "cancel_url": "https://queue.fal.run/fal-ai/wan/requests/<REQUEST_ID>/cancel",
       "logs": null,
       "metrics": {},
-      "request_id": "019dd07d-7a04-7a60-b61e-5361e9b784a6",
-      "response_url": "https://queue.fal.run/fal-ai/wan/requests/019dd07d-7a04-7a60-b61e-5361e9b784a6",
+      "request_id": "<JOB_ID>",
+      "response_url": "https://queue.fal.run/fal-ai/wan/requests/<REQUEST_ID>",
       "status": "IN_PROGRESS",
-      "status_url": "https://queue.fal.run/fal-ai/wan/requests/019dd07d-7a04-7a60-b61e-5361e9b784a6/status"
+      "status_url": "https://queue.fal.run/fal-ai/wan/requests/<REQUEST_ID>/status"
     },
     "headers": {
       "access-control-allow-credentials": "true",

@@ -13,7 +13,7 @@
       "Content-Type": "application/json"
     },
     "method": "GET",
-    "url": "https://api.replicate.com/v1/predictions/bd5mxz35h1rmy0cxt1fswm6v54"
+    "url": "https://api.replicate.com/v1/predictions/<PREDICTION_ID>"
   },
   "response": {
     "body": {
@@ -21,7 +21,7 @@
       "created_at": "2026-04-27T19:16:46.088Z",
       "data_removed": false,
       "error": null,
-      "id": "bd5mxz35h1rmy0cxt1fswm6v54",
+      "id": "<JOB_ID>",
       "input": {
         "prompt": "a red cube on a white background"
       },
@@ -39,10 +39,10 @@
       "started_at": "2026-04-27T19:16:46.123357005Z",
       "status": "succeeded",
       "urls": {
-        "cancel": "https://api.replicate.com/v1/predictions/bd5mxz35h1rmy0cxt1fswm6v54/cancel",
-        "get": "https://api.replicate.com/v1/predictions/bd5mxz35h1rmy0cxt1fswm6v54",
-        "stream": "https://stream.replicate.com/v1/files/jbxs-qvf4f7q6kgw4evrujol4jgk554nqmufetxkey7f3obxjnnru3wra",
-        "web": "https://replicate.com/p/bd5mxz35h1rmy0cxt1fswm6v54"
+        "cancel": "https://api.replicate.com/v1/predictions/<PREDICTION_ID>/cancel",
+        "get": "https://api.replicate.com/v1/predictions/<PREDICTION_ID>",
+        "stream": "https://stream.replicate.com/v1/files/<STREAM_TOKEN>",
+        "web": "https://replicate.com/p/<PREDICTION_ID>"
       },
       "version": "hidden"
     },

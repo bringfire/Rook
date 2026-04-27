@@ -20,14 +20,14 @@
   },
   "response": {
     "body": {
-      "cancel_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c/cancel",
+      "cancel_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>/cancel",
       "logs": null,
       "metrics": {},
       "queue_position": 0,
-      "request_id": "019dd020-1dfb-7522-88bd-397bf8fa535c",
-      "response_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c",
+      "request_id": "<JOB_ID>",
+      "response_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>",
       "status": "IN_QUEUE",
-      "status_url": "https://queue.fal.run/fal-ai/flux/requests/019dd020-1dfb-7522-88bd-397bf8fa535c/status"
+      "status_url": "https://queue.fal.run/fal-ai/flux/requests/<REQUEST_ID>/status"
     },
     "headers": {
       "access-control-allow-credentials": "true",
@@ -37,7 +37,7 @@
       "date": "Mon, 27 Apr 2026 18:07:39 GMT",
       "strict-transport-security": "max-age=31536000; includeSubDomains",
       "vary": "origin, access-control-request-method, access-control-request-headers",
-      "x-fal-request-id": "019dd020-1dfb-7522-88bd-397bf8fa535c",
+      "x-fal-request-id": "<JOB_ID>",
       "x-robots-tag": "noindex"
     },
     "status_code": 200

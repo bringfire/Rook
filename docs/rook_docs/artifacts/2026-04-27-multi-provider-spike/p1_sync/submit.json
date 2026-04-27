@@ -44,8 +44,8 @@
       "date": "Mon, 27 Apr 2026 18:18:20 GMT",
       "strict-transport-security": "max-age=31536000; includeSubDomains",
       "x-fal-billable-units": "1",
-      "x-fal-request-id": "019dd029-e730-7c11-8e5d-6ac0f2e946f2",
-      "x-fal-served-from": "1c5fe845-23c6-46f5-a54b-82aed6ca24cd",
+      "x-fal-request-id": "<JOB_ID>",
+      "x-fal-served-from": "<JOB_ID>",
       "x-robots-tag": "noindex"
     },
     "status_code": 200

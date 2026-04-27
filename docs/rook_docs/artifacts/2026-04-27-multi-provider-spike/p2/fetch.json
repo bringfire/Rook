@@ -13,7 +13,7 @@
       "Content-Type": "application/json"
     },
     "method": "GET",
-    "url": "https://queue.fal.run/fal-ai/wan/requests/019dd07d-7a04-7a60-b61e-5361e9b784a6"
+    "url": "https://queue.fal.run/fal-ai/wan/requests/<REQUEST_ID>"
   },
   "response": {
     "body": {
@@ -40,8 +40,8 @@
       "strict-transport-security": "max-age=31536000; includeSubDomains",
       "vary": "origin, access-control-request-method, access-control-request-headers",
       "x-fal-billable-units": "7.5",
-      "x-fal-request-id": "019dd07d-7a04-7a60-b61e-5361e9b784a6",
-      "x-fal-served-from": "8f01874b-cc56-4ff0-8eb1-5f8987c775f7",
+      "x-fal-request-id": "<JOB_ID>",
+      "x-fal-served-from": "<JOB_ID>",
       "x-robots-tag": "noindex"
     },
     "status_code": 200

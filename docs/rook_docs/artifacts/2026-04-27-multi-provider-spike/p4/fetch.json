@@ -13,7 +13,7 @@
       "Content-Type": "application/json"
     },
     "method": "GET",
-    "url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/019dd0a1-48fc-7df0-8a94-cb2ec783b1b0"
+    "url": "https://queue.fal.run/fal-ai/hunyuan-3d/requests/<REQUEST_ID>"
   },
   "response": {
     "body": {
@@ -68,8 +68,8 @@
       "strict-transport-security": "max-age=31536000; includeSubDomains",
       "vary": "origin, access-control-request-method, access-control-request-headers",
       "x-fal-billable-units": "25",
-      "x-fal-request-id": "019dd0a1-48fc-7df0-8a94-cb2ec783b1b0",
-      "x-fal-served-from": "a6a2a8d1-764d-4c05-b6fe-e128262b7d1f",
+      "x-fal-request-id": "<JOB_ID>",
+      "x-fal-served-from": "<JOB_ID>",
       "x-robots-tag": "noindex"
     },
     "status_code": 200
