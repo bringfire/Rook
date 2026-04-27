@@ -1,0 +1,43 @@
+{
+  "captured_at": "2026-04-27T19:40:36.789429+00:00",
+  "context": {
+    "catalog_url": "https://fal.ai/models/fal-ai/wan/v2.7/text-to-video",
+    "model_id": "fal-ai/wan/v2.7/text-to-video",
+    "price_observed": "$0.10/sec @ 720p, $0.15/sec @ 1080p (observed 2026-04-27)",
+    "probe_id": "p2",
+    "provider": "fal.ai"
+  },
+  "request": {
+    "headers": {
+      "Authorization": "<REDACTED>",
+      "Content-Type": "application/json"
+    },
+    "method": "GET",
+    "url": "https://queue.fal.run/fal-ai/wan/requests/019dd072-32d9-7be3-b24e-0c19b4f651f3/status"
+  },
+  "response": {
+    "body": {
+      "cancel_url": "https://queue.fal.run/fal-ai/wan/requests/019dd072-32d9-7be3-b24e-0c19b4f651f3/cancel",
+      "logs": null,
+      "metrics": {
+        "inference_time": 167.39992499351501
+      },
+      "request_id": "019dd072-32d9-7be3-b24e-0c19b4f651f3",
+      "response_url": "https://queue.fal.run/fal-ai/wan/requests/019dd072-32d9-7be3-b24e-0c19b4f651f3",
+      "status": "COMPLETED",
+      "status_url": "https://queue.fal.run/fal-ai/wan/requests/019dd072-32d9-7be3-b24e-0c19b4f651f3/status"
+    },
+    "headers": {
+      "access-control-allow-credentials": "true",
+      "connection": "keep-alive",
+      "content-length": "432",
+      "content-type": "application/json",
+      "date": "Mon, 27 Apr 2026 19:40:36 GMT",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "vary": "origin, access-control-request-method, access-control-request-headers",
+      "x-robots-tag": "noindex"
+    },
+    "status_code": 200
+  },
+  "stage": "status_039"
+}

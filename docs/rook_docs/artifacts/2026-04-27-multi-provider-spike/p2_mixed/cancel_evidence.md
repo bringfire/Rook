@@ -1,0 +1,1 @@
+Cancellation evidence must be filled from either a second low-cost video cancel attempt or provider API docs. Decision 1 is incomplete until this file states supported/unsupported and billing semantics.
