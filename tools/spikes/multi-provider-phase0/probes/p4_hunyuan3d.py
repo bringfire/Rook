@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import base64
 
 import httpx
@@ -7,11 +8,35 @@ import httpx
 from harness.capture import CaptureContext, append_notes, write_manifest, write_redacted
 from harness.env import load_keys, require_key
 from harness.fixtures import write_red_cube_png
-from probes._common import capture_fetch_or_result, detect_provider, parse_probe_args, poll_json, safe_submit_data, timed_request, write_cancel_evidence
+from probes._common import base_parser, capture_fetch_or_result, detect_provider, poll_json, safe_submit_data, timed_request, write_cancel_evidence
+from probes._common import ProbeArgs
+
+
+def _parse() -> tuple[ProbeArgs, str]:
+    parser = base_parser("P4 Hunyuan3D-2 image-to-mesh probe")
+    # Per-probe extension: fal 3D models vary on the input image field name
+    # (`image`, `image_url`, `input_image_url`, `input_image_urls`). Default to
+    # `image` for backward compat with simple fal models; override per spike.
+    parser.add_argument(
+        "--image-field",
+        default="image",
+        help="JSON body field name for the input image. fal 3D models often use 'image_url' or 'input_image_url'.",
+    )
+    args = parser.parse_args()
+    return ProbeArgs(
+        model_id=args.model_id,
+        endpoint_url=args.endpoint_url,
+        catalog_url=args.catalog_url,
+        price_observed=args.price_observed,
+        poll_url=args.poll_url,
+        result_url=args.result_url,
+        cancel_url=args.cancel_url,
+        replicate_mode=args.replicate_mode,
+    ), args.image_field
 
 
 def main() -> None:
-    args = parse_probe_args("P4 Hunyuan3D-2 image-to-mesh probe")
+    args, image_field = _parse()
     keys = load_keys()
     provider = detect_provider(args.endpoint_url)
     key_name = "FAL_KEY" if provider == "fal.ai" else "REPLICATE_API_TOKEN"
@@ -21,9 +46,9 @@ def main() -> None:
     headers = _headers(provider, key)
     image_data_uri = f"data:image/png;base64,{image_base64}"
     if provider == "fal.ai":
-        body = {"image": image_data_uri}
+        body = {image_field: image_data_uri}
     else:  # replicate prediction-style envelope
-        body = {"version": args.model_id, "input": {"image": image_data_uri}}
+        body = {"version": args.model_id, "input": {image_field: image_data_uri}}
     ctx = CaptureContext("p4", provider, args.model_id, args.catalog_url, args.price_observed)
     terminal_body = None
     with httpx.Client(timeout=900) as client:
