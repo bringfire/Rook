@@ -54,13 +54,11 @@ public sealed class ProviderBodyShape
     [JsonPropertyName("cancel_url")]
     public string? CancelUrl { get; set; }
 
-    // Modality-specific result envelopes observed in actual captures.
+    // Modality-specific RESULT envelopes (success bodies) observed in actual captures.
     // - Images: fal sync image result -> {"images": [{url, content_type, ...}]}
     // - Video:  fal queue video result -> {"video": {url, duration, fps, ...}}
     // - ModelGlb / ModelUrls: fal queue 3D result -> {"model_glb": {...}, "model_urls": {glb, obj, fbx, ...}}
     // - Candidates: Gemini result -> {"candidates": [{content: {parts: [...]}}, ...]}
-    // - Detail: FastAPI-style error envelope (fal queue 3D 422 rejection) ->
-    //   {"detail": [{loc, msg, type, url}, ...]}
     [JsonPropertyName("images")]
     public JsonElement Images { get; set; }
 
@@ -79,6 +77,11 @@ public sealed class ProviderBodyShape
     [JsonPropertyName("candidates")]
     public JsonElement Candidates { get; set; }
 
+    // ERROR envelope field. Kept SEPARATE from result-signal predicate so that
+    // a failed provider response (e.g., fal queue 3D 422 with FastAPI invalid_parameter)
+    // does not satisfy HasLifecycleOrResultSignal(). The C# probe treats success
+    // and error envelopes as distinct classifications.
+    //   - Detail: FastAPI-style validation error -> {"detail": [{loc, msg, type, url}, ...]}
     [JsonPropertyName("detail")]
     public JsonElement Detail { get; set; }
 
@@ -100,12 +103,17 @@ public sealed class ProviderBodyShape
            || !string.IsNullOrWhiteSpace(RequestId)
            || !string.IsNullOrWhiteSpace(Id)
            || (Urls is not null && Urls.Count > 0)
-           // Modality-specific result envelopes (fal video/3D, Gemini, error bodies)
+           // Modality-specific success result envelopes
            || Images.ValueKind != JsonValueKind.Undefined
            || Video.ValueKind != JsonValueKind.Undefined
            || Audio.ValueKind != JsonValueKind.Undefined
            || ModelGlb.ValueKind != JsonValueKind.Undefined
            || ModelUrls.ValueKind != JsonValueKind.Undefined
-           || Candidates.ValueKind != JsonValueKind.Undefined
-           || Detail.ValueKind != JsonValueKind.Undefined;
+           || Candidates.ValueKind != JsonValueKind.Undefined;
+
+    public bool HasErrorSignal()
+        => Detail.ValueKind != JsonValueKind.Undefined;
+
+    public bool IsRecognizedShape()
+        => HasLifecycleOrResultSignal() || HasErrorSignal();
 }

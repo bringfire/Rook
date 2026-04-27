@@ -75,10 +75,25 @@ foreach (var probeId in requiredProbeIds)
         if (response.Body.ValueKind is JsonValueKind.Object)
         {
             var bodyShape = response.Body.Deserialize<ProviderBodyShape>(options);
-            if (bodyShape is null || !bodyShape.HasLifecycleOrResultSignal())
+            if (bodyShape is null)
             {
-                Console.Error.WriteLine($"Provider body did not expose lifecycle/result signals in {file}");
+                Console.Error.WriteLine($"Could not deserialize provider body shape in {file}");
                 return 7;
+            }
+            // Accept either a recognized success-result envelope OR a recognized
+            // error envelope. Both prove the capture round-trips through a typed
+            // shape; they are reported separately so the operator can tell at a
+            // glance whether a probe captured a working contract or a failure.
+            if (!bodyShape.IsRecognizedShape())
+            {
+                Console.Error.WriteLine(
+                    $"Provider body did not expose any recognized lifecycle/result OR error signal in {file}");
+                return 7;
+            }
+            if (bodyShape.HasErrorSignal() && !bodyShape.HasLifecycleOrResultSignal())
+            {
+                Console.WriteLine(
+                    $"  note: {file} matches an ERROR envelope (detail field present); recorded as error evidence");
             }
         }
 

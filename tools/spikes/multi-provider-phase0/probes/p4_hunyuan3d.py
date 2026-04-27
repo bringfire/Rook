@@ -8,7 +8,7 @@ import httpx
 from harness.capture import CaptureContext, append_notes, write_manifest, write_redacted
 from harness.env import load_keys, require_key
 from harness.fixtures import write_red_cube_png
-from probes._common import base_parser, capture_fetch_or_result, detect_provider, poll_json, safe_submit_data, timed_request, write_cancel_evidence
+from probes._common import base_parser, capture_fetch_or_result, detect_provider, determine_outcome, poll_json, safe_submit_data, timed_request, write_cancel_evidence
 from probes._common import ProbeArgs
 
 
@@ -77,7 +77,7 @@ def main() -> None:
         # `response_url` is fal queue's canonical "fetch result here when terminal" URL.
         # Listed alongside `result_url` / `output_url` for cross-provider compatibility.
         result_url = args.result_url or data.get("result_url") or data.get("output_url") or data.get("response_url")
-        capture_fetch_or_result(
+        fetch_status = capture_fetch_or_result(
             client,
             probe_id="p4",
             ctx=ctx,
@@ -92,8 +92,9 @@ def main() -> None:
         "Cancellation evidence must be filled from either a low-cost cancel attempt "
         "or provider API docs. P4 does not block Phase 1 except where its lifecycle evidence affects shared abstractions.",
     )
-    write_manifest(ctx, "complete" if response.is_success else "incomplete", {"submit_elapsed_seconds": elapsed})
-    append_notes("p4", f"- submit elapsed_seconds={elapsed:.2f}; status_code={response.status_code}")
+    outcome = determine_outcome(response, fetch_status)
+    write_manifest(ctx, outcome, {"submit_elapsed_seconds": elapsed, "submit_status_code": response.status_code, "fetch_status_code": fetch_status})
+    append_notes("p4", f"- submit elapsed_seconds={elapsed:.2f}; status_code={response.status_code}; fetch_status_code={fetch_status}; outcome={outcome}")
 
 
 def _headers(provider: str, key: str) -> dict[str, str]:

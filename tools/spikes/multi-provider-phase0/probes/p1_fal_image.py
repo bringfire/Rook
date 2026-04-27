@@ -5,7 +5,7 @@ import httpx
 from harness.capture import CaptureContext, append_notes, write_manifest, write_redacted
 from harness.env import load_keys, require_key
 from harness.fixtures import assert_synthetic_prompt, synthetic_prompt
-from probes._common import capture_fetch_or_result, parse_probe_args, timed_request, write_cancel_evidence
+from probes._common import capture_fetch_or_result, determine_outcome, parse_probe_args, timed_request, write_cancel_evidence
 
 
 def main() -> None:
@@ -25,7 +25,7 @@ def main() -> None:
             terminal_body = response.json()
         except ValueError:
             terminal_body = {"raw_text": response.text}
-        capture_fetch_or_result(
+        fetch_status = capture_fetch_or_result(
             client,
             probe_id="p1",
             ctx=ctx,
@@ -40,8 +40,9 @@ def main() -> None:
         "P1 image route completed synchronously or as a single submit/result exchange. "
         "No separate low-cost cancellation attempt was run; cancellation behavior is not load-bearing for synchronous image generation.",
     )
-    write_manifest(ctx, "complete" if response.is_success else "incomplete", {"elapsed_seconds": elapsed})
-    append_notes("p1", f"- submit elapsed_seconds={elapsed:.2f}; status_code={response.status_code}")
+    outcome = determine_outcome(response, fetch_status)
+    write_manifest(ctx, outcome, {"elapsed_seconds": elapsed, "submit_status_code": response.status_code, "fetch_status_code": fetch_status})
+    append_notes("p1", f"- submit elapsed_seconds={elapsed:.2f}; status_code={response.status_code}; fetch_status_code={fetch_status}; outcome={outcome}")
 
 
 if __name__ == "__main__":

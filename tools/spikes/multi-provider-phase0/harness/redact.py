@@ -25,6 +25,8 @@ SECRET_FIELD_PATTERNS = (
     "idtoken",
     "authtoken",
     "authorizationtoken",
+    "jwttoken",
+    "jwt",
     "bearer",
     "clientsecret",
     "secret",
@@ -37,6 +39,13 @@ TOKEN_QUERY_RE = re.compile(
 )
 
 BASE64_LIKE_RE = re.compile(r"^[A-Za-z0-9+/]{160,}={0,2}$")
+
+# JWT detection: header.payload.signature, each segment is base64url. The header
+# almost always starts with `eyJ` because `{"` JSON-encoded in base64url is `eyJ`.
+# This catches JWTs embedded as values regardless of the surrounding field name —
+# defense in depth against unanticipated key shapes (e.g., `jwtToken` in a third
+# party's published API schema example).
+JWT_LIKE_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 
 ORG_KEYS = {
     "user",
@@ -63,6 +72,10 @@ def redact_value(value: object) -> object:
     if isinstance(value, str):
         if value.startswith("data:"):
             return "<REDACTED_DATA_URI>"
+        if JWT_LIKE_RE.search(value):
+            # Token-shaped value detected anywhere in the string; replace whole
+            # value to avoid leaking partial signature bytes.
+            return "<REDACTED_JWT>"
         if _looks_like_url(value):
             return redact_url(value)
         if BASE64_LIKE_RE.match(value):

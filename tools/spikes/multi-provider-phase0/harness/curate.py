@@ -99,11 +99,16 @@ def _cap_response_body(payload: Any) -> Any:
     serialized = json.dumps(body, sort_keys=True)
     if len(serialized) <= CURATED_RESPONSE_BODY_CAP:
         return payload
+    # `preview` was deliberately removed: the structured redaction layer cannot
+    # catch every token-shaped value (e.g., third-party JWTs in another API's
+    # public catalog data). Storing a serialized preview after that limited
+    # redaction created a real leak vector. Schema-shape evidence below
+    # (`top_level_keys` for objects, `original_length` for arrays, type name)
+    # is sufficient for review without exposing raw bytes.
     descriptor: dict[str, Any] = {
         "<response_body_truncated_by_curation>": True,
         "original_size_chars": len(serialized),
         "cap_chars": CURATED_RESPONSE_BODY_CAP,
-        "preview": serialized[:CURATED_RESPONSE_BODY_CAP],
     }
     if isinstance(body, dict):
         descriptor["original_type"] = "object"

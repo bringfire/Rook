@@ -204,6 +204,30 @@ def safe_submit_data(
     return data
 
 
+def determine_outcome(submit_response: httpx.Response, fetch_status: int | None) -> str:
+    """Compute manifest outcome from submit + fetch HTTP status.
+
+    Returns one of:
+      - "complete":          submit ok AND (fetch ok OR terminal-body fallback)
+      - "validation_failed": submit ok AND fetch returned 4xx (e.g. fal queue
+                             COMPLETED + response_url 422 with FastAPI detail)
+      - "incomplete":        submit failed, fetch failed with 5xx, or other
+                             non-success path
+
+    fetch_status=None signals the terminal-body fallback path (sync providers
+    that return result inline; no separate fetch URL was hit).
+    """
+    if not submit_response.is_success:
+        return "incomplete"
+    if fetch_status is None:
+        return "complete"
+    if 200 <= fetch_status < 300:
+        return "complete"
+    if 400 <= fetch_status < 500:
+        return "validation_failed"
+    return "incomplete"
+
+
 def capture_fetch_or_result(
     client: httpx.Client,
     *,
@@ -213,7 +237,15 @@ def capture_fetch_or_result(
     result_url: str | None,
     terminal_body: dict[str, Any] | None,
     original_endpoint: str | None = None,
-) -> None:
+) -> int | None:
+    """Capture the fetch/result stage. Returns the HTTP status code observed,
+    or None if the terminal-body fallback path was taken (no real fetch).
+
+    The returned status flows into `determine_outcome` so that probe manifests
+    distinguish between "submit succeeded but the result fetch failed" (e.g.,
+    fal queue COMPLETED state with response_url returning 4xx) and "everything
+    worked end-to-end".
+    """
     if result_url:
         fetch_headers = _result_headers_for(result_url, original_endpoint=original_endpoint, headers=headers)
         is_artifact = is_artifact_url(result_url, original_endpoint)
@@ -234,6 +266,7 @@ def capture_fetch_or_result(
                     probe_id,
                     f"- fetch (HEAD only — artifact URL) status_code={head_response.status_code} content_type={head_response.headers.get('content-type', '')} content_length={head_response.headers.get('content-length', '')}",
                 )
+                return head_response.status_code
             except httpx.HTTPError as exc:
                 append_notes(
                     probe_id,
@@ -245,7 +278,7 @@ def capture_fetch_or_result(
                     {"status_code": None, "headers": {}, "body": {"<head_failed>": True}},
                     ctx,
                 )
-            return
+                return None
 
         # Provider API URL (same host as submit endpoint, no signed-URL tokens).
         # GET is appropriate; capture.py guards binary bodies and caps text length.
@@ -257,7 +290,7 @@ def capture_fetch_or_result(
             ctx,
         )
         append_notes(probe_id, f"- fetch via provider API result_url status_code={response.status_code} content_type={response.headers.get('content-type', '')}")
-        return
+        return response.status_code
 
     if terminal_body is not None:
         write_redacted(
@@ -272,6 +305,8 @@ def capture_fetch_or_result(
             ctx,
         )
         append_notes(probe_id, "- fetch represented by terminal response body; no separate result URL observed")
+        return None
+    return None
 
 
 def write_cancel_evidence(probe_id: str, ctx: CaptureContext, text: str) -> None:
