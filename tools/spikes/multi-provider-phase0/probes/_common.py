@@ -21,6 +21,11 @@ class ProbeArgs:
     poll_url: str | None
     result_url: str | None
     cancel_url: str | None
+    # Replicate-only: selects which submission contract to use. Other probes ignore this.
+    # - "versioned": POST /v1/predictions with {"version": "<hash>", "input": {...}}
+    # - "official-model": POST /v1/models/{owner}/{name}/predictions with {"input": {...}}
+    # - "unified-model-id": POST /v1/predictions with {"version": "owner/name", "input": {...}}
+    replicate_mode: str | None
 
 
 def base_parser(description: str) -> argparse.ArgumentParser:
@@ -32,6 +37,12 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--poll-url")
     parser.add_argument("--result-url")
     parser.add_argument("--cancel-url")
+    parser.add_argument(
+        "--replicate-mode",
+        choices=["versioned", "official-model", "unified-model-id"],
+        default="versioned",
+        help="Replicate-only: submission contract. Ignored by other probes.",
+    )
     return parser
 
 
@@ -45,6 +56,7 @@ def parse_probe_args(description: str) -> ProbeArgs:
         poll_url=args.poll_url,
         result_url=args.result_url,
         cancel_url=args.cancel_url,
+        replicate_mode=args.replicate_mode,
     )
 
 

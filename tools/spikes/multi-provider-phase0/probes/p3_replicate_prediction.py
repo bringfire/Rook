@@ -14,7 +14,13 @@ def main() -> None:
     prompt = synthetic_prompt("red_cube")
     assert_synthetic_prompt(prompt)
     headers = {"Authorization": f"Token {key}", "Content-Type": "application/json"}
-    body = {"version": args.model_id, "input": {"prompt": prompt}}
+    if args.replicate_mode == "official-model":
+        # POST /v1/models/{owner}/{name}/predictions — model is in URL, not body.
+        body = {"input": {"prompt": prompt}}
+    else:
+        # versioned or unified-model-id: POST /v1/predictions, version field carries
+        # either a 64-char hash (versioned) or an owner/name slug (unified-model-id).
+        body = {"version": args.model_id, "input": {"prompt": prompt}}
     ctx = CaptureContext("p3", "replicate", args.model_id, args.catalog_url, args.price_observed)
     terminal_body = None
     with httpx.Client(timeout=300) as client:
