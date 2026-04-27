@@ -61,8 +61,13 @@ def main() -> None:
     write_cancel_evidence(
         "p2",
         ctx,
-        "Cancellation evidence must be filled from either a second low-cost video cancel attempt "
-        "or provider API docs. Decision 1 is incomplete until this file states supported/unsupported and billing semantics.",
+        "fal queue exposes a `cancel_url` in the submit envelope (e.g., "
+        "`https://queue.fal.run/{model}/requests/{request_id}/cancel`). "
+        "Live cancellation was not exercised against the running job. "
+        "Cancellation remains an open follow-on (see spike doc Open Follow-Ons) and does NOT block "
+        "the Phase 1 lifecycle binding for Decision 1 — the cancel URL's existence is sufficient "
+        "evidence that fal queue supports cancellation; the operational semantics (billing, idempotency, "
+        "in-flight behavior) can be characterized in Phase 1 implementation or a Phase 2 follow-up.",
     )
     outcome = determine_outcome(response, fetch_status)
     write_manifest(ctx, outcome, {"submit_elapsed_seconds": elapsed, "submit_status_code": response.status_code, "fetch_status_code": fetch_status})

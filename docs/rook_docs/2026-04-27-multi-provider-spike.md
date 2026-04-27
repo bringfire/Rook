@@ -9,7 +9,7 @@
 - [`2026-04-26-generation-provider-framework.md`](2026-04-26-generation-provider-framework.md) — v0.1 strategic frame; this spike feeds its v0.2 update
 - [`2026-04-22-v3-video-decisions.md`](2026-04-22-v3-video-decisions.md) — V1c video provider abstraction (the template generalized)
 - [`2026-04-08-sa-banana-integration.md`](2026-04-08-sa-banana-integration.md) — RookVision image-track architecture (refactor target)
-- Curated evidence: [`artifacts/2026-04-27-multi-provider-spike/`](artifacts/2026-04-27-multi-provider-spike/) (12 probe directories, 554 KB total)
+- Curated evidence: [`artifacts/2026-04-27-multi-provider-spike/`](artifacts/2026-04-27-multi-provider-spike/) (12 probe directories, ~211 KB content across 140 files)
 
 ---
 

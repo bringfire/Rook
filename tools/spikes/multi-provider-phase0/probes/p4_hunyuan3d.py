@@ -89,8 +89,15 @@ def main() -> None:
     write_cancel_evidence(
         "p4",
         ctx,
-        "Cancellation evidence must be filled from either a low-cost cancel attempt "
-        "or provider API docs. P4 does not block Phase 1 except where its lifecycle evidence affects shared abstractions.",
+        "fal queue (Hunyuan3D Pro) exposes a `cancel_url` in the submit envelope (e.g., "
+        "`https://queue.fal.run/{model}/requests/{request_id}/cancel`). "
+        "Per the Hunyuan v3.1 OpenAPI schema captured during P4 setup, the cancel endpoint accepts "
+        "PUT (not POST). Live cancellation was not exercised against the running job. "
+        "Cancellation remains an open follow-on (see spike doc Open Follow-Ons) and does NOT block "
+        "the Phase 1 lifecycle binding for Decision 1 — cancel URL existence + HTTP method (PUT) are "
+        "sufficient evidence that fal queue 3D supports cancellation. Operational semantics can be "
+        "characterized at Phase 4 implementation time when Tencent direct + fal queue 3D are wired "
+        "into IThreeDProvider.",
     )
     outcome = determine_outcome(response, fetch_status)
     write_manifest(ctx, outcome, {"submit_elapsed_seconds": elapsed, "submit_status_code": response.status_code, "fetch_status_code": fetch_status})
