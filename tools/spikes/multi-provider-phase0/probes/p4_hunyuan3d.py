@@ -19,7 +19,11 @@ def main() -> None:
     image_path = write_red_cube_png()
     image_base64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
     headers = _headers(provider, key)
-    body = {"image": f"data:image/png;base64,{image_base64}"}
+    image_data_uri = f"data:image/png;base64,{image_base64}"
+    if provider == "fal.ai":
+        body = {"image": image_data_uri}
+    else:  # replicate prediction-style envelope
+        body = {"version": args.model_id, "input": {"image": image_data_uri}}
     ctx = CaptureContext("p4", provider, args.model_id, args.catalog_url, args.price_observed)
     terminal_body = None
     with httpx.Client(timeout=900) as client:

@@ -98,6 +98,21 @@ def is_signed_artifact_url(url: str) -> bool:
     return False
 
 
+def is_artifact_url(url: str, original_endpoint: str | None) -> bool:
+    """Return True if the URL is an external artifact (signed token, or cross-origin from the API).
+
+    Artifact URLs are HEAD-only: we never GET them, because they may serve mp4/mesh/archive
+    binaries with missing or misleading content-type metadata. Provider API URLs (same host
+    as the submit endpoint, no signed-URL tokens) are still GET-eligible.
+    """
+    if is_signed_artifact_url(url):
+        return True
+    if original_endpoint:
+        if urlsplit(url).netloc.lower() != urlsplit(original_endpoint).netloc.lower():
+            return True
+    return False
+
+
 def _strip_auth(headers: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() != "authorization"}
 
@@ -105,16 +120,11 @@ def _strip_auth(headers: dict[str, str]) -> dict[str, str]:
 def _result_headers_for(url: str, *, original_endpoint: str | None, headers: dict[str, str]) -> dict[str, str]:
     """Decide whether to forward Authorization to a result URL.
 
-    Strip auth when:
-      - URL has signed-URL token query params (S3/CDN/blob), OR
-      - URL host differs from the original API endpoint host (cross-origin artifact).
-    Otherwise forward headers (e.g. Replicate /v1/predictions/{id} on the same host).
+    Strip auth for any artifact URL (signed query tokens or cross-origin from the API host).
+    Forward headers only for provider API URLs (e.g. Replicate /v1/predictions/{id}).
     """
-    if is_signed_artifact_url(url):
+    if is_artifact_url(url, original_endpoint):
         return _strip_auth(headers)
-    if original_endpoint:
-        if urlsplit(url).netloc.lower() != urlsplit(original_endpoint).netloc.lower():
-            return _strip_auth(headers)
     return headers
 
 
@@ -170,34 +180,39 @@ def capture_fetch_or_result(
 ) -> None:
     if result_url:
         fetch_headers = _result_headers_for(result_url, original_endpoint=original_endpoint, headers=headers)
-        # HEAD first to avoid downloading binary artifacts (mp4 / mesh / image).
-        try:
-            head_response = client.head(result_url, headers=fetch_headers, follow_redirects=True)
-            head_ok = True
-        except httpx.HTTPError as exc:
-            append_notes(probe_id, f"- HEAD on result_url raised {type(exc).__name__}: {exc}; falling back to GET-with-binary-guard")
-            head_response = None
-            head_ok = False
+        is_artifact = is_artifact_url(result_url, original_endpoint)
 
-        content_type = ""
-        if head_response is not None:
-            content_type = head_response.headers.get("content-type", "").lower()
-            write_redacted(
-                "fetch_head",
-                {"method": "HEAD", "url": result_url, "headers": fetch_headers},
-                head_response,
-                ctx,
-            )
-
-        if head_ok and head_response is not None and not is_textual_content_type(content_type):
-            # Binary artifact — do NOT download body. HEAD metadata is the fetch evidence.
-            append_notes(
-                probe_id,
-                f"- fetch (HEAD only, binary content_type={content_type or 'unknown'}) status_code={head_response.status_code}",
-            )
+        if is_artifact:
+            # External artifact (signed URL or cross-origin host). HEAD-only — never GET.
+            # Servers can return 200 with missing/incorrect content-type for binary blobs;
+            # a full GET would download mp4/mesh/archive into memory before capture.py drops it.
+            try:
+                head_response = client.head(result_url, headers=fetch_headers, follow_redirects=True)
+                write_redacted(
+                    "fetch_head",
+                    {"method": "HEAD", "url": result_url, "headers": fetch_headers},
+                    head_response,
+                    ctx,
+                )
+                append_notes(
+                    probe_id,
+                    f"- fetch (HEAD only — artifact URL) status_code={head_response.status_code} content_type={head_response.headers.get('content-type', '')} content_length={head_response.headers.get('content-length', '')}",
+                )
+            except httpx.HTTPError as exc:
+                append_notes(
+                    probe_id,
+                    f"- HEAD on artifact result_url raised {type(exc).__name__}: {exc}; no body capture attempted (artifact URLs are HEAD-only)",
+                )
+                write_redacted(
+                    "fetch_head",
+                    {"method": "HEAD", "url": result_url, "headers": fetch_headers, "error": f"{type(exc).__name__}: {exc}"},
+                    {"status_code": None, "headers": {}, "body": {"<head_failed>": True}},
+                    ctx,
+                )
             return
 
-        # Textual or HEAD-failed: GET, but capture.py will guard binary by content-type and cap text size.
+        # Provider API URL (same host as submit endpoint, no signed-URL tokens).
+        # GET is appropriate; capture.py guards binary bodies and caps text length.
         response = client.get(result_url, headers=fetch_headers)
         write_redacted(
             "fetch",
@@ -205,7 +220,7 @@ def capture_fetch_or_result(
             response,
             ctx,
         )
-        append_notes(probe_id, f"- fetch via result_url status_code={response.status_code} content_type={response.headers.get('content-type', '')}")
+        append_notes(probe_id, f"- fetch via provider API result_url status_code={response.status_code} content_type={response.headers.get('content-type', '')}")
         return
 
     if terminal_body is not None:

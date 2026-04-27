@@ -16,6 +16,22 @@ AUTH_HEADER_PATTERNS = (
     "fal-key",
 )
 
+# JSON / body-field patterns. Matched against keys with all `-` and `_` removed
+# so that `api_key`, `apiKey`, `api-key`, `API_KEY` all hit the same rule.
+SECRET_FIELD_PATTERNS = (
+    "apikey",
+    "accesstoken",
+    "refreshtoken",
+    "idtoken",
+    "authtoken",
+    "authorizationtoken",
+    "bearer",
+    "clientsecret",
+    "secret",
+    "password",
+    "privatekey",
+)
+
 TOKEN_QUERY_RE = re.compile(
     r"(?i)(token|signature|x-amz-[^=&\s]+|x-goog-signature|access_key|expires|credential)"
 )
@@ -58,11 +74,14 @@ def redact_value(value: object) -> object:
 def redact_mapping(mapping: Mapping[str, object]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in mapping.items():
-        normalized = key.lower().replace("-", "_")
         header_normalized = key.lower()
+        org_normalized = header_normalized.replace("-", "_")
+        secret_normalized = header_normalized.replace("-", "").replace("_", "")
         if any(pattern in header_normalized for pattern in AUTH_HEADER_PATTERNS):
             result[key] = REDACTED
-        elif normalized in ORG_KEYS:
+        elif any(pattern in secret_normalized for pattern in SECRET_FIELD_PATTERNS):
+            result[key] = REDACTED
+        elif org_normalized in ORG_KEYS:
             result[key] = REDACTED
         else:
             result[key] = redact_value(value)

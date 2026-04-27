@@ -17,7 +17,10 @@ def main() -> None:
     prompt = synthetic_prompt("white_arch")
     assert_synthetic_prompt(prompt)
     headers = _headers(provider, key)
-    body = {"prompt": prompt}
+    if provider == "fal.ai":
+        body = {"prompt": prompt}
+    else:  # replicate prediction-style envelope
+        body = {"version": args.model_id, "input": {"prompt": prompt}}
     ctx = CaptureContext("p2", provider, args.model_id, args.catalog_url, args.price_observed)
     terminal_body = None
     with httpx.Client(timeout=900) as client:
