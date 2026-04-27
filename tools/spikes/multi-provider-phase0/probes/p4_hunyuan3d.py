@@ -7,7 +7,7 @@ import httpx
 from harness.capture import CaptureContext, append_notes, write_manifest, write_redacted
 from harness.env import load_keys, require_key
 from harness.fixtures import write_red_cube_png
-from probes._common import capture_fetch_or_result, parse_probe_args, poll_json, timed_request, write_cancel_evidence
+from probes._common import capture_fetch_or_result, parse_probe_args, poll_json, safe_submit_data, timed_request, write_cancel_evidence
 
 
 def main() -> None:
@@ -27,7 +27,9 @@ def main() -> None:
             lambda: client.post(args.endpoint_url, headers=headers, json=body)
         )
         write_redacted("submit", {"method": "POST", "url": args.endpoint_url, "headers": headers, "json": body}, response, ctx)
-        data = response.json()
+        data = safe_submit_data(response, probe_id="p4", ctx=ctx)
+        if data is None:
+            return
         poll_url = args.poll_url or data.get("status_url") or data.get("urls", {}).get("get")
         if poll_url:
             terminal_body = poll_json(
@@ -51,6 +53,7 @@ def main() -> None:
             headers=headers,
             result_url=result_url,
             terminal_body=terminal_body,
+            original_endpoint=args.endpoint_url,
         )
     write_cancel_evidence(
         "p4",

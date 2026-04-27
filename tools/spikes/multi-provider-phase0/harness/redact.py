@@ -45,6 +45,8 @@ def redact_value(value: object) -> object:
     if isinstance(value, list):
         return [redact_value(item) for item in value]
     if isinstance(value, str):
+        if value.startswith("data:"):
+            return "<REDACTED_DATA_URI>"
         if _looks_like_url(value):
             return redact_url(value)
         if BASE64_LIKE_RE.match(value):

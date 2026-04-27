@@ -32,6 +32,7 @@ def main() -> None:
             headers=headers,
             result_url=args.result_url,
             terminal_body=terminal_body,
+            original_endpoint=args.endpoint_url,
         )
     write_cancel_evidence(
         "p1",

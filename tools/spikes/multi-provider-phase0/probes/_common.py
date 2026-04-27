@@ -4,10 +4,12 @@ import argparse
 from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import Any, Callable
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
-from harness.capture import CaptureContext, append_notes, write_redacted
+from harness.capture import CaptureContext, append_notes, is_textual_content_type, write_manifest, write_redacted
+from harness.redact import TOKEN_QUERY_RE
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,77 @@ def poll_json(
     raise SystemExit(f"{probe_id}: polling did not reach terminal state after {max_polls} polls")
 
 
+def is_signed_artifact_url(url: str) -> bool:
+    """Return True if the URL has signed-URL token query params (S3/CDN/blob)."""
+    parts = urlsplit(url)
+    if not parts.query:
+        return False
+    for key, _ in parse_qsl(parts.query, keep_blank_values=True):
+        if TOKEN_QUERY_RE.search(key):
+            return True
+    return False
+
+
+def _strip_auth(headers: dict[str, str]) -> dict[str, str]:
+    return {k: v for k, v in headers.items() if k.lower() != "authorization"}
+
+
+def _result_headers_for(url: str, *, original_endpoint: str | None, headers: dict[str, str]) -> dict[str, str]:
+    """Decide whether to forward Authorization to a result URL.
+
+    Strip auth when:
+      - URL has signed-URL token query params (S3/CDN/blob), OR
+      - URL host differs from the original API endpoint host (cross-origin artifact).
+    Otherwise forward headers (e.g. Replicate /v1/predictions/{id} on the same host).
+    """
+    if is_signed_artifact_url(url):
+        return _strip_auth(headers)
+    if original_endpoint:
+        if urlsplit(url).netloc.lower() != urlsplit(original_endpoint).netloc.lower():
+            return _strip_auth(headers)
+    return headers
+
+
+def safe_submit_data(
+    response: httpx.Response,
+    *,
+    probe_id: str,
+    ctx: CaptureContext,
+    cancel_evidence_text: str = "Cancel evidence not collected: submit response was not parseable JSON.",
+) -> dict[str, Any] | None:
+    """Parse submit response as JSON, or fail-closed: write incomplete manifest + cancel evidence.
+
+    Returns parsed dict on success. Returns None when probe should abort cleanly.
+    """
+    try:
+        data = response.json()
+    except ValueError:
+        append_notes(
+            probe_id,
+            f"- submit response was not JSON; status={response.status_code}; aborting probe with incomplete manifest",
+        )
+        write_manifest(
+            ctx,
+            "incomplete",
+            {"reason": "non_json_submit_response", "status_code": response.status_code},
+        )
+        write_cancel_evidence(probe_id, ctx, cancel_evidence_text)
+        return None
+    if not isinstance(data, dict):
+        append_notes(
+            probe_id,
+            f"- submit response JSON was not an object (got {type(data).__name__}); aborting probe with incomplete manifest",
+        )
+        write_manifest(
+            ctx,
+            "incomplete",
+            {"reason": "non_object_submit_response", "status_code": response.status_code},
+        )
+        write_cancel_evidence(probe_id, ctx, cancel_evidence_text)
+        return None
+    return data
+
+
 def capture_fetch_or_result(
     client: httpx.Client,
     *,
@@ -93,16 +166,46 @@ def capture_fetch_or_result(
     headers: dict[str, str],
     result_url: str | None,
     terminal_body: dict[str, Any] | None,
+    original_endpoint: str | None = None,
 ) -> None:
     if result_url:
-        response = client.get(result_url, headers=headers)
+        fetch_headers = _result_headers_for(result_url, original_endpoint=original_endpoint, headers=headers)
+        # HEAD first to avoid downloading binary artifacts (mp4 / mesh / image).
+        try:
+            head_response = client.head(result_url, headers=fetch_headers, follow_redirects=True)
+            head_ok = True
+        except httpx.HTTPError as exc:
+            append_notes(probe_id, f"- HEAD on result_url raised {type(exc).__name__}: {exc}; falling back to GET-with-binary-guard")
+            head_response = None
+            head_ok = False
+
+        content_type = ""
+        if head_response is not None:
+            content_type = head_response.headers.get("content-type", "").lower()
+            write_redacted(
+                "fetch_head",
+                {"method": "HEAD", "url": result_url, "headers": fetch_headers},
+                head_response,
+                ctx,
+            )
+
+        if head_ok and head_response is not None and not is_textual_content_type(content_type):
+            # Binary artifact — do NOT download body. HEAD metadata is the fetch evidence.
+            append_notes(
+                probe_id,
+                f"- fetch (HEAD only, binary content_type={content_type or 'unknown'}) status_code={head_response.status_code}",
+            )
+            return
+
+        # Textual or HEAD-failed: GET, but capture.py will guard binary by content-type and cap text size.
+        response = client.get(result_url, headers=fetch_headers)
         write_redacted(
             "fetch",
-            {"method": "GET", "url": result_url, "headers": headers},
+            {"method": "GET", "url": result_url, "headers": fetch_headers},
             response,
             ctx,
         )
-        append_notes(probe_id, f"- fetch via result_url status_code={response.status_code}")
+        append_notes(probe_id, f"- fetch via result_url status_code={response.status_code} content_type={response.headers.get('content-type', '')}")
         return
 
     if terminal_body is not None:

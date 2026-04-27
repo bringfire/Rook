@@ -69,15 +69,45 @@ def append_notes(probe_id: str, text: str) -> Path:
     return path
 
 
+_TEXTUAL_CONTENT_HINTS = ("json", "text", "xml", "javascript", "yaml", "x-www-form-urlencoded")
+_TEXT_BODY_CAP = 200_000  # truncate text bodies past this many chars to avoid huge raw captures
+
+
+def is_textual_content_type(content_type: str) -> bool:
+    if not content_type:
+        return True  # unknown → assume textual; redaction layer handles oddities
+    return any(hint in content_type for hint in _TEXTUAL_CONTENT_HINTS)
+
+
 def _response_payload(response: httpx.Response | dict[str, Any]) -> dict[str, Any]:
     if isinstance(response, dict):
         return response
-    try:
-        body: Any = response.json()
-    except ValueError:
-        body = response.text
+    headers = dict(response.headers)
+    content_type = response.headers.get("content-type", "").lower()
+    body: Any
+    if is_textual_content_type(content_type):
+        try:
+            body = response.json()
+        except ValueError:
+            text = response.text
+            if len(text) > _TEXT_BODY_CAP:
+                body = {
+                    "<text_body_truncated>": True,
+                    "content_type": content_type,
+                    "captured_chars": _TEXT_BODY_CAP,
+                    "total_chars": len(text),
+                    "preview": text[:_TEXT_BODY_CAP],
+                }
+            else:
+                body = text
+    else:
+        body = {
+            "<binary_body_dropped>": True,
+            "content_type": content_type,
+            "content_length": response.headers.get("content-length"),
+        }
     return {
         "status_code": response.status_code,
-        "headers": dict(response.headers),
+        "headers": headers,
         "body": body,
     }
