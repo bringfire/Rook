@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .env import CAPTURE_ROOT, REPO_ROOT
-from .redact import redact_capture
+from .redact import redact_capture, redact_url
 
 
 # Keys whose *string* values should be dropped as opaque blobs. Object/list values under these
@@ -18,6 +18,10 @@ BINARY_VALUE_KEYS = {"data", "image_base64", "b64_json", "bytes"}
 
 SPIKE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ARTIFACTS_ROOT = (REPO_ROOT / "docs" / "rook_docs" / "artifacts").resolve()
+
+# Match http(s) URLs in markdown for token-query redaction. Stops at whitespace, angle
+# brackets, or closing parens (covers prose, code fences, and exception messages).
+URL_IN_MARKDOWN_RE = re.compile(r"https?://[^\s<>)]+")
 
 
 def main() -> None:
@@ -55,10 +59,24 @@ def main() -> None:
                 encoding="utf-8",
             )
         # Copy all probe-written markdown evidence (notes.md, cancel_evidence.md, future *.md).
+        # Run a URL-redaction pass so any signed-URL tokens that ended up in exception
+        # strings or freeform notes do not reach the committed artifact directory.
         for md_file in sorted(probe_dir.glob("*.md")):
-            shutil.copyfile(md_file, out_dir / md_file.name)
+            text = md_file.read_text(encoding="utf-8")
+            redacted = _redact_markdown(text)
+            (out_dir / md_file.name).write_text(redacted, encoding="utf-8")
 
     print(dest)
+
+
+def _redact_markdown(text: str) -> str:
+    """Redact signed-URL token query params from any URL embedded in markdown.
+
+    Probes can write exception strings into notes (e.g. an httpx error including the
+    full result_url with a still-live signature). `redact_url` strips the token query
+    params while keeping path/host structure intact for evidence value.
+    """
+    return URL_IN_MARKDOWN_RE.sub(lambda m: redact_url(m.group(0)), text)
 
 
 def _drop_binary_values(value: Any) -> Any:

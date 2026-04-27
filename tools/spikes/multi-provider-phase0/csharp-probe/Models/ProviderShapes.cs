@@ -35,6 +35,25 @@ public sealed class ProviderBodyShape
     [JsonPropertyName("urls")]
     public Dictionary<string, JsonElement>? Urls { get; set; }
 
+    // fal.ai submit-envelope fields. fal returns
+    // { "request_id": "...", "status_url": "...", "response_url": "...", "cancel_url": "..." }
+    // on submit; without these as recognized signals the C# shape probe would reject
+    // valid fal-hosted P2/P4 lifecycle captures.
+    [JsonPropertyName("request_id")]
+    public string? RequestId { get; set; }
+
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("status_url")]
+    public string? StatusUrl { get; set; }
+
+    [JsonPropertyName("response_url")]
+    public string? ResponseUrl { get; set; }
+
+    [JsonPropertyName("cancel_url")]
+    public string? CancelUrl { get; set; }
+
     // JsonExtensionData kept for forward compatibility (lets unknown fields round-trip),
     // but unknown fields do NOT count as a lifecycle/result signal — otherwise arbitrary
     // payloads and error bodies would silently pass the shape check.
@@ -47,5 +66,10 @@ public sealed class ProviderBodyShape
            || Output.ValueKind != JsonValueKind.Undefined
            || !string.IsNullOrWhiteSpace(ResultUrl)
            || !string.IsNullOrWhiteSpace(OutputUrl)
+           || !string.IsNullOrWhiteSpace(StatusUrl)
+           || !string.IsNullOrWhiteSpace(ResponseUrl)
+           || !string.IsNullOrWhiteSpace(CancelUrl)
+           || !string.IsNullOrWhiteSpace(RequestId)
+           || !string.IsNullOrWhiteSpace(Id)
            || (Urls is not null && Urls.Count > 0);
 }
