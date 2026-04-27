@@ -49,7 +49,9 @@ def main() -> None:
             )
         else:
             terminal_body = data
-        result_url = args.result_url or data.get("result_url") or data.get("output_url")
+        # `response_url` is fal queue's canonical "fetch result here when terminal" URL.
+        # Listed alongside `result_url` / `output_url` for cross-provider compatibility.
+        result_url = args.result_url or data.get("result_url") or data.get("output_url") or data.get("response_url")
         capture_fetch_or_result(
             client,
             probe_id="p4",

@@ -92,8 +92,11 @@ def poll_json(
         except ValueError:
             last_body = {"raw_text": response.text}
         state = status_getter(last_body)
+        # Notes preserve original case (evidence: fal uses UPPERCASE state names; Replicate uses lowercase).
+        # Comparison is case-insensitive so providers using different casing all match the canonical
+        # terminal set.
         append_notes(probe_id, f"- poll {index}: state={state}, status_code={response.status_code}")
-        if state in terminal:
+        if state.lower() in terminal:
             return last_body
         sleep(interval_seconds)
     raise SystemExit(f"{probe_id}: polling did not reach terminal state after {max_polls} polls")
