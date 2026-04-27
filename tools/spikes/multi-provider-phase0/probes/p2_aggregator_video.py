@@ -5,13 +5,13 @@ import httpx
 from harness.capture import CaptureContext, append_notes, write_manifest, write_redacted
 from harness.env import load_keys, require_key
 from harness.fixtures import assert_synthetic_prompt, synthetic_prompt
-from probes._common import capture_fetch_or_result, parse_probe_args, poll_json, safe_submit_data, timed_request, write_cancel_evidence
+from probes._common import capture_fetch_or_result, detect_provider, parse_probe_args, poll_json, safe_submit_data, timed_request, write_cancel_evidence
 
 
 def main() -> None:
     args = parse_probe_args("P2 aggregator-hosted video probe")
     keys = load_keys()
-    provider = "fal.ai" if "fal" in args.catalog_url.lower() else "replicate"
+    provider = detect_provider(args.endpoint_url)
     key_name = "FAL_KEY" if provider == "fal.ai" else "REPLICATE_API_TOKEN"
     key = require_key(key_name, keys.fal if provider == "fal.ai" else keys.replicate)
     prompt = synthetic_prompt("white_arch")

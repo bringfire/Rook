@@ -87,6 +87,27 @@ def poll_json(
     raise SystemExit(f"{probe_id}: polling did not reach terminal state after {max_polls} polls")
 
 
+def detect_provider(endpoint_url: str) -> str:
+    """Classify provider from the endpoint URL host.
+
+    Robust replacement for substring-matching `catalog_url`, which would misclassify a
+    Replicate model whose owner/slug contained `fal`. Endpoint hosts are stable per provider:
+    - Replicate API → api.replicate.com (or *.replicate.com)
+    - fal.ai → *.fal.ai (e.g. api.fal.ai) or *.fal.run (e.g. queue.fal.run)
+    """
+    host = urlsplit(endpoint_url).netloc.lower()
+    if not host:
+        raise SystemExit(f"Could not parse host from endpoint URL: {endpoint_url}")
+    if host == "api.replicate.com" or host.endswith(".replicate.com"):
+        return "replicate"
+    if host == "fal.ai" or host.endswith(".fal.ai") or host == "fal.run" or host.endswith(".fal.run"):
+        return "fal.ai"
+    raise SystemExit(
+        f"Could not classify provider from endpoint host: {host}. "
+        "Expected api.replicate.com, *.replicate.com, *.fal.ai, or *.fal.run."
+    )
+
+
 def is_signed_artifact_url(url: str) -> bool:
     """Return True if the URL has signed-URL token query params (S3/CDN/blob)."""
     parts = urlsplit(url)
