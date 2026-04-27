@@ -54,6 +54,34 @@ public sealed class ProviderBodyShape
     [JsonPropertyName("cancel_url")]
     public string? CancelUrl { get; set; }
 
+    // Modality-specific result envelopes observed in actual captures.
+    // - Images: fal sync image result -> {"images": [{url, content_type, ...}]}
+    // - Video:  fal queue video result -> {"video": {url, duration, fps, ...}}
+    // - ModelGlb / ModelUrls: fal queue 3D result -> {"model_glb": {...}, "model_urls": {glb, obj, fbx, ...}}
+    // - Candidates: Gemini result -> {"candidates": [{content: {parts: [...]}}, ...]}
+    // - Detail: FastAPI-style error envelope (fal queue 3D 422 rejection) ->
+    //   {"detail": [{loc, msg, type, url}, ...]}
+    [JsonPropertyName("images")]
+    public JsonElement Images { get; set; }
+
+    [JsonPropertyName("video")]
+    public JsonElement Video { get; set; }
+
+    [JsonPropertyName("audio")]
+    public JsonElement Audio { get; set; }
+
+    [JsonPropertyName("model_glb")]
+    public JsonElement ModelGlb { get; set; }
+
+    [JsonPropertyName("model_urls")]
+    public JsonElement ModelUrls { get; set; }
+
+    [JsonPropertyName("candidates")]
+    public JsonElement Candidates { get; set; }
+
+    [JsonPropertyName("detail")]
+    public JsonElement Detail { get; set; }
+
     // JsonExtensionData kept for forward compatibility (lets unknown fields round-trip),
     // but unknown fields do NOT count as a lifecycle/result signal — otherwise arbitrary
     // payloads and error bodies would silently pass the shape check.
@@ -71,5 +99,13 @@ public sealed class ProviderBodyShape
            || !string.IsNullOrWhiteSpace(CancelUrl)
            || !string.IsNullOrWhiteSpace(RequestId)
            || !string.IsNullOrWhiteSpace(Id)
-           || (Urls is not null && Urls.Count > 0);
+           || (Urls is not null && Urls.Count > 0)
+           // Modality-specific result envelopes (fal video/3D, Gemini, error bodies)
+           || Images.ValueKind != JsonValueKind.Undefined
+           || Video.ValueKind != JsonValueKind.Undefined
+           || Audio.ValueKind != JsonValueKind.Undefined
+           || ModelGlb.ValueKind != JsonValueKind.Undefined
+           || ModelUrls.ValueKind != JsonValueKind.Undefined
+           || Candidates.ValueKind != JsonValueKind.Undefined
+           || Detail.ValueKind != JsonValueKind.Undefined;
 }
