@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-27
 **Status:** complete — all six contract decisions bound; gate satisfied per design Section 1
-**Branch:** `spike/multi-provider-phase0` (commits `7550e56` → `73c2f89`)
+**Branch:** `spike/multi-provider-phase0` (multi-commit history; harness + curated evidence land in `7550e56` … `73c2f89`, with subsequent commits adding this doc and its review-pass corrections — see `git log main..spike/multi-provider-phase0` for the full sequence)
 
 **Related:**
-- [`docs/plans/2026-04-27-multi-provider-phase0-spike-design.md`](../plans/2026-04-27-multi-provider-phase0-spike-design.md) — Phase 0 spike design (gitignored, local-only per Rook convention)
+- `docs/plans/2026-04-27-multi-provider-phase0-spike-design.md` — Phase 0 spike design doc. **Local-only per Rook convention** (`docs/plans/` is gitignored at `.gitignore:5`); not committed and not browsable in the PR. The substantive design constraints from that file (probe matrix, six contract decisions, strict gate, 3D carve-out) are summarized in the Methodology and Decision sections below; reviewers should read this committed doc as the canonical record.
 - [`2026-04-26-generation-provider-framework.md`](2026-04-26-generation-provider-framework.md) — v0.1 strategic frame; this spike feeds its v0.2 update
 - [`2026-04-22-v3-video-decisions.md`](2026-04-22-v3-video-decisions.md) — V1c video provider abstraction (the template generalized)
 - [`2026-04-08-sa-banana-integration.md`](2026-04-08-sa-banana-integration.md) — RookVision image-track architecture (refactor target)
@@ -64,13 +64,16 @@ P4 vs P4-err separation per the operator's review-pass note: **`p4/` is the gati
 
 ## C# Shape Check
 
-`tools/spikes/multi-provider-phase0/csharp-probe/` (`net7.0`, captures-only — never makes live calls) deserialized every committed JSON capture under p2/p3/p4 through typed `CaptureEnvelope` / `CaptureHttpResponse` / `ProviderBodyShape` records. Round-trip serialize check confirmed `response` payload survived end-to-end.
+`tools/spikes/multi-provider-phase0/csharp-probe/` (`net7.0`, captures-only — never makes live calls) deserialized JSON captures from the **three risky-shape probe directories (p2, p3, p4)** through typed `CaptureEnvelope` / `CaptureHttpResponse` / `ProviderBodyShape` records. Round-trip serialize check confirmed `response` payload survived end-to-end. The other 9 committed directories (`auth_*`, `b1`, `p1*`, `p3_official_model`, `p4_validation_rejection`) are covered by:
+- the secret/JWT scan (zero matches across the entire 12-directory tree),
+- the curated artifact review (each directory's `manifest.json` + a representative payload reviewed),
+- and the C# probe's same-shape coverage of `p4` (which exercises the success path) plus the `p4_validation_rejection` deliberate exclusion (it's marked error-evidence-only and not a gating capture).
 
 The probe was hardened twice during the review pass:
 1. Added recognized fields for modality-specific result envelopes: `images`, `video`, `audio`, `model_glb`, `model_urls`, `candidates`. Without these, p2/fetch.json (`{video: {...}}`) and p4/fetch.json (`{model_glb, model_urls, ...}`) failed because the original signal predicate looked for `Status`/`Output`/etc. only.
 2. Split `Detail` (FastAPI error envelope) out of the success-signal predicate. New `HasErrorSignal()` and `IsRecognizedShape() = HasLifecycleOrResultSignal() || HasErrorSignal()`. Probe now logs an explicit "matches an ERROR envelope" note when only `HasErrorSignal()` fires, distinguishing captured-success from captured-error in reviewer-visible output.
 
-Result: passes for all 12 probe directories. The split predicate cleanly classifies p4_validation_rejection's error envelope as evidence-bearing without elevating it to success-result evidence.
+Result: passes for the required risky shapes (P2/P3/P4). The split predicate cleanly distinguishes a successful result envelope from an error envelope so that future probe data with `detail` arrays is explicitly classified as error evidence, not silently accepted as success.
 
 ---
 
@@ -122,11 +125,10 @@ Result: passes for all 12 probe directories. The split predicate cleanly classif
 - **Hunyuan3D direct on Tencent (P5 docs only):** image-to-3D Pro tier + Rapid tier, Part Segmentation, Smart Topology (retopology), UV Unwrapping, Texture Editing, Format Conversion — **none of these advanced features are available via fal**
 
 **Phase 1 binding (testable):**
-- Per-route capability flags: `supports_text_input`, `supports_image_input`, `supports_multi_view_input` (with view count), `supports_pbr`, `supports_geometry_only`, `output_formats: [glb, obj, fbx, ...]`, `supports_face_count_control`, etc.
-- 3D-specific advanced features (`supports_part_segmentation`, `supports_smart_topology`, `supports_uv_editing`, `supports_texture_editing`, `supports_rapid_tier`) **deferred per design carve-out** — Hunyuan evidence captured (P4 + P5), Phase 1 interfaces must not freeze 3D semantics beyond opaque modality/capability descriptors.
-- Image and video capability bindings are firm; 3D-specific carve-out applies only to advanced editing features, not basic generation.
+- **Image and video capability schema is bound.** Per-route capability flags (text-to-image, image-to-image, text-to-video, image-to-video, frame interpolation, etc.) are required. Flat per-provider booleans are insufficient because a single provider hosts multiple modes per model.
+- **3D evidence is captured but stored as opaque route descriptors only.** Per the design carve-out, Phase 1 must not freeze 3D semantics beyond opaque `modality: "3d"` + capability-name strings. The detailed 3D feature list (multi-view input, PBR, geometry-only, face_count, segmentation, retopology, UV editing, texture editing, format dispatch) is captured in this spike doc (P4 + P5 evidence) for Phase 4's `IThreeDProvider` work to consume — Phase 1's image/video capability schema must not preclude future 3D-specific descriptor types, but must not name them either.
 
-**What would reopen this:** Phase 4 implementing `IThreeDProvider` will need to revisit. Until then, image+video capability schema is bound; 3D is provisional.
+**What would reopen this:** Phase 4 implementing `IThreeDProvider` will need to revisit and bind 3D-specific capability detail. Until then, image+video capability schema is bound; 3D-specific shape is **constrained-not-bound** — the spike's evidence rows above describe what 3D providers actually expose, but Phase 1 should treat 3D as `modality + opaque capability strings` only.
 
 ---
 
@@ -207,9 +209,9 @@ This is a structural axis that Phase 1's result envelope abstraction must suppor
 - URL-based: bytes live on provider CDN, fetched on demand, may have signed-URL TTL
 - Inline-based: bytes arrive in API response, no follow-up GET, payload size is much larger
 
-**Multi-format dispatch (3D-only):**
-- Hunyuan3D's `model_urls` returns up to 6 format variants per call (GLB, OBJ, FBX, USDZ, MTL, texture). Some are `null` per call (FBX, USDZ were null in P4 success). Phase 1's 3D result envelope must treat output formats as **possibly null per call**, not a guaranteed set.
-- `model_glb` and `model_urls.glb` are duplicate references to the same File. Phase 1 must avoid double-counting storage.
+**Multi-format dispatch (3D-only — Phase 4 evidence, not Phase 1 binding):**
+- Hunyuan3D's `model_urls` returns up to 6 format variants per call (GLB, OBJ, FBX, USDZ, MTL, texture). Some are `null` per call (FBX, USDZ were null in P4 success). Per the design carve-out, this captures what 3D providers actually return — Phase 4's `IThreeDProvider` work will need to model "output formats are possibly null per call" rather than a guaranteed set.
+- `model_glb` and `model_urls.glb` are duplicate references to the same File. Phase 4's 3D result handling will need to deduplicate to avoid double-counting storage.
 
 **Error envelope shape (P4-err):**
 - fal queue (Hunyuan3D) returns FastAPI-style `detail: [{loc, msg, type, url}]` array on validation rejection
@@ -217,10 +219,10 @@ This is a structural axis that Phase 1's result envelope abstraction must suppor
 - This is documented as **error-envelope evidence only**, not result evidence; the C# probe distinguishes via `HasErrorSignal()` vs `HasLifecycleOrResultSignal()`
 
 **Phase 1 binding (testable):**
-- Result envelope abstraction is provider-specific. Provider adapters normalize their native shape into a canonical Phase 1 result type.
-- Result delivery axis: support both URL-referenced (most providers) and inline-bytes (Gemini). Phase 1's `ResultArtifact` type carries either `Url` OR `Bytes`, never both.
-- Multi-format dispatch (3D) is a first-class concept for `IThreeDProvider` results — but exact 3D fields deferred to Phase 4 per the carve-out.
-- Error envelope discrimination at fetch step: provider adapters classify response as `Result` vs `Error` based on HTTP status + body shape; canonical error type carries `provider_error_code`, `loc_path`, `human_message`, `is_retryable` derived from headers like `x-fal-needs-retry`.
+- **Image and video result envelopes are bound.** Provider adapters normalize their native shape into a canonical Phase 1 result type. Each result is either `Url`-referenced or `Bytes`-inline (Phase 1's `ResultArtifact` type carries one or the other, never both).
+- **Result delivery axis (URL-referenced vs inline-bytes) must be supported from day one.** Gemini's inline-bytes pattern is not exotic; future text-output providers will likely use it too. Phase 1's `ResultArtifact` should NOT assume URL delivery.
+- **Error envelope discrimination at fetch step.** Provider adapters classify response as `Result` vs `Error` based on HTTP status + body shape; canonical error type carries `provider_error_code`, `loc_path`, `human_message`, `is_retryable` derived from headers like `x-fal-needs-retry`.
+- **3D multi-format result delivery is captured here as evidence for Phase 4.** Phase 1 must not preclude future multi-format result descriptors (so the `ResultArtifact` shape should compose, not be a sealed enum), but Phase 1 should NOT name `IThreeDProvider`, `model_glb`, `model_urls`, or any 3D-specific result fields.
 
 **What would reopen this:** A provider returning streaming chunks (Replicate `urls.stream` not yet probed), partial results, or async webhook delivery of artifacts. None observed in the spike.
 
@@ -300,6 +302,12 @@ P5's audit revealed that **Tencent's direct Hunyuan service exposes substantiall
 | Format conversion | ❌ | ✅ |
 
 **Phase 4 priority:** if 3D becomes a flagship product surface for Rook (image-to-CAD, scene-from-photo, parts-based modeling workflows), **Tencent direct should be the primary backend**, with fal's Hunyuan3D Pro as the lighter/cheaper option for users who only need basic Pro-tier generation.
+
+**Phase 4 design inputs from this spike (Phase 1 should not bind these, but Phase 4 will):**
+- 3D result envelopes use **multi-format dispatch** as a first-class concept — Hunyuan returns up to six format variants per call (GLB, OBJ, FBX, USDZ, MTL, texture), some null per call. `IThreeDProvider` results need a typed multi-format container, not a single URL or array.
+- 3D capability flags need to model: input view count (1–8), PBR support, geometry-only mode, polygon density control (face_count range), and the advanced-features matrix from P5 (Pro/Rapid tier, segmentation, retopology, UV editing, texture editing, format conversion).
+- Input field name varies even for image-input 3D models (`image` vs `image_url` vs `input_image_url`); per-route input-mapping config is required.
+- Tencent direct uses Submit + Query method pairs **per job type** (one pair per endpoint), not a unified queue — `IThreeDProvider` for Tencent must dispatch by job type internally.
 
 **Phase 4 starter kit (already gathered):**
 - `tencentcloud-sdk-python` package (single dep)
