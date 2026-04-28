@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using Rook.Artifacts;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -138,7 +139,7 @@ namespace Rook.Tests.Services.Vision.Video
 
                 Assert.False(result.Success);
                 Assert.NotNull(result.Error);
-                Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+                Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
                 Assert.Equal("Model", result.Error.Field);
             }
             finally { bundle.Manager.Dispose(); }

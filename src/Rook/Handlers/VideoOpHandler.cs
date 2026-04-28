@@ -702,18 +702,27 @@ namespace Rook.Handlers
             _ => state.ToString().ToLowerInvariant(),
         };
 
-        private static string ErrorCodeToString(VideoErrorCode code) => code switch
+        private static string ErrorCodeToString(VideoErrorCode code) =>
+            ErrorCodeToString(VideoProviderOutcomeAdapters.ToGenerationError(
+                new VideoJobError(code, string.Empty, Retryable: false)).Code);
+
+        private static string ErrorCodeToString(GenerationErrorCode code) => code switch
         {
-            VideoErrorCode.InvalidRequest => "invalid_request",
-            VideoErrorCode.UnsupportedMedia => "unsupported_media",
-            VideoErrorCode.DependencyUnavailable => "dependency_unavailable",
-            VideoErrorCode.ExecutionFailed => "execution_failed",
-            VideoErrorCode.Cancelled => "cancelled",
-            VideoErrorCode.Interrupted => "interrupted",
+            GenerationErrorCode.InvalidRequest => "invalid_request",
+            GenerationErrorCode.UnsupportedMedia => "unsupported_media",
+            GenerationErrorCode.DependencyUnavailable => "dependency_unavailable",
+            GenerationErrorCode.ExecutionFailed => "execution_failed",
+            GenerationErrorCode.Cancelled => "cancelled",
+            GenerationErrorCode.Interrupted => "interrupted",
+            GenerationErrorCode.QuotaExceeded => "quota_exceeded",
+            GenerationErrorCode.ContentPolicy => "content_policy",
             _ => code.ToString().ToLowerInvariant(),
         };
 
         private static Dictionary<string, object?> ErrorToObj(VideoJobError err) =>
+            ErrorToObj(VideoProviderOutcomeAdapters.ToGenerationError(err));
+
+        private static Dictionary<string, object?> ErrorToObj(GenerationError err) =>
             new()
             {
                 ["code"] = ErrorCodeToString(err.Code),
@@ -747,21 +756,27 @@ namespace Rook.Handlers
                 ["pricing_source"] = p.PricingSource,
             };
 
-        // ─── Status mapping (VideoErrorCode → HTTP) ──────────────────────
+        // ─── Status mapping (GenerationErrorCode → HTTP) ─────────────────
 
         /// <summary>
         /// Maps the typed error code to an HTTP status. By code only —
         /// retryable is orthogonal metadata, not part of the status
         /// decision (a retryable ExecutionFailed is still 500).
         /// </summary>
-        internal static int MapStatusFromCode(VideoErrorCode code) => code switch
+        internal static int MapStatusFromCode(VideoErrorCode code) =>
+            MapStatusFromCode(VideoProviderOutcomeAdapters.ToGenerationError(
+                new VideoJobError(code, string.Empty, Retryable: false)).Code);
+
+        internal static int MapStatusFromCode(GenerationErrorCode code) => code switch
         {
-            VideoErrorCode.InvalidRequest => 400,
-            VideoErrorCode.UnsupportedMedia => 415,
-            VideoErrorCode.DependencyUnavailable => 503,
-            VideoErrorCode.ExecutionFailed => 500,
-            VideoErrorCode.Cancelled => 200,
-            VideoErrorCode.Interrupted => 200,
+            GenerationErrorCode.InvalidRequest => 400,
+            GenerationErrorCode.UnsupportedMedia => 415,
+            GenerationErrorCode.DependencyUnavailable => 503,
+            GenerationErrorCode.ExecutionFailed => 500,
+            GenerationErrorCode.Cancelled => 200,
+            GenerationErrorCode.Interrupted => 200,
+            GenerationErrorCode.QuotaExceeded => 429,
+            GenerationErrorCode.ContentPolicy => 422,
             _ => 500,
         };
 
@@ -771,6 +786,9 @@ namespace Rook.Handlers
             new() { Success = true, Data = data, HttpStatus = 200 };
 
         private static ApiResponse FailWithError(VideoJobError err) =>
+            FailWithError(VideoProviderOutcomeAdapters.ToGenerationError(err));
+
+        private static ApiResponse FailWithError(GenerationError err) =>
             new()
             {
                 Success = false,

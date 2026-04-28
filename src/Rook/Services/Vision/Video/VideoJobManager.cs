@@ -96,7 +96,8 @@ namespace Rook.Services.Vision.Video
 
             var estimate = _estimator.Estimate(model, request);
             if (!estimate.Success)
-                return JobSubmitResult.Fail(estimate.Error!);
+                return JobSubmitResult.Fail(
+                    VideoProviderOutcomeAdapters.ToVideoJobError(estimate.Error!));
 
             // Resolve media refs to bytes. Failures translate to typed
             // JobSubmitResult.Fail before any background work starts.

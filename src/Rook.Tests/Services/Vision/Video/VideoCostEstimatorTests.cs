@@ -1,4 +1,5 @@
 using System.Linq;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -58,7 +59,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("Resolution", result.Error.Field);
         }
 
@@ -72,7 +73,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("NumberOfVideos", result.Error.Field);
         }
 
@@ -90,7 +91,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("PersonGeneration", result.Error.Field);
         }
 
@@ -106,7 +107,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
             Assert.Equal("Prompt", result.Error.Field);
         }
 
@@ -119,7 +120,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, request: null!);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         [Fact]
@@ -131,7 +132,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model: null!, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         // ─── F2 (review pass 2): model-id consistency guard ──────────
@@ -153,7 +154,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(liteModel, fullReq);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
             Assert.Equal(nameof(VideoGenerationRequest.Model), result.Error.Field);
             Assert.Contains(liteModel.ModelId, result.Error.Message);
             Assert.Contains("veo-3.1-generate-preview", result.Error.Message);
