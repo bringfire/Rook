@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Rook;
 using Rook.Artifacts;
 using Rook.Handlers;
+using Rook.Services.Vision;
 using Rook.UI.Vision;
 using Xunit;
 
@@ -352,18 +353,42 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
-        public void BuildSharedVisionHandler_UsesSharedSecretStore()
+        public void BuildSharedVisionHandler_UsesSecretStoreShimBackedBySharedGenerationSecretStore()
         {
-            // Same pin for VisionSecretStore — single API-key source
-            // across tab and native HTTP paths.
+            // VisionSecretStore remains as the enhance_prompt/settings
+            // compatibility facade, but PR-4 retargets identity to the
+            // underlying keyed IGenerationSecretStore.
             var handler = InvokeBuildSharedVisionHandler();
             var fieldInfo = typeof(VisionHandler).GetField(
                 "_secrets",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(fieldInfo);
+            var shim = Assert.IsType<VisionSecretStore>(fieldInfo!.GetValue(handler));
+            var generationField = typeof(VisionSecretStore).GetField(
+                "_generationSecrets",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(generationField);
+
+            Assert.Same(
+                RookSubsystemRoot.Instance.SharedGenerationSecretStore,
+                generationField!.GetValue(shim));
+        }
+
+        [Fact]
+        public void BuildSharedVisionHandler_UsesSharedGenerationSecretStore()
+        {
+            // PR-4 widens the secret keyspace behind
+            // IGenerationSecretStore. The VisionSecretStore shim may
+            // remain for enhance_prompt compatibility, but provider
+            // construction must read the shared keyed store directly.
+            var handler = InvokeBuildSharedVisionHandler();
+            var fieldInfo = typeof(VisionHandler).GetField(
+                "_generationSecrets",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(fieldInfo);
             var actual = fieldInfo!.GetValue(handler);
 
-            Assert.Same(RookSubsystemRoot.Instance.SharedSecretStore, actual);
+            Assert.Same(RookSubsystemRoot.Instance.SharedGenerationSecretStore, actual);
         }
 
         private static VisionHandler InvokeBuildSharedVisionHandler()

@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision
 {
@@ -66,7 +67,6 @@ namespace Rook.Services.Vision
     public sealed class VisionSecretStore
     {
         private const string SectionName = "vision";
-
         /// <summary>
         /// Purpose-binding entropy. Changing this string would invalidate
         /// existing stored keys — callers would need to re-enter their
@@ -76,12 +76,20 @@ namespace Rook.Services.Vision
             Encoding.UTF8.GetBytes("rook-vision-gemini-v1");
 
         private readonly RookSettingsStore _settings;
+        private readonly IGenerationSecretStore? _generationSecrets;
 
         public VisionSecretStore() : this(new RookSettingsStore()) { }
 
         public VisionSecretStore(RookSettingsStore settings)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        }
+
+        public VisionSecretStore(IGenerationSecretStore generationSecrets)
+        {
+            _generationSecrets = generationSecrets
+                ?? throw new ArgumentNullException(nameof(generationSecrets));
+            _settings = new RookSettingsStore();
         }
 
         /// <summary>
@@ -91,6 +99,11 @@ namespace Rook.Services.Vision
         /// </summary>
         public string? GetGeminiApiKey()
         {
+            if (_generationSecrets is not null)
+            {
+                return _generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey);
+            }
+
             var section = _settings.LoadSection<VisionSettings>(SectionName);
             var encrypted = section?.GeminiApiKeyEncrypted;
             if (string.IsNullOrEmpty(encrypted))
@@ -138,6 +151,12 @@ namespace Rook.Services.Vision
         /// </summary>
         public void SetGeminiApiKey(string apiKey)
         {
+            if (_generationSecrets is not null)
+            {
+                _generationSecrets.SetSecret(GenerationSecretKeys.GeminiApiKey, apiKey);
+                return;
+            }
+
             if (string.IsNullOrEmpty(apiKey))
             {
                 throw new ArgumentException(
@@ -163,6 +182,11 @@ namespace Rook.Services.Vision
         /// </summary>
         public bool HasGeminiApiKey()
         {
+            if (_generationSecrets is not null)
+            {
+                return _generationSecrets.HasSecret(GenerationSecretKeys.GeminiApiKey);
+            }
+
             var section = _settings.LoadSection<VisionSettings>(SectionName);
             return !string.IsNullOrEmpty(section?.GeminiApiKeyEncrypted);
         }
@@ -174,6 +198,11 @@ namespace Rook.Services.Vision
         /// </summary>
         public string? GetApiKeyPreview()
         {
+            if (_generationSecrets is not null)
+            {
+                return _generationSecrets.GetPreview(GenerationSecretKeys.GeminiApiKey);
+            }
+
             var section = _settings.LoadSection<VisionSettings>(SectionName);
             if (section is null) return null;
             if (string.IsNullOrEmpty(section.GeminiApiKeyEncrypted)) return null;
@@ -186,6 +215,12 @@ namespace Rook.Services.Vision
         /// </summary>
         public void ClearGeminiApiKey()
         {
+            if (_generationSecrets is not null)
+            {
+                _generationSecrets.RemoveSecret(GenerationSecretKeys.GeminiApiKey);
+                return;
+            }
+
             var section = _settings.LoadSection<VisionSettings>(SectionName);
             if (section is null) return;
             if (string.IsNullOrEmpty(section.GeminiApiKeyEncrypted)) return;

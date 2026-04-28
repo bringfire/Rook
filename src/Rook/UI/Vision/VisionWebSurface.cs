@@ -9,6 +9,7 @@ using Rhino;
 using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Rook.UI.Web;
 
@@ -302,7 +303,7 @@ p { margin: 8px 0; line-height: 1.4; }
             // fresh instances are correct here.
             return new VisionHandler(
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
-                secrets: RookSubsystemRoot.Instance.SharedSecretStore,
+                generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler());
         }

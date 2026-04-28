@@ -129,12 +129,13 @@ namespace Rook.Handlers
 
         private readonly ArtifactStore _artifactStore;
         private readonly VisionSecretStore _secrets;
+        private readonly IGenerationSecretStore? _generationSecrets;
         private readonly PromptEnhancer _enhancer;
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
 
         public VisionHandler()
-            : this(new ArtifactStore(), new VisionSecretStore(),
+            : this(new ArtifactStore(), new DpapiGenerationSecretStore(),
                    new PromptEnhancer(),
                    new ViewportHandler())
         { }
@@ -145,17 +146,56 @@ namespace Rook.Handlers
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null)
+            : this(
+                artifactStore,
+                secrets,
+                generationSecrets: null,
+                enhancer,
+                viewportHandler,
+                imageProviderRegistry)
+        { }
+
+        internal VisionHandler(
+            ArtifactStore artifactStore,
+            IGenerationSecretStore generationSecrets,
+            PromptEnhancer enhancer,
+            ViewportHandler viewportHandler,
+            IImageProviderRegistry? imageProviderRegistry = null)
+            : this(
+                artifactStore,
+                new VisionSecretStore(generationSecrets),
+                generationSecrets,
+                enhancer,
+                viewportHandler,
+                imageProviderRegistry)
+        { }
+
+        private VisionHandler(
+            ArtifactStore artifactStore,
+            VisionSecretStore secrets,
+            IGenerationSecretStore? generationSecrets,
+            PromptEnhancer enhancer,
+            ViewportHandler viewportHandler,
+            IImageProviderRegistry? imageProviderRegistry)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
+            _generationSecrets = generationSecrets;
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
             _imageProviderRegistry = imageProviderRegistry
                 ?? new DefaultImageProviderRegistry(new IImageProviderRegistration[]
                 {
                     new GeminiImageProviderRegistration(
-                        new GeminiImageProvider(_secrets.GetGeminiApiKey)),
+                        new GeminiImageProvider(GetGeminiApiKey)),
                 });
+        }
+
+        private string? GetGeminiApiKey()
+        {
+            if (_generationSecrets is not null)
+                return _generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey);
+            return _secrets.GetGeminiApiKey();
         }
 
         // ─── Synchronous dispatcher (capture_depth only) ────────────────

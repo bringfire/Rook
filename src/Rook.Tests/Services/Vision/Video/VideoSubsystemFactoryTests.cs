@@ -17,12 +17,12 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class VideoSubsystemFactoryTests
     {
-        private static (VisionSecretStore Secrets, ArtifactStore Artifacts) FreshDeps()
+        private static (IGenerationSecretStore Secrets, ArtifactStore Artifacts) FreshDeps()
         {
             // ArtifactStore.overrideRoot=null is fine here — the factory
-            // tests never write or read blobs. VisionSecretStore similarly
+            // tests never write or read blobs. The secret store similarly
             // is wired but never queried for its key in these tests.
-            return (new VisionSecretStore(), new ArtifactStore());
+            return (new DpapiGenerationSecretStore(), new ArtifactStore());
         }
 
         [Fact]
@@ -156,7 +156,7 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void Build_NullArtifactStore_Throws()
         {
-            var secrets = new VisionSecretStore();
+            var secrets = new DpapiGenerationSecretStore();
             Assert.Throws<ArgumentNullException>(
                 () => VideoSubsystemFactory.Build(secrets, null!));
         }
@@ -200,8 +200,27 @@ namespace Rook.Tests.Services.Vision.Video
         private static RookSubsystemRoot FreshRoot(IVideoJobLedger? ledger = null) =>
             new(
                 artifactStore: new ArtifactStore(),
-                secretStore: new VisionSecretStore(),
+                generationSecretStore: new DpapiGenerationSecretStore(),
                 ledger: ledger ?? new FakeVideoJobLedger());
+
+        [Fact]
+        public void Ctor_BuildsVisionSecretStoreAsShimOverSharedGenerationSecretStore()
+        {
+            var generationSecrets = new DpapiGenerationSecretStore();
+            var root = new RookSubsystemRoot(
+                artifactStore: new ArtifactStore(),
+                generationSecretStore: generationSecrets,
+                ledger: new FakeVideoJobLedger());
+
+            var shimField = typeof(VisionSecretStore).GetField(
+                "_generationSecrets",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(shimField);
+
+            Assert.Same(generationSecrets, root.SharedGenerationSecretStore);
+            Assert.Same(generationSecrets, shimField!.GetValue(root.SharedSecretStore));
+        }
 
         [Fact]
         public void Video_ReturnsBundle_OnFirstAccess()

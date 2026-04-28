@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Rook.Artifacts;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 
 namespace Rook
@@ -38,6 +39,8 @@ namespace Rook
 
         public ArtifactStore SharedArtifactStore { get; }
 
+        public IGenerationSecretStore SharedGenerationSecretStore { get; }
+
         public VisionSecretStore SharedSecretStore { get; }
 
         private readonly Lazy<VideoSubsystemBundle> _video;
@@ -68,7 +71,7 @@ namespace Rook
         private int _disposed = 0;
 
         private RookSubsystemRoot()
-            : this(artifactStore: null, secretStore: null, ledger: null) { }
+            : this(artifactStore: null, generationSecretStore: null, ledger: null) { }
 
         /// <summary>
         /// Test seam — production callers use <see cref="Instance"/>.
@@ -79,14 +82,16 @@ namespace Rook
         /// </summary>
         internal RookSubsystemRoot(
             ArtifactStore? artifactStore,
-            VisionSecretStore? secretStore,
+            IGenerationSecretStore? generationSecretStore,
             IVideoJobLedger? ledger)
         {
             SharedArtifactStore = artifactStore ?? new ArtifactStore();
-            SharedSecretStore = secretStore ?? new VisionSecretStore();
+            SharedGenerationSecretStore = generationSecretStore
+                ?? new DpapiGenerationSecretStore();
+            SharedSecretStore = new VisionSecretStore(SharedGenerationSecretStore);
             _video = new Lazy<VideoSubsystemBundle>(
                 () => VideoSubsystemFactory.Build(
-                    SharedSecretStore, SharedArtifactStore, ledger),
+                    SharedGenerationSecretStore, SharedArtifactStore, ledger),
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
