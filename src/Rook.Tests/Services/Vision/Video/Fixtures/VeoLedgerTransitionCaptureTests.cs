@@ -72,10 +72,12 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
 
             var provider = new FakeVideoProvider
             {
-                OnSubmit = (_, _) => ProviderSubmitResult.Ok("operations/op-fake-123"),
-                OnGetStatus = _ => ProviderStatusResult.Complete(
+                OnSubmit = (_, _) =>
+                    FakeVideoProvider.SubmitQueued("operations/op-fake-123"),
+                OnGetStatus = handle => FakeVideoProvider.StatusComplete(
+                    handle,
                     "https://veo/result/fake-video.mp4"),
-                OnFetchResult = (_, _) => ProviderFetchResult.Ok(
+                OnFetchResult = _ => FakeVideoProvider.ResultOk(
                     FakeMp4Bytes(), "video/mp4"),
             };
 
@@ -99,7 +101,7 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
 
             var provider = new FakeVideoProvider
             {
-                OnSubmit = (_, _) => ProviderSubmitResult.Fail(new VideoJobError(
+                OnSubmit = (_, _) => FakeVideoProvider.SubmitFailed(new VideoJobError(
                     Code: VideoErrorCode.DependencyUnavailable,
                     Message: "Veo submit rejected: authentication failed (401). " +
                              "{\"error\":\"unauthenticated\"}",
@@ -127,9 +129,9 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
 
             var provider = new FakeVideoProvider
             {
-                OnSubmit = (_, _) => ProviderSubmitResult.Ok("operations/op-fake-456"),
-                OnGetStatus = _ => ProviderStatusResult.Failed(
-                    VideoJobState.Error,
+                OnSubmit = (_, _) =>
+                    FakeVideoProvider.SubmitQueued("operations/op-fake-456"),
+                OnGetStatus = _ => FakeVideoProvider.StatusFailed(
                     new VideoJobError(
                         Code: VideoErrorCode.ExecutionFailed,
                         Message: "Veo poll backend error (503). " +
@@ -157,18 +159,17 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
             idGen.Sequence.Enqueue(jobId);
 
             // Hold polling so the cancel request lands while the job is
-            // mid-poll. ProviderStatusResult.InFlight is the manager's
+            // mid-poll. An in-flight provider status is the manager's
             // cue to keep waiting; the test cancels through the manager
             // path which fires the per-job CTS, the polling Task.Delay
             // throws OperationCanceledException, and the manager's catch
             // arm appends the Cancelled record.
             var provider = new FakeVideoProvider
             {
-                OnSubmit = (_, _) => ProviderSubmitResult.Ok("operations/op-fake-789"),
-                OnGetStatus = _ => ProviderStatusResult.InFlight(
-                    VideoJobState.Polling,
-                    new VideoJobProgress(Pct: null, Stage: "polling", Message: null)),
-                OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled),
+                OnSubmit = (_, _) =>
+                    FakeVideoProvider.SubmitQueued("operations/op-fake-789"),
+                OnGetStatus = _ => FakeVideoProvider.StatusInFlight(),
+                OnCancel = _ => FakeVideoProvider.CancelOk(),
             };
 
             var mgr = BuildManager(provider, idGen);

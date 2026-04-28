@@ -6,7 +6,7 @@ namespace Rook.Services.Vision.Video
     /// <summary>
     /// Manager-facing outcome of <see cref="IVideoJobManager.SubmitAsync"/>
     /// — what V2/V3/V4 consumers see. The provider-side equivalent is
-    /// <see cref="ProviderSubmitResult"/>; the manager translates after
+    /// <see cref="ProviderSubmitOutcome"/>; the manager translates after
     /// minting a Rook-side <c>jobId</c> and persisting to the ledger.
     ///
     /// Constructed only via <see cref="Ok"/> or <see cref="Fail"/>; the

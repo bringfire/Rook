@@ -16,10 +16,7 @@ namespace Rook.Tests.Services.Vision.Video
         private static VideoGenerationRequest T2vRequest() =>
             TestVideoFixtures.DefaultT2vRequest();
 
-        private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
-            = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
-
-        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> NoGenerationMedia
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> NoMedia
             = new Dictionary<MediaRef, ResolvedMedia>();
 
         private static (VeoProvider provider, TestHttpMessageHandler handler) MakeProvider(
@@ -43,13 +40,12 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc-123\"}"));
 
-            var result = await provider.SubmitAsync(
+            var outcome = await provider.SubmitAsync(
                 T2vRequest(), NoMedia, CancellationToken.None);
 
-            Assert.NotNull(result.ProviderJobId);
-            Assert.Equal("operations/abc-123", result.ProviderJobId);
-            Assert.Equal(VideoJobState.Submitting, result.State);
-            Assert.Null(result.Error);
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("operations/abc-123", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.ProviderResultToken);
         }
 
         [Fact]
@@ -59,7 +55,7 @@ namespace Rook.Tests.Services.Vision.Video
                 JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc-123\"}"));
 
             var outcome = await provider.SubmitAsync(
-                T2vRequest(), NoGenerationMedia, CancellationToken.None);
+                T2vRequest(), NoMedia, CancellationToken.None);
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("operations/abc-123", queued.Handle.ProviderJobId);
@@ -72,12 +68,12 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.BadRequest, "{\"error\":\"bad request\"}"));
 
-            var result = await provider.SubmitAsync(
+            var outcome = await provider.SubmitAsync(
                 T2vRequest(), NoMedia, CancellationToken.None);
 
-            Assert.Null(result.ProviderJobId);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
-            Assert.False(result.Error.Retryable);
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
         }
 
         [Fact]
@@ -87,11 +83,12 @@ namespace Rook.Tests.Services.Vision.Video
                 _ => JsonResponse(HttpStatusCode.OK, "{}"),
                 apiKey: null);
 
-            var result = await provider.SubmitAsync(
+            var outcome = await provider.SubmitAsync(
                 T2vRequest(), NoMedia, CancellationToken.None);
 
-            Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
-            Assert.False(result.Error.Retryable);
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
         }
 
         // ─── GetStatus ────────────────────────────────────────────────
@@ -102,12 +99,11 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.OK, "{\"done\":false}"));
 
-            var result = await provider.GetStatusAsync(
-                "operations/abc", CancellationToken.None);
+            var outcome = await provider.GetStatusAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Polling, result.State);
-            Assert.Null(result.ProviderResultToken);
-            Assert.Null(result.Error);
+            var inFlight = Assert.IsType<InFlightStatusOutcome>(outcome);
+            Assert.Equal(GenerationLifecycleState.Running, inFlight.State);
         }
 
         [Fact]
@@ -125,12 +121,13 @@ namespace Rook.Tests.Services.Vision.Video
                 """;
             var (provider, _) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, json));
 
-            var result = await provider.GetStatusAsync(
-                "operations/abc", CancellationToken.None);
+            var outcome = await provider.GetStatusAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Complete, result.State);
-            Assert.Equal("https://veo/result/xyz", result.ProviderResultToken);
-            Assert.Null(result.Error);
+            var complete = Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
+            Assert.Equal(
+                "https://veo/result/xyz",
+                complete.UpdatedHandle.ProviderResultToken);
         }
 
         [Fact]
@@ -144,23 +141,16 @@ namespace Rook.Tests.Services.Vision.Video
                 """;
             var (provider, _) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, json));
 
-            var result = await provider.GetStatusAsync(
-                "operations/abc", CancellationToken.None);
+            var outcome = await provider.GetStatusAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Error, result.State);
-            Assert.NotNull(result.Error);
+            Assert.IsType<FailedStatusOutcome>(outcome);
         }
 
         [Fact]
-        public async Task GetStatusAsync_empty_provider_job_id_returns_failure()
+        public void ProviderJobHandle_empty_provider_job_id_throws()
         {
-            var (provider, _) = MakeProvider(_ =>
-                JsonResponse(HttpStatusCode.OK, "{\"done\":false}"));
-
-            var result = await provider.GetStatusAsync(
-                "", CancellationToken.None);
-
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Throws<ArgumentException>(() => new ProviderJobHandle(""));
         }
 
         // ─── Cancel ───────────────────────────────────────────────────
@@ -171,11 +161,10 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.OK, "{}"));
 
-            var result = await provider.CancelAsync(
-                "operations/abc", CancellationToken.None);
+            var outcome = await provider.CancelAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Cancelled, result.State);
-            Assert.Null(result.Error);
+            Assert.IsType<CanceledOutcome>(outcome);
         }
 
         [Fact]
@@ -184,10 +173,11 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 JsonResponse(HttpStatusCode.NotFound, "{\"error\":\"not found\"}"));
 
-            var result = await provider.CancelAsync(
-                "operations/abc", CancellationToken.None);
+            var outcome = await provider.CancelAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
 
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            var failed = Assert.IsType<FailedCancelOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
         }
 
         // ─── FetchResult ──────────────────────────────────────────────
@@ -202,14 +192,17 @@ namespace Rook.Tests.Services.Vision.Video
                     Content = new ByteArrayContent(payload),
                 });
 
-            var result = await provider.FetchResultAsync(
-                "operations/abc",
-                providerResultToken: "https://veo/r/x.mp4",
+            var outcome = await provider.FetchResultAsync(
+                new ProviderJobHandle(
+                    "operations/abc",
+                    providerResultToken: "https://veo/r/x.mp4"),
                 CancellationToken.None);
 
-            Assert.Equal(payload, result.Bytes);
-            Assert.Equal("video/mp4", result.MimeType);
-            Assert.Null(result.Error);
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            var body = Assert.IsType<InlineArtifactBody>(artifact.Body);
+            Assert.Equal(payload, body.Bytes);
+            Assert.Equal("video/mp4", artifact.DeclaredMimeType);
         }
 
         [Fact]
@@ -221,14 +214,13 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, handler) = MakeProvider(_ =>
                 new HttpResponseMessage(HttpStatusCode.OK));
 
-            var result = await provider.FetchResultAsync(
-                "operations/abc",
-                providerResultToken: null,
+            var outcome = await provider.FetchResultAsync(
+                new ProviderJobHandle("operations/abc"),
                 CancellationToken.None);
 
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
-            Assert.Equal("providerResultToken", result.Error.Field);
-            Assert.Null(result.Bytes);
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("providerResultToken", failed.Error.Field);
             Assert.Empty(handler.Requests);  // never called the network
         }
 
@@ -238,14 +230,16 @@ namespace Rook.Tests.Services.Vision.Video
             var (provider, _) = MakeProvider(_ =>
                 new HttpResponseMessage(HttpStatusCode.Forbidden));
 
-            var result = await provider.FetchResultAsync(
-                "operations/abc",
-                providerResultToken: "https://veo/r/x.mp4",
+            var outcome = await provider.FetchResultAsync(
+                new ProviderJobHandle(
+                    "operations/abc",
+                    providerResultToken: "https://veo/r/x.mp4"),
                 CancellationToken.None);
 
             // EnsureSuccessStatusCode throws HttpRequestException → caught →
             // mapped to NetworkError, which is DependencyUnavailable.
-            Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
         }
 
         // ─── Options mismatch (V1c provider boundary totality) ───────
@@ -261,13 +255,13 @@ namespace Rook.Tests.Services.Vision.Video
                 JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc\"}"));
             var bad = T2vRequest() with { Options = new ForeignProviderOptions() };
 
-            var result = await provider.SubmitAsync(
+            var outcome = await provider.SubmitAsync(
                 bad, NoMedia, CancellationToken.None);
 
-            Assert.NotNull(result.Error);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
-            Assert.Equal("Options", result.Error.Field);
-            Assert.Contains(nameof(VeoOptions), result.Error.Message);
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("Options", failed.Error.Field);
+            Assert.Contains(nameof(VeoOptions), failed.Error.Message);
         }
 
         // Test-only ProviderOptions subtype to exercise the cast guard.

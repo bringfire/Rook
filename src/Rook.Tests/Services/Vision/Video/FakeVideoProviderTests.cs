@@ -23,8 +23,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var fake = new FakeVideoProvider
             {
-                OnSubmitOutcome = (req, media) => new QueuedSubmitOutcome(
-                    new ProviderJobHandle("custom-id-42")),
+                OnSubmit = (req, media) =>
+                    FakeVideoProvider.SubmitQueued("custom-id-42"),
             };
 
             var result = await fake.SubmitAsync(SampleRequest(), NoMedia, CancellationToken.None);
@@ -39,12 +39,13 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var fake = new FakeVideoProvider
             {
-                OnCancel = id => ProviderCancelResult.Ok(VideoJobState.Cancelled),
+                OnCancel = handle => FakeVideoProvider.CancelOk(),
             };
 
-            var result = await fake.CancelAsync("any", CancellationToken.None);
+            var result = await fake.CancelAsync(
+                new ProviderJobHandle("any"), CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.IsType<CanceledOutcome>(result);
         }
 
         // ─── Recorded calls preserve order ────────────────────────────
@@ -55,9 +56,10 @@ namespace Rook.Tests.Services.Vision.Video
             var fake = new FakeVideoProvider();
 
             await fake.SubmitAsync(SampleRequest(), NoMedia, CancellationToken.None);
-            await fake.GetStatusAsync("fake-job-1", CancellationToken.None);
-            await fake.GetStatusAsync("fake-job-1", CancellationToken.None);
-            await fake.CancelAsync("fake-job-1", CancellationToken.None);
+            var handle = new ProviderJobHandle("fake-job-1");
+            await fake.GetStatusAsync(handle, CancellationToken.None);
+            await fake.GetStatusAsync(handle, CancellationToken.None);
+            await fake.CancelAsync(handle, CancellationToken.None);
 
             Assert.Collection(fake.RecordedCalls,
                 c => Assert.Equal("Submit", c.Method),
@@ -83,16 +85,17 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public async Task Default_FetchResult_when_premature_surfaces_error()
         {
-            // Pinning the ProviderFetchResult invariant: when Error != null,
-            // Bytes / MimeType are null. The fake's default behaviour models
-            // the "premature fetch" failure mode honestly.
+            // Pinning the generic fetch-result invariant: premature fetches
+            // return FailedResultOutcome. The fake's default
+            // behaviour models the "premature fetch" failure mode honestly.
             var fake = new FakeVideoProvider();
 
-            var result = await fake.FetchResultAsync("any", "any-token", CancellationToken.None);
+            var result = await fake.FetchResultAsync(
+                new ProviderJobHandle("any", providerResultToken: "any-token"),
+                CancellationToken.None);
 
-            Assert.NotNull(result.Error);
-            Assert.Null(result.Bytes);
-            Assert.Null(result.MimeType);
+            var failed = Assert.IsType<FailedResultOutcome>(result);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
         }
 
         [Fact]
@@ -101,14 +104,21 @@ namespace Rook.Tests.Services.Vision.Video
             var bytes = new byte[] { 0x00, 0x00, 0x00, 0x18 }; // "ftyp" mp4 header start
             var fake = new FakeVideoProvider
             {
-                OnFetchResult = (id, token) => ProviderFetchResult.Ok(bytes, "video/mp4"),
+                OnFetchResult = handle =>
+                    FakeVideoProvider.ResultOk(bytes, "video/mp4"),
             };
 
-            var result = await fake.FetchResultAsync("any", "https://example/v.mp4", CancellationToken.None);
+            var result = await fake.FetchResultAsync(
+                new ProviderJobHandle(
+                    "any",
+                    providerResultToken: "https://example/v.mp4"),
+                CancellationToken.None);
 
-            Assert.Same(bytes, result.Bytes);
-            Assert.Equal("video/mp4", result.MimeType);
-            Assert.Null(result.Error);
+            var success = Assert.IsType<SuccessResultOutcome>(result);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            var body = Assert.IsType<InlineArtifactBody>(artifact.Body);
+            Assert.Same(bytes, body.Bytes);
+            Assert.Equal("video/mp4", artifact.DeclaredMimeType);
         }
 
         [Fact]
@@ -117,14 +127,18 @@ namespace Rook.Tests.Services.Vision.Video
             string? capturedToken = null;
             var fake = new FakeVideoProvider
             {
-                OnFetchResult = (id, token) =>
+                OnFetchResult = handle =>
                 {
-                    capturedToken = token;
-                    return ProviderFetchResult.Ok(new byte[] { 1 }, "video/mp4");
+                    capturedToken = handle.ProviderResultToken;
+                    return FakeVideoProvider.ResultOk(new byte[] { 1 }, "video/mp4");
                 },
             };
 
-            await fake.FetchResultAsync("job-1", "https://veo/result/abc", CancellationToken.None);
+            await fake.FetchResultAsync(
+                new ProviderJobHandle(
+                    "job-1",
+                    providerResultToken: "https://veo/result/abc"),
+                CancellationToken.None);
 
             Assert.Equal("https://veo/result/abc", capturedToken);
         }

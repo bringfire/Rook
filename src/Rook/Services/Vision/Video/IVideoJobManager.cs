@@ -16,9 +16,8 @@ namespace Rook.Services.Vision.Video
     ///
     /// Consumers see only manager-facing <see cref="JobSubmitResult"/> /
     /// <see cref="JobStatusResult"/> / <see cref="JobCancelResult"/> /
-    /// <see cref="JobFetchResult"/>; provider-side types
-    /// (<see cref="ProviderSubmitResult"/> etc.) stay internal to the
-    /// manager.
+    /// <see cref="JobFetchResult"/>; provider outcomes stay internal to
+    /// the manager.
     /// </summary>
     public interface IVideoJobManager
     {

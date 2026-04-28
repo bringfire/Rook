@@ -363,11 +363,20 @@ namespace Rook.Services.Vision.Video
                 var outcome = await provider.CancelAsync(handle, ct)
                     .ConfigureAwait(false);
 
-                var result = VideoProviderOutcomeAdapters.ToProviderCancelResult(outcome);
-                if (result.Error is not null)
-                    return JobCancelResult.Fail(result.Error);
-
-                return JobCancelResult.Ok(result.State);
+                return outcome switch
+                {
+                    CanceledOutcome =>
+                        JobCancelResult.Ok(VideoJobState.Cancelled),
+                    AlreadyTerminalOutcome terminal =>
+                        JobCancelResult.Ok(ToVideoTerminalState(terminal.TerminalState)),
+                    FailedCancelOutcome failed =>
+                        JobCancelResult.Fail(
+                            VideoProviderOutcomeAdapters.ToVideoJobError(failed.Error)),
+                    _ => JobCancelResult.Fail(new VideoJobError(
+                        Code: VideoErrorCode.ExecutionFailed,
+                        Message: $"Unknown provider cancel outcome: {outcome.GetType().Name}.",
+                        Retryable: false)),
+                };
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -383,6 +392,15 @@ namespace Rook.Services.Vision.Video
             Code: VideoErrorCode.Cancelled,
             Message: "Job cancelled.",
             Retryable: false);
+
+        private static VideoJobState ToVideoTerminalState(GenerationLifecycleState state) =>
+            state switch
+            {
+                GenerationLifecycleState.Completed => VideoJobState.Complete,
+                GenerationLifecycleState.Canceled => VideoJobState.Cancelled,
+                GenerationLifecycleState.Failed => VideoJobState.Error,
+                _ => VideoJobState.Error,
+            };
 
         // ─── Fetch result ─────────────────────────────────────────────
 

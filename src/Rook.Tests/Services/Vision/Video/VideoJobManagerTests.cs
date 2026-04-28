@@ -119,10 +119,12 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 gate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-123");
+                return FakeVideoProvider.SubmitQueued("op-123");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
-            _provider.OnFetchResult = (_, _) => ProviderFetchResult.Ok(FakeMp4, "video/mp4");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
 
             var mgr = Manager();
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
@@ -274,7 +276,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Fail(new VideoJobError(
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitFailed(new VideoJobError(
                 Code: VideoErrorCode.DependencyUnavailable,
                 Message: "auth bad",
                 Retryable: false));
@@ -293,9 +295,10 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-123");
-            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
-            _provider.OnFetchResultOutcome = _ =>
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-123");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
                 new GenSuccessResultOutcome(NonVideoSuccessEnvelope());
 
             var mgr = Manager();
@@ -316,7 +319,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmitOutcome = (_, _) =>
+            _provider.OnSubmit = (_, _) =>
                 new GenSyncSubmitOutcome(
                     new GenSuccessResultOutcome(NonVideoSuccessEnvelope()));
 
@@ -353,16 +356,15 @@ namespace Rook.Tests.Services.Vision.Video
             _idGen.Sequence.Enqueue(jobId);
 
             // Provider submits ok, polls forever (so we can cancel)
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-cancel-test");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-cancel-test");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
 
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
@@ -410,10 +412,10 @@ namespace Rook.Tests.Services.Vision.Video
             _ledger.Append(prior);
 
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager();
@@ -445,7 +447,7 @@ namespace Rook.Tests.Services.Vision.Video
                 error: new VideoJobError(VideoErrorCode.Interrupted, "x", Retryable: true));
             _ledger.Append(prior);
 
-            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+            _provider.OnCancel = _ => FakeVideoProvider.CancelFailed(new VideoJobError(
                 Code: VideoErrorCode.DependencyUnavailable,
                 Message: "Veo cancel rate-limited",
                 Retryable: true));
@@ -473,13 +475,12 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Provider submits ok, polls forever (so the local task
             // remains in-flight throughout the cancel attempt).
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-keepalive");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-keepalive");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
 
             // Provider rejects cancel.
-            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+            _provider.OnCancel = _ => FakeVideoProvider.CancelFailed(new VideoJobError(
                 Code: VideoErrorCode.InvalidRequest,
                 Message: "Veo refused cancel",
                 Retryable: false));
@@ -514,11 +515,9 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-ok");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
-            _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-ok");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
+            _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
 
             var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
@@ -570,10 +569,15 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Track provider calls — should be NONE during reconcile.
             var providerCalls = 0;
-            _provider.OnSubmit = (_, _) => { providerCalls++; return ProviderSubmitResult.Ok("x"); };
-            _provider.OnGetStatus = _ => { providerCalls++; return ProviderStatusResult.InFlight(VideoJobState.Polling, null); };
-            _provider.OnCancel = _ => { providerCalls++; return ProviderCancelResult.Ok(VideoJobState.Cancelled); };
-            _provider.OnFetchResult = (_, _) => { providerCalls++; return ProviderFetchResult.Fail(new VideoJobError(VideoErrorCode.ExecutionFailed, "x", Retryable: false)); };
+            _provider.OnSubmit = (_, _) => { providerCalls++; return FakeVideoProvider.SubmitQueued("x"); };
+            _provider.OnGetStatus = _ => { providerCalls++; return FakeVideoProvider.StatusInFlight(); };
+            _provider.OnCancel = _ => { providerCalls++; return FakeVideoProvider.CancelOk(); };
+            _provider.OnFetchResult = _ =>
+            {
+                providerCalls++;
+                return FakeVideoProvider.ResultFailed(new VideoJobError(
+                    VideoErrorCode.ExecutionFailed, "x", Retryable: false));
+            };
 
             var mgr = Manager();
             mgr.ReconcileInterruptedJobs();
@@ -769,10 +773,10 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Provider is still registered under the real Veo registration.
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager();
@@ -817,16 +821,15 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 hangGate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-never-needed");
+                return FakeVideoProvider.SubmitQueued("op-never-needed");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling, null);
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight();
 
             var providerCancelCalls = 0;
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             using var mgr = Manager();
@@ -905,15 +908,14 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 hangGate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-x");
+                return FakeVideoProvider.SubmitQueued("op-x");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling, null);
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight();
             var providerCancelCalls = 0;
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             using var mgr = Manager();
@@ -991,7 +993,7 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             var beforeCount = _ledger.AllRecords.Count;
@@ -1034,7 +1036,7 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             var beforeCount = _ledger.AllRecords.Count;
@@ -1143,10 +1145,12 @@ namespace Rook.Tests.Services.Vision.Video
 
         private void ConfigureProviderHappyPath()
         {
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-123");
-            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
-            _provider.OnFetchResult = (_, _) => ProviderFetchResult.Ok(FakeMp4, "video/mp4");
-            _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-123");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
+            _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
         }
 
         private static GenProviderResultEnvelope NonVideoSuccessEnvelope()

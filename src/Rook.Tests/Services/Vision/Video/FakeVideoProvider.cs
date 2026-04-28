@@ -23,15 +23,10 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public sealed class FakeVideoProvider : IVideoProvider
     {
-        public Func<VideoGenerationRequest, IReadOnlyDictionary<MediaRef, ResolvedMedia>, ProviderSubmitOutcome>? OnSubmitOutcome { get; set; }
-        public Func<ProviderJobHandle, ProviderStatusOutcome>? OnGetStatusOutcome { get; set; }
-        public Func<ProviderJobHandle, ProviderCancelOutcome>? OnCancelOutcome { get; set; }
-        public Func<ProviderJobHandle, ProviderResultOutcome>? OnFetchResultOutcome { get; set; }
-
-        public Func<VideoGenerationRequest, IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia>, ProviderSubmitResult>? OnSubmit { get; set; }
-        public Func<string, ProviderStatusResult>? OnGetStatus { get; set; }
-        public Func<string, ProviderCancelResult>? OnCancel { get; set; }
-        public Func<string, string?, ProviderFetchResult>? OnFetchResult { get; set; }
+        public Func<VideoGenerationRequest, IReadOnlyDictionary<MediaRef, ResolvedMedia>, ProviderSubmitOutcome>? OnSubmit { get; set; }
+        public Func<ProviderJobHandle, ProviderStatusOutcome>? OnGetStatus { get; set; }
+        public Func<ProviderJobHandle, ProviderCancelOutcome>? OnCancel { get; set; }
+        public Func<ProviderJobHandle, ProviderResultOutcome>? OnFetchResult { get; set; }
 
         public List<(string Method, object? Payload)> RecordedCalls { get; } = new();
 
@@ -43,13 +38,8 @@ namespace Rook.Tests.Services.Vision.Video
             CancellationToken ct)
         {
             RecordedCalls.Add(("Submit", new { request, resolvedMedia }));
-            var result = OnSubmitOutcome?.Invoke(request, resolvedMedia)
-                ?? (OnSubmit is null
-                    ? new QueuedSubmitOutcome(new ProviderJobHandle("fake-job-1"))
-                    : VideoProviderOutcomeAdapters.ToProviderSubmitOutcome(
-                        OnSubmit(
-                            request,
-                            VideoProviderOutcomeAdapters.ToVideoMedia(resolvedMedia))));
+            var result = OnSubmit?.Invoke(request, resolvedMedia)
+                ?? SubmitQueued("fake-job-1");
             return Task.FromResult(result);
         }
 
@@ -57,12 +47,8 @@ namespace Rook.Tests.Services.Vision.Video
             ProviderJobHandle handle, CancellationToken ct)
         {
             RecordedCalls.Add(("GetStatus", handle.ProviderJobId));
-            var result = OnGetStatusOutcome?.Invoke(handle)
-                ?? (OnGetStatus is null
-                    ? new InFlightStatusOutcome(
-                        GenerationLifecycleState.Running,
-                        new GenerationProgress(PercentComplete: 50, Message: "polling"))
-                    : ToStatusOutcome(handle, OnGetStatus(handle.ProviderJobId)));
+            var result = OnGetStatus?.Invoke(handle)
+                ?? StatusInFlight(50, "polling");
             return Task.FromResult(result);
         }
 
@@ -70,11 +56,8 @@ namespace Rook.Tests.Services.Vision.Video
             ProviderJobHandle handle, CancellationToken ct)
         {
             RecordedCalls.Add(("Cancel", handle.ProviderJobId));
-            var result = OnCancelOutcome?.Invoke(handle)
-                ?? (OnCancel is null
-                    ? new CanceledOutcome()
-                    : VideoProviderOutcomeAdapters.ToProviderCancelOutcome(
-                        OnCancel(handle.ProviderJobId)));
+            var result = OnCancel?.Invoke(handle)
+                ?? CancelOk();
             return Task.FromResult(result);
         }
 
@@ -86,56 +69,63 @@ namespace Rook.Tests.Services.Vision.Video
                 providerJobId = handle.ProviderJobId,
                 providerResultToken = handle.ProviderResultToken,
             }));
-            var result = OnFetchResultOutcome?.Invoke(handle)
-                ?? (OnFetchResult is null
-                    ? new FailedResultOutcome(new GenerationError(
-                        Code: GenerationErrorCode.ExecutionFailed,
-                        Message: "Fetch called before completion (default fake behaviour).",
-                        Retryable: true))
-                    : ToResultOutcome(
-                        OnFetchResult(handle.ProviderJobId, handle.ProviderResultToken)));
+            var result = OnFetchResult?.Invoke(handle)
+                ?? ResultFailed(new VideoJobError(
+                    Code: VideoErrorCode.ExecutionFailed,
+                    Message: "Fetch called before completion (default fake behaviour).",
+                    Retryable: true));
             return Task.FromResult(result);
         }
 
-        private static ProviderStatusOutcome ToStatusOutcome(
-            ProviderJobHandle handle,
-            ProviderStatusResult result)
-        {
-            if (result.Error is not null)
-                return new FailedStatusOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(result.Error));
+        public static ProviderSubmitOutcome SubmitQueued(string providerJobId) =>
+            new QueuedSubmitOutcome(new ProviderJobHandle(providerJobId));
 
-            if (result.State == VideoJobState.Complete)
-                return new ProviderCompleteStatusOutcome(
-                    handle.WithResultToken(result.ProviderResultToken));
+        public static ProviderSubmitOutcome SubmitFailed(VideoJobError error) =>
+            new FailedSubmitOutcome(
+                VideoProviderOutcomeAdapters.ToGenerationError(error));
 
-            return new InFlightStatusOutcome(
+        public static ProviderStatusOutcome StatusInFlight(
+            int? pct = null, string? message = null) =>
+            new InFlightStatusOutcome(
                 GenerationLifecycleState.Running,
-                result.Progress is null
+                pct is null && message is null
                     ? null
                     : new GenerationProgress(
-                        PercentComplete: result.Progress.Pct,
-                        Message: result.Progress.Message));
-        }
+                        PercentComplete: pct,
+                        Message: message));
 
-        private static ProviderResultOutcome ToResultOutcome(ProviderFetchResult result)
-        {
-            if (result.Error is not null)
-                return new FailedResultOutcome(
-                    VideoProviderOutcomeAdapters.ToGenerationError(result.Error));
+        public static ProviderStatusOutcome StatusComplete(
+            ProviderJobHandle handle,
+            string providerResultToken) =>
+            new ProviderCompleteStatusOutcome(
+                handle.WithResultToken(providerResultToken));
 
-            return new SuccessResultOutcome(
+        public static ProviderStatusOutcome StatusFailed(VideoJobError error) =>
+            new FailedStatusOutcome(
+                VideoProviderOutcomeAdapters.ToGenerationError(error));
+
+        public static ProviderCancelOutcome CancelOk() => new CanceledOutcome();
+
+        public static ProviderCancelOutcome CancelFailed(VideoJobError error) =>
+            new FailedCancelOutcome(
+                VideoProviderOutcomeAdapters.ToGenerationError(error));
+
+        public static ProviderResultOutcome ResultOk(byte[] bytes, string mimeType) =>
+            new SuccessResultOutcome(
                 new ProviderResultEnvelope(
                     new[]
                     {
                         new ResultArtifact(
                             Role: VideoMediaRoles.Video,
-                            Body: new InlineArtifactBody(result.Bytes!),
-                            DeclaredMimeType: result.MimeType,
+                            Body: new InlineArtifactBody(bytes),
+                            DeclaredMimeType: mimeType,
                             ProviderMetadata: EmptyMetadata),
                     },
                     EmptyMetadata));
-        }
+
+        public static ProviderResultOutcome ResultFailed(VideoJobError error) =>
+            new FailedResultOutcome(
+                VideoProviderOutcomeAdapters.ToGenerationError(error));
 
         private static readonly IReadOnlyDictionary<string, JsonNode> EmptyMetadata
             = new Dictionary<string, JsonNode>();
