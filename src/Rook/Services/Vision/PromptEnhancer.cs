@@ -36,7 +36,7 @@ namespace Rook.Services.Vision
     /// request is cancelled rather than left to run past the deadline.
     ///
     /// Authentication: the API key rides in the <c>x-goog-api-key</c>
-    /// request header, NOT in the URL. Same rationale as GeminiClient —
+    /// request header, NOT in the URL. Same rationale as image generation —
     /// URL secrets leak into proxy logs, diagnostics, and exception text
     /// more readily than headers.
     /// </summary>

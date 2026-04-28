@@ -72,6 +72,43 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public async Task SubmitAsync_auto_aspect_omits_aspect_ratio_from_image_config()
+        {
+            string? capturedBody = null;
+            var (provider, _) = MakeProvider(req =>
+            {
+                capturedBody = req.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                return JsonResponse(HttpStatusCode.OK, """
+                    {
+                      "candidates": [
+                        {
+                          "content": {
+                            "parts": [
+                              {
+                                "inlineData": {
+                                  "mimeType": "image/png",
+                                  "data": "AQIDBA=="
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                    """);
+            });
+
+            await provider.SubmitAsync(
+                Request() with { AspectRatio = "" },
+                ResolvedInputImage(),
+                CancellationToken.None);
+
+            Assert.NotNull(capturedBody);
+            Assert.Contains("\"imageSize\":\"1K\"", capturedBody);
+            Assert.DoesNotContain("aspectRatio", capturedBody);
+        }
+
+        [Fact]
         public async Task SubmitAsync_missing_api_key_returns_typed_dependency_error_without_network()
         {
             var (provider, handler) = MakeProvider(

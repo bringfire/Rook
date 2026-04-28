@@ -119,7 +119,6 @@ namespace Rook.Tests.Handlers
                 var handler = new VisionHandler(
                     artifactStore,
                     secrets,
-                    new GeminiClient(),
                     new PromptEnhancer(),
                     new ViewportHandler(),
                     registry);
@@ -175,7 +174,6 @@ namespace Rook.Tests.Handlers
                 var handler = new VisionHandler(
                     artifactStore,
                     secrets,
-                    new GeminiClient(),
                     new PromptEnhancer(),
                     new ViewportHandler(),
                     registry);
@@ -224,7 +222,6 @@ namespace Rook.Tests.Handlers
                 var handler = new VisionHandler(
                     artifactStore,
                     secrets,
-                    new GeminiClient(),
                     new PromptEnhancer(),
                     new ViewportHandler(),
                     registry);
@@ -275,7 +272,6 @@ namespace Rook.Tests.Handlers
                 var handler = new VisionHandler(
                     artifactStore,
                     secrets,
-                    new GeminiClient(),
                     new PromptEnhancer(),
                     new ViewportHandler(),
                     registry);
@@ -623,7 +619,7 @@ namespace Rook.Tests.Handlers
             // The UI dropdown is populated from AvailableModels. Changing
             // the count or the short-name set is a user-visible change —
             // surface it as a test diff, not a silent drop.
-            var shortNames = GeminiClient.Models.AvailableModels
+            var shortNames = GeminiImageCapabilities.AvailableModels
                 .Select(m => (string?)m["short_name"])
                 .ToList();
             Assert.Equal(2, shortNames.Count);
@@ -634,7 +630,7 @@ namespace Rook.Tests.Handlers
         [Fact]
         public void Models_AvailableCatalog_AdvertisesModelSpecificResolutions()
         {
-            var byShortName = GeminiClient.Models.AvailableModels
+            var byShortName = GeminiImageCapabilities.AvailableModels
                 .ToDictionary(m => (string)m["short_name"]!);
 
             var flashResolutions = Assert.IsAssignableFrom<IEnumerable<string>>(
@@ -673,7 +669,7 @@ namespace Rook.Tests.Handlers
             // because API keys can't invoke free-tier endpoints —
             // including them would only generate 429s. A future addition
             // must be an explicit decision documented on the catalog.
-            var shortNames = GeminiClient.Models.AvailableModels
+            var shortNames = GeminiImageCapabilities.AvailableModels
                 .Select(m => (string?)m["short_name"] ?? "")
                 .ToList();
             Assert.DoesNotContain(shortNames, n => n.Contains("2.5-flash"));
@@ -687,16 +683,16 @@ namespace Rook.Tests.Handlers
             // overview's default_model string against each option's
             // value. If DefaultShortName isn't in ShortNameToId the UI
             // never marks any option selected.
-            Assert.Contains(GeminiClient.Models.DefaultShortName,
-                GeminiClient.Models.ShortNameToId.Keys);
+            Assert.Contains(GeminiImageCapabilities.DefaultShortName,
+                GeminiImageCapabilities.ShortNameToId.Keys);
         }
 
         [Fact]
         public void Models_DefaultShortName_ResolvesToDefaultFullId()
         {
             Assert.Equal(
-                GeminiClient.Models.Default,
-                GeminiClient.Models.ResolveShortName(GeminiClient.Models.DefaultShortName));
+                GeminiImageCapabilities.DefaultModel,
+                GeminiImageCapabilities.ResolveShortName(GeminiImageCapabilities.DefaultShortName));
         }
 
         [Theory]
@@ -704,14 +700,14 @@ namespace Rook.Tests.Handlers
         [InlineData("nano-banana-pro", "gemini-3-pro-image-preview")]
         public void Models_ResolveShortName_MapsKnownShortNames(string shortName, string expectedFullId)
         {
-            Assert.Equal(expectedFullId, GeminiClient.Models.ResolveShortName(shortName));
+            Assert.Equal(expectedFullId, GeminiImageCapabilities.ResolveShortName(shortName));
         }
 
         [Fact]
         public void Models_ResolveShortName_NullOrEmpty_ReturnsDefault()
         {
-            Assert.Equal(GeminiClient.Models.Default, GeminiClient.Models.ResolveShortName(null));
-            Assert.Equal(GeminiClient.Models.Default, GeminiClient.Models.ResolveShortName(""));
+            Assert.Equal(GeminiImageCapabilities.DefaultModel, GeminiImageCapabilities.ResolveShortName(null));
+            Assert.Equal(GeminiImageCapabilities.DefaultModel, GeminiImageCapabilities.ResolveShortName(""));
         }
 
         [Fact]
@@ -722,7 +718,7 @@ namespace Rook.Tests.Handlers
             // by full Gemini ID. The resolver must not clobber anything
             // that isn't a short-name entry.
             const string custom = "gemini-4-hypothetical-image-preview";
-            Assert.Equal(custom, GeminiClient.Models.ResolveShortName(custom));
+            Assert.Equal(custom, GeminiImageCapabilities.ResolveShortName(custom));
         }
 
         // ─── Input bound constants ──────────────────────────────────────
@@ -782,7 +778,7 @@ namespace Rook.Tests.Handlers
         {
             var ex = Assert.Throws<ArgumentException>(
                 () => VisionHandler.ValidateResolution(
-                    "512", GeminiClient.Models.NanoBananaPro));
+                    "512", GeminiImageCapabilities.NanoBananaPro));
             Assert.Contains("resolution", ex.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("nano-banana-pro", ex.Message);
         }
@@ -856,26 +852,10 @@ namespace Rook.Tests.Handlers
             Assert.Contains("aspect_ratio", ex.Message);
         }
 
-        [Fact]
-        public void GeminiBuildImageConfig_AutoAspect_OmitsAspectRatio()
-        {
-            var config = GeminiClient.BuildImageConfig("1K", null);
-            Assert.Equal("1K", config["imageSize"]);
-            Assert.False(config.ContainsKey("aspectRatio"));
-        }
-
-        [Fact]
-        public void GeminiBuildImageConfig_ExplicitAspect_IncludesAspectRatio()
-        {
-            var config = GeminiClient.BuildImageConfig("512", "16:9");
-            Assert.Equal("512", config["imageSize"]);
-            Assert.Equal("16:9", config["aspectRatio"]);
-        }
-
         // ─── GenericizeProviderError: no secret leakage ─────────────────
-        // Gemini URLs embed the API key as ?key=... — if an error response
-        // echoes the URL, the key could leak into our envelope. These
-        // tests pin the sanitizer so regressions are caught.
+        // If a provider error response echoes a URL containing ?key=...,
+        // the key could leak into our envelope. These tests pin the
+        // sanitizer so regressions are caught.
 
         [Fact]
         public void GenericizeProviderError_RedactsKeyInUrl()

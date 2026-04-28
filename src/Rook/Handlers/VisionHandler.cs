@@ -129,28 +129,25 @@ namespace Rook.Handlers
 
         private readonly ArtifactStore _artifactStore;
         private readonly VisionSecretStore _secrets;
-        private readonly GeminiClient _gemini;
         private readonly PromptEnhancer _enhancer;
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
 
         public VisionHandler()
             : this(new ArtifactStore(), new VisionSecretStore(),
-                   new GeminiClient(), new PromptEnhancer(),
+                   new PromptEnhancer(),
                    new ViewportHandler())
         { }
 
         internal VisionHandler(
             ArtifactStore artifactStore,
             VisionSecretStore secrets,
-            GeminiClient gemini,
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
-            _gemini = gemini ?? throw new ArgumentNullException(nameof(gemini));
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
             _imageProviderRegistry = imageProviderRegistry
@@ -1406,16 +1403,16 @@ namespace Rook.Handlers
                 // default_model is the short name the UI dropdown uses,
                 // not the full Gemini ID — UI matches option values
                 // against this to set the selected entry.
-                ["default_model"] = GeminiClient.Models.DefaultShortName,
+                ["default_model"] = GeminiImageCapabilities.DefaultShortName,
                 // Full catalog so the UI can rebuild dropdowns without
                 // hard-coding model IDs alongside the backend. Mirrors
                 // SA_Banana's hardcoded pair: paid-tier only. Free-tier
                 // models are deliberately absent — API keys can't use
                 // them, so listing them would generate only 429s.
-                ["available_models"] = GeminiClient.Models.AvailableModels,
+                ["available_models"] = GeminiImageCapabilities.AvailableModels,
                 ["allowed_resolutions"] = CommonResolutions,
                 ["default_model_supported_resolutions"] =
-                    SupportedResolutionsForModel(GeminiClient.Models.Default),
+                    SupportedResolutionsForModel(GeminiImageCapabilities.DefaultModel),
                 ["supported_resolutions_by_model"] =
                     SupportedResolutionsByModelShortName(),
                 ["allowed_aspect_ratios"] = AllowedAspectRatios,
