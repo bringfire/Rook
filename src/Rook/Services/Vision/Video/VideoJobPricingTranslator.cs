@@ -1,7 +1,5 @@
 using System;
 using Rook.Services.Vision.Generation;
-using GenerationPricingResult = Rook.Services.Vision.Generation.PricingResult;
-using VideoPricingResult = Rook.Services.Vision.Video.PricingResult;
 
 namespace Rook.Services.Vision.Video
 {
@@ -20,20 +18,6 @@ namespace Rook.Services.Vision.Video
                 UnitPriceUsd: pricing.UnitPrice,
                 TotalUsd: pricing.TotalUsd,
                 PricingSource: pricing.PricingSource);
-        }
-
-        public static VideoPricingResult ToVideoPricingResult(
-            GenerationPricingResult result,
-            PricingKind kind)
-        {
-            if (result is null) throw new ArgumentNullException(nameof(result));
-
-            if (result.Error is not null)
-                return VideoPricingResult.Fail(
-                    VideoProviderOutcomeAdapters.ToVideoJobError(result.Error));
-
-            return VideoPricingResult.Ok(
-                ToVideoJobPricing(result.Pricing!, kind));
         }
 
         public static PricingKind PricingKindFor(

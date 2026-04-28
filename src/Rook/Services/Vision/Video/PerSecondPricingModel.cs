@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
 using GenerationPricingResult = Rook.Services.Vision.Generation.PricingResult;
-using VideoPricingResult = Rook.Services.Vision.Video.PricingResult;
 
 namespace Rook.Services.Vision.Video
 {
@@ -92,39 +91,5 @@ namespace Rook.Services.Vision.Video
         public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(
             IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
             JsonNode? responseBody) => null;
-    }
-
-    /// <summary>
-    /// Transitional V1c wrapper. New registry paths use
-    /// <see cref="PerSecondVideoPricingModel"/> directly; the wrapper
-    /// keeps older tests and compatibility surfaces compiling until the
-    /// deletion sweep removes the video-local pricing interface.
-    /// </summary>
-    public sealed class PerSecondPricingModel : IPricingModel
-    {
-        private readonly PerSecondVideoPricingModel _inner;
-
-        public PerSecondPricingModel(
-            IReadOnlyDictionary<string, decimal> ratesPerSecondUsd,
-            string pricingSource)
-        {
-            _inner = new PerSecondVideoPricingModel(
-                ratesPerSecondUsd,
-                pricingSource);
-        }
-
-        public PricingKind Kind => PricingKind.PerSecond;
-
-        public string PricingSource => _inner.PricingSource;
-
-        public VideoPricingResult Estimate(
-            VideoGenerationRequest request,
-            VideoCapability cap)
-        {
-            var result = _inner.Estimate(request, cap);
-            return VideoJobPricingTranslator.ToVideoPricingResult(
-                result,
-                PricingKind.PerSecond);
-        }
     }
 }

@@ -7,7 +7,7 @@ namespace Rook.Tests.Services.Vision.Video
     /// V1c-slim: <see cref="VeoCapabilities"/> is now a pure data table.
     /// Validation logic moved to <see cref="CapabilityValidator"/> +
     /// <see cref="VeoOptionsCodec"/>; pricing math moved to
-    /// <see cref="PerSecondPricingModel"/>. These tests pin the data
+    /// <see cref="PerSecondVideoPricingModel"/>. These tests pin the data
     /// shape and the per-model pricing source.
     /// </summary>
     public class VeoCapabilitiesTests

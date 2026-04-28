@@ -24,7 +24,7 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
         public void Golden_10_cost_estimate_veo_3_1_1080p_8s()
         {
             // Veo 3.1 full @ 1080p × 8s × 1 video — exercises
-            // PerSecondPricingModel via VideoCostEstimator. Per
+            // PerSecondVideoPricingModel via VideoCostEstimator. Per
             // VeoCapabilities, 1080p costs $0.40/s on Veo 3.1, so the
             // captured Total is the audit-snapshot of that rate.
             var registry = TestVideoFixtures.RegistryWithVeo();

@@ -12,7 +12,7 @@ namespace Rook.Tests.Services.Vision.Video
     /// <see cref="ResolvedVideoModel"/> + request, runs cap validation +
     /// codec validation + pricing in single-pass order, surfaces typed
     /// failures with correct error-code classification. Pricing math
-    /// itself is covered by <see cref="PerSecondPricingModelTests"/>.
+    /// itself is covered by <see cref="PerSecondVideoPricingModelTests"/>.
     /// </summary>
     public class VideoCostEstimatorTests
     {
