@@ -1,0 +1,13 @@
+{
+  "instances": [
+    {
+      "prompt": "a cinematic shot of a coastline at dusk"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "durationSeconds": 8,
+    "personGeneration": "allow_all",
+    "resolution": "720p"
+  }
+}

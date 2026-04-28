@@ -1,0 +1,21 @@
+{
+  "dollars_usd": 3.20,
+  "model": "veo-3.1-generate-preview",
+  "resolution": "1080p",
+  "duration_seconds": 8,
+  "number_of_videos": 1,
+  "breakdown": [
+    {
+      "label": "Veo 3.1 @ 1080p \u00D7 8s",
+      "dollars_usd": 3.20
+    }
+  ],
+  "pricing": {
+    "kind": "per_second",
+    "currency": "USD",
+    "quantity": 8,
+    "unit_price_usd": 0.40,
+    "total_usd": 3.20,
+    "pricing_source": "veo-rate-card-v1"
+  }
+}

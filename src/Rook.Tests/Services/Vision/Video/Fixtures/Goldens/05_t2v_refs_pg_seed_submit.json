@@ -1,0 +1,30 @@
+{
+  "instances": [
+    {
+      "prompt": "a still life in the style of these references",
+      "referenceImages": [
+        {
+          "image": {
+            "bytesBase64Encoded": "iVBORw0KGgoAAAANSUhEUg==",
+            "mimeType": "image/png"
+          },
+          "referenceType": "asset"
+        },
+        {
+          "image": {
+            "bytesBase64Encoded": "iVBORw0KGgoAAAANSUhEUg==",
+            "mimeType": "image/png"
+          },
+          "referenceType": "asset"
+        }
+      ]
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "durationSeconds": 8,
+    "personGeneration": "allow_adult",
+    "resolution": "1080p",
+    "seed": 12345
+  }
+}

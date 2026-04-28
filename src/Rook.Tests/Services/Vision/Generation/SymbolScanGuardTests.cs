@@ -31,6 +31,17 @@ namespace Rook.Tests.Services.Vision.Generation
             @"\bthree_d_provider\b",
             @"\btencent_3d\b",
             @"\bhunyuan3d\b",
+            // PR-2 carve-out additions (mesh / texture / segmentation /
+            // uv / topology) — Phase 4 3D advanced-features vocabulary
+            // captured in the spike P5 audit. Path-scoped so the video
+            // namespace can still legitimately use these terms (e.g.
+            // video-frame texture metadata) — only the modality-neutral
+            // Generation seam is forbidden from naming them.
+            @"\bmesh\b",
+            @"\btexture\b",
+            @"\bsegmentation\b",
+            @"\buv\b",
+            @"\btopology\b",
         };
 
         [Fact]

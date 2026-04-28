@@ -1,0 +1,21 @@
+{
+  "instances": [
+    {
+      "prompt": "transition between the two frames",
+      "image": {
+        "bytesBase64Encoded": "iVBORw0KGgoAAAANSUhEUg==",
+        "mimeType": "image/png"
+      },
+      "lastFrame": {
+        "bytesBase64Encoded": "iVBORw0KGgoAAAANSUhEUg==",
+        "mimeType": "image/png"
+      }
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "durationSeconds": 8,
+    "personGeneration": "allow_adult",
+    "resolution": "720p"
+  }
+}
