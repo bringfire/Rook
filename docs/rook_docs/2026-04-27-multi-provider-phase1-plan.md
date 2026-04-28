@@ -794,6 +794,38 @@ The `Modality` string is a free-form `string` precisely so Phase 4 can add `"3d"
 
 ---
 
+## Implementation Lessons (post-PR-1, applies to PR-2/PR-3)
+
+PR-1 shipped under five Codex review rounds. Two corrections came out of those rounds that **invalidate prose elsewhere in this plan**. PR-2/PR-3 must follow the corrected patterns; the older prose (e.g. references to "sealed-record union") describes a shape that does not actually achieve closure under C# language semantics.
+
+### Closed unions: abstract class + sealed class, NOT records
+
+C# auto-generates a `protected` copy constructor for non-sealed records, and the language spec disallows making it stricter than `protected` for non-sealed bases. That copy constructor is reachable from external derived records — so a `private protected` parameterless ctor on a `public abstract record` does **not** prevent external-assembly derivation. `with`-expressions and object initializers also let callers bypass constructor validation through `init` setters.
+
+**The pattern PR-1 actually shipped (and PR-2/PR-3 must follow):**
+- Closed union bases are `public abstract class` with a `private protected` parameterless constructor. No record. No copy ctor leak.
+- Closed union leaves are `sealed class` (not `sealed record`) with explicit constructors and read-only `{ get; }` properties.
+- Invariant-bearing types (`CostEstimate`, `JobPricing`, `ProviderJobHandle`, `ResultArtifact`, `ProviderResultEnvelope`, `ResolvedMedia`, `GenerationProgress`) are `sealed class` with read-only `{ get; }` properties — no `init` setters, no `with` syntax.
+- `UnionClosureTests` and `InvariantBypassTests` enforce both rules by reflection. Adding a record to either set, or adding an `init` setter to an invariant-bearing type, fails the build.
+
+PR-2's `VideoCapability` and PR-3's `ImageCapability` should follow the existing `IModelCapability` interface pattern. They MAY remain records IF they have no closure or invariant requirements — but the safer default for any new modality-specific subclass is sealed class with read-only props. **Do not introduce sealed-record positional-syntax types into the Generation namespace without re-running `UnionClosureTests` + `InvariantBypassTests` against them.**
+
+The `with`-expression substitute on `ProviderJobHandle` is `WithResultToken(string?)` (and any future `WithX` methods that go through the validating constructor). PR-2's `VideoJobManager` should call `handle.WithResultToken(videoUri)` at the status-complete transition rather than mutating fields.
+
+### net48 multi-targeting traps
+
+`Rook.csproj` multi-targets `net7.0;net48`. Three runtime API gaps bit PR-1 during implementation; PR-2/PR-3 will hit them again unless they're avoided up front:
+
+| Trap | Symptom | Workaround |
+|---|---|---|
+| `System.HashCode` is netstandard2.1+ | `error CS0103: The name 'HashCode' does not exist` on net48 | Use `(field1, field2, ...).GetHashCode()` — `ValueTuple<...>.GetHashCode` is on net48. |
+| `Dictionary<,>` has no `IReadOnlyDictionary` ctor on net48 | `error CS1503: cannot convert from 'IReadOnlyDictionary<...>' to 'int'` (compiler picks capacity overload) | Use explicit `foreach (var kvp in source) copy[kvp.Key] = kvp.Value;` |
+| Records on net48 require `IsExternalInit` polyfill | Compile fails on `init` setters / positional records | Polyfill already exists at `src/Rook/Polyfills/IsExternalInit.cs`. Don't remove. |
+
+PR-2's golden-fixture work involves capturing pre-refactor JSON shapes. The byte-identity assertion is sensitive to dictionary iteration order. Use `JsonNode` comparison or an order-insensitive equivalence check; do not rely on `==` between `JsonObject` instances.
+
+---
+
 ## Iteration Log
 
 - **v1.0 (2026-04-27):** Initial plan. Bound to two design decisions: sealed-record union with `Queued(ProviderJobHandle)`, committed under `docs/rook_docs/` on a clean worktree. Three blocking type-shape corrections from review pass 2 folded in: `Queued` carries a handle (not a string); `ProviderResultEnvelope` is success-only, paired with `ProviderResultOutcome.Success | Failed`; `IVideoProvider` does not parameterize over options. Four-PR sequence: generic seam (additive) → video adapt → image stand-up → secret-store keyspace. Phase 0 fixture matrix and path-scoped symbol-scan acceptance specified.
@@ -813,3 +845,9 @@ The `Modality` string is a free-form `string` precisely so Phase 4 can add `"3d"
   - PR-3 untouched-ops list now correctly says `enhance_prompt` continues to use `PromptEnhancer`, matching the corrected lineage in the GeminiImageProvider section.
   - VeoProvider's example `ResultArtifact` now uses `DeclaredMimeType` to match the v1.1 type shape.
   - Materialization commentary now refers to the "materializing manager — implemented in PR-2/PR-3" instead of "PR-1's manager," reflecting that PR-1 has no consumers.
+
+- **v1.2 (2026-04-28, post-PR-1 implementation lessons):** PR-1 merged as `ff433e1` after five Codex review rounds. Added `## Implementation Lessons` section above documenting the two architectural corrections that didn't make it into v1.0–v1.1.1 prose:
+  - Closed unions and invariant-bearing types are `abstract class` + `sealed class` with read-only `{ get; }` properties, NOT records. Records' compiler-generated `protected` copy constructor leaks external derivation; `init` setters allow `with`/object-initializer bypass of constructor validation. `UnionClosureTests` + `InvariantBypassTests` enforce by reflection. Apply to all PR-2/PR-3 types in the Generation namespace.
+  - net48 multi-targeting traps documented with workarounds: `System.HashCode` (use `ValueTuple.GetHashCode`), `Dictionary<,>` no `IReadOnlyDictionary` ctor (use explicit `foreach`), `IsExternalInit` polyfill already in place.
+  - `ProviderJobHandle.WithResultToken(string?)` is the canonical handle-update path for PR-2's status-complete transition, replacing the `with`-expression that worked when handles were records.
+  - Older prose still says "sealed-record union" in places; the v1.2 lessons section is the authoritative correction. Treat any conflict between earlier prose and the lessons section as the lessons section winning.
