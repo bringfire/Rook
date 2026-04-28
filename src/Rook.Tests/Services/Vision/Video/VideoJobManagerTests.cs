@@ -46,12 +46,14 @@ namespace Rook.Tests.Services.Vision.Video
                 Directory.Delete(_artifactRoot, recursive: true);
         }
 
-        private VideoJobManager Manager(TimeSpan? pollInterval = null) =>
+        private VideoJobManager Manager(
+            TimeSpan? pollInterval = null,
+            IVideoCostEstimator? estimator = null) =>
             new(
                 registry: _registry,
                 mediaResolver: _resolver,
                 ledger: _ledger,
-                estimator: _estimator,
+                estimator: estimator ?? _estimator,
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGen,
@@ -238,6 +240,30 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.NotNull(result.Error);
             Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Empty(_ledger.AllRecords);
+        }
+
+        [Fact]
+        public async Task Submit_preserves_generic_estimator_error_for_http_projection()
+        {
+            var genericError = new Rook.Services.Vision.Generation.GenerationError(
+                GenErrorCode.QuotaExceeded,
+                "Pricing quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("pricing detail")!,
+                });
+            var mgr = Manager(estimator: new FailingEstimator(genericError));
+
+            var result = await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            Assert.Null(result.JobId);
+            Assert.Same(genericError, result.GenerationError);
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
             Assert.Empty(_ledger.AllRecords);
         }
 
@@ -1195,5 +1221,20 @@ namespace Rook.Tests.Services.Vision.Video
             return Task.FromResult(
                 Rook.Services.Vision.Generation.MediaResolutionResult.Ok(resolved));
         }
+    }
+
+    internal sealed class FailingEstimator : IVideoCostEstimator
+    {
+        private readonly Rook.Services.Vision.Generation.GenerationError _error;
+
+        public FailingEstimator(Rook.Services.Vision.Generation.GenerationError error)
+        {
+            _error = error;
+        }
+
+        public VideoCostEstimateResult Estimate(
+            ResolvedVideoModel model,
+            VideoGenerationRequest request) =>
+            VideoCostEstimateResult.Fail(_error);
     }
 }

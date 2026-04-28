@@ -566,6 +566,34 @@ namespace Rook.Tests.Handlers
             Assert.Equal(true, AssertDataDict(resp)["retryable"]);
         }
 
+        [Fact]
+        public async Task Submit_ManagerReturnsGenericQuotaExceeded_Maps429AndDoesNotLeakProviderDetail()
+        {
+            var genericError = new GenerationError(
+                Code: GenerationErrorCode.QuotaExceeded,
+                Message: "Provider quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("internal provider detail")!,
+                });
+            var stub = new StubManager
+            {
+                SubmitImpl = (_, _) => JobSubmitResult.Fail(genericError),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = await handler.DispatchAsync(BuildSubmitBody());
+
+            AssertFail(resp, GenerationErrorCode.QuotaExceeded, expectedHttp: 429);
+            var data = AssertDataDict(resp);
+            Assert.False(data.ContainsKey("provider_error_code"));
+            Assert.False(data.ContainsKey("provider_detail"));
+            Assert.False(data.ContainsKey("provider_message"));
+        }
+
         // ─── Cancel ──────────────────────────────────────────────────────
 
         [Fact]

@@ -178,8 +178,8 @@ namespace Rook.Handlers
 
             var result = await _manager.SubmitAsync(request!, ct).ConfigureAwait(false);
 
-            if (result.Error is not null)
-                return FailWithError(result.Error);
+            if (result.GenerationError is not null)
+                return FailWithError(result.GenerationError);
 
             return Ok(new Dictionary<string, object?>
             {

@@ -1,4 +1,5 @@
 using System;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -26,12 +27,18 @@ namespace Rook.Services.Vision.Video
 
         public VideoJobError? Error { get; }
 
+        public GenerationError? GenerationError { get; }
+
         private JobSubmitResult(
-            VideoJobState state, Guid? jobId, VideoJobError? error)
+            VideoJobState state,
+            Guid? jobId,
+            VideoJobError? error,
+            GenerationError? generationError)
         {
             State = state;
             JobId = jobId;
             Error = error;
+            GenerationError = generationError;
         }
 
         public static JobSubmitResult Ok(Guid jobId, VideoJobState state)
@@ -41,7 +48,8 @@ namespace Rook.Services.Vision.Video
                     "JobId must be non-empty for a successful submit.",
                     nameof(jobId));
 
-            return new JobSubmitResult(state, jobId, error: null);
+            return new JobSubmitResult(
+                state, jobId, error: null, generationError: null);
         }
 
         public static JobSubmitResult Fail(VideoJobError error)
@@ -50,7 +58,22 @@ namespace Rook.Services.Vision.Video
                 throw new ArgumentNullException(nameof(error));
 
             return new JobSubmitResult(
-                VideoJobState.Error, jobId: null, error);
+                VideoJobState.Error,
+                jobId: null,
+                error,
+                VideoProviderOutcomeAdapters.ToGenerationError(error));
+        }
+
+        public static JobSubmitResult Fail(GenerationError error)
+        {
+            if (error is null)
+                throw new ArgumentNullException(nameof(error));
+
+            return new JobSubmitResult(
+                VideoJobState.Error,
+                jobId: null,
+                VideoProviderOutcomeAdapters.ToVideoJobError(error),
+                error);
         }
     }
 }
