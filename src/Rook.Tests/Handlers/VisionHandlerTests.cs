@@ -4,10 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
 using Rook;
 using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Gemini;
 using Xunit;
 
 namespace Rook.Tests.Handlers
@@ -91,10 +96,337 @@ namespace Rook.Tests.Handlers
             Assert.True(psi.UseShellExecute);
         }
 
+        [Fact]
+        public async Task GenerateAsync_routes_through_image_provider_registry()
+        {
+            var root = CreateTempRoot("rook-vision-generate-registry");
+            var settingsPath = Path.Combine(root, "RookSettings.json");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+                var referencePath = Path.Combine(root, "reference.png");
+                File.WriteAllBytes(referencePath, new byte[] { 6, 5, 4 });
+
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var secrets = new VisionSecretStore(new RookSettingsStore(settingsPath));
+                secrets.SetGeminiApiKey("test-gemini-key");
+                var provider = new FakeImageProvider();
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new GeminiImageProviderRegistration(provider),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    secrets,
+                    new GeminiClient(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry);
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "reference_image_paths": [ "{{JsonEncodedText.Encode(referencePath)}}" ],
+                      "model": "nano-banana-2",
+                      "resolution": "1K",
+                      "aspect_ratio": "16:9"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                Assert.NotNull(provider.CapturedRequest);
+                Assert.Equal(GeminiImageCapabilities.NanoBanana2, provider.CapturedRequest!.Model);
+                Assert.Equal("1K", provider.CapturedRequest.Resolution);
+                Assert.Equal("16:9", provider.CapturedRequest.AspectRatio);
+                Assert.Single(provider.CapturedRequest.ReferenceImages!);
+                Assert.Equal(2, provider.CapturedMedia!.Count);
+                var artifact = Assert.Single(artifactStore.List());
+                Assert.Equal(VisionHandler.ArtifactKindGeneratedImage, artifact.Kind);
+                Assert.Equal("generated-by-provider", artifact.Metadata["model"]!.GetValue<string>());
+                Assert.Equal("image/png", artifact.Metadata["mime_type"]!.GetValue<string>());
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_preserves_unknown_full_gemini_model_passthrough()
+        {
+            var root = CreateTempRoot("rook-vision-generate-unknown-model");
+            var settingsPath = Path.Combine(root, "RookSettings.json");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var secrets = new VisionSecretStore(new RookSettingsStore(settingsPath));
+                secrets.SetGeminiApiKey("test-gemini-key");
+                var provider = new FakeImageProvider();
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new GeminiImageProviderRegistration(provider),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    secrets,
+                    new GeminiClient(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry);
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "gemini-future-image-preview",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                Assert.NotNull(provider.CapturedRequest);
+                Assert.Equal("gemini-future-image-preview", provider.CapturedRequest!.Model);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_resolved_non_gemini_provider_does_not_require_gemini_key_or_resolution()
+        {
+            var root = CreateTempRoot("rook-vision-generate-non-gemini");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var secrets = new VisionSecretStore(new RookSettingsStore(
+                    Path.Combine(root, "RookSettings.json")));
+                var provider = new FakeImageProvider(providerName: "custom");
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: "custom",
+                        modelId: "custom-image-model"),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    secrets,
+                    new GeminiClient(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry);
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "custom-image-model",
+                      "resolution": "custom-resolution",
+                      "aspect_ratio": "custom-aspect"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                Assert.NotNull(provider.CapturedRequest);
+                Assert.Equal("custom-image-model", provider.CapturedRequest!.Model);
+                Assert.Equal("custom-resolution", provider.CapturedRequest.Resolution);
+                Assert.Equal("custom-aspect", provider.CapturedRequest.AspectRatio);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_prefers_exact_registry_model_before_gemini_short_name_fallback()
+        {
+            var root = CreateTempRoot("rook-vision-generate-short-name-collision");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var secrets = new VisionSecretStore(new RookSettingsStore(
+                    Path.Combine(root, "RookSettings.json")));
+                var provider = new FakeImageProvider(providerName: "custom");
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: "custom",
+                        modelId: "nano-banana-2"),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    secrets,
+                    new GeminiClient(),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry);
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "make this rendering warmer",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "nano-banana-2",
+                      "resolution": "custom-resolution",
+                      "aspect_ratio": "custom-aspect"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                Assert.NotNull(provider.CapturedRequest);
+                Assert.Equal("nano-banana-2", provider.CapturedRequest!.Model);
+                Assert.Equal("custom", provider.ProviderName);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
         // ─── Reveal artifact file ───────────────────────────────────────
 
         private static Dictionary<string, JsonElement> ParseArgs(string json)
             => VisionHandler.ParseObjectBody(json);
+
+        private sealed class FakeImageProvider : IImageProvider
+        {
+            public FakeImageProvider(string providerName = GeminiImageCapabilities.ProviderName)
+            {
+                ProviderName = providerName;
+            }
+
+            public string ProviderName { get; }
+            public ImageGenerationRequest? CapturedRequest { get; private set; }
+            public IReadOnlyDictionary<MediaRef, ResolvedMedia>? CapturedMedia { get; private set; }
+
+            public Task<ProviderSubmitOutcome> SubmitAsync(
+                ImageGenerationRequest request,
+                IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+                CancellationToken ct)
+            {
+                CapturedRequest = request;
+                CapturedMedia = resolvedMedia;
+                return Task.FromResult<ProviderSubmitOutcome>(
+                    new SyncSubmitOutcome(
+                        new SuccessResultOutcome(
+                            new ProviderResultEnvelope(
+                                new[]
+                                {
+                                    new ResultArtifact(
+                                        Role: ImageMediaRoles.Image,
+                                        Body: new InlineArtifactBody(new byte[] { 1, 2, 3 }),
+                                        DeclaredMimeType: "image/png",
+                                        ProviderMetadata: new Dictionary<string, JsonNode>
+                                        {
+                                            ["model"] = JsonValue.Create("generated-by-provider")!,
+                                        }),
+                                },
+                                new Dictionary<string, JsonNode>
+                                {
+                                    ["modelVersion"] = JsonValue.Create("generated-by-provider")!,
+                                }))));
+            }
+
+            public Task<ProviderStatusOutcome> GetStatusAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderCancelOutcome> CancelAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderResultOutcome> FetchResultAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+        }
+
+        private sealed class FakeImageProviderRegistration : IImageProviderRegistration
+        {
+            private readonly IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> _models;
+
+            public FakeImageProviderRegistration(
+                IImageProvider provider,
+                string providerName,
+                string modelId)
+            {
+                Provider = provider;
+                ProviderName = providerName;
+                _models = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
+                {
+                    [modelId] = (
+                        new ImageCapability(
+                            Id: modelId,
+                            Name: modelId,
+                            Status: "preview",
+                            Resolutions: new[] { "custom-resolution" },
+                            AspectRatios: new[] { "custom-aspect" },
+                            MaxReferenceImages: 0,
+                            SupportsImageToImage: true,
+                            SupportsTextToImage: true),
+                        new FakeImagePricingModel()),
+                };
+            }
+
+            public string ProviderName { get; }
+            public IImageProvider Provider { get; }
+            public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
+                = new FakeImageOptionsCodec();
+            public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models
+                => _models;
+        }
+
+        private sealed record FakeImageOptions : ProviderOptions;
+
+        private sealed class FakeImageOptionsCodec
+            : IProviderOptionsCodec<ImageGenerationRequest, ImageCapability>
+        {
+            public ValidationResult Validate(
+                ImageGenerationRequest request,
+                ProviderOptions options,
+                ImageCapability capability) => ValidationResult.Ok();
+
+            public JsonObject Serialize(ProviderOptions options) => new JsonObject();
+
+            public ProviderOptionsDecodeResult Deserialize(JsonObject json) =>
+                ProviderOptionsDecodeResult.Ok(new FakeImageOptions());
+        }
+
+        private sealed class FakeImagePricingModel
+            : IPricingModel<ImageGenerationRequest, ImageCapability>
+        {
+            public string PricingSource => "test";
+            public PricingMetadataLocation MetadataLocation => PricingMetadataLocation.NotApplicable;
+
+            public PricingResult Estimate(
+                ImageGenerationRequest request,
+                ImageCapability capability) =>
+                PricingResult.Ok(
+                    new JobPricing("USD", 0m, "call", 1m, 0m, "test"),
+                    new CostEstimate(0m, 0m, false, "test-stub"));
+
+            public JobPricing? ExtractActualSpend(
+                IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
+                JsonNode? responseBody) => null;
+        }
 
         private static string CreateTempRoot(string name)
         {

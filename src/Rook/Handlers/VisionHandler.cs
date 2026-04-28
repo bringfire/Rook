@@ -13,6 +13,9 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Artifacts;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Gemini;
 
 namespace Rook.Handlers
 {
@@ -129,6 +132,7 @@ namespace Rook.Handlers
         private readonly GeminiClient _gemini;
         private readonly PromptEnhancer _enhancer;
         private readonly ViewportHandler _viewportHandler;
+        private readonly IImageProviderRegistry _imageProviderRegistry;
 
         public VisionHandler()
             : this(new ArtifactStore(), new VisionSecretStore(),
@@ -141,13 +145,20 @@ namespace Rook.Handlers
             VisionSecretStore secrets,
             GeminiClient gemini,
             PromptEnhancer enhancer,
-            ViewportHandler viewportHandler)
+            ViewportHandler viewportHandler,
+            IImageProviderRegistry? imageProviderRegistry = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
             _gemini = gemini ?? throw new ArgumentNullException(nameof(gemini));
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
+            _imageProviderRegistry = imageProviderRegistry
+                ?? new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new GeminiImageProviderRegistration(
+                        new GeminiImageProvider(_secrets.GetGeminiApiKey)),
+                });
         }
 
         // ─── Synchronous dispatcher (capture_depth only) ────────────────
@@ -381,7 +392,9 @@ namespace Rook.Handlers
             // Gemini's practical inline-payload limit.
             long aggregateBytes = info.Length;
 
-            string[]? referenceBase64 = null;
+            var resolvedMedia = new Dictionary<MediaRef, ResolvedMedia>();
+            var inputRef = MediaRef.ForPath(inputImagePath, ImageMediaRoles.InputImage);
+            IReadOnlyList<MediaRef>? referenceRefs = null;
             if (args.TryGetValue("reference_image_paths", out var refsEl)
                 && refsEl.ValueKind == JsonValueKind.Array)
             {
@@ -390,7 +403,7 @@ namespace Rook.Handlers
                     throw new ArgumentException(
                         $"reference_image_paths exceeds the limit of {MaxReferenceImages}.");
                 }
-                var list = new List<string>();
+                var list = new List<MediaRef>();
                 foreach (var el in refsEl.EnumerateArray())
                 {
                     if (el.ValueKind != JsonValueKind.String)
@@ -409,70 +422,137 @@ namespace Rook.Handlers
                             $"({aggregateBytes} bytes so far). Reduce the number or size of " +
                             "reference images.");
                     }
-                    list.Add(Convert.ToBase64String(File.ReadAllBytes(path)));
+                    var mediaRef = MediaRef.ForPath(path, ImageMediaRoles.ReferenceImage);
+                    list.Add(mediaRef);
+                    resolvedMedia[mediaRef] = new ResolvedMedia(
+                        File.ReadAllBytes(path),
+                        "image/png");
                 }
-                referenceBase64 = list.ToArray();
+                referenceRefs = list;
             }
 
-            // Accept either a short name ("nano-banana-2") from the UI
-            // dropdown or a full Gemini model ID from an agent caller.
-            // `ResolveShortName` performs the short→full lookup and passes
-            // through unknown values so power users can target newer
-            // models at their own risk.
             var modelInput = GetStringArg(args, "model");
-            var model = GeminiClient.Models.ResolveShortName(modelInput);
+            var model = string.IsNullOrWhiteSpace(modelInput)
+                ? GeminiImageCapabilities.ResolveShortName(modelInput)
+                : modelInput!.Trim();
             var resolutionInput = GetStringArg(args, "resolution");
             var resolution = string.IsNullOrWhiteSpace(resolutionInput)
                 ? "1K"
                 : resolutionInput!;
-            var aspectRatio = NormalizeAspectRatio(GetStringArg(args, "aspect_ratio"));
+            var aspectRatio = NormalizeAspectRatioForProvider(
+                GetStringArg(args, "aspect_ratio"));
 
-            ValidateResolution(resolution, model);
-
-            var apiKey = _secrets.GetGeminiApiKey();
-            if (string.IsNullOrEmpty(apiKey))
+            if (!_imageProviderRegistry.TryResolve(model, out var resolvedModel))
             {
-                return Fail(
-                    "Gemini API key is not configured. Set it via the Vision settings " +
-                    "before calling /vision/generate.");
+                // Preserve the legacy Gemini UI short names only after
+                // registered providers get first chance at exact model IDs.
+                model = GeminiImageCapabilities.ResolveShortName(modelInput);
+                if (!_imageProviderRegistry.TryResolve(model, out resolvedModel))
+                {
+                    if (!_imageProviderRegistry.TryResolveProviderByName(
+                            GeminiImageCapabilities.ProviderName, out var geminiProvider))
+                    {
+                        return Fail($"Unknown image model '{model}'.");
+                    }
+
+                    resolvedModel = new ResolvedImageModel(
+                        ModelId: model,
+                        ProviderName: GeminiImageCapabilities.ProviderName,
+                        Provider: geminiProvider,
+                        Capability: new ImageCapability(
+                            Id: model,
+                            Name: model,
+                            Status: "preview",
+                            Resolutions: SupportedResolutionsForModel(model),
+                            AspectRatios: AllowedAspectRatios,
+                            MaxReferenceImages: MaxReferenceImages,
+                            SupportsImageToImage: true,
+                            SupportsTextToImage: true),
+                        PricingModel: new GeminiImagePricingModel(),
+                        OptionsCodec: new GeminiImageOptionsCodec());
+                }
+            }
+
+            var optionsResult = resolvedModel.OptionsCodec.Deserialize(new JsonObject());
+            if (!optionsResult.Success || optionsResult.Options is null)
+            {
+                return Fail(optionsResult.Error?.Message
+                    ?? "Image provider options could not be decoded.");
             }
 
             var inputBytes = File.ReadAllBytes(inputImagePath);
+            resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
 
-            var result = await _gemini.GenerateImageAsync(
-                apiKey!, prompt, inputBytes, referenceBase64,
-                model, resolution, aspectRatio, cancellationToken)
+            var imageRequest = new ImageGenerationRequest(
+                Model: resolvedModel.ModelId,
+                Prompt: prompt,
+                Resolution: resolution,
+                AspectRatio: aspectRatio ?? "",
+                NumberOfImages: 1,
+                ReferenceImages: referenceRefs,
+                Options: optionsResult.Options);
+
+            var validation = resolvedModel.OptionsCodec.Validate(
+                imageRequest, imageRequest.Options, resolvedModel.Capability);
+            if (!validation.Success)
+            {
+                return Fail(validation.Message ?? "Image provider request is invalid.");
+            }
+
+            var submit = await resolvedModel.Provider.SubmitAsync(
+                imageRequest, resolvedMedia, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!result.Success || string.IsNullOrEmpty(result.ImageBase64))
+            if (submit is FailedSubmitOutcome failedSubmit)
+            {
+                if (IsGeminiMissingApiKey(failedSubmit.Error))
+                    return Fail(failedSubmit.Error.Message);
+
+                return Fail(
+                    "Image generation failed. " +
+                    GenericizeProviderError(failedSubmit.Error.Message));
+            }
+
+            if (submit is not SyncSubmitOutcome sync)
+            {
+                return Fail("Image generation failed. Provider returned an async job.");
+            }
+
+            if (sync.Result is FailedResultOutcome failedResult)
             {
                 return Fail(
                     "Image generation failed. " +
-                    GenericizeProviderError(result.Error));
+                    GenericizeProviderError(failedResult.Error.Message));
             }
 
-            byte[] imageBytes;
-            try
+            if (sync.Result is not SuccessResultOutcome success)
             {
-                imageBytes = Convert.FromBase64String(result.ImageBase64!);
-            }
-            catch (FormatException)
-            {
-                return Fail("Gemini response image was not valid base64.");
+                return Fail("Image generation failed. Provider returned an unknown result shape.");
             }
 
-            var mimeType = result.ImageMimeType ?? "image/png";
+            var providerArtifact = success.Envelope.Artifacts.FirstOrDefault();
+            if (providerArtifact?.Body is not InlineArtifactBody inline)
+            {
+                return Fail("Image generation failed. Provider result did not contain an inline image artifact.");
+            }
+
+            var imageBytes = inline.Bytes;
+            var mimeType = providerArtifact.DeclaredMimeType ?? "image/png";
             var extension = ExtensionForMime(mimeType);
+            var generatedAt = DateTime.Now;
+            var providerModel = MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
+                ?? MetadataString(providerArtifact.ProviderMetadata, "model")
+                ?? resolvedModel.ModelId;
 
             var metadata = new Dictionary<string, JsonNode?>
             {
                 ["prompt"] = prompt,
-                ["model"] = result.Model ?? model,
+                ["model"] = providerModel,
                 ["resolution"] = resolution,
                 ["aspect_ratio"] = aspectRatio ?? "auto",
                 ["mime_type"] = mimeType,
-                ["generated_at"] = result.GeneratedAt.ToString("o"),
-                ["reference_count"] = referenceBase64?.Length ?? 0,
+                ["generated_at"] = generatedAt.ToString("o"),
+                ["reference_count"] = referenceRefs?.Count ?? 0,
             };
 
             var blob = new BlobInput("image", imageBytes, extension);
@@ -1551,7 +1631,7 @@ namespace Rook.Handlers
         // ─── validation helpers ─────────────────────────────────────────
 
         internal static void ValidateResolution(string resolution)
-            => ValidateResolution(resolution, GeminiClient.Models.Default);
+            => ValidateResolution(resolution, GeminiImageCapabilities.DefaultModel);
 
         internal static void ValidateResolution(string resolution, string model)
         {
@@ -1584,11 +1664,20 @@ namespace Rook.Handlers
                 string.Join(", ", AllowedAspectRatios) + ".");
         }
 
+        private static string? NormalizeAspectRatioForProvider(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var value = raw!.Trim();
+            if (value.Equals("auto", StringComparison.OrdinalIgnoreCase)) return null;
+            if (value.Equals("current", StringComparison.OrdinalIgnoreCase)) return null;
+            return value;
+        }
+
         internal static string[] SupportedResolutionsForModel(string model)
         {
-            if (string.Equals(model, GeminiClient.Models.NanoBanana2,
+            if (string.Equals(model, GeminiImageCapabilities.NanoBanana2,
                     StringComparison.Ordinal)
-                || string.Equals(model, GeminiClient.Models.DefaultShortName,
+                || string.Equals(model, GeminiImageCapabilities.DefaultShortName,
                     StringComparison.Ordinal))
             {
                 return AllowedResolutions;
@@ -1602,21 +1691,31 @@ namespace Rook.Handlers
             return new Dictionary<string, string[]>
             {
                 ["nano-banana-2"] =
-                    SupportedResolutionsForModel(GeminiClient.Models.NanoBanana2),
+                    SupportedResolutionsForModel(GeminiImageCapabilities.NanoBanana2),
                 ["nano-banana-pro"] =
-                    SupportedResolutionsForModel(GeminiClient.Models.NanoBananaPro),
+                    SupportedResolutionsForModel(GeminiImageCapabilities.NanoBananaPro),
             };
         }
 
         private static string ModelShortNameForMessage(string model)
         {
-            if (string.Equals(model, GeminiClient.Models.NanoBananaPro,
+            if (string.Equals(model, GeminiImageCapabilities.NanoBananaPro,
                     StringComparison.Ordinal))
                 return "nano-banana-pro";
-            if (string.Equals(model, GeminiClient.Models.NanoBanana2,
+            if (string.Equals(model, GeminiImageCapabilities.NanoBanana2,
                     StringComparison.Ordinal))
                 return "nano-banana-2";
             return model;
+        }
+
+        private static string? MetadataString(
+            IReadOnlyDictionary<string, JsonNode> metadata,
+            string key)
+        {
+            if (!metadata.TryGetValue(key, out var node) || node is null)
+                return null;
+            try { return node.GetValue<string>(); }
+            catch { return null; }
         }
 
         /// <summary>
@@ -1662,6 +1761,14 @@ namespace Rook.Handlers
                 sanitized = sanitized.Substring(0, 500) + "... [truncated]";
             }
             return sanitized;
+        }
+
+        private static bool IsGeminiMissingApiKey(GenerationError error)
+        {
+            return error.Code == GenerationErrorCode.DependencyUnavailable
+                && error.Message.StartsWith(
+                    "Gemini API key is not configured.",
+                    StringComparison.Ordinal);
         }
 
         internal static Dictionary<string, JsonElement> ParseObjectBody(string? body)
