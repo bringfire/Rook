@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -114,6 +115,41 @@ namespace Rook.Tests.Services.Vision.Video
         {
             Assert.Throws<ArgumentNullException>(() =>
                 new ArtifactOnlyVideoMediaResolver(null!));
+        }
+
+        [Fact]
+        public async Task ResolveAllAsync_uses_generic_media_ref_and_resolved_media()
+        {
+            var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+            var artifact = _store.Create(
+                kind: "captured_viewport",
+                blobs: new[] { new BlobInput("image", pngBytes, "png") });
+            IMediaResolver resolver = _resolver;
+            var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
+
+            var result = await resolver.ResolveAllAsync(
+                new[] { media },
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.Equal(pngBytes, result.Resolved![media].Bytes);
+            Assert.Equal("image/png", result.Resolved[media].MimeType);
+        }
+
+        [Fact]
+        public async Task ResolveAllAsync_path_kind_returns_typed_failure()
+        {
+            IMediaResolver resolver = _resolver;
+            var media = MediaRef.ForPath(@"C:\fixtures\frame.png", VideoMediaRoles.Image);
+
+            var result = await resolver.ResolveAllAsync(
+                new[] { media },
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal("MediaRef", result.Error.Field);
+            Assert.Contains("V1b", result.Error.Message);
         }
     }
 }

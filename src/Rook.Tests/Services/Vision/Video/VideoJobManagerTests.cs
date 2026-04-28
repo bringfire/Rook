@@ -614,21 +614,34 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         // Test pricing model that delegates to a real one but counts calls.
-        private sealed class CountingPricingModel : IPricingModel
+        private sealed class CountingPricingModel
+            : Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability>
         {
-            private readonly IPricingModel _inner;
+            private readonly Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> _inner;
             public int CallCount { get; private set; }
 
-            public CountingPricingModel(IPricingModel inner) { _inner = inner; }
+            public CountingPricingModel(
+                Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> inner)
+            {
+                _inner = inner;
+            }
 
-            public PricingKind Kind => _inner.Kind;
             public string PricingSource => _inner.PricingSource;
+            public Rook.Services.Vision.Generation.PricingMetadataLocation MetadataLocation =>
+                _inner.MetadataLocation;
 
-            public PricingResult Estimate(VideoGenerationRequest request, VideoCapability cap)
+            public Rook.Services.Vision.Generation.PricingResult Estimate(
+                VideoGenerationRequest request,
+                VideoCapability cap)
             {
                 CallCount++;
                 return _inner.Estimate(request, cap);
             }
+
+            public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(
+                IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
+                JsonNode? responseBody) =>
+                _inner.ExtractActualSpend(responseHeaders, responseBody);
         }
 
         // Trivial registry holding one resolved model. Avoids the
@@ -666,7 +679,8 @@ namespace Rook.Tests.Services.Vision.Video
                 {
                     new VideoModelDescriptor(
                         _model.ModelId, _model.ProviderName, _model.Capability,
-                        _model.PricingModel.Kind, _model.PricingModel.PricingSource),
+                        VideoJobPricingTranslator.PricingKindFor(_model.PricingModel),
+                        _model.PricingModel.PricingSource),
                 };
         }
 
@@ -1126,7 +1140,8 @@ namespace Rook.Tests.Services.Vision.Video
     }
 
     // Tiny media resolver for tests: synchronous, configurable.
-    internal sealed class FakeVideoMediaResolver : IVideoMediaResolver
+    internal sealed class FakeVideoMediaResolver
+        : IVideoMediaResolver, Rook.Services.Vision.Generation.IMediaResolver
     {
         public Func<VideoMediaRef, ResolvedVideoMedia>? OnResolve { get; set; }
 
@@ -1140,6 +1155,45 @@ namespace Rook.Tests.Services.Vision.Video
                     mimeType: "image/png",
                     sourceDescription: "fake");
             return Task.FromResult(resolved);
+        }
+
+        public Task<Rook.Services.Vision.Generation.MediaResolutionResult> ResolveAllAsync(
+            IReadOnlyList<Rook.Services.Vision.Generation.MediaRef> refs,
+            CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            var resolved =
+                new Dictionary<Rook.Services.Vision.Generation.MediaRef, Rook.Services.Vision.Generation.ResolvedMedia>();
+            foreach (var mediaRef in refs)
+            {
+                var videoRef = VideoProviderOutcomeAdapters.ToVideoMediaRef(mediaRef);
+                ResolvedVideoMedia videoResolved;
+                try
+                {
+                    videoResolved = OnResolve?.Invoke(videoRef)
+                        ?? new ResolvedVideoMedia(
+                            bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
+                            mimeType: "image/png",
+                            sourceDescription: "fake");
+                }
+                catch (NotSupportedException ex)
+                {
+                    return Task.FromResult(
+                        Rook.Services.Vision.Generation.MediaResolutionResult.Fail(
+                            new Rook.Services.Vision.Generation.GenerationError(
+                                GenErrorCode.InvalidRequest,
+                                ex.Message,
+                                Retryable: false,
+                                Field: "MediaRef")));
+                }
+
+                resolved[mediaRef] = new Rook.Services.Vision.Generation.ResolvedMedia(
+                    videoResolved.Bytes,
+                    videoResolved.MimeType);
+            }
+
+            return Task.FromResult(
+                Rook.Services.Vision.Generation.MediaResolutionResult.Ok(resolved));
         }
     }
 }

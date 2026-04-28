@@ -1,6 +1,8 @@
 using System.Collections.Generic;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
+using GenerationPricingResult = Rook.Services.Vision.Generation.PricingResult;
 
 namespace Rook.Tests.Services.Vision.Video
 {
@@ -134,6 +136,54 @@ namespace Rook.Tests.Services.Vision.Video
                 pricingSource: "veo-rate-card-v1");
 
             Assert.Equal("veo-rate-card-v1", pricing.PricingSource);
+        }
+
+        [Fact]
+        public void PerSecondVideoPricingModel_implements_generic_pricing_seam()
+        {
+            IPricingModel<VideoGenerationRequest, VideoCapability> pricing =
+                new PerSecondVideoPricingModel(
+                    ratesPerSecondUsd: new Dictionary<string, decimal> { ["720p"] = 0.05m },
+                    pricingSource: "test-rate-card");
+            var req = TestVideoFixtures.DefaultT2vRequest(
+                resolution: "720p", duration: 8);
+
+            GenerationPricingResult result = pricing.Estimate(req, LiteCap);
+
+            Assert.True(result.Success);
+            Assert.Equal(PricingMetadataLocation.NotApplicable, pricing.MetadataLocation);
+            Assert.Equal("USD", result.Pricing!.Currency);
+            Assert.Equal(8m, result.Pricing.Quantity);
+            Assert.Equal(0.05m, result.Pricing.UnitPrice);
+            Assert.Equal("output_second", result.Pricing.Unit);
+            Assert.Equal(0.40m, result.Pricing.TotalUsd);
+            Assert.Equal(0.40m, result.Estimate!.Min);
+            Assert.Equal(0.40m, result.Estimate.Max);
+            Assert.True(result.Estimate.IsExact);
+            Assert.Equal("test-rate-card", result.Estimate.Provenance);
+        }
+
+        [Fact]
+        public void VideoJobPricingTranslator_converts_generic_per_second_pricing()
+        {
+            var generic = new Rook.Services.Vision.Generation.JobPricing(
+                Currency: "USD",
+                UnitPrice: 0.05m,
+                Unit: "output_second",
+                Quantity: 8m,
+                TotalUsd: 0.40m,
+                PricingSource: "test-rate-card");
+
+            var video = VideoJobPricingTranslator.ToVideoJobPricing(
+                generic,
+                PricingKind.PerSecond);
+
+            Assert.Equal(PricingKind.PerSecond, video.Kind);
+            Assert.Equal("USD", video.Currency);
+            Assert.Equal(8, video.Quantity);
+            Assert.Equal(0.05m, video.UnitPriceUsd);
+            Assert.Equal(0.40m, video.TotalUsd);
+            Assert.Equal("test-rate-card", video.PricingSource);
         }
     }
 }

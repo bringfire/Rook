@@ -41,7 +41,7 @@ namespace Rook.Services.Vision.Video
         public const int DefaultMaxConcurrentJobs = 2;
 
         private readonly IVideoProviderRegistry _registry;
-        private readonly IVideoMediaResolver _mediaResolver;
+        private readonly IMediaResolver _mediaResolver;
         private readonly IVideoJobLedger _ledger;
         private readonly IVideoCostEstimator _estimator;
         private readonly ArtifactStore _artifactStore;
@@ -55,7 +55,7 @@ namespace Rook.Services.Vision.Video
 
         public VideoJobManager(
             IVideoProviderRegistry registry,
-            IVideoMediaResolver mediaResolver,
+            IMediaResolver mediaResolver,
             IVideoJobLedger ledger,
             IVideoCostEstimator estimator,
             ArtifactStore artifactStore,
@@ -100,28 +100,11 @@ namespace Rook.Services.Vision.Video
 
             // Resolve media refs to bytes. Failures translate to typed
             // JobSubmitResult.Fail before any background work starts.
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolved;
-            try
-            {
-                resolved = await ResolveAllMediaAsync(request, ct).ConfigureAwait(false);
-            }
-            catch (NotSupportedException ex)
-            {
-                return JobSubmitResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
-                    Message: ex.Message,
-                    Retryable: false,
-                    Field: "MediaRef"));
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                return JobSubmitResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
-                    Message: $"Media resolution failed: {ex.Message}",
-                    Retryable: false,
-                    Field: "MediaRef"));
-            }
+            var mediaResult = await ResolveAllMediaAsync(request, ct).ConfigureAwait(false);
+            if (!mediaResult.Success)
+                return JobSubmitResult.Fail(
+                    VideoProviderOutcomeAdapters.ToVideoJobError(mediaResult.Error!));
+            var resolved = mediaResult.Resolved!;
 
             var jobId = _idGenerator.NewJobId();
             var now = _clock.UtcNow();
@@ -681,7 +664,7 @@ namespace Rook.Services.Vision.Video
         private async Task RunJobAsync(
             Guid jobId,
             VideoGenerationRequest request,
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
             RunningJob running)
         {
             var ct = running.Cts.Token;
@@ -698,7 +681,7 @@ namespace Rook.Services.Vision.Video
 
                     var submitOutcome = await provider.SubmitAsync(
                         request,
-                        VideoProviderOutcomeAdapters.ToGenerationMedia(resolvedMedia),
+                        resolvedMedia,
                         ct).ConfigureAwait(false);
 
                     ProviderJobHandle handle;
@@ -989,28 +972,27 @@ namespace Rook.Services.Vision.Video
                 "Provider result envelope did not contain an inline video artifact.",
                 Retryable: false);
 
-        private async Task<IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia>> ResolveAllMediaAsync(
+        private Task<MediaResolutionResult> ResolveAllMediaAsync(
             VideoGenerationRequest request, CancellationToken ct)
         {
-            var dict = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
-            await ResolveOneAsync(request.StartFrame, dict, ct).ConfigureAwait(false);
-            await ResolveOneAsync(request.EndFrame, dict, ct).ConfigureAwait(false);
-            if (request.ReferenceFrames is { Count: > 0 } refs)
+            var mediaRefs = new List<MediaRef>();
+            AddMediaRef(request.StartFrame, mediaRefs);
+            AddMediaRef(request.EndFrame, mediaRefs);
+            if (request.ReferenceFrames is { Count: > 0 } referenceFrames)
             {
-                foreach (var r in refs)
-                    await ResolveOneAsync(r, dict, ct).ConfigureAwait(false);
+                foreach (var r in referenceFrames)
+                    AddMediaRef(r, mediaRefs);
             }
-            return dict;
+
+            return _mediaResolver.ResolveAllAsync(mediaRefs, ct);
         }
 
-        private async Task ResolveOneAsync(
-            VideoMediaRef? mediaRef,
-            Dictionary<VideoMediaRef, ResolvedVideoMedia> into,
-            CancellationToken ct)
+        private static void AddMediaRef(VideoMediaRef? mediaRef, List<MediaRef> refs)
         {
-            if (mediaRef is null || into.ContainsKey(mediaRef)) return;
-            var resolved = await _mediaResolver.ResolveAsync(mediaRef, ct).ConfigureAwait(false);
-            into[mediaRef] = resolved;
+            if (mediaRef is null) return;
+            var generationRef = VideoProviderOutcomeAdapters.ToGenerationMediaRef(mediaRef);
+            if (!refs.Contains(generationRef))
+                refs.Add(generationRef);
         }
 
         private VideoJobRecord? FindLatestRecord(Guid jobId)

@@ -1,6 +1,8 @@
 using System;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
+using GenerationOptionsDecodeResult = Rook.Services.Vision.Generation.ProviderOptionsDecodeResult;
+using GenerationValidationResult = Rook.Services.Vision.Generation.ValidationResult;
 
 namespace Rook.Services.Vision.Video
 {
@@ -20,28 +22,29 @@ namespace Rook.Services.Vision.Video
     /// non-<see cref="VeoOptions"/> means the caller bypassed the registry's
     /// codec-to-options pairing — a programming bug, not a runtime input.</para>
     /// </summary>
-    public sealed class VeoOptionsCodec : IProviderOptionsCodec
+    public sealed class VeoOptionsCodec
+        : Rook.Services.Vision.Generation.IProviderOptionsCodec<VideoGenerationRequest, VideoCapability>
     {
-        public ValidationResult Validate(
+        public GenerationValidationResult Validate(
             VideoGenerationRequest request,
             ProviderOptions options,
             VideoCapability cap)
         {
             if (request is null)
-                return ValidationResult.Fail("Request", "Request is null.");
+                return GenerationValidationResult.Fail("Request is null.", "Request");
 
             if (cap is null)
-                return ValidationResult.Fail("Cap", "Capability is null.");
+                return GenerationValidationResult.Fail("Capability is null.", "Cap");
 
             if (options is null)
-                return ValidationResult.Fail(
-                    nameof(VideoGenerationRequest.Options),
-                    "VeoOptions are required for Veo models.");
+                return GenerationValidationResult.Fail(
+                    "VeoOptions are required for Veo models.",
+                    nameof(VideoGenerationRequest.Options));
 
             if (options is not VeoOptions veo)
-                return ValidationResult.Fail(
-                    nameof(VideoGenerationRequest.Options),
-                    $"Veo codec requires {nameof(VeoOptions)}; got {options.GetType().Name}.");
+                return GenerationValidationResult.Fail(
+                    $"Veo codec requires {nameof(VeoOptions)}; got {options.GetType().Name}.",
+                    nameof(VideoGenerationRequest.Options));
 
             // Fail-closed on undefined enum values. C# enums are
             // coercible — (PersonGenerationPolicy)999 can reach this
@@ -51,18 +54,19 @@ namespace Rook.Services.Vision.Video
             // did the equivalent check before the model/mode rules;
             // preserved here under enum typing.
             if (!Enum.IsDefined(typeof(PersonGenerationPolicy), veo.PersonGeneration))
-                return ValidationResult.Fail(
-                    nameof(VeoOptions.PersonGeneration),
-                    $"Unknown PersonGeneration value: {(int)veo.PersonGeneration}.");
+                return GenerationValidationResult.Fail(
+                    $"Unknown PersonGeneration value: {(int)veo.PersonGeneration}.",
+                    nameof(VeoOptions.PersonGeneration));
 
             var refCount = request.ReferenceFrames?.Count ?? 0;
             var msg = ValidatePersonGenerationMatrix(
                 request.Model, request.Mode, veo.PersonGeneration, refCount, cap);
             if (msg is not null)
-                return ValidationResult.Fail(
-                    nameof(VeoOptions.PersonGeneration), msg);
+                return GenerationValidationResult.Fail(
+                    msg,
+                    nameof(VeoOptions.PersonGeneration));
 
-            return ValidationResult.Ok();
+            return GenerationValidationResult.Ok();
         }
 
         public JsonObject Serialize(ProviderOptions options)
@@ -78,23 +82,32 @@ namespace Rook.Services.Vision.Video
             return json;
         }
 
-        public ProviderOptionsDecodeResult Deserialize(JsonObject json)
+        public GenerationOptionsDecodeResult Deserialize(JsonObject json)
         {
             if (json is null)
-                return ProviderOptionsDecodeResult.Fail(
-                    "options", "Provider options JSON is null.");
+                return GenerationOptionsDecodeResult.Fail(new GenerationError(
+                    GenerationErrorCode.InvalidRequest,
+                    "Provider options JSON is null.",
+                    Retryable: false,
+                    Field: "options"));
 
             if (!json.TryGetPropertyValue("person_generation", out var pgNode)
                 || pgNode is null)
-                return ProviderOptionsDecodeResult.Fail(
-                    "person_generation", "Required field missing.");
+                return GenerationOptionsDecodeResult.Fail(new GenerationError(
+                    GenerationErrorCode.InvalidRequest,
+                    "Required field missing.",
+                    Retryable: false,
+                    Field: "person_generation"));
 
             string? pgStr;
             try { pgStr = pgNode.GetValue<string>(); }
             catch
             {
-                return ProviderOptionsDecodeResult.Fail(
-                    "person_generation", "Field is not a string.");
+                return GenerationOptionsDecodeResult.Fail(new GenerationError(
+                    GenerationErrorCode.InvalidRequest,
+                    "Field is not a string.",
+                    Retryable: false,
+                    Field: "person_generation"));
             }
 
             var policy = pgStr switch
@@ -106,11 +119,13 @@ namespace Rook.Services.Vision.Video
             };
 
             if (policy is null)
-                return ProviderOptionsDecodeResult.Fail(
-                    "person_generation",
-                    $"Unknown person_generation value: '{pgStr}'.");
+                return GenerationOptionsDecodeResult.Fail(new GenerationError(
+                    GenerationErrorCode.InvalidRequest,
+                    $"Unknown person_generation value: '{pgStr}'.",
+                    Retryable: false,
+                    Field: "person_generation"));
 
-            return ProviderOptionsDecodeResult.Ok(new VeoOptions(policy.Value));
+            return GenerationOptionsDecodeResult.Ok(new VeoOptions(policy.Value));
         }
 
         // ─── Helpers (lifted from V1b's VideoCapabilities) ────────────

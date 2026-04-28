@@ -12,9 +12,9 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class CapabilityValidatorTests
     {
-        private static (VideoCapability cap, IPricingModel _) Lite =>
+        private static (VideoCapability cap, object _) Lite =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"];
-        private static (VideoCapability cap, IPricingModel _) Full31 =>
+        private static (VideoCapability cap, object _) Full31 =>
             VeoCapabilities.Models["veo-3.1-generate-preview"];
 
         // ─── Happy path ───────────────────────────────────────────────

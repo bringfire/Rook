@@ -148,7 +148,7 @@ namespace Rook.Services.Vision.Video
                     ModelId: m.ModelId,
                     ProviderName: m.ProviderName,
                     Capability: m.Capability,
-                    PricingKind: m.PricingModel.Kind,
+                    PricingKind: VideoJobPricingTranslator.PricingKindFor(m.PricingModel),
                     PricingSource: m.PricingModel.PricingSource));
             }
             return list;

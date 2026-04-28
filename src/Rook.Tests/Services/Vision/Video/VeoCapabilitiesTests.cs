@@ -57,7 +57,7 @@ namespace Rook.Tests.Services.Vision.Video
             string modelId, PricingKind expectedKind, string expectedSource)
         {
             var (_, pricing) = VeoCapabilities.Models[modelId];
-            Assert.Equal(expectedKind, pricing.Kind);
+            Assert.Equal(expectedKind, VideoJobPricingTranslator.PricingKindFor(pricing));
             Assert.Equal(expectedSource, pricing.PricingSource);
         }
 

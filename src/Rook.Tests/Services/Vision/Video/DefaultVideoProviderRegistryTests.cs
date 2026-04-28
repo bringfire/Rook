@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
+using GenerationPricingModel = Rook.Services.Vision.Generation.IPricingModel<Rook.Services.Vision.Video.VideoGenerationRequest, Rook.Services.Vision.Video.VideoCapability>;
+using GenerationOptionsCodec = Rook.Services.Vision.Generation.IProviderOptionsCodec<Rook.Services.Vision.Video.VideoGenerationRequest, Rook.Services.Vision.Video.VideoCapability>;
 
 namespace Rook.Tests.Services.Vision.Video
 {
@@ -124,12 +127,12 @@ namespace Rook.Tests.Services.Vision.Video
             var second = new FakeVideoProvider();
 
             var alpha = new FakeRegistration("veo", first,
-                new System.Collections.Generic.Dictionary<string, (VideoCapability, IPricingModel)>
+                new System.Collections.Generic.Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["alpha-model"] = (StubCap("alpha-model"), StubPricing()),
                 });
             var beta = new FakeRegistration("veo", second,
-                new System.Collections.Generic.Dictionary<string, (VideoCapability, IPricingModel)>
+                new System.Collections.Generic.Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["beta-model"] = (StubCap("beta-model"), StubPricing()),
                 });
@@ -146,13 +149,13 @@ namespace Rook.Tests.Services.Vision.Video
         {
             public string ProviderName { get; }
             public IVideoProvider Provider { get; }
-            public IProviderOptionsCodec OptionsCodec { get; } = new VeoOptionsCodec();
-            public System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
+            public GenerationOptionsCodec OptionsCodec { get; } = new VeoOptionsCodec();
+            public System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability Capability, GenerationPricingModel PricingModel)> Models { get; }
 
             public FakeRegistration(
                 string providerName,
                 IVideoProvider provider,
-                System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability, IPricingModel)> models)
+                System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability, GenerationPricingModel)> models)
             {
                 ProviderName = providerName;
                 Provider = provider;
@@ -265,7 +268,7 @@ namespace Rook.Tests.Services.Vision.Video
             var alpha = new TestRegistration
             {
                 ProviderName = "veo",
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["alpha-model"] = (StubCap("alpha-model"), StubPricing()),
                 },
@@ -273,7 +276,7 @@ namespace Rook.Tests.Services.Vision.Video
             var beta = new TestRegistration
             {
                 ProviderName = "veo",
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["beta-model"] = (StubCap("beta-model"), StubPricing()),
                 },
@@ -342,7 +345,7 @@ namespace Rook.Tests.Services.Vision.Video
             // Constructor_throws_on_empty_capability_id).
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["  "] = (StubCap("placeholder"), StubPricing()),
                 },
@@ -357,7 +360,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["m"] = (null!, StubPricing()),
                 },
@@ -410,7 +413,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["runway-x"] = (capWithWrongId, StubPricing()),
                 },
@@ -441,7 +444,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var good = new TestRegistration
             {
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["matched-model"] = (goodCap, StubPricing()),
                 },
@@ -458,7 +461,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["m"] = (StubCap("m"), null!),
                 },
@@ -490,7 +493,7 @@ namespace Rook.Tests.Services.Vision.Video
             MaxReferenceImages: 0,
             Must8sWith: Array.Empty<string>());
 
-        private static IPricingModel StubPricing() => new PerSecondPricingModel(
+        private static GenerationPricingModel StubPricing() => new PerSecondVideoPricingModel(
             ratesPerSecondUsd: new Dictionary<string, decimal> { ["720p"] = 0.01m },
             pricingSource: "test-rate-card");
 
@@ -502,9 +505,9 @@ namespace Rook.Tests.Services.Vision.Video
         {
             public string ProviderName { get; init; } = "test-provider";
             public IVideoProvider Provider { get; init; } = new FakeVideoProvider();
-            public IProviderOptionsCodec OptionsCodec { get; init; } = new VeoOptionsCodec();
-            public IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; init; }
-                = new Dictionary<string, (VideoCapability, IPricingModel)>
+            public GenerationOptionsCodec OptionsCodec { get; init; } = new VeoOptionsCodec();
+            public IReadOnlyDictionary<string, (VideoCapability Capability, GenerationPricingModel PricingModel)> Models { get; init; }
+                = new Dictionary<string, (VideoCapability, GenerationPricingModel)>
                 {
                     ["test-default-model"] = (
                         new VideoCapability(
@@ -516,7 +519,7 @@ namespace Rook.Tests.Services.Vision.Video
                             SupportsReferenceImages: false,
                             MaxReferenceImages: 0,
                             Must8sWith: Array.Empty<string>()),
-                        new PerSecondPricingModel(
+                        new PerSecondVideoPricingModel(
                             ratesPerSecondUsd: new Dictionary<string, decimal> { ["720p"] = 0.01m },
                             pricingSource: "test-rate-card")),
                 };

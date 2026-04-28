@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -24,8 +25,8 @@ namespace Rook.Services.Vision.Video
 
         public IVideoProvider Provider { get; }
 
-        public IProviderOptionsCodec OptionsCodec { get; }
+        public Rook.Services.Vision.Generation.IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> OptionsCodec { get; }
 
-        public IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
+        public IReadOnlyDictionary<string, (VideoCapability Capability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
     }
 }

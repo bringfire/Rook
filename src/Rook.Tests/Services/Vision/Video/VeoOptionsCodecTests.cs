@@ -54,6 +54,22 @@ namespace Rook.Tests.Services.Vision.Video
                 codec.Serialize(null!));
         }
 
+        [Fact]
+        public void Implements_generic_provider_options_codec_seam()
+        {
+            IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> codec =
+                new VeoOptionsCodec();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var validation = codec.Validate(req, req.Options, Cap);
+            var serialized = codec.Serialize(req.Options);
+            var decoded = codec.Deserialize(serialized);
+
+            Assert.True(validation.Success);
+            Assert.True(decoded.Success);
+            Assert.IsType<VeoOptions>(decoded.Options);
+        }
+
         // ─── Deserialize round-trip ───────────────────────────────────
 
         [Theory]
@@ -96,7 +112,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
+            Assert.Equal("person_generation", result.Error!.Field);
         }
 
         [Fact]
@@ -108,8 +124,8 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
-            Assert.Contains("future_policy_v2", result.Message);
+            Assert.Equal("person_generation", result.Error!.Field);
+            Assert.Contains("future_policy_v2", result.Error.Message);
         }
 
         [Fact]
@@ -132,7 +148,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
+            Assert.Equal("person_generation", result.Error!.Field);
         }
 
         // ─── Validate (Veo PersonGeneration matrix) ───────────────────

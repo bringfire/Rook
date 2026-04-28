@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -25,14 +26,14 @@ namespace Rook.Services.Vision.Video
 
         public const string PricingSource = "veo-rate-card-v1";
 
-        public static IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
+        public static IReadOnlyDictionary<string, (VideoCapability Capability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
             = BuildModels();
 
-        private static IReadOnlyDictionary<string, (VideoCapability, IPricingModel)> BuildModels()
+        private static IReadOnlyDictionary<string, (VideoCapability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability>)> BuildModels()
         {
             var t2vI2vInterp = new[] { VideoMode.T2V, VideoMode.I2V, VideoMode.Interp };
 
-            var dict = new Dictionary<string, (VideoCapability, IPricingModel)>(StringComparer.Ordinal);
+            var dict = new Dictionary<string, (VideoCapability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability>)>(StringComparer.Ordinal);
 
             dict["veo-3.1-generate-preview"] = (
                 new VideoCapability(
@@ -46,7 +47,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: true,
                     MaxReferenceImages: 3,
                     Must8sWith: new[] { "1080p", "4k", "referenceImages" }),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.40m,
@@ -67,7 +68,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: true,
                     MaxReferenceImages: 3,
                     Must8sWith: new[] { "1080p", "4k", "referenceImages" }),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.10m,
@@ -88,7 +89,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: false,
                     MaxReferenceImages: 0,
                     Must8sWith: new[] { "1080p" }),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.05m,
@@ -108,7 +109,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: false,
                     MaxReferenceImages: 0,
                     Must8sWith: Array.Empty<string>()),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.40m,
@@ -128,7 +129,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: false,
                     MaxReferenceImages: 0,
                     Must8sWith: Array.Empty<string>()),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.10m,
@@ -148,7 +149,7 @@ namespace Rook.Services.Vision.Video
                     SupportsReferenceImages: false,
                     MaxReferenceImages: 0,
                     Must8sWith: Array.Empty<string>()),
-                new PerSecondPricingModel(
+                new PerSecondVideoPricingModel(
                     ratesPerSecondUsd: new Dictionary<string, decimal>
                     {
                         ["720p"] = 0.35m,
