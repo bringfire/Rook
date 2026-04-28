@@ -44,7 +44,6 @@ namespace Rook.InternalBridge
             return new VisionHandler(
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
                 secrets: RookSubsystemRoot.Instance.SharedSecretStore,
-                gemini: new GeminiClient(),
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler());
         }

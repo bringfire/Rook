@@ -298,12 +298,11 @@ p { margin: 8px 0; line-height: 1.4; }
         {
             // Threads the shared ArtifactStore + VisionSecretStore from
             // RookSubsystemRoot through VisionHandler's explicit internal
-            // ctor. GeminiClient/PromptEnhancer/ViewportHandler are
-            // stateless leaves — fresh instances are correct here.
+            // ctor. PromptEnhancer/ViewportHandler are stateless leaves;
+            // fresh instances are correct here.
             return new VisionHandler(
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
                 secrets: RookSubsystemRoot.Instance.SharedSecretStore,
-                gemini: new GeminiClient(),
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler());
         }
