@@ -4,6 +4,7 @@ using System.Reflection;
 using Rook;
 using Rook.Handlers;
 using Rook.InternalBridge;
+using Rook.Services.Vision;
 using Xunit;
 
 namespace Rook.Tests.InternalBridge
@@ -190,12 +191,11 @@ namespace Rook.Tests.InternalBridge
         }
 
         [Fact]
-        public void Registrar_VisionHandler_UsesSharedSecretStore()
+        public void Registrar_VisionHandler_UsesSecretStoreShimBackedBySharedGenerationSecretStore()
         {
-            // Pin: same VisionSecretStore instance across registrar
-            // (native HTTP) + VisionWebSurface (tab bridge). Without
-            // this, a user setting the API key in the tab is invisible
-            // to the native HTTP path on its next provider call.
+            // VisionSecretStore remains as the compatibility facade for
+            // prompt/settings code, but the shared identity now lives in
+            // the keyed IGenerationSecretStore under the shim.
             var visionField = typeof(NativeGhBridgeRegistrar).GetField(
                 "Vision",
                 BindingFlags.Static | BindingFlags.NonPublic);
@@ -206,9 +206,37 @@ namespace Rook.Tests.InternalBridge
                 "_secrets",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(secretsField);
+            var shim = Assert.IsType<VisionSecretStore>(secretsField!.GetValue(vision));
+            var generationField = typeof(VisionSecretStore).GetField(
+                "_generationSecrets",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(generationField);
+
+            Assert.Same(
+                RookSubsystemRoot.Instance.SharedGenerationSecretStore,
+                generationField!.GetValue(shim));
+        }
+
+        [Fact]
+        public void Registrar_VisionHandler_UsesSharedGenerationSecretStore()
+        {
+            // Same invariant as the legacy VisionSecretStore pin, now
+            // retargeted to the PR-4 keyed secret store. Native HTTP and
+            // the tab must share this exact instance so set/test/use
+            // paths see one credential source.
+            var visionField = typeof(NativeGhBridgeRegistrar).GetField(
+                "Vision",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(visionField);
+            var vision = (VisionHandler)visionField!.GetValue(null)!;
+
+            var secretsField = typeof(VisionHandler).GetField(
+                "_generationSecrets",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(secretsField);
             var actual = secretsField!.GetValue(vision);
 
-            Assert.Same(RookSubsystemRoot.Instance.SharedSecretStore, actual);
+            Assert.Same(RookSubsystemRoot.Instance.SharedGenerationSecretStore, actual);
         }
 
         [Fact]

@@ -1,5 +1,6 @@
 using System;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -40,17 +41,19 @@ namespace Rook.Services.Vision.Video
         /// reconcile MUST NOT append to the shared user file from tests).
         /// </param>
         public static VideoSubsystemBundle Build(
-            VisionSecretStore secrets,
+            IGenerationSecretStore generationSecrets,
             ArtifactStore artifactStore,
             IVideoJobLedger? ledger = null)
         {
-            if (secrets is null) throw new ArgumentNullException(nameof(secrets));
+            if (generationSecrets is null)
+                throw new ArgumentNullException(nameof(generationSecrets));
             if (artifactStore is null) throw new ArgumentNullException(nameof(artifactStore));
 
             // Capture the secret-store reference, not a key snapshot, so a
             // user setting the API key after factory build reaches the
             // provider on its next op.
-            var veoProvider = new VeoProvider(secrets.GetGeminiApiKey);
+            var veoProvider = new VeoProvider(
+                () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey));
 
             var registry = new DefaultVideoProviderRegistry(
                 new IVideoProviderRegistration[]

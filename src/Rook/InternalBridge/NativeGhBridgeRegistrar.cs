@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Rhino;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.InternalBridge
 {
@@ -43,7 +44,7 @@ namespace Rook.InternalBridge
         {
             return new VisionHandler(
                 artifactStore: RookSubsystemRoot.Instance.SharedArtifactStore,
-                secrets: RookSubsystemRoot.Instance.SharedSecretStore,
+                generationSecrets: RookSubsystemRoot.Instance.SharedGenerationSecretStore,
                 enhancer: new PromptEnhancer(),
                 viewportHandler: new ViewportHandler());
         }

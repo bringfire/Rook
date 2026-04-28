@@ -642,6 +642,8 @@ public interface IProviderRegistration
 
 The registry computes a per-provider `SecretStatus { Configured | Missing }` at registration time; a future Settings UI surface (Phase 2) consumes this. **Phase 1 does not change the picker UI** — it still surfaces all registered models. Models with missing keys fail at submit time with the existing `DependencyUnavailable` error message, byte-identical to today's "Gemini API key not configured" string for the Gemini path. A test asserts the verbatim error string.
 
+**Scope update (2026-04-28, PR-4 implementation):** defer `IProviderRegistration.RequiredSecretKeys` and `SecretStatus` to Phase 2 provider/settings metadata. PR-4 only widens credential storage and preserves submit-time missing-key behavior. No Settings UI or picker filtering consumes provider secret status in Phase 1, and freezing the metadata contract before fal/Replicate/Tencent credential shapes are wired would increase review surface without reducing risk. Phase 2 should introduce provider-secret metadata alongside the UI that consumes it.
+
 **`VisionSecretStore` shim:**
 
 `VisionSecretStore` becomes a thin facade over `IGenerationSecretStore` for the remaining `enhance_prompt` consumer. `enhance_prompt` calls `_secrets.GetGeminiApiKey()` exactly as today; the shim delegates to `_store.GetSecret("gemini.api_key")`. Phase 2 will remove the shim when `enhance_prompt` is generalized into a provider too.
@@ -652,21 +654,16 @@ The registry computes a per-provider `SecretStatus { Configured | Missing }` at 
 src/Rook/Services/Vision/Generation/IGenerationSecretStore.cs
 src/Rook/Services/Vision/Generation/DpapiGenerationSecretStore.cs
 src/Rook/Services/Vision/Generation/GenerationSecretsSettings.cs
-src/Rook/Services/Vision/Generation/IProviderRegistration.cs
-src/Rook/Services/Vision/Generation/SecretStatus.cs
-src/Rook.Tests/Vision/Generation/SecretStoreMigrationTests.cs
-src/Rook.Tests/Vision/Generation/MissingKeyErrorParityTests.cs
+src/Rook.Tests/Services/Vision/Generation/GenerationSecretStoreTests.cs
+src/Rook.Tests/Services/Vision/Generation/MissingKeyErrorParityTests.cs
 ```
 
 **Files changed (composition root + handlers):**
 
 ```
 src/Rook/Services/Vision/VisionSecretStore.cs                             (shim over IGenerationSecretStore for PromptEnhancer's continued use)
-src/Rook/Services/Vision/Image/Gemini/GeminiImageProviderRegistration.cs  (declares ["gemini.api_key"])
-src/Rook/Services/Vision/Video/VeoProviderRegistration.cs                 (declares ["gemini.api_key"] — Veo also uses Google key)
 src/Rook/Services/Vision/Video/VideoSubsystemFactory.cs                   (consumes IGenerationSecretStore)
-src/Rook/Services/Vision/Video/VeoProvider.cs                             (constructor takes IGenerationSecretStore.GetSecret delegate)
-src/Rook/Handlers/VisionHandler.cs                                        (constructor takes IGenerationSecretStore, passes to factory)
+src/Rook/Handlers/VisionHandler.cs                                        (constructor takes IGenerationSecretStore, passes to image provider construction)
 src/Rook/RookSubsystemRoot.cs                                             (constructs DpapiGenerationSecretStore once; injects into VisionHandler + VisionWebSurface + NativeGhBridgeRegistrar; legacy VisionSecretStore field becomes the shim)
 src/Rook/InternalBridge/NativeGhBridgeRegistrar.cs                        (accepts IGenerationSecretStore for the set_api_key / test_api_key bridge ops)
 src/Rook/UI/Vision/VisionWebSurface.cs                                    (accepts IGenerationSecretStore for the in-process JS bridge)
@@ -689,6 +686,7 @@ The shared-store assertion pattern (the same `VisionSecretStore` instance is rea
 - Verbatim-error test: with no key configured, the `generate` op returns the production missing-Gemini-key error string. **The literal is NOT embedded in this plan.** A pre-PR-3 capture step (no code change) reads the current message verbatim from `VisionHandler.cs` (currently sourced at `src/Rook/Handlers/VisionHandler.cs:436` and `:504` in the V1c tree, but the capture must use whatever the source-of-truth string is at the moment PR-3 starts) into a test constant `MissingGeminiKeyMessage` defined under `src/Rook.Tests/Vision/Generation/`. PR-3 and PR-4 both consume that constant. Same-string parity is asserted for both `generate` and `enhance_prompt` paths. If the production string drifts between PR-3 and PR-4, the test re-captures and the constant changes in one place.
 - Roll-back test: deleting the new section and leaving the legacy section restores access via the migration path on the next read.
 - Shared-store identity test: `RookSubsystemRoot` constructs a single `IGenerationSecretStore` instance; `VisionHandler`, `VisionWebSurface`, and `NativeGhBridgeRegistrar` all reference the same instance (asserted via `ReferenceEquals` in the existing shared-store test pattern, retargeted to the new interface).
+- Overview compatibility test: `HasSecret("gemini.api_key")` and `GetPreview("gemini.api_key")` stay metadata-only for legacy `vision.GeminiApiKeyEncrypted`; malformed or wrong-profile legacy ciphertext must not break settings overview. `GetSecret("gemini.api_key")` remains the migration/decrypt boundary and still surfaces decrypt failures.
 - Symbol-scan still 0 hits.
 
 ---
