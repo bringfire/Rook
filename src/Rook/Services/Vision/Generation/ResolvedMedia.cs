@@ -8,18 +8,25 @@ namespace Rook.Services.Vision.Generation
     /// <see cref="IMediaResolver"/> before invoking the provider's
     /// submit, keeping providers independent of artifact-storage
     /// layout.
+    ///
+    /// <para>Sealed class with read-only properties — invariants cannot
+    /// be bypassed via <c>with</c> or object initializers.</para>
     /// </summary>
-    public sealed record ResolvedMedia(byte[] Bytes, string MimeType)
+    public sealed class ResolvedMedia
     {
-        public byte[] Bytes { get; init; } =
-            Bytes is null ? throw new ArgumentNullException(nameof(Bytes))
-            : Bytes.Length == 0 ? throw new ArgumentException(
-                "Bytes must be non-empty.", nameof(Bytes))
-            : Bytes;
+        public ResolvedMedia(byte[] Bytes, string MimeType)
+        {
+            if (Bytes is null) throw new ArgumentNullException(nameof(Bytes));
+            if (Bytes.Length == 0)
+                throw new ArgumentException("Bytes must be non-empty.", nameof(Bytes));
+            if (string.IsNullOrWhiteSpace(MimeType))
+                throw new ArgumentException("MimeType must be non-empty.", nameof(MimeType));
 
-        public string MimeType { get; init; } =
-            string.IsNullOrWhiteSpace(MimeType)
-                ? throw new ArgumentException("MimeType must be non-empty.", nameof(MimeType))
-                : MimeType;
+            this.Bytes = Bytes;
+            this.MimeType = MimeType;
+        }
+
+        public byte[] Bytes { get; }
+        public string MimeType { get; }
     }
 }

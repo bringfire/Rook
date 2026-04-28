@@ -51,10 +51,8 @@ namespace Rook.Tests.Services.Vision.Generation
                 // Terminal: stamp the embedded output URL onto an
                 // updated handle. ResponseUrl stays null — Replicate
                 // has no separate fetch endpoint.
-                var updated = handle with
-                {
-                    ProviderResultToken = "https://replicate.delivery/pbxt/zzz/output.png",
-                };
+                var updated = handle.WithResultToken(
+                    "https://replicate.delivery/pbxt/zzz/output.png");
                 return Task.FromResult<ProviderStatusOutcome>(
                     new ProviderCompleteStatusOutcome(updated));
             }

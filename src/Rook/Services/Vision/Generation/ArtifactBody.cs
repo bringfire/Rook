@@ -3,37 +3,40 @@ using System;
 namespace Rook.Services.Vision.Generation
 {
     /// <summary>
-    /// Sealed-record union for an artifact's payload. URL-xor-inline is
-    /// enforced at the type level: a <see cref="ResultArtifact"/> carries
-    /// exactly one of <see cref="RemoteArtifactBody"/> or
+    /// Closed discriminated union for an artifact's payload.
+    /// URL-xor-inline is enforced at the type level: a
+    /// <see cref="ResultArtifact"/> carries exactly one of
+    /// <see cref="RemoteArtifactBody"/> or
     /// <see cref="InlineArtifactBody"/>, never both.
     ///
+    /// <para>Closure: abstract class with <c>private protected</c>
+    /// parameterless ctor — no compiler-generated copy constructor
+    /// (which a record's <c>protected</c> copy ctor would otherwise
+    /// expose to external derivation).</para>
+    ///
     /// <para>Phase 0 evidence: fal and Replicate return URL-referenced
-    /// artifacts on a CDN (<c>v3b.fal.media</c>,
-    /// <c>replicate.delivery</c>); Gemini returns inline base64 bytes in
-    /// the API response. Both delivery models must be supported from
-    /// day one without forcing one shape into the other.</para>
+    /// artifacts on a CDN; Gemini returns inline base64 bytes in the
+    /// API response. Both delivery models must be supported.</para>
     /// </summary>
-    public abstract record ArtifactBody
+    public abstract class ArtifactBody
     {
         private protected ArtifactBody() { }
     }
 
     /// <summary>URL-referenced artifact. The manager fetches at
-    /// materialization time. <see cref="SignedUrlTtl"/> is non-null when
-    /// the provider exposes a TTL (fal signed URLs); the manager uses
-    /// it to decide whether to re-fetch on cold-load.
+    /// materialization time. <see cref="SignedUrlTtl"/> is non-null
+    /// when the provider exposes a TTL.
     ///
     /// <para>Invariants enforced at construction:
     /// <list type="bullet">
     ///   <item><see cref="Url"/> must be absolute and use <c>http</c>
-    ///         or <c>https</c> scheme.</item>
+    ///         or <c>https</c>.</item>
     ///   <item><see cref="SignedUrlTtl"/>, when non-null, must be
-    ///         strictly positive. A zero or negative TTL means
-    ///         "already expired" which is meaningless at submit
-    ///         time.</item>
-    /// </list></para></summary>
-    public sealed record RemoteArtifactBody : ArtifactBody
+    ///         strictly positive.</item>
+    /// </list>
+    /// Properties are read-only — no <c>init</c> setter — so the
+    /// invariants cannot be bypassed via object initializers.</para></summary>
+    public sealed class RemoteArtifactBody : ArtifactBody
     {
         public RemoteArtifactBody(Uri Url, TimeSpan? SignedUrlTtl = null)
         {
@@ -55,19 +58,26 @@ namespace Rook.Services.Vision.Generation
             this.SignedUrlTtl = SignedUrlTtl;
         }
 
-        public Uri Url { get; init; }
-        public TimeSpan? SignedUrlTtl { get; init; }
+        public Uri Url { get; }
+        public TimeSpan? SignedUrlTtl { get; }
     }
 
-    /// <summary>Inline-bytes artifact. The provider already materialized
-    /// the bytes (Gemini, Veo's downloaded payload). The manager goes
-    /// directly to artifact-store write without a follow-up fetch.</summary>
-    public sealed record InlineArtifactBody(byte[] Bytes) : ArtifactBody
+    /// <summary>Inline-bytes artifact. The provider already
+    /// materialized the bytes (Gemini, Veo's downloaded payload).
+    /// The manager goes directly to artifact-store write without a
+    /// follow-up fetch.</summary>
+    public sealed class InlineArtifactBody : ArtifactBody
     {
-        public byte[] Bytes { get; init; } =
-            Bytes is null ? throw new ArgumentNullException(nameof(Bytes))
-            : Bytes.Length == 0 ? throw new ArgumentException(
-                "Bytes must be non-empty for InlineArtifactBody.", nameof(Bytes))
-            : Bytes;
+        public InlineArtifactBody(byte[] Bytes)
+        {
+            if (Bytes is null) throw new ArgumentNullException(nameof(Bytes));
+            if (Bytes.Length == 0)
+                throw new ArgumentException(
+                    "Bytes must be non-empty for InlineArtifactBody.", nameof(Bytes));
+
+            this.Bytes = Bytes;
+        }
+
+        public byte[] Bytes { get; }
     }
 }

@@ -1,46 +1,49 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using Rook.Services.Vision.Generation;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Generation
 {
     /// <summary>
-    /// Reflection-based subtype-closure enforcement. Sealed-record
-    /// unions in C# are not language-enforced; the closed-set property
-    /// is enforced by:
+    /// Closure enforcement for the discriminated unions. C# records
+    /// auto-generate a <c>protected</c> copy constructor for non-sealed
+    /// records, which is reachable from external derived records — that
+    /// loophole defeats <c>private protected</c> on the parameterless
+    /// ctor. Phase 1 PR-1 review pass 4 forced the conversion to
+    /// <c>abstract class</c> + <c>sealed class</c> hierarchies, which
+    /// have no compiler-generated copy constructor and a real
+    /// <c>private protected</c> closure.
+    ///
+    /// <para>This test file enforces the closure structurally and the
+    /// subtype set by reflection. Adding a leaf in this assembly fails
+    /// the subtype-set test until the expected list is updated.
+    /// External-assembly derivation is structurally blocked because:
     /// <list type="number">
-    ///   <item>Each abstract base record has a
-    ///         <c>private protected</c> constructor, so external
-    ///         assemblies cannot derive (only same-assembly +
-    ///         derived-class can call the base ctor).</item>
-    ///   <item>This test enumerates the actual concrete subtypes of
-    ///         each union via reflection over the production assembly
-    ///         and asserts the exact expected name set. If a future
-    ///         change adds a subtype to the production assembly, this
-    ///         test fails until the expected set is updated, forcing
-    ///         a deliberate choice + downstream consumer review.</item>
-    /// </list>
+    ///   <item>The bases are non-record classes — no compiler-generated
+    ///         protected copy constructor exists.</item>
+    ///   <item>The only base constructor is <c>private protected</c>,
+    ///         requiring same-assembly + derived-class context.</item>
+    /// </list></para>
     /// </summary>
     public class UnionClosureTests
     {
         private static string[] ConcreteSubtypeNames(Type baseType)
         {
-            // The production assembly references types whose runtime
-            // dependencies aren't loaded in the test context (RhinoCommon,
-            // WebView2 on net7.0). Assembly.GetTypes() throws
-            // ReflectionTypeLoadException listing those; the loadable
-            // types that DO resolve come back via ex.Types (with nulls
-            // for the failures). Either path gives us the full set of
-            // loadable types — which is sufficient for closure scanning
-            // because every union subtype lives in a leaf namespace
-            // with no Rhino/WebView2 dependencies of its own.
+            // Production assembly references types whose runtime
+            // dependencies aren't loaded in the test context
+            // (RhinoCommon, WebView2 on net7.0). GetTypes throws
+            // ReflectionTypeLoadException; ex.Types contains the
+            // loadable subset, sufficient for closure scanning since
+            // every union subtype lives in a leaf namespace with no
+            // Rhino/WebView2 dependencies.
             Type[] types;
             try
             {
                 types = baseType.Assembly.GetTypes();
             }
-            catch (System.Reflection.ReflectionTypeLoadException ex)
+            catch (ReflectionTypeLoadException ex)
             {
                 types = ex.Types.Where(t => t is not null).Cast<Type>().ToArray();
             }
@@ -115,23 +118,67 @@ namespace Rook.Tests.Services.Vision.Generation
             Assert.Equal(expected, actual);
         }
 
-        // The ctor-accessibility check below documents that external
-        // derivation is structurally blocked. private protected is
-        // only accessible to derived classes in the SAME assembly,
-        // which is what closes the union from external code without
-        // preventing same-assembly subtypes from existing.
+        // Each base must have exactly one constructor, declared
+        // private protected. No compiler-generated protected copy
+        // constructor (which a record would have for non-sealed bases).
         [Theory]
         [InlineData(typeof(ProviderSubmitOutcome))]
         [InlineData(typeof(ProviderResultOutcome))]
         [InlineData(typeof(ProviderStatusOutcome))]
         [InlineData(typeof(ProviderCancelOutcome))]
         [InlineData(typeof(ArtifactBody))]
-        public void Union_base_has_no_publicly_accessible_constructor(Type baseType)
+        public void Union_base_has_only_a_private_protected_parameterless_ctor(Type baseType)
         {
+            // None public:
             var publicCtors = baseType.GetConstructors(
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public);
+                BindingFlags.Instance | BindingFlags.Public);
             Assert.Empty(publicCtors);
+
+            // No purely-protected ctors either — that would be the
+            // record copy-ctor leak this test exists to catch.
+            var allCtors = baseType.GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            foreach (var ctor in allCtors)
+            {
+                // private protected = IsFamilyAndAssembly. protected =
+                // IsFamily. The latter is the leak vector.
+                Assert.False(
+                    ctor.IsFamily,
+                    $"{baseType.Name} has a protected (not private protected) " +
+                    $"constructor: {ctor}. This is the record copy-ctor leak " +
+                    "that lets external assemblies derive. The base must be a " +
+                    "non-record class, or the copy ctor must be private protected.");
+            }
+
+            // And exactly one private-protected parameterless ctor:
+            var ppCtors = allCtors.Where(c => c.IsFamilyAndAssembly).ToArray();
+            Assert.Single(ppCtors);
+            Assert.Empty(ppCtors[0].GetParameters());
+        }
+
+        // Every leaf is sealed — pattern-matching consumers can rely on
+        // exhaustive type discrimination and there is no further
+        // hierarchy to consider.
+        [Theory]
+        [InlineData(typeof(ProviderSubmitOutcome))]
+        [InlineData(typeof(ProviderResultOutcome))]
+        [InlineData(typeof(ProviderStatusOutcome))]
+        [InlineData(typeof(ProviderCancelOutcome))]
+        [InlineData(typeof(ArtifactBody))]
+        public void Union_leaves_are_sealed(Type baseType)
+        {
+            Type[] types;
+            try { types = baseType.Assembly.GetTypes(); }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(t => t is not null).Cast<Type>().ToArray();
+            }
+            var leaves = types
+                .Where(t => !t.IsAbstract && baseType.IsAssignableFrom(t) && t != baseType);
+            foreach (var leaf in leaves)
+            {
+                Assert.True(leaf.IsSealed, $"{leaf.Name} must be sealed.");
+            }
         }
     }
 }

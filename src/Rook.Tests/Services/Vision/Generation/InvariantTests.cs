@@ -202,6 +202,104 @@ namespace Rook.Tests.Services.Vision.Generation
             Assert.Equal("j-1", handle.ProviderJobId);
             Assert.Null(handle.StatusUrl);
         }
+
+        [Theory]
+        [InlineData("POST")]
+        [InlineData("PUT")]
+        [InlineData("DELETE")]
+        [InlineData("post")]
+        [InlineData("put")]
+        public void Accepts_supported_cancel_http_methods_and_normalizes_to_uppercase(string method)
+        {
+            var handle = new ProviderJobHandle(
+                providerJobId: "j-1", cancelHttpMethod: method);
+            Assert.Equal(method.ToUpperInvariant(), handle.CancelHttpMethod);
+        }
+
+        [Theory]
+        [InlineData("GET")]
+        [InlineData("PATCH")]
+        [InlineData("HEAD")]
+        [InlineData("OPTIONS")]
+        public void Rejects_unsupported_cancel_http_method(string method)
+        {
+            Assert.Throws<ArgumentException>(() => new ProviderJobHandle(
+                providerJobId: "j-1", cancelHttpMethod: method));
+        }
+
+        [Fact]
+        public void Rejects_empty_cancel_http_method()
+        {
+            Assert.Throws<ArgumentException>(() => new ProviderJobHandle(
+                providerJobId: "j-1", cancelHttpMethod: ""));
+            Assert.Throws<ArgumentException>(() => new ProviderJobHandle(
+                providerJobId: "j-1", cancelHttpMethod: "   "));
+        }
+
+        [Fact]
+        public void WithResultToken_round_trips_other_fields_and_revalidates()
+        {
+            var orig = new ProviderJobHandle(
+                providerJobId: "j-1",
+                statusUrl: new Uri("https://api.replicate.com/v1/predictions/zzz"),
+                cancelUrl: new Uri("https://api.replicate.com/v1/predictions/zzz/cancel"),
+                cancelHttpMethod: "POST");
+
+            var updated = orig.WithResultToken("https://replicate.delivery/zzz/output.png");
+
+            Assert.Equal("j-1", updated.ProviderJobId);
+            Assert.Equal(orig.StatusUrl, updated.StatusUrl);
+            Assert.Equal(orig.CancelUrl, updated.CancelUrl);
+            Assert.Equal("POST", updated.CancelHttpMethod);
+            Assert.Equal("https://replicate.delivery/zzz/output.png", updated.ProviderResultToken);
+        }
+    }
+
+    public class GenerationProgressInvariantTests
+    {
+        [Theory]
+        [InlineData(-0.01)]
+        [InlineData(100.01)]
+        [InlineData(-1)]
+        [InlineData(150)]
+        public void Rejects_percent_complete_outside_zero_to_hundred(double pc)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => new GenerationProgress(PercentComplete: pc));
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(50.0)]
+        [InlineData(100.0)]
+        public void Accepts_percent_complete_in_range(double pc)
+        {
+            var progress = new GenerationProgress(PercentComplete: pc);
+            Assert.Equal(pc, progress.PercentComplete);
+        }
+
+        [Fact]
+        public void Rejects_negative_queue_position()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => new GenerationProgress(QueuePosition: -1));
+        }
+
+        [Fact]
+        public void Accepts_zero_queue_position()
+        {
+            var progress = new GenerationProgress(QueuePosition: 0);
+            Assert.Equal(0, progress.QueuePosition);
+        }
+
+        [Fact]
+        public void Accepts_all_fields_null()
+        {
+            var progress = new GenerationProgress();
+            Assert.Null(progress.PercentComplete);
+            Assert.Null(progress.QueuePosition);
+            Assert.Null(progress.Message);
+        }
     }
 
     public class ResultArtifactInvariantTests
