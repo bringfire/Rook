@@ -67,13 +67,12 @@ namespace Rook.Services.Vision.Video
             // Step 3: pricing (single-pass — JobPricing snapshot rides
             // through to the factory and into the ledger record verbatim)
             var genericPricingResult = model.PricingModel.Estimate(request, model.Capability);
-            var pricingResult = VideoJobPricingTranslator.ToVideoPricingResult(
-                genericPricingResult,
-                VideoJobPricingTranslator.PricingKindFor(model.PricingModel));
-            if (!pricingResult.Success)
-                return VideoCostEstimateResult.Fail(pricingResult.Error!);
+            if (!genericPricingResult.Success)
+                return VideoCostEstimateResult.Fail(genericPricingResult.Error!);
 
-            var pricing = pricingResult.Pricing!;
+            var pricing = VideoJobPricingTranslator.ToVideoJobPricing(
+                genericPricingResult.Pricing!,
+                VideoJobPricingTranslator.PricingKindFor(model.PricingModel));
             var breakdown = BuildBreakdown(model.Capability, request, pricing);
 
             return VideoCostEstimateResult.Ok(new VideoCostEstimate(
