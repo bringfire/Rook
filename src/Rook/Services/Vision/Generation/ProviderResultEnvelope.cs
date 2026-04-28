@@ -38,8 +38,35 @@ namespace Rook.Services.Vision.Generation
             if (EnvelopeMetadata is null)
                 throw new ArgumentNullException(nameof(EnvelopeMetadata));
 
-            this.Artifacts = Artifacts;
-            this.EnvelopeMetadata = EnvelopeMetadata;
+            // Defensive copy of the containers. Without this a caller's
+            // List<>/Dictionary<> remains externally mutable behind the
+            // IReadOnlyX interface — a Clear() would invalidate the
+            // "at least one artifact" invariant after construction.
+            // JsonNode values are NOT deep-copied (mutating a node value
+            // doesn't change cardinality and deep-cloning JSON trees is
+            // expensive); the container shape is what we lock down.
+            var artifactsCopy = new ResultArtifact[Artifacts.Count];
+            for (int i = 0; i < Artifacts.Count; i++)
+            {
+                if (Artifacts[i] is null)
+                    throw new ArgumentException(
+                        $"Artifacts[{i}] is null.", nameof(Artifacts));
+                artifactsCopy[i] = Artifacts[i];
+            }
+            this.Artifacts = artifactsCopy;
+            this.EnvelopeMetadata = CopyDictionary(EnvelopeMetadata);
+        }
+
+        // Dictionary<TKey,TValue> on net48 has no IReadOnlyDictionary
+        // constructor overload — only IDictionary and
+        // IEnumerable<KeyValuePair>. Explicit enumeration works on
+        // every target without ambiguity.
+        private static Dictionary<string, JsonNode> CopyDictionary(
+            IReadOnlyDictionary<string, JsonNode> source)
+        {
+            var copy = new Dictionary<string, JsonNode>(source.Count);
+            foreach (var kvp in source) copy[kvp.Key] = kvp.Value;
+            return copy;
         }
 
         public IReadOnlyList<ResultArtifact> Artifacts { get; }

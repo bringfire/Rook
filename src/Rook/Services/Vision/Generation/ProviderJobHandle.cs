@@ -78,7 +78,20 @@ namespace Rook.Services.Vision.Generation
             CancelUrl = cancelUrl;
             CancelHttpMethod = normalizedCancel;
             ProviderResultToken = providerResultToken;
-            ProviderMetadata = providerMetadata;
+            // Defensive container copy when present. Caller's
+            // dictionary remains externally mutable otherwise.
+            // Explicit foreach because net48's Dictionary<,> has no
+            // IReadOnlyDictionary ctor overload.
+            if (providerMetadata is null)
+            {
+                ProviderMetadata = null;
+            }
+            else
+            {
+                var metaCopy = new Dictionary<string, JsonNode>(providerMetadata.Count);
+                foreach (var kvp in providerMetadata) metaCopy[kvp.Key] = kvp.Value;
+                ProviderMetadata = metaCopy;
+            }
         }
 
         public string ProviderJobId { get; }

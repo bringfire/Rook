@@ -26,10 +26,25 @@ namespace Rook.Services.Vision.Generation
             int? QueuePosition = null,
             string? Message = null)
         {
-            if (PercentComplete is { } pc && (pc < 0.0 || pc > 100.0))
-                throw new ArgumentOutOfRangeException(
-                    nameof(PercentComplete), pc,
-                    "PercentComplete must be in [0, 100] when set.");
+            if (PercentComplete is { } pc)
+            {
+                // NaN slips past comparison-based bounds — `NaN < 0`
+                // and `NaN > 100` are both false. Explicit reject.
+                // Infinity is technically caught by `> 100` but the
+                // explicit check documents the intent.
+                if (double.IsNaN(pc))
+                    throw new ArgumentException(
+                        "PercentComplete must be a real number; got NaN.",
+                        nameof(PercentComplete));
+                if (double.IsInfinity(pc))
+                    throw new ArgumentException(
+                        "PercentComplete must be finite; got infinity.",
+                        nameof(PercentComplete));
+                if (pc < 0.0 || pc > 100.0)
+                    throw new ArgumentOutOfRangeException(
+                        nameof(PercentComplete), pc,
+                        "PercentComplete must be in [0, 100] when set.");
+            }
             if (QueuePosition is { } qp && qp < 0)
                 throw new ArgumentOutOfRangeException(
                     nameof(QueuePosition), qp,

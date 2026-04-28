@@ -5,10 +5,11 @@ using Xunit;
 namespace Rook.Tests.Services.Vision.Generation
 {
     /// <summary>
-    /// URL-vs-inline artifact-body discrimination tests. The sealed
-    /// union <see cref="ArtifactBody"/> enforces URL-xor-inline at the
-    /// type level: a <see cref="ResultArtifact"/> carries exactly one
-    /// of <see cref="RemoteArtifactBody"/> or
+    /// URL-vs-inline artifact-body discrimination tests. The closed
+    /// union <see cref="ArtifactBody"/> (abstract class + sealed leaves)
+    /// enforces URL-xor-inline at the type level: a
+    /// <see cref="ResultArtifact"/> carries exactly one of
+    /// <see cref="RemoteArtifactBody"/> or
     /// <see cref="InlineArtifactBody"/>, never both.
     /// </summary>
     public class ArtifactBodyFixtures

@@ -5,13 +5,15 @@ using Xunit;
 namespace Rook.Tests.Services.Vision.Generation
 {
     /// <summary>
-    /// Exhaustiveness enforcement for the
-    /// <see cref="ProviderSubmitOutcome"/> sealed-record union. C# does
-    /// not natively check exhaustive matching on sealed-record unions;
-    /// these tests are the enforcement. If a future change adds a new
-    /// outcome subtype, the <c>switch</c> below will hit the
-    /// <c>throw</c> arm and fail the test, surfacing the missing
-    /// consumer-update.
+    /// Consumer-side exhaustiveness check for the
+    /// <see cref="ProviderSubmitOutcome"/> closed union (abstract class
+    /// + sealed class hierarchy). C# does not natively enforce
+    /// exhaustive switch matching on these unions; the structural
+    /// closure is enforced by <c>UnionClosureTests</c> while these
+    /// tests cover the consumer-side switch pattern. If a future
+    /// change adds a new outcome subtype, the <c>switch</c> below
+    /// will hit the <c>throw</c> arm and fail the test, surfacing
+    /// the missing consumer-update.
     /// </summary>
     public class SubmitOutcomeExhaustivenessTests
     {

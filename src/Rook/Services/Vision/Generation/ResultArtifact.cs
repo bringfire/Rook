@@ -46,7 +46,13 @@ namespace Rook.Services.Vision.Generation
             this.Role = Role;
             this.Body = Body;
             this.DeclaredMimeType = DeclaredMimeType;
-            this.ProviderMetadata = ProviderMetadata;
+            // Defensive container copy — see ProviderResultEnvelope for
+            // rationale. JsonNode values are not deep-cloned. Explicit
+            // foreach because net48's Dictionary<,> has no
+            // IReadOnlyDictionary ctor overload.
+            var metaCopy = new Dictionary<string, JsonNode>(ProviderMetadata.Count);
+            foreach (var kvp in ProviderMetadata) metaCopy[kvp.Key] = kvp.Value;
+            this.ProviderMetadata = metaCopy;
         }
 
         public string Role { get; }

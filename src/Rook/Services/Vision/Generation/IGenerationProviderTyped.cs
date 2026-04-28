@@ -35,7 +35,8 @@ namespace Rook.Services.Vision.Generation
         /// <see cref="IMediaResolver"/>; this keeps providers
         /// independent of artifact-storage layout.
         ///
-        /// <para>Return value is a sealed-record union:
+        /// <para>Return value is a closed discriminated union (abstract
+        /// class + sealed class hierarchy):
         /// <list type="bullet">
         ///   <item><see cref="SyncSubmitOutcome"/> — sync providers (e.g.
         ///         Gemini direct) returning the full result inline at
