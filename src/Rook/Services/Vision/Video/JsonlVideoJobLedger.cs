@@ -613,10 +613,7 @@ namespace Rook.Services.Vision.Video
             {
                 detail = new Dictionary<string, JsonNode>(providerDetail.Count);
                 foreach (var kvp in providerDetail)
-                {
-                    if (kvp.Value is not null)
-                        detail[kvp.Key] = kvp.Value.DeepClone();
-                }
+                    detail[kvp.Key] = kvp.Value?.DeepClone()!;
             }
 
             if (!string.IsNullOrEmpty(providerMessage))

@@ -214,6 +214,41 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public void Roundtrip_preserves_null_provider_detail_entries()
+        {
+            var providerDetail = new Dictionary<string, JsonNode>
+            {
+                ["provider_message"] = JsonValue.Create("raw provider payload")!,
+                ["detail"] = null!,
+            };
+            var record = VideoJobRecordFactory.WithState(
+                MakeRecord(state: VideoJobState.Polling),
+                VideoJobState.Error,
+                T0.AddSeconds(1),
+                error: new GenerationError(
+                    GenerationErrorCode.ExecutionFailed,
+                    "failed",
+                    Retryable: false,
+                    ProviderDetail: providerDetail));
+
+            _ledger.Append(record);
+            var raw = File.ReadAllText(_filePath, Encoding.UTF8);
+            var read = _ledger.ReadAll();
+
+            Assert.Contains("\"provider_detail\"", raw);
+            Assert.Contains("\"detail\":null", raw);
+            var got = Assert.Single(read.Records);
+            Assert.NotNull(got.Error?.ProviderDetail);
+            Assert.True(got.Error!.ProviderDetail!.ContainsKey("detail"));
+            Assert.Null(got.Error.ProviderDetail["detail"]);
+
+            _ledger.Append(got);
+            var rewritten = File.ReadAllText(_filePath, Encoding.UTF8);
+            Assert.Equal(2, rewritten.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries).Length);
+            Assert.Equal(2, rewritten.Split(new[] { "\"detail\":null" }, StringSplitOptions.None).Length - 1);
+        }
+
+        [Fact]
         public void Malformed_provider_handle_url_does_not_throw_on_reconstruction()
         {
             var jobId = Guid.NewGuid();
