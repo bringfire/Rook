@@ -31,6 +31,17 @@ namespace Rook.Tests.Services.Vision.Generation
             @"\bthree_d_provider\b",
             @"\btencent_3d\b",
             @"\bhunyuan3d\b",
+            // PR-2 carve-out additions (mesh / texture / segmentation /
+            // uv / topology) — Phase 4 3D advanced-features vocabulary
+            // captured in the spike P5 audit. Path-scoped so the video
+            // namespace can still legitimately use these terms (e.g.
+            // video-frame texture metadata) — only the modality-neutral
+            // Generation seam is forbidden from naming them.
+            @"\bmesh\b",
+            @"\btexture\b",
+            @"\bsegmentation\b",
+            @"\buv\b",
+            @"\btopology\b",
         };
 
         [Fact]
@@ -46,7 +57,18 @@ namespace Rook.Tests.Services.Vision.Generation
                 {
                     if (Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase))
                     {
-                        matches.Add($"{Path.GetFileName(path)}: {pattern}");
+                        // Report path relative to the Generation root so
+                        // failure output unambiguously points at the
+                        // file. Path.GetRelativePath isn't on net48;
+                        // substring is safe because we know `path`
+                        // starts with `root`.
+                        var rel = path.Length > root.Length
+                            ? path.Substring(root.Length).TrimStart(
+                                Path.DirectorySeparatorChar,
+                                Path.AltDirectorySeparatorChar)
+                                  .Replace(Path.DirectorySeparatorChar, '/')
+                            : Path.GetFileName(path);
+                        matches.Add($"Generation/{rel}: {pattern}");
                     }
                 }
             }

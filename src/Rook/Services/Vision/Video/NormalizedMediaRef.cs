@@ -3,15 +3,15 @@ using System;
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
-    /// Persisted, provider-neutral form of a <see cref="VideoMediaRef"/>.
+    /// Persisted, provider-neutral form of a media reference.
     /// Lives on <see cref="NormalizedRequest"/> inside
     /// <see cref="VideoJobRecord"/>. Identical structure to
-    /// <see cref="VideoMediaRef"/> but without the factory-only
-    /// construction discipline — this is a serialization shape, not a
+    /// <see cref="Rook.Services.Vision.Generation.MediaRef"/> but without
+    /// the factory-only construction discipline — this is a serialization shape, not a
     /// runtime invariant carrier.
     /// </summary>
     public sealed record NormalizedMediaRef(
-        VideoMediaRefKind Kind,
+        Rook.Services.Vision.Generation.MediaRefKind Kind,
         Guid? ArtifactId,
         string? Path,
         string Role);

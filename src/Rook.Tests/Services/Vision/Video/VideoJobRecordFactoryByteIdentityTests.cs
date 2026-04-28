@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -163,7 +164,7 @@ namespace Rook.Tests.Services.Vision.Video
         public void V1c_factory_emits_byte_identical_jsonl_for_full_i2v_1080p_8s_AllowAdult_polling()
         {
             var artId = new Guid("33333333-3333-3333-3333-333333333333");
-            var startFrame = VideoMediaRef.ForArtifact(artId, VideoMediaRoles.Image);
+            var startFrame = MediaRef.ForArtifact(artId, VideoMediaRoles.Image);
             var model = TestVideoFixtures.VeoLiteResolved(modelId: "veo-3.1-generate-preview");
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-3.1-generate-preview",
@@ -368,8 +369,8 @@ namespace Rook.Tests.Services.Vision.Video
             var ref2 = new Guid("99999999-9999-9999-9999-999999999999");
             var refs = new[]
             {
-                VideoMediaRef.ForArtifact(ref1, "reference"),
-                VideoMediaRef.ForArtifact(ref2, "reference"),
+                MediaRef.ForArtifact(ref1, "reference"),
+                MediaRef.ForArtifact(ref2, "reference"),
             };
             var model = TestVideoFixtures.VeoLiteResolved(modelId: "veo-3.1-generate-preview");
             // Reference frames trigger the "image-based" rule even on T2V,

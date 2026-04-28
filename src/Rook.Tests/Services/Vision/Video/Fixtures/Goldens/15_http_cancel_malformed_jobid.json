@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "data": {
+    "code": "invalid_request",
+    "message": "\u0027job_id\u0027 must be a non-empty GUID in \u0027D\u0027 format, got \u0027not-a-guid\u0027.",
+    "retryable": false,
+    "field": "job_id"
+  },
+  "http_status": 400
+}

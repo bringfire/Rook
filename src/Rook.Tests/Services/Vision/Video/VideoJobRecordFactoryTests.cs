@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -199,6 +202,68 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public void WithState_plain_veo_handle_does_not_create_provider_handle_extension()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var initial = VideoJobRecordFactory.From(
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
+                VideoJobState.Submitting, T0);
+            var handle = new ProviderJobHandle("operations/abc-123");
+
+            var next = VideoJobRecordFactory.WithState(
+                initial,
+                VideoJobState.Polling,
+                T0.AddSeconds(1),
+                providerHandle: handle);
+
+            Assert.Equal("operations/abc-123", next.ProviderJobId);
+            Assert.Null(next.ProviderResultToken);
+            Assert.Null(next.Extensions?["provider_handle"]);
+        }
+
+        [Fact]
+        public void WithState_url_handle_creates_provider_handle_extension()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var initial = VideoJobRecordFactory.From(
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
+                VideoJobState.Submitting, T0);
+            var metadata = new Dictionary<string, JsonNode>
+            {
+                ["queue_position"] = JsonValue.Create(4)!,
+            };
+            var handle = new ProviderJobHandle(
+                providerJobId: "queue-123",
+                statusUrl: new Uri("https://provider.test/status/queue-123"),
+                responseUrl: new Uri("https://provider.test/result/queue-123"),
+                cancelUrl: new Uri("https://provider.test/cancel/queue-123"),
+                cancelHttpMethod: "put",
+                providerMetadata: metadata);
+
+            var next = VideoJobRecordFactory.WithState(
+                initial,
+                VideoJobState.Polling,
+                T0.AddSeconds(1),
+                providerHandle: handle);
+
+            Assert.Equal("queue-123", next.ProviderJobId);
+            var persistedHandle = Assert.IsType<JsonObject>(next.Extensions?["provider_handle"]);
+            Assert.Equal(
+                "https://provider.test/status/queue-123",
+                persistedHandle["status_url"]!.GetValue<string>());
+            Assert.Equal(
+                "https://provider.test/result/queue-123",
+                persistedHandle["response_url"]!.GetValue<string>());
+            Assert.Equal(
+                "https://provider.test/cancel/queue-123",
+                persistedHandle["cancel_url"]!.GetValue<string>());
+            Assert.Equal("PUT", persistedHandle["cancel_http_method"]!.GetValue<string>());
+            Assert.Equal(4, persistedHandle["provider_metadata"]!["queue_position"]!.GetValue<int>());
+        }
+
+        [Fact]
         public void WithState_threading_result_artifact_id_persists_it()
         {
             var model = TestVideoFixtures.VeoLiteResolved();
@@ -216,6 +281,33 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Complete, next.State);
         }
 
+        [Fact]
+        public void WithState_error_accepts_generation_error()
+        {
+            var model = TestVideoFixtures.VeoLiteResolved();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+            var initial = VideoJobRecordFactory.From(
+                Guid.NewGuid(), req, model, EstimateFor(model, req),
+                VideoJobState.Polling, T0);
+            var error = new GenerationError(
+                GenerationErrorCode.ExecutionFailed,
+                "provider failed",
+                Retryable: true,
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["provider_message"] = JsonValue.Create("raw provider body")!,
+                });
+
+            var next = VideoJobRecordFactory.WithState(
+                initial,
+                VideoJobState.Error,
+                T0.AddSeconds(2),
+                error: error);
+
+            Assert.Same(error, next.Error);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, next.Error!.Code);
+        }
+
         // ─── Media ref normalization ──────────────────────────────────
 
         [Fact]
@@ -228,7 +320,7 @@ namespace Rook.Tests.Services.Vision.Video
                 model: "veo-3.1-generate-preview",
                 mode: VideoMode.I2V,
                 prompt: null,
-                startFrame: VideoMediaRef.ForArtifact(artId, VideoMediaRoles.Image),
+                startFrame: MediaRef.ForArtifact(artId, VideoMediaRoles.Image),
                 personGeneration: PersonGenerationPolicy.AllowAdult);
 
             var rec = VideoJobRecordFactory.From(
@@ -236,7 +328,7 @@ namespace Rook.Tests.Services.Vision.Video
                 VideoJobState.Queued, T0);
 
             Assert.NotNull(rec.NormalizedRequest.StartFrame);
-            Assert.Equal(VideoMediaRefKind.Artifact, rec.NormalizedRequest.StartFrame!.Kind);
+            Assert.Equal(MediaRefKind.Artifact, rec.NormalizedRequest.StartFrame!.Kind);
             Assert.Equal(artId, rec.NormalizedRequest.StartFrame.ArtifactId);
             Assert.Equal("image", rec.NormalizedRequest.StartFrame.Role);
         }

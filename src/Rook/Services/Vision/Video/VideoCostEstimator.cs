@@ -66,11 +66,13 @@ namespace Rook.Services.Vision.Video
 
             // Step 3: pricing (single-pass — JobPricing snapshot rides
             // through to the factory and into the ledger record verbatim)
-            var pricingResult = model.PricingModel.Estimate(request, model.Capability);
-            if (!pricingResult.Success)
-                return VideoCostEstimateResult.Fail(pricingResult.Error!);
+            var genericPricingResult = model.PricingModel.Estimate(request, model.Capability);
+            if (!genericPricingResult.Success)
+                return VideoCostEstimateResult.Fail(genericPricingResult.Error!);
 
-            var pricing = pricingResult.Pricing!;
+            var pricing = VideoJobPricingTranslator.ToVideoJobPricing(
+                genericPricingResult.Pricing!,
+                VideoJobPricingTranslator.PricingKindFor(model.PricingModel));
             var breakdown = BuildBreakdown(model.Capability, request, pricing);
 
             return VideoCostEstimateResult.Ok(new VideoCostEstimate(
@@ -96,7 +98,7 @@ namespace Rook.Services.Vision.Video
         // (N-1) videos. Folding into one row eliminates the dead branch
         // and the labelling ambiguity.
         private static IReadOnlyList<CostBreakdownComponent> BuildBreakdown(
-            ModelCapability cap, VideoGenerationRequest request, JobPricing pricing)
+            VideoCapability cap, VideoGenerationRequest request, JobPricing pricing)
         {
             var label = request.NumberOfVideos == 1
                 ? $"{cap.Name} @ {request.Resolution} × {request.DurationSeconds}s"

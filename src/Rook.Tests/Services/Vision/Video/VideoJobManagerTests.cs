@@ -2,10 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using GenErrorCode = Rook.Services.Vision.Generation.GenerationErrorCode;
+using GenInlineArtifactBody = Rook.Services.Vision.Generation.InlineArtifactBody;
+using GenProviderResultEnvelope = Rook.Services.Vision.Generation.ProviderResultEnvelope;
+using GenResultArtifact = Rook.Services.Vision.Generation.ResultArtifact;
+using GenSuccessResultOutcome = Rook.Services.Vision.Generation.SuccessResultOutcome;
+using GenSyncSubmitOutcome = Rook.Services.Vision.Generation.SyncSubmitOutcome;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
@@ -39,12 +47,14 @@ namespace Rook.Tests.Services.Vision.Video
                 Directory.Delete(_artifactRoot, recursive: true);
         }
 
-        private VideoJobManager Manager(TimeSpan? pollInterval = null) =>
+        private VideoJobManager Manager(
+            TimeSpan? pollInterval = null,
+            IVideoCostEstimator? estimator = null) =>
             new(
                 registry: _registry,
                 mediaResolver: _resolver,
                 ledger: _ledger,
-                estimator: _estimator,
+                estimator: estimator ?? _estimator,
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGen,
@@ -110,10 +120,12 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 gate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-123");
+                return FakeVideoProvider.SubmitQueued("op-123");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
-            _provider.OnFetchResult = (_, _) => ProviderFetchResult.Ok(FakeMp4, "video/mp4");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
 
             var mgr = Manager();
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
@@ -213,16 +225,16 @@ namespace Rook.Tests.Services.Vision.Video
             // Resolver throws NotSupportedException for Path-kind refs;
             // manager translates to InvalidRequest before any ledger write.
             _resolver.OnResolve = mediaRef =>
-                mediaRef.Kind == VideoMediaRefKind.Path
+                mediaRef.Kind == MediaRefKind.Path
                     ? throw new NotSupportedException("Path unsupported in V1b")
-                    : new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+                    : new ResolvedMedia(new byte[] { 1 }, "image/png");
 
             var mgr = Manager();
             var req = T2vRequest() with
             {
                 Mode = VideoMode.I2V,
                 Prompt = null,
-                StartFrame = VideoMediaRef.ForPath(@"C:\nope.png"),
+                StartFrame = MediaRef.ForPath(@"C:\nope.png", VideoMediaRoles.Image),
                 Options = new VeoOptions(PersonGenerationPolicy.AllowAdult),
                 Model = "veo-3.1-generate-preview",
             };
@@ -234,6 +246,30 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Empty(_ledger.AllRecords);
         }
 
+        [Fact]
+        public async Task Submit_preserves_generic_estimator_error_for_http_projection()
+        {
+            var genericError = new Rook.Services.Vision.Generation.GenerationError(
+                GenErrorCode.QuotaExceeded,
+                "Pricing quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("pricing detail")!,
+                });
+            var mgr = Manager(estimator: new FailingEstimator(genericError));
+
+            var result = await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            Assert.Null(result.JobId);
+            Assert.Same(genericError, result.GenerationError);
+            Assert.NotNull(result.Error);
+            Assert.Equal(VideoErrorCode.DependencyUnavailable, result.Error!.Code);
+            Assert.Empty(_ledger.AllRecords);
+        }
+
         // ─── Provider-side errors ────────────────────────────────────
 
         [Fact]
@@ -241,7 +277,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Fail(new VideoJobError(
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitFailed(new VideoJobError(
                 Code: VideoErrorCode.DependencyUnavailable,
                 Message: "auth bad",
                 Retryable: false));
@@ -253,6 +289,52 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Error, final.State);
             Assert.NotNull(final.Error);
             Assert.Equal(VideoErrorCode.DependencyUnavailable, final.Error!.Code);
+        }
+
+        [Fact]
+        public async Task Provider_fetch_success_without_video_artifact_transitions_to_typed_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-123");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                new GenSuccessResultOutcome(NonVideoSuccessEnvelope());
+
+            var mgr = Manager();
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.ExecutionFailed, final.Error!.Code);
+            Assert.Equal(
+                "Provider result envelope did not contain an inline video artifact.",
+                final.Error.Message);
+            Assert.DoesNotContain("Unexpected error during job", final.Error.Message);
+        }
+
+        [Fact]
+        public async Task Sync_submit_success_without_video_artifact_transitions_to_typed_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) =>
+                new GenSyncSubmitOutcome(
+                    new GenSuccessResultOutcome(NonVideoSuccessEnvelope()));
+
+            var mgr = Manager();
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.ExecutionFailed, final.Error!.Code);
+            Assert.Equal(
+                "Provider result envelope did not contain an inline video artifact.",
+                final.Error.Message);
+            Assert.DoesNotContain("Unexpected error during job", final.Error.Message);
         }
 
         // ─── Cancel ──────────────────────────────────────────────────
@@ -275,16 +357,15 @@ namespace Rook.Tests.Services.Vision.Video
             _idGen.Sequence.Enqueue(jobId);
 
             // Provider submits ok, polls forever (so we can cancel)
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-cancel-test");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-cancel-test");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
 
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
@@ -332,10 +413,10 @@ namespace Rook.Tests.Services.Vision.Video
             _ledger.Append(prior);
 
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager();
@@ -349,7 +430,7 @@ namespace Rook.Tests.Services.Vision.Video
             var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
             Assert.Equal(VideoJobState.Cancelled, latest.State);
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, latest.Error!.Code);
             Assert.False(latest.Error.Retryable);
         }
 
@@ -367,7 +448,7 @@ namespace Rook.Tests.Services.Vision.Video
                 error: new VideoJobError(VideoErrorCode.Interrupted, "x", Retryable: true));
             _ledger.Append(prior);
 
-            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+            _provider.OnCancel = _ => FakeVideoProvider.CancelFailed(new VideoJobError(
                 Code: VideoErrorCode.DependencyUnavailable,
                 Message: "Veo cancel rate-limited",
                 Retryable: true));
@@ -395,13 +476,12 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Provider submits ok, polls forever (so the local task
             // remains in-flight throughout the cancel attempt).
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-keepalive");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-keepalive");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
 
             // Provider rejects cancel.
-            _provider.OnCancel = _ => ProviderCancelResult.Fail(new VideoJobError(
+            _provider.OnCancel = _ => FakeVideoProvider.CancelFailed(new VideoJobError(
                 Code: VideoErrorCode.InvalidRequest,
                 Message: "Veo refused cancel",
                 Retryable: false));
@@ -436,11 +516,9 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var jobId = Guid.NewGuid();
             _idGen.Sequence.Enqueue(jobId);
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-ok");
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling,
-                new VideoJobProgress(Pct: 10, Stage: "polling", Message: null));
-            _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-ok");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
+            _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
 
             var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
@@ -469,7 +547,7 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Cancelled, final.State);
             // Background task's catch path persists the Cancelled error.
             Assert.NotNull(final.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, final.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, final.Error!.Code);
         }
 
         // ─── Reconcile (no auto-resume) ──────────────────────────────
@@ -492,10 +570,15 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Track provider calls — should be NONE during reconcile.
             var providerCalls = 0;
-            _provider.OnSubmit = (_, _) => { providerCalls++; return ProviderSubmitResult.Ok("x"); };
-            _provider.OnGetStatus = _ => { providerCalls++; return ProviderStatusResult.InFlight(VideoJobState.Polling, null); };
-            _provider.OnCancel = _ => { providerCalls++; return ProviderCancelResult.Ok(VideoJobState.Cancelled); };
-            _provider.OnFetchResult = (_, _) => { providerCalls++; return ProviderFetchResult.Fail(new VideoJobError(VideoErrorCode.ExecutionFailed, "x", Retryable: false)); };
+            _provider.OnSubmit = (_, _) => { providerCalls++; return FakeVideoProvider.SubmitQueued("x"); };
+            _provider.OnGetStatus = _ => { providerCalls++; return FakeVideoProvider.StatusInFlight(); };
+            _provider.OnCancel = _ => { providerCalls++; return FakeVideoProvider.CancelOk(); };
+            _provider.OnFetchResult = _ =>
+            {
+                providerCalls++;
+                return FakeVideoProvider.ResultFailed(new VideoJobError(
+                    VideoErrorCode.ExecutionFailed, "x", Retryable: false));
+            };
 
             var mgr = Manager();
             mgr.ReconcileInterruptedJobs();
@@ -506,7 +589,7 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Interrupted, latest.State);
             Assert.Equal("op-stale-123", latest.ProviderJobId);  // persisted for explicit cancel
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Interrupted, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Interrupted, latest.Error!.Code);
         }
 
         [Fact]
@@ -562,21 +645,34 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         // Test pricing model that delegates to a real one but counts calls.
-        private sealed class CountingPricingModel : IPricingModel
+        private sealed class CountingPricingModel
+            : Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability>
         {
-            private readonly IPricingModel _inner;
+            private readonly Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> _inner;
             public int CallCount { get; private set; }
 
-            public CountingPricingModel(IPricingModel inner) { _inner = inner; }
+            public CountingPricingModel(
+                Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> inner)
+            {
+                _inner = inner;
+            }
 
-            public PricingKind Kind => _inner.Kind;
             public string PricingSource => _inner.PricingSource;
+            public Rook.Services.Vision.Generation.PricingMetadataLocation MetadataLocation =>
+                _inner.MetadataLocation;
 
-            public PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap)
+            public Rook.Services.Vision.Generation.PricingResult Estimate(
+                VideoGenerationRequest request,
+                VideoCapability cap)
             {
                 CallCount++;
                 return _inner.Estimate(request, cap);
             }
+
+            public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(
+                IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
+                JsonNode? responseBody) =>
+                _inner.ExtractActualSpend(responseHeaders, responseBody);
         }
 
         // Trivial registry holding one resolved model. Avoids the
@@ -614,7 +710,8 @@ namespace Rook.Tests.Services.Vision.Video
                 {
                     new VideoModelDescriptor(
                         _model.ModelId, _model.ProviderName, _model.Capability,
-                        _model.PricingModel.Kind, _model.PricingModel.PricingSource),
+                        VideoJobPricingTranslator.PricingKindFor(_model.PricingModel),
+                        _model.PricingModel.PricingSource),
                 };
         }
 
@@ -631,7 +728,7 @@ namespace Rook.Tests.Services.Vision.Video
             _resolver.OnResolve = _ =>
             {
                 resolverCalls++;
-                return new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+                return new ResolvedMedia(new byte[] { 1 }, "image/png");
             };
 
             var mgr = Manager();
@@ -677,10 +774,10 @@ namespace Rook.Tests.Services.Vision.Video
 
             // Provider is still registered under the real Veo registration.
             string? cancelCalledWith = null;
-            _provider.OnCancel = id =>
+            _provider.OnCancel = handle =>
             {
-                cancelCalledWith = id;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                cancelCalledWith = handle.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
             };
 
             var mgr = Manager();
@@ -694,7 +791,7 @@ namespace Rook.Tests.Services.Vision.Video
             var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
             Assert.Equal(VideoJobState.Cancelled, latest.State);
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, latest.Error!.Code);
         }
 
         // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──
@@ -725,16 +822,15 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 hangGate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-never-needed");
+                return FakeVideoProvider.SubmitQueued("op-never-needed");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling, null);
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight();
 
             var providerCancelCalls = 0;
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             using var mgr = Manager();
@@ -813,15 +909,14 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnSubmit = (_, _) =>
             {
                 hangGate.Task.GetAwaiter().GetResult();
-                return ProviderSubmitResult.Ok("op-x");
+                return FakeVideoProvider.SubmitQueued("op-x");
             };
-            _provider.OnGetStatus = _ => ProviderStatusResult.InFlight(
-                VideoJobState.Polling, null);
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight();
             var providerCancelCalls = 0;
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             using var mgr = Manager();
@@ -899,7 +994,7 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             var beforeCount = _ledger.AllRecords.Count;
@@ -942,7 +1037,7 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnCancel = _ =>
             {
                 providerCancelCalls++;
-                return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                return FakeVideoProvider.CancelOk();
             };
 
             var beforeCount = _ledger.AllRecords.Count;
@@ -1051,28 +1146,79 @@ namespace Rook.Tests.Services.Vision.Video
 
         private void ConfigureProviderHappyPath()
         {
-            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-123");
-            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
-            _provider.OnFetchResult = (_, _) => ProviderFetchResult.Ok(FakeMp4, "video/mp4");
-            _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-123");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
+            _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
+        }
+
+        private static GenProviderResultEnvelope NonVideoSuccessEnvelope()
+        {
+            var emptyMetadata = new Dictionary<string, JsonNode>();
+            return new GenProviderResultEnvelope(
+                new[]
+                {
+                    new GenResultArtifact(
+                        Role: "image",
+                        Body: new GenInlineArtifactBody(new byte[] { 1, 2, 3, 4 }),
+                        DeclaredMimeType: "image/png",
+                        ProviderMetadata: emptyMetadata),
+                },
+                emptyMetadata);
         }
     }
 
     // Tiny media resolver for tests: synchronous, configurable.
-    internal sealed class FakeVideoMediaResolver : IVideoMediaResolver
+    internal sealed class FakeVideoMediaResolver
+        : IMediaResolver
     {
-        public Func<VideoMediaRef, ResolvedVideoMedia>? OnResolve { get; set; }
+        public Func<MediaRef, ResolvedMedia>? OnResolve { get; set; }
 
-        public Task<ResolvedVideoMedia> ResolveAsync(
-            VideoMediaRef mediaRef, CancellationToken ct)
+        public Task<MediaResolutionResult> ResolveAllAsync(
+            IReadOnlyList<MediaRef> refs,
+            CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            var resolved = OnResolve?.Invoke(mediaRef)
-                ?? new ResolvedVideoMedia(
-                    bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
-                    mimeType: "image/png",
-                    sourceDescription: "fake");
-            return Task.FromResult(resolved);
+            var resolved = new Dictionary<MediaRef, ResolvedMedia>();
+            foreach (var mediaRef in refs)
+            {
+                try
+                {
+                    resolved[mediaRef] = OnResolve?.Invoke(mediaRef)
+                        ?? new ResolvedMedia(
+                            Bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
+                            MimeType: "image/png");
+                }
+                catch (NotSupportedException ex)
+                {
+                    return Task.FromResult(
+                        MediaResolutionResult.Fail(
+                            new GenerationError(
+                                GenErrorCode.InvalidRequest,
+                                ex.Message,
+                                Retryable: false,
+                                Field: "MediaRef")));
+                }
+            }
+
+            return Task.FromResult(MediaResolutionResult.Ok(resolved));
         }
+    }
+
+    internal sealed class FailingEstimator : IVideoCostEstimator
+    {
+        private readonly Rook.Services.Vision.Generation.GenerationError _error;
+
+        public FailingEstimator(Rook.Services.Vision.Generation.GenerationError error)
+        {
+            _error = error;
+        }
+
+        public VideoCostEstimateResult Estimate(
+            ResolvedVideoModel model,
+            VideoGenerationRequest request) =>
+            VideoCostEstimateResult.Fail(_error);
     }
 }

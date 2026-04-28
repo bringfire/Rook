@@ -8,7 +8,8 @@ namespace Rook.Services.Vision.Video
     /// Public seam for V2 (HTTP routes), V3 (tab UI), V4 (MCP tools)
     /// to consume video-job orchestration. The manager:
     ///   - validates and estimates the request
-    ///   - resolves media refs to bytes via <see cref="IVideoMediaResolver"/>
+    ///   - resolves media refs to bytes via
+    ///     <see cref="Rook.Services.Vision.Generation.IMediaResolver"/>
     ///   - mints a Rook-side <c>jobId</c>
     ///   - persists snapshots to <see cref="IVideoJobLedger"/>
     ///   - drives the provider state machine in a background task
@@ -16,9 +17,8 @@ namespace Rook.Services.Vision.Video
     ///
     /// Consumers see only manager-facing <see cref="JobSubmitResult"/> /
     /// <see cref="JobStatusResult"/> / <see cref="JobCancelResult"/> /
-    /// <see cref="JobFetchResult"/>; provider-side types
-    /// (<see cref="ProviderSubmitResult"/> etc.) stay internal to the
-    /// manager.
+    /// <see cref="JobFetchResult"/>; provider outcomes stay internal to
+    /// the manager.
     /// </summary>
     public interface IVideoJobManager
     {

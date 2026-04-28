@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -200,14 +201,26 @@ namespace Rook.Services.Vision.Video
             ["pricing_source"] = p.PricingSource,
         };
 
-        private static JsonObject SerializeError(VideoJobError e) => new()
+        private static JsonObject SerializeError(GenerationError e)
         {
-            ["code"] = e.Code.ToString(),
-            ["message"] = e.Message,
-            ["retryable"] = e.Retryable,
-            ["provider_message"] = e.ProviderMessage,
-            ["field"] = e.Field,
-        };
+            var obj = new JsonObject
+            {
+                ["code"] = e.Code.ToString(),
+                ["message"] = e.Message,
+                ["retryable"] = e.Retryable,
+                [VideoErrorDetailKeys.ProviderMessage] = TryGetProviderMessage(e.ProviderDetail),
+                ["field"] = e.Field,
+            };
+
+            if (!string.IsNullOrEmpty(e.ProviderErrorCode))
+                obj["provider_error_code"] = e.ProviderErrorCode;
+
+            var providerDetail = SerializeProviderDetail(e.ProviderDetail);
+            if (providerDetail is not null)
+                obj["provider_detail"] = providerDetail;
+
+            return obj;
+        }
 
         // ─── Deserialization ──────────────────────────────────────────
 
@@ -300,7 +313,7 @@ namespace Rook.Services.Vision.Video
             if (state == VideoJobState.Complete && resultArtifactId is null)
                 return (null, MissingField(lineNumber, "result_artifact_id"));
 
-            VideoJobError? error = null;
+            GenerationError? error = null;
             var errorObj = TryGetObject(obj, "error");
             if (errorObj is not null)
             {
@@ -456,8 +469,8 @@ namespace Rook.Services.Vision.Video
         {
             var kindStr = TryGetString(obj, "kind");
             if (kindStr is null
-                || !Enum.TryParse<VideoMediaRefKind>(kindStr, out var kind)
-                || !Enum.IsDefined(typeof(VideoMediaRefKind), kind))
+                || !Enum.TryParse<MediaRefKind>(kindStr, out var kind)
+                || !Enum.IsDefined(typeof(MediaRefKind), kind))
                 return (null, MissingField(lineNumber, fieldPathPrefix + ".kind"));
 
             var role = TryGetString(obj, "role");
@@ -465,7 +478,7 @@ namespace Rook.Services.Vision.Video
                 return (null, MissingField(lineNumber, fieldPathPrefix + ".role"));
 
             // Codex round 7 finding 3: the durable shape MUST match the
-            // V1a runtime VideoMediaRef invariants (ForArtifact requires
+            // Runtime MediaRef invariants (ForArtifact requires
             // non-empty Guid; ForPath requires non-empty path). A
             // persisted media ref that could never have been constructed
             // through the domain factory is corrupt.
@@ -483,12 +496,12 @@ namespace Rook.Services.Vision.Video
 
             switch (kind)
             {
-                case VideoMediaRefKind.Artifact:
+                case MediaRefKind.Artifact:
                     if (artifactId is null)
                         return (null, MissingField(
                             lineNumber, fieldPathPrefix + ".artifact_id"));
                     break;
-                case VideoMediaRefKind.Path:
+                case MediaRefKind.Path:
                     if (string.IsNullOrWhiteSpace(path))
                         return (null, MissingField(
                             lineNumber, fieldPathPrefix + ".path"));
@@ -543,13 +556,13 @@ namespace Rook.Services.Vision.Video
                 PricingSource: pricingSource), null);
         }
 
-        private static (VideoJobError? Value, LedgerReadError? Error) DeserializeError(
+        private static (GenerationError? Value, LedgerReadError? Error) DeserializeError(
             JsonObject obj, int lineNumber)
         {
             var codeStr = TryGetString(obj, "code");
             if (codeStr is null
-                || !Enum.TryParse<VideoErrorCode>(codeStr, out var code)
-                || !Enum.IsDefined(typeof(VideoErrorCode), code))
+                || !Enum.TryParse<GenerationErrorCode>(codeStr, out var code)
+                || !Enum.IsDefined(typeof(GenerationErrorCode), code))
                 return (null, MissingField(lineNumber, "error.code"));
 
             var message = TryGetString(obj, "message");
@@ -560,12 +573,66 @@ namespace Rook.Services.Vision.Video
             if (retryable is null)
                 return (null, MissingField(lineNumber, "error.retryable"));
 
-            return (new VideoJobError(
+            var providerMessage = TryGetString(obj, VideoErrorDetailKeys.ProviderMessage);
+            var providerDetail = DeserializeProviderDetail(
+                TryGetObject(obj, "provider_detail"),
+                providerMessage);
+
+            return (new GenerationError(
                 Code: code,
                 Message: message,
                 Retryable: retryable.Value,
-                ProviderMessage: TryGetString(obj, "provider_message"),
-                Field: TryGetString(obj, "field")), null);
+                Field: TryGetString(obj, "field"),
+                ProviderErrorCode: TryGetString(obj, "provider_error_code"),
+                ProviderDetail: providerDetail), null);
+        }
+
+        private static JsonObject? SerializeProviderDetail(
+            IReadOnlyDictionary<string, JsonNode>? detail)
+        {
+            if (detail is null) return null;
+
+            var hasNonLegacyDetail = false;
+            var obj = new JsonObject();
+            foreach (var kvp in detail)
+            {
+                obj[kvp.Key] = kvp.Value?.DeepClone();
+                if (kvp.Key != VideoErrorDetailKeys.ProviderMessage)
+                    hasNonLegacyDetail = true;
+            }
+
+            return hasNonLegacyDetail ? obj : null;
+        }
+
+        private static IReadOnlyDictionary<string, JsonNode>? DeserializeProviderDetail(
+            JsonObject? providerDetail,
+            string? providerMessage)
+        {
+            Dictionary<string, JsonNode>? detail = null;
+            if (providerDetail is not null)
+            {
+                detail = new Dictionary<string, JsonNode>(providerDetail.Count);
+                foreach (var kvp in providerDetail)
+                    detail[kvp.Key] = kvp.Value?.DeepClone()!;
+            }
+
+            if (!string.IsNullOrEmpty(providerMessage))
+            {
+                detail ??= new Dictionary<string, JsonNode>();
+                detail[VideoErrorDetailKeys.ProviderMessage] =
+                    JsonValue.Create(providerMessage)!;
+            }
+
+            return detail is null || detail.Count == 0 ? null : detail;
+        }
+
+        private static string? TryGetProviderMessage(
+            IReadOnlyDictionary<string, JsonNode>? detail)
+        {
+            if (detail is null) return null;
+            return detail.TryGetValue(VideoErrorDetailKeys.ProviderMessage, out var node)
+                ? node?.GetValue<string>()
+                : null;
         }
 
         // ─── JsonObject access helpers (defensive against missing/typed) ──

@@ -1,22 +1,24 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
-    /// Resolves <see cref="VideoMediaRefKind.Artifact"/> media refs by
+    /// Resolves <see cref="MediaRefKind.Artifact"/> media refs by
     /// reading bytes from the <see cref="ArtifactStore"/>. Throws
     /// <see cref="NotSupportedException"/> for
-    /// <see cref="VideoMediaRefKind.Path"/> — the name encodes the policy:
+    /// <see cref="MediaRefKind.Path"/> — the name encodes the policy:
     /// path refs are intentionally unsupported until V2 owns the path
     /// validation seam, NOT "not yet implemented." The manager translates
     /// this exception into a typed <see cref="VideoErrorCode.InvalidRequest"/>
     /// before it reaches the provider or job state.
     /// </summary>
-    public sealed class ArtifactOnlyVideoMediaResolver : IVideoMediaResolver
+    public sealed class ArtifactOnlyVideoMediaResolver : IMediaResolver
     {
         private readonly ArtifactStore _store;
 
@@ -25,8 +27,55 @@ namespace Rook.Services.Vision.Video
             _store = store ?? throw new ArgumentNullException(nameof(store));
         }
 
-        public Task<ResolvedVideoMedia> ResolveAsync(
-            VideoMediaRef mediaRef, CancellationToken ct)
+        public async Task<MediaResolutionResult> ResolveAllAsync(
+            IReadOnlyList<MediaRef> refs,
+            CancellationToken ct)
+        {
+            if (refs is null)
+                return MediaResolutionResult.Fail(new GenerationError(
+                    GenerationErrorCode.InvalidRequest,
+                    "Media refs are null.",
+                    Retryable: false,
+                    Field: "MediaRef"));
+
+            var resolved = new Dictionary<MediaRef, ResolvedMedia>();
+            foreach (var mediaRef in refs)
+            {
+                if (mediaRef is null || resolved.ContainsKey(mediaRef))
+                    continue;
+
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var media = await ResolveOneGenericAsync(mediaRef, ct)
+                        .ConfigureAwait(false);
+                    resolved[mediaRef] = media;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (NotSupportedException ex)
+                {
+                    return MediaResolutionResult.Fail(new GenerationError(
+                        GenerationErrorCode.InvalidRequest,
+                        ex.Message,
+                        Retryable: false,
+                        Field: "MediaRef"));
+                }
+                catch (Exception ex)
+                {
+                    return MediaResolutionResult.Fail(new GenerationError(
+                        GenerationErrorCode.InvalidRequest,
+                        $"Media resolution failed: {ex.Message}",
+                        Retryable: false,
+                        Field: "MediaRef"));
+                }
+            }
+
+            return MediaResolutionResult.Ok(resolved);
+        }
+
+        private Task<ResolvedMedia> ResolveOneGenericAsync(
+            MediaRef mediaRef,
+            CancellationToken ct)
         {
             if (mediaRef is null)
                 throw new ArgumentNullException(nameof(mediaRef));
@@ -35,30 +84,27 @@ namespace Rook.Services.Vision.Video
 
             return mediaRef.Kind switch
             {
-                VideoMediaRefKind.Artifact => Task.FromResult(ResolveArtifact(mediaRef)),
-                VideoMediaRefKind.Path => throw new NotSupportedException(
-                    "Path-kind VideoMediaRef is not supported in V1b. " +
+                MediaRefKind.Artifact => Task.FromResult(ResolveArtifact(mediaRef)),
+                MediaRefKind.Path => throw new NotSupportedException(
+                    "Path-kind MediaRef is not supported in V1b. " +
                     "Path validation is V2's adapter-boundary responsibility; " +
                     "use Artifact-kind refs (created via ArtifactStore) until V2 ships."),
                 _ => throw new NotSupportedException(
-                    $"Unknown VideoMediaRefKind value: {(int)mediaRef.Kind}."),
+                    $"Unknown MediaRefKind value: {(int)mediaRef.Kind}."),
             };
         }
 
-        private ResolvedVideoMedia ResolveArtifact(VideoMediaRef mediaRef)
+        private ResolvedMedia ResolveArtifact(MediaRef mediaRef)
         {
-            // VideoMediaRef.ForArtifact validated the Guid is non-empty;
-            // assert here to surface the contract if someone bypassed it.
             if (mediaRef.ArtifactId is not { } id || id == Guid.Empty)
                 throw new InvalidOperationException(
-                    "Artifact-kind VideoMediaRef has null or empty ArtifactId.");
+                    "Artifact-kind MediaRef has null or empty ArtifactId.");
 
             var blobPath = _store.GetBlobAbsolutePath(id, mediaRef.Role);
             var bytes = File.ReadAllBytes(blobPath);
             var mimeType = MimeTypeFromExtension(blobPath);
-            var description = $"artifact:{id:D} role:{mediaRef.Role}";
 
-            return new ResolvedVideoMedia(bytes, mimeType, description);
+            return new ResolvedMedia(bytes, mimeType);
         }
 
         // Map common image extensions to MIME types Veo (and other

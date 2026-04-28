@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace Rook.Tests.Services.Vision.Video
     public class VeoOptionsCodecTests
     {
         // Cap for codec tests: Veo 3.x lite (matches DefaultT2vRequest).
-        private static ModelCapability Cap =>
+        private static VideoCapability Cap =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"].Capability;
 
         // ─── Serialize (semantic JSON assertions) ─────────────────────
@@ -51,6 +52,22 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.Throws<System.InvalidOperationException>(() =>
                 codec.Serialize(null!));
+        }
+
+        [Fact]
+        public void Implements_generic_provider_options_codec_seam()
+        {
+            IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> codec =
+                new VeoOptionsCodec();
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var validation = codec.Validate(req, req.Options, Cap);
+            var serialized = codec.Serialize(req.Options);
+            var decoded = codec.Deserialize(serialized);
+
+            Assert.True(validation.Success);
+            Assert.True(decoded.Success);
+            Assert.IsType<VeoOptions>(decoded.Options);
         }
 
         // ─── Deserialize round-trip ───────────────────────────────────
@@ -95,7 +112,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
+            Assert.Equal("person_generation", result.Error!.Field);
         }
 
         [Fact]
@@ -107,8 +124,8 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
-            Assert.Contains("future_policy_v2", result.Message);
+            Assert.Equal("person_generation", result.Error!.Field);
+            Assert.Contains("future_policy_v2", result.Error.Message);
         }
 
         [Fact]
@@ -131,7 +148,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = codec.Deserialize(json);
 
             Assert.False(result.Success);
-            Assert.Equal("person_generation", result.Field);
+            Assert.Equal("person_generation", result.Error!.Field);
         }
 
         // ─── Validate (Veo PersonGeneration matrix) ───────────────────
@@ -180,7 +197,8 @@ namespace Rook.Tests.Services.Vision.Video
             var codec = new VeoOptionsCodec();
             // Use full 3.1 cap so I2V is supported with start frame
             var fullCap = VeoCapabilities.Models["veo-3.1-generate-preview"].Capability;
-            var startFrame = VideoMediaRef.ForPath(@"C:\fixtures\start.png");
+            var startFrame = MediaRef.ForPath(
+                @"C:\fixtures\start.png", VideoMediaRoles.Image);
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-3.1-generate-preview",
                 mode: VideoMode.I2V,
@@ -199,7 +217,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var codec = new VeoOptionsCodec();
             var fullCap = VeoCapabilities.Models["veo-3.1-generate-preview"].Capability;
-            var startFrame = VideoMediaRef.ForPath(@"C:\fixtures\start.png");
+            var startFrame = MediaRef.ForPath(
+                @"C:\fixtures\start.png", VideoMediaRoles.Image);
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-3.1-generate-preview",
                 mode: VideoMode.I2V,
@@ -237,7 +256,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var codec = new VeoOptionsCodec();
             var veo2Cap = VeoCapabilities.Models["veo-2.0-generate-001"].Capability;
-            var startFrame = VideoMediaRef.ForPath(@"C:\fixtures\start.png");
+            var startFrame = MediaRef.ForPath(
+                @"C:\fixtures\start.png", VideoMediaRoles.Image);
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-2.0-generate-001",
                 mode: VideoMode.I2V,
@@ -261,7 +281,8 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var codec = new VeoOptionsCodec();
             var veo2Cap = VeoCapabilities.Models["veo-2.0-generate-001"].Capability;
-            var startFrame = VideoMediaRef.ForPath(@"C:\fixtures\start.png");
+            var startFrame = MediaRef.ForPath(
+                @"C:\fixtures\start.png", VideoMediaRoles.Image);
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-2.0-generate-001",
                 mode: VideoMode.I2V,
@@ -286,7 +307,10 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var codec = new VeoOptionsCodec();
             var cap = VeoCapabilities.Models[modelId].Capability;
-            var refs = new[] { VideoMediaRef.ForPath(@"C:\fixtures\ref.png") };
+            var refs = new[]
+            {
+                MediaRef.ForPath(@"C:\fixtures\ref.png", VideoMediaRoles.Image),
+            };
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: modelId,
                 mode: VideoMode.T2V,
@@ -309,7 +333,10 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var codec = new VeoOptionsCodec();
             var cap = VeoCapabilities.Models[modelId].Capability;
-            var refs = new[] { VideoMediaRef.ForPath(@"C:\fixtures\ref.png") };
+            var refs = new[]
+            {
+                MediaRef.ForPath(@"C:\fixtures\ref.png", VideoMediaRoles.Image),
+            };
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: modelId,
                 mode: VideoMode.T2V,

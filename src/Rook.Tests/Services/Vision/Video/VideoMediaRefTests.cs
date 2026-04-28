@@ -1,10 +1,11 @@
 using System;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
 {
-    public class VideoMediaRefTests
+    public class MediaRefTests
     {
         // ─── ForArtifact ─────────────────────────────────────────────
 
@@ -13,9 +14,9 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var id = Guid.NewGuid();
 
-            var media = VideoMediaRef.ForArtifact(id);
+            var media = MediaRef.ForArtifact(id, VideoMediaRoles.Image);
 
-            Assert.Equal(VideoMediaRefKind.Artifact, media.Kind);
+            Assert.Equal(MediaRefKind.Artifact, media.Kind);
             Assert.Equal(id, media.ArtifactId);
             Assert.Null(media.Path);
             Assert.Equal(VideoMediaRoles.Image, media.Role);
@@ -25,7 +26,7 @@ namespace Rook.Tests.Services.Vision.Video
         public void ForArtifact_with_Guid_Empty_throws()
         {
             Assert.Throws<ArgumentException>(() =>
-                VideoMediaRef.ForArtifact(Guid.Empty));
+                MediaRef.ForArtifact(Guid.Empty, VideoMediaRoles.Image));
         }
 
         [Fact]
@@ -33,7 +34,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var id = Guid.NewGuid();
 
-            var media = VideoMediaRef.ForArtifact(id, VideoMediaRoles.StartFrame);
+            var media = MediaRef.ForArtifact(id, VideoMediaRoles.StartFrame);
 
             Assert.Equal("start_frame", media.Role);
         }
@@ -43,9 +44,9 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void ForPath_with_nonempty_path_constructs()
         {
-            var media = VideoMediaRef.ForPath(@"C:\fixtures\frame.png");
+            var media = MediaRef.ForPath(@"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            Assert.Equal(VideoMediaRefKind.Path, media.Kind);
+            Assert.Equal(MediaRefKind.Path, media.Kind);
             Assert.Null(media.ArtifactId);
             Assert.Equal(@"C:\fixtures\frame.png", media.Path);
             Assert.Equal(VideoMediaRoles.Image, media.Role);
@@ -56,13 +57,15 @@ namespace Rook.Tests.Services.Vision.Video
         [InlineData("   ")]
         public void ForPath_with_empty_or_whitespace_throws(string path)
         {
-            Assert.Throws<ArgumentException>(() => VideoMediaRef.ForPath(path));
+            Assert.Throws<ArgumentException>(() =>
+                MediaRef.ForPath(path, VideoMediaRoles.Image));
         }
 
         [Fact]
         public void ForPath_with_null_throws()
         {
-            Assert.Throws<ArgumentException>(() => VideoMediaRef.ForPath(null!));
+            Assert.Throws<ArgumentException>(() =>
+                MediaRef.ForPath(null!, VideoMediaRoles.Image));
         }
 
         // ─── role validation (matches ArtifactStore RolePattern) ─────
@@ -82,7 +85,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var id = Guid.NewGuid();
 
-            var media = VideoMediaRef.ForArtifact(id, role);
+            var media = MediaRef.ForArtifact(id, role);
 
             Assert.Equal(role, media.Role);
         }
@@ -98,7 +101,7 @@ namespace Rook.Tests.Services.Vision.Video
             var id = Guid.NewGuid();
 
             Assert.Throws<ArgumentException>(() =>
-                VideoMediaRef.ForArtifact(id, role));
+                MediaRef.ForArtifact(id, role));
         }
 
         [Fact]
@@ -107,7 +110,7 @@ namespace Rook.Tests.Services.Vision.Video
             var id = Guid.NewGuid();
 
             Assert.Throws<ArgumentException>(() =>
-                VideoMediaRef.ForArtifact(id, ""));
+                MediaRef.ForArtifact(id, ""));
         }
     }
 }

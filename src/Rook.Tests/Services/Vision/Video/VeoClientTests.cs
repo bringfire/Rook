@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -22,7 +23,7 @@ namespace Rook.Tests.Services.Vision.Video
         private static VeoOptions T2vOptions() =>
             new(PersonGenerationPolicy.AllowAll);
 
-        private static VideoGenerationRequest I2vRequest(VideoMediaRef start) =>
+        private static VideoGenerationRequest I2vRequest(MediaRef start) =>
             TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-3.1-generate-preview",
                 mode: VideoMode.I2V,
@@ -34,8 +35,8 @@ namespace Rook.Tests.Services.Vision.Video
         private static VeoOptions I2vOptions() =>
             new(PersonGenerationPolicy.AllowAdult);
 
-        private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
-            = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> NoMedia
+            = new Dictionary<MediaRef, ResolvedMedia>();
 
         private static (VeoClient client, TestHttpMessageHandler handler) MakeClient(
             Func<HttpRequestMessage, HttpResponseMessage> onSend)
@@ -104,13 +105,12 @@ namespace Rook.Tests.Services.Vision.Video
                 return JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc\"}");
             });
 
-            var startRef = VideoMediaRef.ForArtifact(Guid.NewGuid());
-            var resolved = new Dictionary<VideoMediaRef, ResolvedVideoMedia>
+            var startRef = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.Image);
+            var resolved = new Dictionary<MediaRef, ResolvedMedia>
             {
-                [startRef] = new ResolvedVideoMedia(
-                    bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
-                    mimeType: "image/png",
-                    sourceDescription: "test"),
+                [startRef] = new ResolvedMedia(
+                    Bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
+                    MimeType: "image/png"),
             };
 
             await client.StartGenerationAsync(

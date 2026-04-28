@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -55,7 +56,7 @@ namespace Rook.Services.Vision.Video
             string apiKey,
             VideoGenerationRequest request,
             VeoOptions options,
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
             CancellationToken ct)
         {
             var url = $"{BaseUrl}/models/{request.Model}:predictLongRunning";
@@ -214,7 +215,7 @@ namespace Rook.Services.Vision.Video
         private static object BuildPredictBody(
             VideoGenerationRequest request,
             VeoOptions options,
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia)
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia)
         {
             var instance = new Dictionary<string, object?>
             {

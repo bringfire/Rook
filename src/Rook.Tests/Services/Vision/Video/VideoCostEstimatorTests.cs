@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -9,7 +12,7 @@ namespace Rook.Tests.Services.Vision.Video
     /// <see cref="ResolvedVideoModel"/> + request, runs cap validation +
     /// codec validation + pricing in single-pass order, surfaces typed
     /// failures with correct error-code classification. Pricing math
-    /// itself is covered by <see cref="PerSecondPricingModelTests"/>.
+    /// itself is covered by <see cref="PerSecondVideoPricingModelTests"/>.
     /// </summary>
     public class VideoCostEstimatorTests
     {
@@ -58,7 +61,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("Resolution", result.Error.Field);
         }
 
@@ -72,7 +75,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("NumberOfVideos", result.Error.Field);
         }
 
@@ -90,7 +93,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.UnsupportedMedia, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.UnsupportedMedia, result.Error!.Code);
             Assert.Equal("PersonGeneration", result.Error.Field);
         }
 
@@ -106,7 +109,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
             Assert.Equal("Prompt", result.Error.Field);
         }
 
@@ -119,7 +122,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model, request: null!);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         [Fact]
@@ -131,7 +134,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(model: null!, req);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         // ─── F2 (review pass 2): model-id consistency guard ──────────
@@ -153,7 +156,7 @@ namespace Rook.Tests.Services.Vision.Video
             var result = estimator.Estimate(liteModel, fullReq);
 
             Assert.False(result.Success);
-            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
             Assert.Equal(nameof(VideoGenerationRequest.Model), result.Error.Field);
             Assert.Contains(liteModel.ModelId, result.Error.Message);
             Assert.Contains("veo-3.1-generate-preview", result.Error.Message);
@@ -190,6 +193,62 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.True(result.Success);
             Assert.Equal(result.Estimate!.DollarsUsd, result.Estimate.Pricing.TotalUsd);
+        }
+
+        [Fact]
+        public void Estimate_preserves_generic_pricing_error_without_legacy_downgrade()
+        {
+            var error = new GenerationError(
+                GenerationErrorCode.QuotaExceeded,
+                "Pricing quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("pricing detail")!,
+                });
+            var estimator = new VideoCostEstimator();
+            var model = TestVideoFixtures.VeoLiteResolved() with
+            {
+                PricingModel = new FailingPricingModel(error),
+            };
+            var req = TestVideoFixtures.DefaultT2vRequest();
+
+            var result = estimator.Estimate(model, req);
+
+            Assert.False(result.Success);
+            Assert.Same(error, result.Error);
+            Assert.Equal(GenerationErrorCode.QuotaExceeded, result.Error!.Code);
+            Assert.Equal("rate_limit_exceeded", result.Error.ProviderErrorCode);
+            Assert.Equal("pricing detail",
+                result.Error.ProviderDetail!["detail"]!.GetValue<string>());
+        }
+
+        private sealed class FailingPricingModel :
+            Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability>
+        {
+            private readonly GenerationError _error;
+
+            public FailingPricingModel(GenerationError error)
+            {
+                _error = error;
+            }
+
+            public string PricingSource => "test-pricing-source";
+
+            public PricingMetadataLocation MetadataLocation =>
+                PricingMetadataLocation.NotApplicable;
+
+            public Rook.Services.Vision.Generation.PricingResult Estimate(
+                VideoGenerationRequest request,
+                VideoCapability capability) =>
+                Rook.Services.Vision.Generation.PricingResult.Fail(_error);
+
+            public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(
+                IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
+                JsonNode? responseBody) =>
+                null;
         }
     }
 }

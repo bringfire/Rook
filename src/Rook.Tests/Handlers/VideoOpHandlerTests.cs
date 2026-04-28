@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook;
 using Rook.Artifacts;
 using Rook.Handlers;
 using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Rook.Tests.Services.Vision.Video;
 using Xunit;
@@ -225,7 +227,7 @@ namespace Rook.Tests.Handlers
         {
             // v3 contract shape: {kind:"artifact_id", artifact_id:"<uuid>",
             // role:"<role>"}. Pin the artifact id round-trips through
-            // ParseMediaRef into a real VideoMediaRef.ForArtifact(...)
+            // ParseMediaRef into a real MediaRef.ForArtifact(...)
             // call by checking the manager observed it.
             VideoGenerationRequest? captured = null;
             var stub = new StubManager
@@ -262,7 +264,7 @@ namespace Rook.Tests.Handlers
             AssertOk(resp, expectedHttp: 200);
             Assert.NotNull(captured);
             Assert.NotNull(captured!.StartFrame);
-            Assert.Equal(VideoMediaRefKind.Artifact, captured.StartFrame!.Kind);
+            Assert.Equal(MediaRefKind.Artifact, captured.StartFrame!.Kind);
             Assert.Equal(SampleArtifactId, captured.StartFrame.ArtifactId);
             Assert.Equal("image", captured.StartFrame.Role);
         }
@@ -564,6 +566,34 @@ namespace Rook.Tests.Handlers
             Assert.Equal(true, AssertDataDict(resp)["retryable"]);
         }
 
+        [Fact]
+        public async Task Submit_ManagerReturnsGenericQuotaExceeded_Maps429AndDoesNotLeakProviderDetail()
+        {
+            var genericError = new GenerationError(
+                Code: GenerationErrorCode.QuotaExceeded,
+                Message: "Provider quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("internal provider detail")!,
+                });
+            var stub = new StubManager
+            {
+                SubmitImpl = (_, _) => JobSubmitResult.Fail(genericError),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = await handler.DispatchAsync(BuildSubmitBody());
+
+            AssertFail(resp, GenerationErrorCode.QuotaExceeded, expectedHttp: 429);
+            var data = AssertDataDict(resp);
+            Assert.False(data.ContainsKey("provider_error_code"));
+            Assert.False(data.ContainsKey("provider_detail"));
+            Assert.False(data.ContainsKey("provider_message"));
+        }
+
         // ─── Cancel ──────────────────────────────────────────────────────
 
         [Fact]
@@ -828,6 +858,63 @@ namespace Rook.Tests.Handlers
         {
             // Table lives in v2 scope §6 + v3 sign-off. Pin every code.
             Assert.Equal(expectedHttp, VideoOpHandler.MapStatusFromCode(code));
+        }
+
+        [Theory]
+        [InlineData(GenerationErrorCode.InvalidRequest, 400, "invalid_request")]
+        [InlineData(GenerationErrorCode.UnsupportedMedia, 415, "unsupported_media")]
+        [InlineData(GenerationErrorCode.DependencyUnavailable, 503, "dependency_unavailable")]
+        [InlineData(GenerationErrorCode.ExecutionFailed, 500, "execution_failed")]
+        [InlineData(GenerationErrorCode.Cancelled, 200, "cancelled")]
+        [InlineData(GenerationErrorCode.Interrupted, 200, "interrupted")]
+        [InlineData(GenerationErrorCode.QuotaExceeded, 429, "quota_exceeded")]
+        [InlineData(GenerationErrorCode.ContentPolicy, 422, "content_policy")]
+        public void MapStatusFromCode_GenerationPinsTableExactly(
+            GenerationErrorCode code,
+            int expectedHttp,
+            string expectedWireCode)
+        {
+            Assert.Equal(expectedHttp, VideoOpHandler.MapStatusFromCode(code));
+            Assert.Equal(expectedWireCode, CodeString(code));
+        }
+
+        [Fact]
+        public void Estimate_QuotaExceeded_Maps429AndDoesNotLeakProviderDetail()
+        {
+            var estimator = new StubEstimator(new GenerationError(
+                Code: GenerationErrorCode.QuotaExceeded,
+                Message: "Provider quota exhausted.",
+                Retryable: true,
+                Field: "quota",
+                ProviderErrorCode: "rate_limit_exceeded",
+                ProviderDetail: new Dictionary<string, JsonNode>
+                {
+                    ["detail"] = JsonValue.Create("internal provider detail")!,
+                }));
+            var handler = NewHandler(estimator: estimator);
+
+            var resp = handler.DispatchOffUi(BuildEstimateBody());
+
+            AssertFail(resp, GenerationErrorCode.QuotaExceeded, expectedHttp: 429);
+            var data = AssertDataDict(resp);
+            Assert.False(data.ContainsKey("provider_error_code"));
+            Assert.False(data.ContainsKey("provider_detail"));
+            Assert.False(data.ContainsKey("provider_message"));
+        }
+
+        [Fact]
+        public void Estimate_ContentPolicy_Maps422()
+        {
+            var estimator = new StubEstimator(new GenerationError(
+                Code: GenerationErrorCode.ContentPolicy,
+                Message: "Provider rejected the prompt.",
+                Retryable: false,
+                Field: "prompt"));
+            var handler = NewHandler(estimator: estimator);
+
+            var resp = handler.DispatchOffUi(BuildEstimateBody());
+
+            AssertFail(resp, GenerationErrorCode.ContentPolicy, expectedHttp: 422);
         }
 
         // ─── ListJobs (PR-V3) ────────────────────────────────────────────
@@ -1117,7 +1204,9 @@ namespace Rook.Tests.Handlers
 
         // ─── Helpers ─────────────────────────────────────────────────────
 
-        private static VideoOpHandler NewHandler(IVideoJobManager? manager = null)
+        private static VideoOpHandler NewHandler(
+            IVideoJobManager? manager = null,
+            IVideoCostEstimator? estimator = null)
         {
             // Real registry/estimator — only the manager is faked. The
             // estimator path tests can substitute, but for ops that
@@ -1126,7 +1215,7 @@ namespace Rook.Tests.Handlers
             return new VideoOpHandler(
                 manager: manager ?? new StubManager(),
                 registry: TestVideoFixtures.RegistryWithVeo(),
-                estimator: new VideoCostEstimator());
+                estimator: estimator ?? new VideoCostEstimator());
         }
 
         private static string BuildSubmitBody() => $$"""
@@ -1180,6 +1269,16 @@ namespace Rook.Tests.Handlers
             Assert.Equal(CodeString(expectedCode), data["code"]);
         }
 
+        private static void AssertFail(
+            ApiResponse resp, GenerationErrorCode expectedCode, int expectedHttp)
+        {
+            Assert.False(resp.Success,
+                "expected success=false; data: " + JsonSerializer.Serialize(resp.Data));
+            Assert.Equal(expectedHttp, resp.HttpStatus);
+            var data = AssertDataDict(resp);
+            Assert.Equal(CodeString(expectedCode), data["code"]);
+        }
+
         private static Dictionary<string, object?> AssertDataDict(ApiResponse resp)
         {
             Assert.NotNull(resp.Data);
@@ -1211,6 +1310,34 @@ namespace Rook.Tests.Handlers
             VideoErrorCode.Interrupted => "interrupted",
             _ => code.ToString().ToLowerInvariant(),
         };
+
+        private static string CodeString(GenerationErrorCode code) => code switch
+        {
+            GenerationErrorCode.InvalidRequest => "invalid_request",
+            GenerationErrorCode.UnsupportedMedia => "unsupported_media",
+            GenerationErrorCode.DependencyUnavailable => "dependency_unavailable",
+            GenerationErrorCode.ExecutionFailed => "execution_failed",
+            GenerationErrorCode.Cancelled => "cancelled",
+            GenerationErrorCode.Interrupted => "interrupted",
+            GenerationErrorCode.QuotaExceeded => "quota_exceeded",
+            GenerationErrorCode.ContentPolicy => "content_policy",
+            _ => code.ToString().ToLowerInvariant(),
+        };
+
+        private sealed class StubEstimator : IVideoCostEstimator
+        {
+            private readonly GenerationError _error;
+
+            public StubEstimator(GenerationError error)
+            {
+                _error = error;
+            }
+
+            public VideoCostEstimateResult Estimate(
+                ResolvedVideoModel model,
+                VideoGenerationRequest request) =>
+                VideoCostEstimateResult.Fail(_error);
+        }
 
         // ─── Stub manager ────────────────────────────────────────────────
 

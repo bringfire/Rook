@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -12,9 +13,9 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class CapabilityValidatorTests
     {
-        private static (ModelCapability cap, IPricingModel _) Lite =>
+        private static (VideoCapability cap, object _) Lite =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"];
-        private static (ModelCapability cap, IPricingModel _) Full31 =>
+        private static (VideoCapability cap, object _) Full31 =>
             VeoCapabilities.Models["veo-3.1-generate-preview"];
 
         // ─── Happy path ───────────────────────────────────────────────
@@ -128,7 +129,8 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void Validate_rejects_interp_without_end_frame()
         {
-            var startFrame = VideoMediaRef.ForPath(@"C:\fixtures\start.png");
+            var startFrame = MediaRef.ForPath(
+                @"C:\fixtures\start.png", VideoMediaRoles.Image);
             var result = CapabilityValidator.Validate(
                 Full31.cap,
                 TestVideoFixtures.DefaultT2vRequest(
@@ -147,7 +149,10 @@ namespace Rook.Tests.Services.Vision.Video
         public void Validate_rejects_reference_frames_on_lite_model()
         {
             // Lite cap: SupportsReferenceImages=false.
-            var refs = new[] { VideoMediaRef.ForPath(@"C:\fixtures\ref.png") };
+            var refs = new[]
+            {
+                MediaRef.ForPath(@"C:\fixtures\ref.png", VideoMediaRoles.Image),
+            };
 
             var result = CapabilityValidator.Validate(
                 Lite.cap,
@@ -174,7 +179,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             // Construct a one-mode cap for symmetry; lite ships I2V too,
             // so we have to fabricate a cap to test mode rejection.
-            var t2vOnly = new ModelCapability(
+            var t2vOnly = new VideoCapability(
                 Id: "x", Name: "X", Status: "preview",
                 Resolutions: new[] { "720p" },
                 Durations: new[] { 8 },
@@ -188,7 +193,7 @@ namespace Rook.Tests.Services.Vision.Video
                 t2vOnly,
                 TestVideoFixtures.DefaultT2vRequest(
                     model: "x", mode: VideoMode.I2V, prompt: null,
-                    startFrame: VideoMediaRef.ForPath(@"C:\x.png"),
+                    startFrame: MediaRef.ForPath(@"C:\x.png", VideoMediaRoles.Image),
                     personGeneration: PersonGenerationPolicy.AllowAdult));
 
             Assert.False(result.Success);

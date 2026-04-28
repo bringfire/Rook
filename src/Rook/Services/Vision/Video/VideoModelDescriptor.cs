@@ -12,7 +12,7 @@ namespace Rook.Services.Vision.Video
     public sealed record VideoModelDescriptor(
         string ModelId,
         string ProviderName,
-        ModelCapability Capability,
+        VideoCapability Capability,
         PricingKind PricingKind,
         string PricingSource);
 }

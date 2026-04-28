@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -35,8 +36,14 @@ namespace Rook.Services.Vision.Video
         JsonObject ProviderOptions,
         JobPricing Pricing,
         Guid? ResultArtifactId,
-        VideoJobError? Error,
+        GenerationError? Error,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
-        JsonObject? Extensions);
+        JsonObject? Extensions)
+    {
+        public ProviderJobHandle? ProviderHandle =>
+            VideoJobRecordProviderHandle.TryFromRecord(this, out var handle)
+                ? handle
+                : null;
+    }
 }

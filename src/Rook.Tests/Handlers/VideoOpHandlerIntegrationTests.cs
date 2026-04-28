@@ -29,7 +29,7 @@ namespace Rook.Tests.Handlers
     ///         drift that would corrupt the schema before the bytes).</item>
     ///   <item>Provider boundary correctness — the manager's translation
     ///         from <c>VideoGenerationRequest</c> + resolved media to
-    ///         <c>ProviderSubmitResult</c> works end-to-end with a real
+    ///         <c>ProviderSubmitOutcome</c> works end-to-end with a real
     ///         provider implementation (fake but the same contract).</item>
     /// </list>
     ///
@@ -224,19 +224,17 @@ namespace Rook.Tests.Handlers
             // bytes on fetch. The manager creates a real ArtifactStore
             // entry and the handler returns the artifact id + files.
             var pollCount = 0;
-            _provider.OnGetStatus = _ =>
+            _provider.OnGetStatus = handle =>
             {
                 pollCount++;
                 // First poll: still polling. Second poll: complete with
                 // a result token. Avoids racing the BG task.
                 return pollCount < 2
-                    ? ProviderStatusResult.InFlight(
-                        VideoJobState.Polling,
-                        new VideoJobProgress(Pct: 50, Stage: "polling", Message: null))
-                    : ProviderStatusResult.Complete("fake-video-uri");
+                    ? FakeVideoProvider.StatusInFlight(50)
+                    : FakeVideoProvider.StatusComplete(handle, "fake-video-uri");
             };
-            _provider.OnFetchResult = (jobId, token) =>
-                ProviderFetchResult.Ok(
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(
                     bytes: System.Text.Encoding.UTF8.GetBytes("fake-mp4-bytes"),
                     mimeType: "video/mp4");
 

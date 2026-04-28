@@ -12,7 +12,7 @@ namespace Rook.Services.Vision.Video
         string ModelId,
         string ProviderName,
         IVideoProvider Provider,
-        ModelCapability Capability,
-        IPricingModel PricingModel,
-        IProviderOptionsCodec OptionsCodec);
+        VideoCapability Capability,
+        Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel,
+        Rook.Services.Vision.Generation.IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> OptionsCodec);
 }

@@ -1,0 +1,13 @@
+{
+  "instances": [
+    {
+      "prompt": "macro shot of dew on a leaf"
+    }
+  ],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "durationSeconds": 8,
+    "personGeneration": "allow_all",
+    "resolution": "1080p"
+  }
+}

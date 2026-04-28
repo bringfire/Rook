@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -86,19 +88,58 @@ namespace Rook.Services.Vision.Video
             string? providerJobId = null,
             string? providerResultToken = null,
             Guid? resultArtifactId = null,
-            VideoJobError? error = null)
+            GenerationError? error = null,
+            ProviderJobHandle? providerHandle = null)
         {
             if (prior is null) throw new ArgumentNullException(nameof(prior));
+
+            var nextExtensions = MergeProviderHandleExtension(
+                prior.Extensions,
+                providerHandle);
 
             return prior with
             {
                 State = newState,
-                ProviderJobId = providerJobId ?? prior.ProviderJobId,
-                ProviderResultToken = providerResultToken ?? prior.ProviderResultToken,
+                ProviderJobId = providerHandle?.ProviderJobId
+                    ?? providerJobId
+                    ?? prior.ProviderJobId,
+                ProviderResultToken = providerHandle?.ProviderResultToken
+                    ?? providerResultToken
+                    ?? prior.ProviderResultToken,
                 ResultArtifactId = resultArtifactId ?? prior.ResultArtifactId,
                 Error = error ?? prior.Error,
                 UpdatedAt = now,
+                Extensions = nextExtensions,
             };
+        }
+
+        private static JsonObject? MergeProviderHandleExtension(
+            JsonObject? existing,
+            ProviderJobHandle? providerHandle)
+        {
+            if (providerHandle is null)
+                return existing is null ? null : (JsonObject)existing.DeepClone();
+
+            JsonObject? next = null;
+            if (existing is not null)
+            {
+                next = new JsonObject();
+                foreach (var kvp in existing)
+                {
+                    if (kvp.Key != VideoJobRecordProviderHandle.ExtensionKey)
+                        next[kvp.Key] = kvp.Value?.DeepClone();
+                }
+            }
+
+            var providerHandleObject =
+                VideoJobRecordProviderHandle.ToExtensionObject(providerHandle);
+            if (providerHandleObject is not null)
+            {
+                next ??= new JsonObject();
+                next[VideoJobRecordProviderHandle.ExtensionKey] = providerHandleObject;
+            }
+
+            return next is null || next.Count == 0 ? null : next;
         }
 
         private static NormalizedRequest BuildNormalized(VideoGenerationRequest req)
@@ -116,11 +157,11 @@ namespace Rook.Services.Vision.Video
                 NumberOfVideos: req.NumberOfVideos);
         }
 
-        private static NormalizedMediaRef? ToNormalized(VideoMediaRef? r) =>
+        private static NormalizedMediaRef? ToNormalized(Rook.Services.Vision.Generation.MediaRef? r) =>
             r is null ? null : new NormalizedMediaRef(r.Kind, r.ArtifactId, r.Path, r.Role);
 
         private static IReadOnlyList<NormalizedMediaRef>? ToNormalizedList(
-            IReadOnlyList<VideoMediaRef>? refs)
+            IReadOnlyList<Rook.Services.Vision.Generation.MediaRef>? refs)
         {
             if (refs is null) return null;
             var list = new List<NormalizedMediaRef>(refs.Count);

@@ -1,15 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
     /// <summary>
     /// <see cref="IVideoProvider"/> implementation for Google's Veo.
     /// Composes <see cref="VeoClient"/> (HTTP plumbing) with
-    /// <see cref="VeoErrorMapper"/> (status → <see cref="VideoJobError"/>).
+    /// <see cref="VeoErrorMapper"/> (status → <see cref="GenerationError"/>).
     /// Stateless across calls; <c>provider_job_id</c> +
     /// <c>provider_result_token</c> are persisted by the manager and
     /// passed back as method arguments.
@@ -37,14 +39,16 @@ namespace Rook.Services.Vision.Video
             _client = client ?? new VeoClient();
         }
 
-        public async Task<ProviderSubmitResult> SubmitAsync(
+        public string ProviderName => VeoCapabilities.ProviderName;
+
+        public async Task<ProviderSubmitOutcome> SubmitAsync(
             VideoGenerationRequest request,
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> resolvedMedia,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
             CancellationToken ct)
         {
             if (request is null)
-                return ProviderSubmitResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
+                return new FailedSubmitOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
                     Message: "Request is null.",
                     Retryable: false,
                     Field: nameof(request)));
@@ -54,11 +58,11 @@ namespace Rook.Services.Vision.Video
             // programming error (the registry pairs Veo models with the
             // VeoOptionsCodec/VeoProvider; mismatch means someone bypassed
             // the registry), but we surface it as a typed envelope rather
-            // than throw so IVideoProvider's contract remains "every input
+            // than throw so IGenerationProvider's contract remains "every input
             // shape produces an envelope."
             if (request.Options is not VeoOptions veoOptions)
-                return ProviderSubmitResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
+                return new FailedSubmitOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
                     Message: $"Veo provider requires {nameof(VeoOptions)}; got " +
                              $"{request.Options?.GetType().Name ?? "null"}.",
                     Retryable: false,
@@ -66,162 +70,182 @@ namespace Rook.Services.Vision.Video
 
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrEmpty(apiKey))
-                return ProviderSubmitResult.Fail(VeoErrorMapper.MissingApiKey());
+                return new FailedSubmitOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
                 var resp = await _client.StartGenerationAsync(
-                    apiKey!, request, veoOptions, resolvedMedia ?? EmptyResolved, ct)
+                    apiKey!,
+                    request,
+                    veoOptions,
+                    resolvedMedia,
+                    ct)
                     .ConfigureAwait(false);
 
                 if (resp.Success && !string.IsNullOrEmpty(resp.OperationName))
-                    return ProviderSubmitResult.Ok(resp.OperationName!);
+                    return new QueuedSubmitOutcome(
+                        new ProviderJobHandle(resp.OperationName!));
 
-                return ProviderSubmitResult.Fail(
-                    VeoErrorMapper.MapStartFailure(resp.StatusCode, resp.ErrorBody));
+                return new FailedSubmitOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.MapStartFailure(resp.StatusCode, resp.ErrorBody)));
             }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
-                return ProviderSubmitResult.Fail(
-                    VeoErrorMapper.NetworkError("submit", ex.Message));
+                return new FailedSubmitOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.NetworkError("submit", ex.Message)));
             }
         }
 
-        public async Task<ProviderStatusResult> GetStatusAsync(
-            string providerJobId, CancellationToken ct)
+        public async Task<ProviderStatusOutcome> GetStatusAsync(
+            ProviderJobHandle handle, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(providerJobId))
-                return ProviderStatusResult.Failed(
-                    VideoJobState.Error,
-                    new VideoJobError(
-                        Code: VideoErrorCode.InvalidRequest,
-                        Message: "ProviderJobId must be non-empty.",
-                        Retryable: false,
-                        Field: nameof(providerJobId)));
+            if (handle is null)
+                return new FailedStatusOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
+                    Message: "ProviderJobHandle is required.",
+                    Retryable: false,
+                    Field: nameof(handle)));
 
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrEmpty(apiKey))
-                return ProviderStatusResult.Failed(
-                    VideoJobState.Error, VeoErrorMapper.MissingApiKey());
+                return new FailedStatusOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
                 var resp = await _client.PollOperationAsync(
-                    apiKey!, providerJobId, ct).ConfigureAwait(false);
+                    apiKey!, handle.ProviderJobId, ct).ConfigureAwait(false);
 
                 if (resp.Success)
                 {
                     if (!resp.Done)
-                        return ProviderStatusResult.InFlight(
-                            VideoJobState.Polling,
-                            new VideoJobProgress(Pct: null, Stage: "polling", Message: null));
+                        return new InFlightStatusOutcome(
+                            GenerationLifecycleState.Running,
+                            new GenerationProgress(Message: "polling"));
 
                     if (!string.IsNullOrEmpty(resp.VideoUri))
-                        return ProviderStatusResult.Complete(resp.VideoUri!);
+                        return new ProviderCompleteStatusOutcome(
+                            handle.WithResultToken(resp.VideoUri!));
 
                     // Done but no URI extracted from any documented shape.
-                    return ProviderStatusResult.Failed(
-                        VideoJobState.Error,
-                        new VideoJobError(
-                            Code: VideoErrorCode.ExecutionFailed,
+                    return new FailedStatusOutcome(
+                        new GenerationError(
+                            Code: GenerationErrorCode.ExecutionFailed,
                             Message: "Veo reported done but no video URI in response.",
                             Retryable: false));
                 }
 
-                return ProviderStatusResult.Failed(
-                    VideoJobState.Error,
-                    VeoErrorMapper.MapPollFailure(resp.StatusCode, resp.ErrorBody));
+                return new FailedStatusOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.MapPollFailure(resp.StatusCode, resp.ErrorBody)));
             }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
-                return ProviderStatusResult.Failed(
-                    VideoJobState.Error,
-                    VeoErrorMapper.NetworkError("poll", ex.Message));
+                return new FailedStatusOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.NetworkError("poll", ex.Message)));
             }
         }
 
-        public async Task<ProviderCancelResult> CancelAsync(
-            string providerJobId, CancellationToken ct)
+        public async Task<ProviderCancelOutcome> CancelAsync(
+            ProviderJobHandle handle, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(providerJobId))
-                return ProviderCancelResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
-                    Message: "ProviderJobId must be non-empty.",
+            if (handle is null)
+                return new FailedCancelOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
+                    Message: "ProviderJobHandle is required.",
                     Retryable: false,
-                    Field: nameof(providerJobId)));
+                    Field: nameof(handle)));
 
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrEmpty(apiKey))
-                return ProviderCancelResult.Fail(VeoErrorMapper.MissingApiKey());
+                return new FailedCancelOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
                 var resp = await _client.CancelOperationAsync(
-                    apiKey!, providerJobId, ct).ConfigureAwait(false);
+                    apiKey!, handle.ProviderJobId, ct).ConfigureAwait(false);
 
                 if (resp.Success)
-                    return ProviderCancelResult.Ok(VideoJobState.Cancelled);
+                    return new CanceledOutcome();
 
-                return ProviderCancelResult.Fail(
-                    VeoErrorMapper.MapCancelFailure(resp.StatusCode, resp.ErrorBody));
+                return new FailedCancelOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.MapCancelFailure(resp.StatusCode, resp.ErrorBody)));
             }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
-                return ProviderCancelResult.Fail(
-                    VeoErrorMapper.NetworkError("cancel", ex.Message));
+                return new FailedCancelOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.NetworkError("cancel", ex.Message)));
             }
         }
 
-        public async Task<ProviderFetchResult> FetchResultAsync(
-            string providerJobId,
-            string? providerResultToken,
+        public async Task<ProviderResultOutcome> FetchResultAsync(
+            ProviderJobHandle handle,
             CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(providerJobId))
-                return ProviderFetchResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
-                    Message: "ProviderJobId must be non-empty.",
+            if (handle is null)
+                return new FailedResultOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
+                    Message: "ProviderJobHandle is required.",
                     Retryable: false,
-                    Field: nameof(providerJobId)));
+                    Field: nameof(handle)));
 
-            if (string.IsNullOrWhiteSpace(providerResultToken))
-                return ProviderFetchResult.Fail(new VideoJobError(
-                    Code: VideoErrorCode.InvalidRequest,
+            if (string.IsNullOrWhiteSpace(handle.ProviderResultToken))
+                return new FailedResultOutcome(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
                     Message: "ProviderResultToken (videoUri) is required for Veo. " +
                              "The manager should persist it from the status poll that " +
                              "first reported provider-Complete.",
                     Retryable: false,
-                    Field: nameof(providerResultToken)));
+                    Field: "providerResultToken"));
 
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrEmpty(apiKey))
-                return ProviderFetchResult.Fail(VeoErrorMapper.MissingApiKey());
+                return new FailedResultOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(VeoErrorMapper.MissingApiKey()));
 
             try
             {
                 var bytes = await _client.DownloadVideoAsync(
-                    apiKey!, providerResultToken!, ct).ConfigureAwait(false);
+                    apiKey!, handle.ProviderResultToken!, ct).ConfigureAwait(false);
 
                 if (bytes.Length == 0)
-                    return ProviderFetchResult.Fail(new VideoJobError(
-                        Code: VideoErrorCode.ExecutionFailed,
+                    return new FailedResultOutcome(new GenerationError(
+                        Code: GenerationErrorCode.ExecutionFailed,
                         Message: "Veo download returned empty body.",
                         Retryable: true));
 
-                return ProviderFetchResult.Ok(bytes, "video/mp4");
+                return new SuccessResultOutcome(
+                    new ProviderResultEnvelope(
+                        new[]
+                        {
+                            new ResultArtifact(
+                                Role: VideoMediaRoles.Video,
+                                Body: new InlineArtifactBody(bytes),
+                                DeclaredMimeType: "video/mp4",
+                                ProviderMetadata: EmptyMetadata),
+                        },
+                        EmptyMetadata));
             }
             catch (OperationCanceledException) { throw; }
             catch (HttpRequestException ex)
             {
-                return ProviderFetchResult.Fail(
-                    VeoErrorMapper.NetworkError("download", ex.Message));
+                return new FailedResultOutcome(
+                    VideoProviderOutcomeAdapters.ToGenerationError(
+                        VeoErrorMapper.NetworkError("download", ex.Message)));
             }
         }
 
-        private static readonly IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> EmptyResolved
-            = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
+        private static readonly IReadOnlyDictionary<string, JsonNode> EmptyMetadata
+            = new Dictionary<string, JsonNode>();
     }
 }

@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "data": {
+    "job_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "state": "error",
+    "progress": null,
+    "result_artifact_id": null,
+    "error": {
+      "code": "execution_failed",
+      "message": "Veo poll backend error (503). {\u0022error\u0022:\u0022unavailable\u0022}",
+      "retryable": true,
+      "field": null
+    }
+  },
+  "http_status": 200
+}
