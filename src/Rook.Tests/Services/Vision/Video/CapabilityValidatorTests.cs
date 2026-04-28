@@ -12,9 +12,9 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class CapabilityValidatorTests
     {
-        private static (ModelCapability cap, IPricingModel _) Lite =>
+        private static (VideoCapability cap, IPricingModel _) Lite =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"];
-        private static (ModelCapability cap, IPricingModel _) Full31 =>
+        private static (VideoCapability cap, IPricingModel _) Full31 =>
             VeoCapabilities.Models["veo-3.1-generate-preview"];
 
         // ─── Happy path ───────────────────────────────────────────────
@@ -174,7 +174,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             // Construct a one-mode cap for symmetry; lite ships I2V too,
             // so we have to fabricate a cap to test mode rejection.
-            var t2vOnly = new ModelCapability(
+            var t2vOnly = new VideoCapability(
                 Id: "x", Name: "X", Status: "preview",
                 Resolutions: new[] { "720p" },
                 Durations: new[] { 8 },

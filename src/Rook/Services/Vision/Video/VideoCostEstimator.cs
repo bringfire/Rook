@@ -96,7 +96,7 @@ namespace Rook.Services.Vision.Video
         // (N-1) videos. Folding into one row eliminates the dead branch
         // and the labelling ambiguity.
         private static IReadOnlyList<CostBreakdownComponent> BuildBreakdown(
-            ModelCapability cap, VideoGenerationRequest request, JobPricing pricing)
+            VideoCapability cap, VideoGenerationRequest request, JobPricing pricing)
         {
             var label = request.NumberOfVideos == 1
                 ? $"{cap.Name} @ {request.Resolution} × {request.DurationSeconds}s"

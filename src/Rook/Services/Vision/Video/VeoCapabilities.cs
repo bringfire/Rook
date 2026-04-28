@@ -25,17 +25,17 @@ namespace Rook.Services.Vision.Video
 
         public const string PricingSource = "veo-rate-card-v1";
 
-        public static IReadOnlyDictionary<string, (ModelCapability Capability, IPricingModel PricingModel)> Models { get; }
+        public static IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
             = BuildModels();
 
-        private static IReadOnlyDictionary<string, (ModelCapability, IPricingModel)> BuildModels()
+        private static IReadOnlyDictionary<string, (VideoCapability, IPricingModel)> BuildModels()
         {
             var t2vI2vInterp = new[] { VideoMode.T2V, VideoMode.I2V, VideoMode.Interp };
 
-            var dict = new Dictionary<string, (ModelCapability, IPricingModel)>(StringComparer.Ordinal);
+            var dict = new Dictionary<string, (VideoCapability, IPricingModel)>(StringComparer.Ordinal);
 
             dict["veo-3.1-generate-preview"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-3.1-generate-preview",
                     Name: "Veo 3.1",
                     Status: "preview",
@@ -56,7 +56,7 @@ namespace Rook.Services.Vision.Video
                     pricingSource: PricingSource));
 
             dict["veo-3.1-fast-generate-preview"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-3.1-fast-generate-preview",
                     Name: "Veo 3.1 Fast",
                     Status: "preview",
@@ -77,7 +77,7 @@ namespace Rook.Services.Vision.Video
                     pricingSource: PricingSource));
 
             dict["veo-3.1-lite-generate-preview"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-3.1-lite-generate-preview",
                     Name: "Veo 3.1 Lite",
                     Status: "preview",
@@ -97,7 +97,7 @@ namespace Rook.Services.Vision.Video
                     pricingSource: PricingSource));
 
             dict["veo-3.0-generate-001"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-3.0-generate-001",
                     Name: "Veo 3",
                     Status: "stable",
@@ -117,7 +117,7 @@ namespace Rook.Services.Vision.Video
                     pricingSource: PricingSource));
 
             dict["veo-3.0-fast-generate-001"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-3.0-fast-generate-001",
                     Name: "Veo 3 Fast",
                     Status: "stable",
@@ -137,7 +137,7 @@ namespace Rook.Services.Vision.Video
                     pricingSource: PricingSource));
 
             dict["veo-2.0-generate-001"] = (
-                new ModelCapability(
+                new VideoCapability(
                     Id: "veo-2.0-generate-001",
                     Name: "Veo 2",
                     Status: "stable",

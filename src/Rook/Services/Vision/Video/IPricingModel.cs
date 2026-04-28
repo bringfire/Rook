@@ -12,6 +12,6 @@ namespace Rook.Services.Vision.Video
         PricingKind Kind { get; }
         string PricingSource { get; }
 
-        PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap);
+        PricingResult Estimate(VideoGenerationRequest request, VideoCapability cap);
     }
 }

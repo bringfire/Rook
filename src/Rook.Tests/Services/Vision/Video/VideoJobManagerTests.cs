@@ -572,7 +572,7 @@ namespace Rook.Tests.Services.Vision.Video
             public PricingKind Kind => _inner.Kind;
             public string PricingSource => _inner.PricingSource;
 
-            public PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap)
+            public PricingResult Estimate(VideoGenerationRequest request, VideoCapability cap)
             {
                 CallCount++;
                 return _inner.Estimate(request, cap);

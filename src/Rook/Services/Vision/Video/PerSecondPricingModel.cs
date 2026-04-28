@@ -31,7 +31,7 @@ namespace Rook.Services.Vision.Video
 
         public string PricingSource { get; }
 
-        public PricingResult Estimate(VideoGenerationRequest request, ModelCapability cap)
+        public PricingResult Estimate(VideoGenerationRequest request, VideoCapability cap)
         {
             if (request is null)
                 return PricingResult.Fail(new VideoJobError(

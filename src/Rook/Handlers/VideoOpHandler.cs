@@ -5,7 +5,14 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Rhino;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+
+// Both Generation.JobPricing (modality-neutral; used by typed pricing
+// model outputs) and Video.JobPricing (durable ledger record type) exist
+// in PR-2's coexistence period. The HTTP boundary projects the ledger
+// shape, so unqualified `JobPricing` here MUST resolve to the video one.
+using JobPricing = Rook.Services.Vision.Video.JobPricing;
 
 namespace Rook.Handlers
 {
@@ -385,7 +392,7 @@ namespace Rook.Handlers
                 ["capability"] = CapabilityToObj(d.Capability),
             };
 
-        private static Dictionary<string, object?> CapabilityToObj(ModelCapability c)
+        private static Dictionary<string, object?> CapabilityToObj(VideoCapability c)
         {
             var modes = new List<string>(c.Modes.Count);
             foreach (var m in c.Modes) modes.Add(ModeToString(m));

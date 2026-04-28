@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace Rook.Tests.Services.Vision.Video
     public class VeoOptionsCodecTests
     {
         // Cap for codec tests: Veo 3.x lite (matches DefaultT2vRequest).
-        private static ModelCapability Cap =>
+        private static VideoCapability Cap =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"].Capability;
 
         // ─── Serialize (semantic JSON assertions) ─────────────────────

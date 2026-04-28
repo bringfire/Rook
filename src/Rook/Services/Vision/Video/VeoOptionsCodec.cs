@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -24,7 +25,7 @@ namespace Rook.Services.Vision.Video
         public ValidationResult Validate(
             VideoGenerationRequest request,
             ProviderOptions options,
-            ModelCapability cap)
+            VideoCapability cap)
         {
             if (request is null)
                 return ValidationResult.Fail("Request", "Request is null.");
@@ -137,7 +138,7 @@ namespace Rook.Services.Vision.Video
             VideoMode mode,
             PersonGenerationPolicy personGen,
             int refCount,
-            ModelCapability cap)
+            VideoCapability cap)
         {
             var isVeo2 = modelId.StartsWith(
                 "veo-2", StringComparison.OrdinalIgnoreCase);

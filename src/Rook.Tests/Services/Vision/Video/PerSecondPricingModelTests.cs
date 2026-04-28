@@ -12,9 +12,9 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class PerSecondPricingModelTests
     {
-        private static ModelCapability LiteCap =>
+        private static VideoCapability LiteCap =>
             VeoCapabilities.Models["veo-3.1-lite-generate-preview"].Capability;
-        private static ModelCapability Full31Cap =>
+        private static VideoCapability Full31Cap =>
             VeoCapabilities.Models["veo-3.1-generate-preview"].Capability;
 
         [Fact]

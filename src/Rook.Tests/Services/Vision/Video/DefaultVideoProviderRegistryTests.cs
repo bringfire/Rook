@@ -124,12 +124,12 @@ namespace Rook.Tests.Services.Vision.Video
             var second = new FakeVideoProvider();
 
             var alpha = new FakeRegistration("veo", first,
-                new System.Collections.Generic.Dictionary<string, (ModelCapability, IPricingModel)>
+                new System.Collections.Generic.Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["alpha-model"] = (StubCap("alpha-model"), StubPricing()),
                 });
             var beta = new FakeRegistration("veo", second,
-                new System.Collections.Generic.Dictionary<string, (ModelCapability, IPricingModel)>
+                new System.Collections.Generic.Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["beta-model"] = (StubCap("beta-model"), StubPricing()),
                 });
@@ -147,12 +147,12 @@ namespace Rook.Tests.Services.Vision.Video
             public string ProviderName { get; }
             public IVideoProvider Provider { get; }
             public IProviderOptionsCodec OptionsCodec { get; } = new VeoOptionsCodec();
-            public System.Collections.Generic.IReadOnlyDictionary<string, (ModelCapability Capability, IPricingModel PricingModel)> Models { get; }
+            public System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
 
             public FakeRegistration(
                 string providerName,
                 IVideoProvider provider,
-                System.Collections.Generic.IReadOnlyDictionary<string, (ModelCapability, IPricingModel)> models)
+                System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability, IPricingModel)> models)
             {
                 ProviderName = providerName;
                 Provider = provider;
@@ -265,7 +265,7 @@ namespace Rook.Tests.Services.Vision.Video
             var alpha = new TestRegistration
             {
                 ProviderName = "veo",
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["alpha-model"] = (StubCap("alpha-model"), StubPricing()),
                 },
@@ -273,7 +273,7 @@ namespace Rook.Tests.Services.Vision.Video
             var beta = new TestRegistration
             {
                 ProviderName = "veo",
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["beta-model"] = (StubCap("beta-model"), StubPricing()),
                 },
@@ -333,11 +333,18 @@ namespace Rook.Tests.Services.Vision.Video
         [Fact]
         public void Constructor_throws_on_empty_model_id()
         {
+            // PR-2: VideoCapability is a sealed class with construction-
+            // time validation, so empty Id throws ArgumentException at the
+            // capability ctor (stricter than the V1c registry-level catch).
+            // Stub the capability with a placeholder Id and verify the
+            // empty MODEL ID is rejected at the registry boundary; an
+            // empty CAPABILITY ID is now caught even earlier (see
+            // Constructor_throws_on_empty_capability_id).
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
-                    ["  "] = (StubCap("  "), StubPricing()),
+                    ["  "] = (StubCap("placeholder"), StubPricing()),
                 },
             };
 
@@ -350,7 +357,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["m"] = (null!, StubPricing()),
                 },
@@ -365,7 +372,12 @@ namespace Rook.Tests.Services.Vision.Video
         {
             // F3 (review pass 2): cap.Id must be non-empty (identity is
             // load-bearing for descriptors and downstream validation).
-            var capWithEmptyId = new ModelCapability(
+            // PR-2: VideoCapability sealed-class ctor validates this at
+            // construction time, so the rejection happens earlier than
+            // V1c (which caught it during registry build). The
+            // invariant is preserved end-to-end; the rejection point
+            // moved up in the call stack.
+            Assert.Throws<ArgumentException>(() => new VideoCapability(
                 Id: "  ",
                 Name: "x", Status: "preview",
                 Resolutions: new[] { "720p" },
@@ -374,20 +386,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Modes: new[] { VideoMode.T2V },
                 SupportsReferenceImages: false,
                 MaxReferenceImages: 0,
-                Must8sWith: Array.Empty<string>());
-
-            var bad = new TestRegistration
-            {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
-                {
-                    ["model-x"] = (capWithEmptyId, StubPricing()),
-                },
-            };
-
-            var ex = Assert.Throws<InvalidOperationException>(() =>
-                new DefaultVideoProviderRegistry(new[] { bad }));
-
-            Assert.Contains("Capability.Id", ex.Message);
+                Must8sWith: Array.Empty<string>()));
         }
 
         [Fact]
@@ -398,7 +397,7 @@ namespace Rook.Tests.Services.Vision.Video
             // downstream descriptors/validation/pricing would silently
             // disagree about which model is in play. Reject at build
             // time with a message naming both sides.
-            var capWithWrongId = new ModelCapability(
+            var capWithWrongId = new VideoCapability(
                 Id: "veo-3.1-lite-generate-preview",
                 Name: "x", Status: "preview",
                 Resolutions: new[] { "720p" },
@@ -411,7 +410,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["runway-x"] = (capWithWrongId, StubPricing()),
                 },
@@ -429,7 +428,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             // Sanity: matched ids work (this is the production path —
             // VeoCapabilities is already constructed this way).
-            var goodCap = new ModelCapability(
+            var goodCap = new VideoCapability(
                 Id: "matched-model",
                 Name: "x", Status: "preview",
                 Resolutions: new[] { "720p" },
@@ -442,7 +441,7 @@ namespace Rook.Tests.Services.Vision.Video
 
             var good = new TestRegistration
             {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["matched-model"] = (goodCap, StubPricing()),
                 },
@@ -459,7 +458,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var bad = new TestRegistration
             {
-                Models = new Dictionary<string, (ModelCapability, IPricingModel)>
+                Models = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["m"] = (StubCap("m"), null!),
                 },
@@ -481,7 +480,7 @@ namespace Rook.Tests.Services.Vision.Video
 
         // ─── Helpers ──────────────────────────────────────────────────
 
-        private static ModelCapability StubCap(string id) => new(
+        private static VideoCapability StubCap(string id) => new(
             Id: id, Name: id, Status: "preview",
             Resolutions: new[] { "720p" },
             Durations: new[] { 8 },
@@ -504,11 +503,11 @@ namespace Rook.Tests.Services.Vision.Video
             public string ProviderName { get; init; } = "test-provider";
             public IVideoProvider Provider { get; init; } = new FakeVideoProvider();
             public IProviderOptionsCodec OptionsCodec { get; init; } = new VeoOptionsCodec();
-            public IReadOnlyDictionary<string, (ModelCapability Capability, IPricingModel PricingModel)> Models { get; init; }
-                = new Dictionary<string, (ModelCapability, IPricingModel)>
+            public IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; init; }
+                = new Dictionary<string, (VideoCapability, IPricingModel)>
                 {
                     ["test-default-model"] = (
-                        new ModelCapability(
+                        new VideoCapability(
                             Id: "test-default-model", Name: "Default", Status: "preview",
                             Resolutions: new[] { "720p" },
                             Durations: new[] { 8 },

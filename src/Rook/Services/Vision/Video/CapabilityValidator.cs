@@ -5,7 +5,7 @@ namespace Rook.Services.Vision.Video
 {
     /// <summary>
     /// Provider-neutral request-shape validation against a resolved
-    /// <see cref="ModelCapability"/>. Lifted from V1b's
+    /// <see cref="VideoCapability"/>. Lifted from V1b's
     /// <c>VideoCapabilities.Validate</c> minus the model-existence check
     /// (now owned by <see cref="IVideoProviderRegistry.TryResolve"/>) and
     /// minus provider-specific rules (now owned by per-provider
@@ -19,7 +19,7 @@ namespace Rook.Services.Vision.Video
     public static class CapabilityValidator
     {
         public static ValidationResult Validate(
-            ModelCapability cap, VideoGenerationRequest request)
+            VideoCapability cap, VideoGenerationRequest request)
         {
             if (request is null)
                 return ValidationResult.Fail("Request", "Request is null.");

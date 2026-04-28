@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -21,7 +22,7 @@ namespace Rook.Services.Vision.Video
         ValidationResult Validate(
             VideoGenerationRequest request,
             ProviderOptions options,
-            ModelCapability cap);
+            VideoCapability cap);
 
         JsonObject Serialize(ProviderOptions options);
 

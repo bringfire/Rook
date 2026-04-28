@@ -26,6 +26,6 @@ namespace Rook.Services.Vision.Video
 
         public IProviderOptionsCodec OptionsCodec { get; }
 
-        public IReadOnlyDictionary<string, (ModelCapability Capability, IPricingModel PricingModel)> Models { get; }
+        public IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel PricingModel)> Models { get; }
     }
 }
