@@ -157,11 +157,11 @@ namespace Rook.Services.Vision.Video
                 NumberOfVideos: req.NumberOfVideos);
         }
 
-        private static NormalizedMediaRef? ToNormalized(VideoMediaRef? r) =>
+        private static NormalizedMediaRef? ToNormalized(Rook.Services.Vision.Generation.MediaRef? r) =>
             r is null ? null : new NormalizedMediaRef(r.Kind, r.ArtifactId, r.Path, r.Role);
 
         private static IReadOnlyList<NormalizedMediaRef>? ToNormalizedList(
-            IReadOnlyList<VideoMediaRef>? refs)
+            IReadOnlyList<Rook.Services.Vision.Generation.MediaRef>? refs)
         {
             if (refs is null) return null;
             var list = new List<NormalizedMediaRef>(refs.Count);

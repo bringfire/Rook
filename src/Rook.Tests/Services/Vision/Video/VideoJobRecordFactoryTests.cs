@@ -320,7 +320,7 @@ namespace Rook.Tests.Services.Vision.Video
                 model: "veo-3.1-generate-preview",
                 mode: VideoMode.I2V,
                 prompt: null,
-                startFrame: VideoMediaRef.ForArtifact(artId, VideoMediaRoles.Image),
+                startFrame: MediaRef.ForArtifact(artId, VideoMediaRoles.Image),
                 personGeneration: PersonGenerationPolicy.AllowAdult);
 
             var rec = VideoJobRecordFactory.From(
@@ -328,7 +328,7 @@ namespace Rook.Tests.Services.Vision.Video
                 VideoJobState.Queued, T0);
 
             Assert.NotNull(rec.NormalizedRequest.StartFrame);
-            Assert.Equal(VideoMediaRefKind.Artifact, rec.NormalizedRequest.StartFrame!.Kind);
+            Assert.Equal(MediaRefKind.Artifact, rec.NormalizedRequest.StartFrame!.Kind);
             Assert.Equal(artId, rec.NormalizedRequest.StartFrame.ArtifactId);
             Assert.Equal("image", rec.NormalizedRequest.StartFrame.Role);
         }

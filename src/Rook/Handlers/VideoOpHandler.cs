@@ -495,7 +495,7 @@ namespace Rook.Handlers
 
             var prompt = GetStringArg(args, "prompt"); // optional
 
-            VideoMediaRef? startFrame = null, endFrame = null;
+            MediaRef? startFrame = null, endFrame = null;
             var (startEl, startErr) = GetOptionalObject(args, "start_frame");
             if (startErr is not null) return (null, startErr);
             if (startEl is JsonElement startE)
@@ -514,12 +514,12 @@ namespace Rook.Handlers
                 endFrame = mr;
             }
 
-            List<VideoMediaRef>? referenceFrames = null;
+            List<MediaRef>? referenceFrames = null;
             var (refsEl, refsErr) = GetOptionalArray(args, "reference_frames");
             if (refsErr is not null) return (null, refsErr);
             if (refsEl is JsonElement refsE)
             {
-                referenceFrames = new List<VideoMediaRef>(refsE.GetArrayLength());
+                referenceFrames = new List<MediaRef>(refsE.GetArrayLength());
                 int idx = 0;
                 foreach (var item in refsE.EnumerateArray())
                 {
@@ -584,7 +584,7 @@ namespace Rook.Handlers
         /// <c>"&lt;path&gt;.&lt;subfield&gt;"</c> so callers can
         /// disambiguate which media ref had the problem.
         /// </summary>
-        private static (VideoMediaRef? Ref, VideoJobError? Error) ParseMediaRef(
+        private static (MediaRef? Ref, VideoJobError? Error) ParseMediaRef(
             JsonElement el, string fieldPath)
         {
             if (el.ValueKind != JsonValueKind.Object)
@@ -639,7 +639,9 @@ namespace Rook.Handlers
 
             try
             {
-                return (VideoMediaRef.ForArtifact(artifactId, role), null);
+                return (MediaRef.ForArtifact(
+                    artifactId,
+                    role ?? VideoMediaRoles.Image), null);
             }
             catch (ArgumentException ex)
             {

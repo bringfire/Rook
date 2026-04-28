@@ -79,7 +79,7 @@ namespace Rook.Services.Vision.Video
                     apiKey!,
                     request,
                     veoOptions,
-                    VideoProviderOutcomeAdapters.ToVideoMedia(resolvedMedia),
+                    resolvedMedia,
                     ct)
                     .ConfigureAwait(false);
 

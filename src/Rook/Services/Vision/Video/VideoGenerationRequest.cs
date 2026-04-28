@@ -6,7 +6,7 @@ namespace Rook.Services.Vision.Video
     /// <summary>
     /// Domain request shape for video generation. D2.1-clean: NO base64
     /// fields exist anywhere in the domain. Inputs are referenced by
-    /// <see cref="VideoMediaRef"/> (artifact_id + role, or validated path).
+    /// <see cref="MediaRef"/> (artifact_id + role, or validated path).
     /// The adapter (PR-V2) is the rejection boundary for any
     /// legacy/base64-shaped wire payloads; the type system enforces the
     /// invariant from V1a on.
@@ -32,9 +32,9 @@ namespace Rook.Services.Vision.Video
         string Resolution,
         string AspectRatio,
         string? Prompt,
-        VideoMediaRef? StartFrame,
-        VideoMediaRef? EndFrame,
-        IReadOnlyList<VideoMediaRef>? ReferenceFrames,
+        MediaRef? StartFrame,
+        MediaRef? EndFrame,
+        IReadOnlyList<MediaRef>? ReferenceFrames,
         int? Seed,
         ProviderOptions Options,
         int NumberOfVideos)

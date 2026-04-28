@@ -469,8 +469,8 @@ namespace Rook.Services.Vision.Video
         {
             var kindStr = TryGetString(obj, "kind");
             if (kindStr is null
-                || !Enum.TryParse<VideoMediaRefKind>(kindStr, out var kind)
-                || !Enum.IsDefined(typeof(VideoMediaRefKind), kind))
+                || !Enum.TryParse<MediaRefKind>(kindStr, out var kind)
+                || !Enum.IsDefined(typeof(MediaRefKind), kind))
                 return (null, MissingField(lineNumber, fieldPathPrefix + ".kind"));
 
             var role = TryGetString(obj, "role");
@@ -478,7 +478,7 @@ namespace Rook.Services.Vision.Video
                 return (null, MissingField(lineNumber, fieldPathPrefix + ".role"));
 
             // Codex round 7 finding 3: the durable shape MUST match the
-            // V1a runtime VideoMediaRef invariants (ForArtifact requires
+            // Runtime MediaRef invariants (ForArtifact requires
             // non-empty Guid; ForPath requires non-empty path). A
             // persisted media ref that could never have been constructed
             // through the domain factory is corrupt.
@@ -496,12 +496,12 @@ namespace Rook.Services.Vision.Video
 
             switch (kind)
             {
-                case VideoMediaRefKind.Artifact:
+                case MediaRefKind.Artifact:
                     if (artifactId is null)
                         return (null, MissingField(
                             lineNumber, fieldPathPrefix + ".artifact_id"));
                     break;
-                case VideoMediaRefKind.Path:
+                case MediaRefKind.Path:
                     if (string.IsNullOrWhiteSpace(path))
                         return (null, MissingField(
                             lineNumber, fieldPathPrefix + ".path"));

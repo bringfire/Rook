@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using GenErrorCode = Rook.Services.Vision.Generation.GenerationErrorCode;
 using GenInlineArtifactBody = Rook.Services.Vision.Generation.InlineArtifactBody;
@@ -224,16 +225,16 @@ namespace Rook.Tests.Services.Vision.Video
             // Resolver throws NotSupportedException for Path-kind refs;
             // manager translates to InvalidRequest before any ledger write.
             _resolver.OnResolve = mediaRef =>
-                mediaRef.Kind == VideoMediaRefKind.Path
+                mediaRef.Kind == MediaRefKind.Path
                     ? throw new NotSupportedException("Path unsupported in V1b")
-                    : new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+                    : new ResolvedMedia(new byte[] { 1 }, "image/png");
 
             var mgr = Manager();
             var req = T2vRequest() with
             {
                 Mode = VideoMode.I2V,
                 Prompt = null,
-                StartFrame = VideoMediaRef.ForPath(@"C:\nope.png"),
+                StartFrame = MediaRef.ForPath(@"C:\nope.png", VideoMediaRoles.Image),
                 Options = new VeoOptions(PersonGenerationPolicy.AllowAdult),
                 Model = "veo-3.1-generate-preview",
             };
@@ -727,7 +728,7 @@ namespace Rook.Tests.Services.Vision.Video
             _resolver.OnResolve = _ =>
             {
                 resolverCalls++;
-                return new ResolvedVideoMedia(new byte[] { 1 }, "image/png", "fake");
+                return new ResolvedMedia(new byte[] { 1 }, "image/png");
             };
 
             var mgr = Manager();
@@ -1171,59 +1172,38 @@ namespace Rook.Tests.Services.Vision.Video
 
     // Tiny media resolver for tests: synchronous, configurable.
     internal sealed class FakeVideoMediaResolver
-        : IVideoMediaResolver, Rook.Services.Vision.Generation.IMediaResolver
+        : IMediaResolver
     {
-        public Func<VideoMediaRef, ResolvedVideoMedia>? OnResolve { get; set; }
+        public Func<MediaRef, ResolvedMedia>? OnResolve { get; set; }
 
-        public Task<ResolvedVideoMedia> ResolveAsync(
-            VideoMediaRef mediaRef, CancellationToken ct)
-        {
-            ct.ThrowIfCancellationRequested();
-            var resolved = OnResolve?.Invoke(mediaRef)
-                ?? new ResolvedVideoMedia(
-                    bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
-                    mimeType: "image/png",
-                    sourceDescription: "fake");
-            return Task.FromResult(resolved);
-        }
-
-        public Task<Rook.Services.Vision.Generation.MediaResolutionResult> ResolveAllAsync(
-            IReadOnlyList<Rook.Services.Vision.Generation.MediaRef> refs,
+        public Task<MediaResolutionResult> ResolveAllAsync(
+            IReadOnlyList<MediaRef> refs,
             CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            var resolved =
-                new Dictionary<Rook.Services.Vision.Generation.MediaRef, Rook.Services.Vision.Generation.ResolvedMedia>();
+            var resolved = new Dictionary<MediaRef, ResolvedMedia>();
             foreach (var mediaRef in refs)
             {
-                var videoRef = VideoProviderOutcomeAdapters.ToVideoMediaRef(mediaRef);
-                ResolvedVideoMedia videoResolved;
                 try
                 {
-                    videoResolved = OnResolve?.Invoke(videoRef)
-                        ?? new ResolvedVideoMedia(
-                            bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
-                            mimeType: "image/png",
-                            sourceDescription: "fake");
+                    resolved[mediaRef] = OnResolve?.Invoke(mediaRef)
+                        ?? new ResolvedMedia(
+                            Bytes: new byte[] { 0x89, 0x50, 0x4E, 0x47 },
+                            MimeType: "image/png");
                 }
                 catch (NotSupportedException ex)
                 {
                     return Task.FromResult(
-                        Rook.Services.Vision.Generation.MediaResolutionResult.Fail(
-                            new Rook.Services.Vision.Generation.GenerationError(
+                        MediaResolutionResult.Fail(
+                            new GenerationError(
                                 GenErrorCode.InvalidRequest,
                                 ex.Message,
                                 Retryable: false,
                                 Field: "MediaRef")));
                 }
-
-                resolved[mediaRef] = new Rook.Services.Vision.Generation.ResolvedMedia(
-                    videoResolved.Bytes,
-                    videoResolved.MimeType);
             }
 
-            return Task.FromResult(
-                Rook.Services.Vision.Generation.MediaResolutionResult.Ok(resolved));
+            return Task.FromResult(MediaResolutionResult.Ok(resolved));
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 
 namespace Rook.Tests.Services.Vision.Video
@@ -29,9 +30,9 @@ namespace Rook.Tests.Services.Vision.Video
             string aspect = "16:9",
             string? prompt = "a clip",
             int numberOfVideos = 1,
-            VideoMediaRef? startFrame = null,
-            VideoMediaRef? endFrame = null,
-            IReadOnlyList<VideoMediaRef>? referenceFrames = null,
+            MediaRef? startFrame = null,
+            MediaRef? endFrame = null,
+            IReadOnlyList<MediaRef>? referenceFrames = null,
             int? seed = null,
             PersonGenerationPolicy personGeneration = PersonGenerationPolicy.AllowAll) =>
             new(

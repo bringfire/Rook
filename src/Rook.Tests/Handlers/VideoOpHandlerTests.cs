@@ -227,7 +227,7 @@ namespace Rook.Tests.Handlers
         {
             // v3 contract shape: {kind:"artifact_id", artifact_id:"<uuid>",
             // role:"<role>"}. Pin the artifact id round-trips through
-            // ParseMediaRef into a real VideoMediaRef.ForArtifact(...)
+            // ParseMediaRef into a real MediaRef.ForArtifact(...)
             // call by checking the manager observed it.
             VideoGenerationRequest? captured = null;
             var stub = new StubManager
@@ -264,7 +264,7 @@ namespace Rook.Tests.Handlers
             AssertOk(resp, expectedHttp: 200);
             Assert.NotNull(captured);
             Assert.NotNull(captured!.StartFrame);
-            Assert.Equal(VideoMediaRefKind.Artifact, captured.StartFrame!.Kind);
+            Assert.Equal(MediaRefKind.Artifact, captured.StartFrame!.Kind);
             Assert.Equal(SampleArtifactId, captured.StartFrame.ArtifactId);
             Assert.Equal("image", captured.StartFrame.Role);
         }

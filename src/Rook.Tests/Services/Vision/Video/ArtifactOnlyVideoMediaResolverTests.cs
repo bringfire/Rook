@@ -42,14 +42,14 @@ namespace Rook.Tests.Services.Vision.Video
                 kind: "captured_viewport",
                 blobs: new[] { new BlobInput("image", pngBytes, "png") });
 
-            var media = VideoMediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
+            var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var resolved = await _resolver.ResolveAsync(media, CancellationToken.None);
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
+            var resolved = result.Resolved![media];
 
             Assert.Equal(pngBytes, resolved.Bytes);
             Assert.Equal("image/png", resolved.MimeType);
-            Assert.Contains(artifact.Id.ToString("D"), resolved.SourceDescription);
-            Assert.Contains("image", resolved.SourceDescription);
         }
 
         [Fact]
@@ -60,9 +60,11 @@ namespace Rook.Tests.Services.Vision.Video
                 kind: "generated_image",
                 blobs: new[] { new BlobInput("image", jpgBytes, "jpg") });
 
-            var media = VideoMediaRef.ForArtifact(artifact.Id);
+            var media = MediaRef.ForArtifact(artifact.Id, VideoMediaRoles.Image);
 
-            var resolved = await _resolver.ResolveAsync(media, CancellationToken.None);
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
+            var resolved = result.Resolved![media];
 
             Assert.Equal("image/jpeg", resolved.MimeType);
         }
@@ -70,44 +72,51 @@ namespace Rook.Tests.Services.Vision.Video
         // ─── Path kind explicitly unsupported ─────────────────────────
 
         [Fact]
-        public async Task Path_kind_throws_NotSupportedException()
+        public async Task Path_kind_returns_typed_failure()
         {
-            var media = VideoMediaRef.ForPath(@"C:\fixtures\frame.png");
+            var media = MediaRef.ForPath(
+                @"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            await Assert.ThrowsAsync<NotSupportedException>(
-                async () => await _resolver.ResolveAsync(media, CancellationToken.None));
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         [Fact]
         public async Task Path_exception_message_explains_v1b_policy()
         {
-            var media = VideoMediaRef.ForPath(@"C:\fixtures\frame.png");
+            var media = MediaRef.ForPath(
+                @"C:\fixtures\frame.png", VideoMediaRoles.Image);
 
-            var ex = await Assert.ThrowsAsync<NotSupportedException>(
-                async () => await _resolver.ResolveAsync(media, CancellationToken.None));
+            var result = await _resolver.ResolveAllAsync(
+                new[] { media }, CancellationToken.None);
 
-            Assert.Contains("V1b", ex.Message);
-            Assert.Contains("V2", ex.Message);
+            Assert.Contains("V1b", result.Error!.Message);
+            Assert.Contains("V2", result.Error.Message);
         }
 
         // ─── Error paths ──────────────────────────────────────────────
 
         [Fact]
-        public async Task Null_mediaRef_throws_ArgumentNullException()
+        public async Task Null_refs_returns_typed_failure()
         {
-            await Assert.ThrowsAsync<ArgumentNullException>(
-                async () => await _resolver.ResolveAsync(null!, CancellationToken.None));
+            var result = await _resolver.ResolveAllAsync(null!, CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
         }
 
         [Fact]
         public async Task Cancelled_token_throws_OperationCanceledException()
         {
-            var media = VideoMediaRef.ForArtifact(Guid.NewGuid());
+            var media = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.Image);
             using var cts = new CancellationTokenSource();
             cts.Cancel();
 
             await Assert.ThrowsAsync<OperationCanceledException>(
-                async () => await _resolver.ResolveAsync(media, cts.Token));
+                async () => await _resolver.ResolveAllAsync(new[] { media }, cts.Token));
         }
 
         [Fact]

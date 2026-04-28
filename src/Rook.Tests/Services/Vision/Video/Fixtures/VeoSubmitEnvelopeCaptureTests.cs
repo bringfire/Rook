@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -76,7 +77,7 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
                 duration: 8,
                 resolution: "720p",
                 prompt: "the scene comes alive",
-                startFrame: VideoMediaRef.ForArtifact(startId, "image"),
+                startFrame: MediaRef.ForArtifact(startId, "image"),
                 personGeneration: PersonGenerationPolicy.AllowAdult);
 
             var resolved = ResolvedFor(req.StartFrame!);
@@ -96,8 +97,8 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
                 duration: 8,
                 resolution: "720p",
                 prompt: "transition between the two frames",
-                startFrame: VideoMediaRef.ForArtifact(startId, "image"),
-                endFrame: VideoMediaRef.ForArtifact(endId, "image"),
+                startFrame: MediaRef.ForArtifact(startId, "image"),
+                endFrame: MediaRef.ForArtifact(endId, "image"),
                 personGeneration: PersonGenerationPolicy.AllowAdult);
 
             var resolved = ResolvedFor(req.StartFrame!, req.EndFrame!);
@@ -114,8 +115,8 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
             var refIdB = Guid.Parse("55555555-5555-5555-5555-555555555555");
             var refs = new[]
             {
-                VideoMediaRef.ForArtifact(refIdA, "image"),
-                VideoMediaRef.ForArtifact(refIdB, "image"),
+                MediaRef.ForArtifact(refIdA, "image"),
+                MediaRef.ForArtifact(refIdB, "image"),
             };
             var req = TestVideoFixtures.DefaultT2vRequest(
                 model: "veo-3.1-generate-preview",
@@ -137,7 +138,7 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
 
         private static string CaptureSubmitBody(
             VideoGenerationRequest request,
-            IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia>? resolved = null)
+            IReadOnlyDictionary<MediaRef, ResolvedMedia>? resolved = null)
         {
             string? captured = null;
 
@@ -159,7 +160,7 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
 
             var client = new VeoClient(new HttpClient(handler));
             var options = (VeoOptions)request.Options;
-            var media = resolved ?? new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
+            var media = resolved ?? new Dictionary<MediaRef, ResolvedMedia>();
 
             var task = client.StartGenerationAsync(
                 "fake-api-key", request, options, media, CancellationToken.None);
@@ -169,16 +170,15 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
             return captured!;
         }
 
-        private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia>
-            ResolvedFor(params VideoMediaRef[] refs)
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia>
+            ResolvedFor(params MediaRef[] refs)
         {
-            var dict = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
+            var dict = new Dictionary<MediaRef, ResolvedMedia>();
             foreach (var r in refs)
             {
-                dict[r] = new ResolvedVideoMedia(
-                    bytes: FixedImageBytes,
-                    mimeType: FixedMimeType,
-                    sourceDescription: "fixture:capture");
+                dict[r] = new ResolvedMedia(
+                    Bytes: FixedImageBytes,
+                    MimeType: FixedMimeType);
             }
             return dict;
         }

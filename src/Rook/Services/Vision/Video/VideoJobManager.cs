@@ -1005,12 +1005,11 @@ namespace Rook.Services.Vision.Video
             return _mediaResolver.ResolveAllAsync(mediaRefs, ct);
         }
 
-        private static void AddMediaRef(VideoMediaRef? mediaRef, List<MediaRef> refs)
+        private static void AddMediaRef(MediaRef? mediaRef, List<MediaRef> refs)
         {
             if (mediaRef is null) return;
-            var generationRef = VideoProviderOutcomeAdapters.ToGenerationMediaRef(mediaRef);
-            if (!refs.Contains(generationRef))
-                refs.Add(generationRef);
+            if (!refs.Contains(mediaRef))
+                refs.Add(mediaRef);
         }
 
         private VideoJobRecord? FindLatestRecord(Guid jobId)
