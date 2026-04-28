@@ -6,7 +6,10 @@ namespace Rook.Services.Vision.Generation
     /// Discriminated outcome of
     /// <see cref="IGenerationProvider{TRequest, TCapability}.GetStatusAsync"/>.
     /// </summary>
-    public abstract record ProviderStatusOutcome;
+    public abstract record ProviderStatusOutcome
+    {
+        private protected ProviderStatusOutcome() { }
+    }
 
     /// <summary>Provider is still working. Manager continues
     /// polling.</summary>

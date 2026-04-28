@@ -9,7 +9,10 @@ namespace Rook.Services.Vision.Generation
     /// already terminated before the cancel landed, or cancel itself
     /// failed (transport, auth, etc.).
     /// </summary>
-    public abstract record ProviderCancelOutcome;
+    public abstract record ProviderCancelOutcome
+    {
+        private protected ProviderCancelOutcome() { }
+    }
 
     /// <summary>Provider acknowledged cancellation. The job is now in
     /// <see cref="GenerationLifecycleState.Canceled"/>.</summary>

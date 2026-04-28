@@ -14,15 +14,49 @@ namespace Rook.Services.Vision.Generation
     /// the API response. Both delivery models must be supported from
     /// day one without forcing one shape into the other.</para>
     /// </summary>
-    public abstract record ArtifactBody;
+    public abstract record ArtifactBody
+    {
+        private protected ArtifactBody() { }
+    }
 
     /// <summary>URL-referenced artifact. The manager fetches at
     /// materialization time. <see cref="SignedUrlTtl"/> is non-null when
     /// the provider exposes a TTL (fal signed URLs); the manager uses
-    /// it to decide whether to re-fetch on cold-load.</summary>
-    public sealed record RemoteArtifactBody(Uri Url, TimeSpan? SignedUrlTtl = null) : ArtifactBody
+    /// it to decide whether to re-fetch on cold-load.
+    ///
+    /// <para>Invariants enforced at construction:
+    /// <list type="bullet">
+    ///   <item><see cref="Url"/> must be absolute and use <c>http</c>
+    ///         or <c>https</c> scheme.</item>
+    ///   <item><see cref="SignedUrlTtl"/>, when non-null, must be
+    ///         strictly positive. A zero or negative TTL means
+    ///         "already expired" which is meaningless at submit
+    ///         time.</item>
+    /// </list></para></summary>
+    public sealed record RemoteArtifactBody : ArtifactBody
     {
-        public Uri Url { get; init; } = Url ?? throw new ArgumentNullException(nameof(Url));
+        public RemoteArtifactBody(Uri Url, TimeSpan? SignedUrlTtl = null)
+        {
+            if (Url is null) throw new ArgumentNullException(nameof(Url));
+            if (!Url.IsAbsoluteUri)
+                throw new ArgumentException(
+                    $"RemoteArtifactBody.Url must be absolute; got '{Url}'.",
+                    nameof(Url));
+            if (Url.Scheme != Uri.UriSchemeHttp && Url.Scheme != Uri.UriSchemeHttps)
+                throw new ArgumentException(
+                    $"RemoteArtifactBody.Url must use http or https scheme; got '{Url.Scheme}'.",
+                    nameof(Url));
+            if (SignedUrlTtl is { } ttl && ttl <= TimeSpan.Zero)
+                throw new ArgumentException(
+                    $"SignedUrlTtl must be strictly positive when set; got {ttl}.",
+                    nameof(SignedUrlTtl));
+
+            this.Url = Url;
+            this.SignedUrlTtl = SignedUrlTtl;
+        }
+
+        public Uri Url { get; init; }
+        public TimeSpan? SignedUrlTtl { get; init; }
     }
 
     /// <summary>Inline-bytes artifact. The provider already materialized

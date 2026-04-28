@@ -47,6 +47,10 @@ namespace Rook.Services.Vision.Generation
                 throw new ArgumentException(
                     "ProviderJobId must be non-empty.", nameof(providerJobId));
 
+            ValidateOptionalHttpUrl(statusUrl, nameof(statusUrl));
+            ValidateOptionalHttpUrl(responseUrl, nameof(responseUrl));
+            ValidateOptionalHttpUrl(cancelUrl, nameof(cancelUrl));
+
             ProviderJobId = providerJobId;
             StatusUrl = statusUrl;
             ResponseUrl = responseUrl;
@@ -54,6 +58,22 @@ namespace Rook.Services.Vision.Generation
             CancelHttpMethod = cancelHttpMethod;
             ProviderResultToken = providerResultToken;
             ProviderMetadata = providerMetadata;
+        }
+
+        // All handle URLs that the manager will fetch from must be
+        // absolute http/https. Reject relative URIs and unsupported
+        // schemes (file://, ftp://, data:) at the seam — managers
+        // should never have to defend against them downstream.
+        private static void ValidateOptionalHttpUrl(Uri? url, string argName)
+        {
+            if (url is null) return;
+            if (!url.IsAbsoluteUri)
+                throw new ArgumentException(
+                    $"{argName} must be absolute; got '{url}'.", argName);
+            if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+                throw new ArgumentException(
+                    $"{argName} must use http or https scheme; got '{url.Scheme}'.",
+                    argName);
         }
 
         public string ProviderJobId { get; init; }

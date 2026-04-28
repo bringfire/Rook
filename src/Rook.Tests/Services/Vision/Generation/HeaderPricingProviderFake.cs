@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
@@ -43,8 +44,23 @@ namespace Rook.Tests.Services.Vision.Generation
                 IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
                 JsonNode? responseBody)
             {
-                if (!responseHeaders.TryGetValue("x-fal-billable-units", out var values)
-                    || values.Count == 0
+                // HTTP headers are case-insensitive (RFC 7230 §3.2).
+                // Provider pricing implementations must not rely on the
+                // caller's dictionary comparer; do a case-insensitive
+                // lookup explicitly so the contract works whether the
+                // headers come from HttpClient (case-insensitive) or
+                // from a test fixture using a default Dictionary.
+                IReadOnlyList<string>? values = null;
+                foreach (var kvp in responseHeaders)
+                {
+                    if (string.Equals(kvp.Key, "x-fal-billable-units",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        values = kvp.Value;
+                        break;
+                    }
+                }
+                if (values is null || values.Count == 0
                     || !decimal.TryParse(values[0], out var units))
                 {
                     return null;
@@ -76,6 +92,25 @@ namespace Rook.Tests.Services.Vision.Generation
             Assert.Equal("megapixel", actual!.Unit);
             Assert.Equal(2.0m, actual.Quantity);
             Assert.Equal(0.006m, actual.TotalUsd);
+        }
+
+        [Theory]
+        [InlineData("x-fal-billable-units")]
+        [InlineData("X-FAL-Billable-Units")]
+        [InlineData("X-Fal-Billable-Units")]
+        [InlineData("X-FAL-BILLABLE-UNITS")]
+        public void Header_lookup_is_case_insensitive(string headerName)
+        {
+            IPricingModel<TestGenerationRequest, TestCapability> pricing = new FalFluxSchnellPricing();
+            var headers = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [headerName] = new[] { "1.5" },
+            };
+
+            var actual = pricing.ExtractActualSpend(headers, responseBody: null);
+
+            Assert.NotNull(actual);
+            Assert.Equal(1.5m, actual!.Quantity);
         }
 
         [Fact]

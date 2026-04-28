@@ -8,7 +8,10 @@ namespace Rook.Services.Vision.Generation
     /// Success and failure are type-distinct branches; there is no
     /// nullable error field on the success envelope.
     /// </summary>
-    public abstract record ProviderResultOutcome;
+    public abstract record ProviderResultOutcome
+    {
+        private protected ProviderResultOutcome() { }
+    }
 
     /// <summary>Provider returned a usable result envelope.</summary>
     public sealed record SuccessResultOutcome(ProviderResultEnvelope Envelope) : ProviderResultOutcome

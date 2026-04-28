@@ -25,20 +25,46 @@ namespace Rook.Services.Vision.Generation
     /// metadata. The bag is preserved through ledger / artifact-store
     /// metadata for audit + replay.</para>
     /// </summary>
-    public sealed record ResultArtifact(
-        string Role,                                                    // "image" | "video" | "thumbnail" | "depth" | etc.
-        ArtifactBody Body,
-        string? DeclaredMimeType,
-        IReadOnlyDictionary<string, JsonNode> ProviderMetadata)
+    public sealed record ResultArtifact
     {
-        public string Role { get; init; } =
-            string.IsNullOrWhiteSpace(Role)
-                ? throw new ArgumentException("Role must be non-empty.", nameof(Role))
-                : Role;
+        public ResultArtifact(
+            string Role,
+            ArtifactBody Body,
+            string? DeclaredMimeType,
+            IReadOnlyDictionary<string, JsonNode> ProviderMetadata)
+        {
+            if (string.IsNullOrWhiteSpace(Role))
+                throw new ArgumentException("Role must be non-empty.", nameof(Role));
+            if (Body is null) throw new ArgumentNullException(nameof(Body));
+            if (ProviderMetadata is null)
+                throw new ArgumentNullException(nameof(ProviderMetadata));
 
-        public ArtifactBody Body { get; init; } = Body ?? throw new ArgumentNullException(nameof(Body));
+            // InlineArtifactBody requires a declared MIME — the bytes
+            // are already materialized; if the provider didn't tell us
+            // what they are, the manager has no way to recover (no
+            // Content-Type header to sniff, no fetch step). This is a
+            // type-level invariant rather than a manager-side check
+            // so providers cannot ship mismatched envelopes.
+            if (Body is InlineArtifactBody && string.IsNullOrWhiteSpace(DeclaredMimeType))
+            {
+                throw new ArgumentException(
+                    "InlineArtifactBody requires a non-empty DeclaredMimeType. " +
+                    "Inline-bytes without MIME is an unrecoverable provider " +
+                    "contract violation — there is no fetch step at which the " +
+                    "manager could sniff it. URL-bodied artifacts may pass null " +
+                    "MIME and let the manager resolve at fetch time.",
+                    nameof(DeclaredMimeType));
+            }
 
-        public IReadOnlyDictionary<string, JsonNode> ProviderMetadata { get; init; } =
-            ProviderMetadata ?? throw new ArgumentNullException(nameof(ProviderMetadata));
+            this.Role = Role;
+            this.Body = Body;
+            this.DeclaredMimeType = DeclaredMimeType;
+            this.ProviderMetadata = ProviderMetadata;
+        }
+
+        public string Role { get; init; }
+        public ArtifactBody Body { get; init; }
+        public string? DeclaredMimeType { get; init; }
+        public IReadOnlyDictionary<string, JsonNode> ProviderMetadata { get; init; }
     }
 }

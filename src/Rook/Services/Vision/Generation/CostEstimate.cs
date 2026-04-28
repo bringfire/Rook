@@ -1,3 +1,5 @@
+using System;
+
 namespace Rook.Services.Vision.Generation
 {
     /// <summary>
@@ -23,9 +25,36 @@ namespace Rook.Services.Vision.Generation
     /// explanations can read which rate was in effect at submit time
     /// even if the rate table changes later.</para>
     /// </summary>
-    public sealed record CostEstimate(
-        decimal Min,
-        decimal Max,
-        bool IsExact,
-        string Provenance);
+    public sealed record CostEstimate
+    {
+        public CostEstimate(decimal Min, decimal Max, bool IsExact, string Provenance)
+        {
+            if (Min < 0m)
+                throw new ArgumentOutOfRangeException(
+                    nameof(Min), Min, "CostEstimate.Min must be non-negative.");
+            if (Max < Min)
+                throw new ArgumentOutOfRangeException(
+                    nameof(Max), Max,
+                    $"CostEstimate.Max ({Max}) must be greater than or equal to Min ({Min}).");
+            if (IsExact && Min != Max)
+                throw new ArgumentException(
+                    $"CostEstimate.IsExact=true requires Min == Max; got Min={Min}, Max={Max}.",
+                    nameof(IsExact));
+            if (string.IsNullOrWhiteSpace(Provenance))
+                throw new ArgumentException(
+                    "Provenance must be non-empty — every cost estimate must " +
+                    "name the rate table version it was computed from.",
+                    nameof(Provenance));
+
+            this.Min = Min;
+            this.Max = Max;
+            this.IsExact = IsExact;
+            this.Provenance = Provenance;
+        }
+
+        public decimal Min { get; init; }
+        public decimal Max { get; init; }
+        public bool IsExact { get; init; }
+        public string Provenance { get; init; }
+    }
 }

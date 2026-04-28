@@ -9,7 +9,13 @@ namespace Rook.Services.Vision.Generation
     /// share a single submit-then-poll-then-fetch contract; the union
     /// makes the discrimination explicit at the type level.
     /// </summary>
-    public abstract record ProviderSubmitOutcome;
+    public abstract record ProviderSubmitOutcome
+    {
+        // Closes external derivation: only same-assembly + derived
+        // records can construct the base. Suppresses the auto-generated
+        // public ctor.
+        private protected ProviderSubmitOutcome() { }
+    }
 
     /// <summary>Sync providers (Gemini direct, fal sync) return the
     /// full result inline at submit. The inner
