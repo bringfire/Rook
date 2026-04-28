@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -133,6 +135,166 @@ namespace Rook.Tests.Services.Vision.Video
 
             var got = Assert.Single(read.Records);
             Assert.Equal(artifactId, got.ResultArtifactId);
+        }
+
+        [Fact]
+        public void Roundtrip_preserves_generation_error_with_legacy_provider_message_shape()
+        {
+            var providerDetail = new Dictionary<string, JsonNode>
+            {
+                ["provider_message"] = JsonValue.Create("raw provider payload")!,
+            };
+            var record = VideoJobRecordFactory.WithState(
+                MakeRecord(state: VideoJobState.Polling),
+                VideoJobState.Error,
+                T0.AddSeconds(1),
+                error: new GenerationError(
+                    GenerationErrorCode.ExecutionFailed,
+                    "failed",
+                    Retryable: true,
+                    Field: "prompt",
+                    ProviderDetail: providerDetail));
+
+            _ledger.Append(record);
+            var raw = File.ReadAllText(_filePath, Encoding.UTF8);
+            var read = _ledger.ReadAll();
+
+            Assert.Contains("\"provider_message\":\"raw provider payload\"", raw);
+            Assert.DoesNotContain("provider_detail", raw);
+            var got = Assert.Single(read.Records);
+            Assert.NotNull(got.Error);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, got.Error!.Code);
+            Assert.Equal("failed", got.Error.Message);
+            Assert.Equal("prompt", got.Error.Field);
+            Assert.NotNull(got.Error.ProviderDetail);
+            Assert.Equal(
+                "raw provider payload",
+                got.Error.ProviderDetail!["provider_message"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Roundtrip_preserves_generation_error_provider_code_and_structured_detail()
+        {
+            var providerDetail = new Dictionary<string, JsonNode>
+            {
+                ["provider_message"] = JsonValue.Create("raw provider payload")!,
+                ["detail"] = JsonNode.Parse(
+                    "{\"loc\":[\"body\",\"prompt\"],\"msg\":\"blocked\",\"type\":\"policy\"}")!,
+            };
+            var record = VideoJobRecordFactory.WithState(
+                MakeRecord(state: VideoJobState.Polling),
+                VideoJobState.Error,
+                T0.AddSeconds(1),
+                error: new GenerationError(
+                    GenerationErrorCode.ContentPolicy,
+                    "blocked",
+                    Retryable: false,
+                    Field: "prompt",
+                    ProviderErrorCode: "safety_filter",
+                    ProviderDetail: providerDetail));
+
+            _ledger.Append(record);
+            var raw = File.ReadAllText(_filePath, Encoding.UTF8);
+            var read = _ledger.ReadAll();
+
+            Assert.Contains("\"provider_message\":\"raw provider payload\"", raw);
+            Assert.Contains("\"provider_error_code\":\"safety_filter\"", raw);
+            Assert.Contains("\"provider_detail\"", raw);
+            var got = Assert.Single(read.Records);
+            Assert.NotNull(got.Error);
+            Assert.Equal(GenerationErrorCode.ContentPolicy, got.Error!.Code);
+            Assert.Equal("safety_filter", got.Error.ProviderErrorCode);
+            Assert.NotNull(got.Error.ProviderDetail);
+            Assert.Equal(
+                "blocked",
+                got.Error.ProviderDetail!["detail"]!["msg"]!.GetValue<string>());
+            Assert.Equal(
+                "raw provider payload",
+                got.Error.ProviderDetail["provider_message"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public void Malformed_provider_handle_url_does_not_throw_on_reconstruction()
+        {
+            var jobId = Guid.NewGuid();
+            var withBadProviderHandle = ValidLine.TrimEnd()
+                .Replace("00000000-0000-0000-0000-000000000001", jobId.ToString())
+                .Replace(
+                    "\"provider\":\"veo\"",
+                    "\"provider\":\"veo\",\"provider_job_id\":\"queue-bad-url\"")
+                .Replace(
+                    "\"updated_at\":\"2026-04-25T12:00:00Z\"",
+                    "\"updated_at\":\"2026-04-25T12:00:00Z\",\"provider_handle\":{\"status_url\":\"not a url\"}");
+            WriteCustomLine(withBadProviderHandle);
+
+            var got = Assert.Single(_ledger.ReadAll().Records);
+            var ex = Record.Exception(() => _ = got.ProviderHandle);
+
+            Assert.Null(ex);
+            Assert.Null(got.ProviderHandle);
+            Assert.Equal("queue-bad-url", got.ProviderJobId);
+        }
+
+        [Fact]
+        public void Malformed_provider_handle_cancel_method_does_not_throw_on_reconstruction()
+        {
+            var jobId = Guid.NewGuid();
+            var withBadProviderHandle = ValidLine.TrimEnd()
+                .Replace("00000000-0000-0000-0000-000000000001", jobId.ToString())
+                .Replace(
+                    "\"provider\":\"veo\"",
+                    "\"provider\":\"veo\",\"provider_job_id\":\"queue-bad-method\"")
+                .Replace(
+                    "\"updated_at\":\"2026-04-25T12:00:00Z\"",
+                    "\"updated_at\":\"2026-04-25T12:00:00Z\",\"provider_handle\":{\"cancel_http_method\":\"PATCH\"}");
+            WriteCustomLine(withBadProviderHandle);
+
+            var got = Assert.Single(_ledger.ReadAll().Records);
+            var ex = Record.Exception(() => _ = got.ProviderHandle);
+
+            Assert.Null(ex);
+            Assert.Null(got.ProviderHandle);
+            Assert.Equal("queue-bad-method", got.ProviderJobId);
+        }
+
+        [Fact]
+        public void Provider_handle_extension_roundtrips_when_populated()
+        {
+            var metadata = new Dictionary<string, JsonNode>
+            {
+                ["queue_position"] = JsonValue.Create(7)!,
+            };
+            var handle = new ProviderJobHandle(
+                providerJobId: "queue-456",
+                statusUrl: new Uri("https://provider.test/status/queue-456"),
+                responseUrl: new Uri("https://provider.test/result/queue-456"),
+                cancelUrl: new Uri("https://provider.test/cancel/queue-456"),
+                cancelHttpMethod: "DELETE",
+                providerMetadata: metadata);
+            var record = VideoJobRecordFactory.WithState(
+                MakeRecord(state: VideoJobState.Submitting),
+                VideoJobState.Polling,
+                T0.AddSeconds(1),
+                providerHandle: handle);
+
+            _ledger.Append(record);
+            var read = _ledger.ReadAll();
+
+            var got = Assert.Single(read.Records);
+            Assert.Equal("queue-456", got.ProviderJobId);
+            Assert.NotNull(got.Extensions);
+            var persistedHandle = Assert.IsType<JsonObject>(got.Extensions!["provider_handle"]);
+            Assert.Equal(
+                "https://provider.test/status/queue-456",
+                persistedHandle["status_url"]!.GetValue<string>());
+            Assert.Equal(
+                "https://provider.test/result/queue-456",
+                persistedHandle["response_url"]!.GetValue<string>());
+            Assert.Equal(
+                "https://provider.test/cancel/queue-456",
+                persistedHandle["cancel_url"]!.GetValue<string>());
+            Assert.Equal("DELETE", persistedHandle["cancel_http_method"]!.GetValue<string>());
+            Assert.Equal(7, persistedHandle["provider_metadata"]!["queue_position"]!.GetValue<int>());
         }
 
         // ─── Compaction (latest per job_id) ──────────────────────────

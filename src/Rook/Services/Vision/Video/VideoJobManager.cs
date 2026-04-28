@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
+using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
 {
@@ -23,9 +24,9 @@ namespace Rook.Services.Vision.Video
     /// loop never re-resolve.
     ///
     /// Translation responsibilities (from the V1b contract repair):
-    ///   - <see cref="ProviderSubmitResult"/> → ledger record + JobSubmitResult
-    ///   - <see cref="ProviderStatusResult"/> → ledger record + JobStatusResult
-    ///   - <see cref="ProviderFetchResult"/> bytes → ArtifactStore write → artifact id
+    ///   - <see cref="ProviderSubmitOutcome"/> → ledger record + JobSubmitResult
+    ///   - <see cref="ProviderStatusOutcome"/> → ledger record + JobStatusResult
+    ///   - <see cref="ProviderResultOutcome"/> bytes → ArtifactStore write → artifact id
     ///   - reads of latest ledger record → JobStatusResult / JobFetchResult
     ///
     /// Restart semantics (v3.1 D4): no auto-resume in V1b. On startup,
@@ -261,12 +262,16 @@ namespace Rook.Services.Vision.Video
                 if (inFlightRecord is not null && IsTerminal(inFlightRecord.State))
                     return JobCancelResult.Ok(inFlightRecord.State);
 
-                var inFlightProviderJobId = inFlightRecord?.ProviderJobId;
+                var inFlightProviderHandle = inFlightRecord?.ProviderHandle;
+                var inFlightProviderJobId = inFlightProviderHandle?.ProviderJobId
+                    ?? inFlightRecord?.ProviderJobId;
 
                 if (!string.IsNullOrEmpty(inFlightProviderJobId))
                 {
                     var remote = await TryRemoteCancelAsync(
-                        running.Model.Provider, inFlightProviderJobId!, ct)
+                        running.Model.Provider,
+                        inFlightProviderHandle ?? new ProviderJobHandle(inFlightProviderJobId!),
+                        ct)
                         .ConfigureAwait(false);
                     if (remote.Error is not null)
                         return remote;  // Fail; local task untouched
@@ -315,7 +320,8 @@ namespace Rook.Services.Vision.Video
             // v3.1 D4 + v5 amendments. Non-terminal records with
             // provider_job_id but no in-flight task are the same shape
             // (orphaned by a manager that didn't get to Reconcile).
-            var providerJobId = record.ProviderJobId;
+            var providerHandle = record.ProviderHandle;
+            var providerJobId = providerHandle?.ProviderJobId ?? record.ProviderJobId;
             var hasRemote = !string.IsNullOrEmpty(providerJobId);
             var canRemoteCancel = hasRemote
                 && (record.State == VideoJobState.Interrupted
@@ -335,7 +341,9 @@ namespace Rook.Services.Vision.Video
                         Field: nameof(record.Provider)));
 
                 var remote = await TryRemoteCancelAsync(
-                    provider, providerJobId!, ct).ConfigureAwait(false);
+                    provider,
+                    providerHandle ?? new ProviderJobHandle(providerJobId!),
+                    ct).ConfigureAwait(false);
                 if (remote.Error is not null)
                     return remote;  // Fail; ledger state unchanged
 
@@ -365,13 +373,14 @@ namespace Rook.Services.Vision.Video
         }
 
         private static async Task<JobCancelResult> TryRemoteCancelAsync(
-            IVideoProvider provider, string providerJobId, CancellationToken ct)
+            IVideoProvider provider, ProviderJobHandle handle, CancellationToken ct)
         {
             try
             {
-                var result = await provider.CancelAsync(providerJobId, ct)
+                var outcome = await provider.CancelAsync(handle, ct)
                     .ConfigureAwait(false);
 
+                var result = VideoProviderOutcomeAdapters.ToProviderCancelResult(outcome);
                 if (result.Error is not null)
                     return JobCancelResult.Fail(result.Error);
 
@@ -418,10 +427,12 @@ namespace Rook.Services.Vision.Video
             if (record.State != VideoJobState.Complete || record.ResultArtifactId is null)
                 return Task.FromResult(JobFetchResult.Failed(
                     record.State,
-                    record.Error ?? new VideoJobError(
-                        Code: VideoErrorCode.ExecutionFailed,
-                        Message: $"Job not complete (state={record.State}).",
-                        Retryable: false)));
+                    ToVideoJobError(
+                        record.Error,
+                        new VideoJobError(
+                            Code: VideoErrorCode.ExecutionFailed,
+                            Message: $"Job not complete (state={record.State}).",
+                            Retryable: false))));
 
             var artifact = _artifactStore.Get(record.ResultArtifactId.Value);
             if (artifact is null)
@@ -585,7 +596,9 @@ namespace Rook.Services.Vision.Video
                 UpdatedAt: record.UpdatedAt,
                 Summary: summary,
                 ResultArtifactId: record.ResultArtifactId,
-                Error: record.Error);
+                Error: record.Error is null
+                    ? null
+                    : VideoProviderOutcomeAdapters.ToVideoJobError(record.Error));
         }
 
         private static IReadOnlyList<LedgerWarning> ProjectWarnings(
@@ -683,57 +696,130 @@ namespace Rook.Services.Vision.Video
                     current = AppendTransition(current, VideoJobState.Submitting);
                     running.LatestRecord = current;
 
-                    var submit = await provider.SubmitAsync(
-                        request, resolvedMedia, ct).ConfigureAwait(false);
+                    var submitOutcome = await provider.SubmitAsync(
+                        request,
+                        VideoProviderOutcomeAdapters.ToGenerationMedia(resolvedMedia),
+                        ct).ConfigureAwait(false);
 
-                    if (submit.Error is not null)
+                    ProviderJobHandle handle;
+                    switch (submitOutcome)
                     {
-                        current = AppendTransition(current, VideoJobState.Error, error: submit.Error);
-                        running.LatestRecord = current;
-                        return;
+                        case QueuedSubmitOutcome queued:
+                            handle = queued.Handle;
+                            break;
+
+                        case FailedSubmitOutcome failed:
+                            current = AppendTransition(
+                            current,
+                            VideoJobState.Error,
+                            error: failed.Error);
+                            running.LatestRecord = current;
+                            return;
+
+                        case SyncSubmitOutcome sync:
+                            await CompleteSyncSubmitAsync(
+                                current, running, request, sync.Result, ct)
+                                .ConfigureAwait(false);
+                            return;
+
+                        default:
+                            current = AppendTransition(
+                                current,
+                                VideoJobState.Error,
+                                error: new VideoJobError(
+                                    VideoErrorCode.ExecutionFailed,
+                                    $"Unknown provider submit outcome: {submitOutcome.GetType().Name}.",
+                                    Retryable: false));
+                            running.LatestRecord = current;
+                            return;
                     }
 
                     current = AppendTransition(
                         current, VideoJobState.Polling,
-                        providerJobId: submit.ProviderJobId);
+                        providerHandle: handle);
                     running.LatestRecord = current;
 
                     // Polling loop
-                    string? providerResultToken = null;
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var status = await provider.GetStatusAsync(
-                            submit.ProviderJobId!, ct).ConfigureAwait(false);
+                        var statusOutcome = await provider.GetStatusAsync(
+                            handle, ct).ConfigureAwait(false);
 
-                        if (status.Error is not null)
+                        switch (statusOutcome)
                         {
-                            current = AppendTransition(current, status.State, error: status.Error);
-                            running.LatestRecord = current;
-                            return;
+                            case InFlightStatusOutcome:
+                                await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
+                                continue;
+
+                            case ProviderCompleteStatusOutcome complete:
+                                handle = complete.UpdatedHandle;
+                                current = AppendTransition(
+                                    current,
+                                    VideoJobState.Downloading,
+                                    providerHandle: handle);
+                                running.LatestRecord = current;
+                                break;
+
+                            case FailedStatusOutcome failed:
+                                current = AppendTransition(
+                                    current,
+                                    VideoJobState.Error,
+                                    error: failed.Error);
+                                running.LatestRecord = current;
+                                return;
+
+                            default:
+                                current = AppendTransition(
+                                    current,
+                                    VideoJobState.Error,
+                                    error: new VideoJobError(
+                                        VideoErrorCode.ExecutionFailed,
+                                        $"Unknown provider status outcome: {statusOutcome.GetType().Name}.",
+                                        Retryable: false));
+                                running.LatestRecord = current;
+                                return;
                         }
 
-                        if (status.State == VideoJobState.Complete
-                            && !string.IsNullOrEmpty(status.ProviderResultToken))
-                        {
-                            providerResultToken = status.ProviderResultToken;
-                            current = AppendTransition(
-                                current, VideoJobState.Downloading,
-                                providerResultToken: providerResultToken);
-                            running.LatestRecord = current;
-                            break;
-                        }
-
-                        await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
+                        break;
                     }
 
                     // Download
-                    var fetch = await provider.FetchResultAsync(
-                        submit.ProviderJobId!, providerResultToken, ct).ConfigureAwait(false);
+                    var fetch = await provider.FetchResultAsync(handle, ct)
+                        .ConfigureAwait(false);
 
-                    if (fetch.Error is not null)
+                    if (fetch is FailedResultOutcome failedFetch)
                     {
-                        current = AppendTransition(current, VideoJobState.Error, error: fetch.Error);
+                        current = AppendTransition(
+                            current,
+                            VideoJobState.Error,
+                            error: failedFetch.Error);
+                        running.LatestRecord = current;
+                        return;
+                    }
+
+                    if (fetch is not SuccessResultOutcome successFetch)
+                    {
+                        current = AppendTransition(
+                            current,
+                            VideoJobState.Error,
+                            error: new VideoJobError(
+                                VideoErrorCode.ExecutionFailed,
+                                $"Unknown provider result outcome: {fetch.GetType().Name}.",
+                                Retryable: false));
+                        running.LatestRecord = current;
+                        return;
+                    }
+
+                    if (!TryExtractInlineVideoArtifact(
+                        successFetch.Envelope,
+                        out var videoBytes,
+                        out var videoMimeType))
+                    {
+                        current = AppendTransition(
+                            current,
+                            VideoJobState.Error,
+                            error: MissingInlineVideoArtifactError());
                         running.LatestRecord = current;
                         return;
                     }
@@ -742,10 +828,10 @@ namespace Rook.Services.Vision.Video
                     current = AppendTransition(current, VideoJobState.Saving);
                     running.LatestRecord = current;
 
-                    var ext = ExtensionFromMime(fetch.MimeType!);
+                    var ext = ExtensionFromMime(videoMimeType);
                     var artifact = _artifactStore.Create(
                         kind: "generated_video",
-                        blobs: new[] { new BlobInput("video", fetch.Bytes!, ext) },
+                        blobs: new[] { new BlobInput("video", videoBytes, ext) },
                         parentIds: CollectMediaParents(request));
 
                     // Complete (artifact-first per v3.1 D4 ordering;
@@ -801,17 +887,107 @@ namespace Rook.Services.Vision.Video
             string? providerJobId = null,
             string? providerResultToken = null,
             Guid? resultArtifactId = null,
-            VideoJobError? error = null)
+            GenerationError? error = null,
+            ProviderJobHandle? providerHandle = null)
         {
             var next = VideoJobRecordFactory.WithState(
                 prior, newState, _clock.UtcNow(),
                 providerJobId: providerJobId,
                 providerResultToken: providerResultToken,
                 resultArtifactId: resultArtifactId,
-                error: error);
+                error: error,
+                providerHandle: providerHandle);
             _ledger.Append(next);
             return next;
         }
+
+        private async Task CompleteSyncSubmitAsync(
+            VideoJobRecord current,
+            RunningJob running,
+            VideoGenerationRequest request,
+            ProviderResultOutcome result,
+            CancellationToken ct)
+        {
+            if (result is FailedResultOutcome failed)
+            {
+                var errored = AppendTransition(
+                    current,
+                    VideoJobState.Error,
+                    error: failed.Error);
+                running.LatestRecord = errored;
+                return;
+            }
+
+            if (result is not SuccessResultOutcome success)
+            {
+                var errored = AppendTransition(
+                    current,
+                    VideoJobState.Error,
+                    error: new VideoJobError(
+                        VideoErrorCode.ExecutionFailed,
+                        $"Unknown provider result outcome: {result.GetType().Name}.",
+                        Retryable: false));
+                running.LatestRecord = errored;
+                return;
+            }
+
+            if (!TryExtractInlineVideoArtifact(
+                success.Envelope,
+                out var videoBytes,
+                out var videoMimeType))
+            {
+                var errored = AppendTransition(
+                    current,
+                    VideoJobState.Error,
+                    error: MissingInlineVideoArtifactError());
+                running.LatestRecord = errored;
+                return;
+            }
+
+            current = AppendTransition(current, VideoJobState.Saving);
+            running.LatestRecord = current;
+
+            ct.ThrowIfCancellationRequested();
+            var ext = ExtensionFromMime(videoMimeType);
+            var artifact = _artifactStore.Create(
+                kind: "generated_video",
+                blobs: new[] { new BlobInput("video", videoBytes, ext) },
+                parentIds: CollectMediaParents(request));
+
+            current = AppendTransition(
+                current,
+                VideoJobState.Complete,
+                resultArtifactId: artifact.Id);
+            running.LatestRecord = current;
+        }
+
+        private static bool TryExtractInlineVideoArtifact(
+            ProviderResultEnvelope envelope,
+            out byte[] bytes,
+            out string mimeType)
+        {
+            foreach (var artifact in envelope.Artifacts)
+            {
+                if (artifact.Role == VideoMediaRoles.Video
+                    && artifact.Body is InlineArtifactBody inline
+                    && !string.IsNullOrWhiteSpace(artifact.DeclaredMimeType))
+                {
+                    bytes = inline.Bytes;
+                    mimeType = artifact.DeclaredMimeType!;
+                    return true;
+                }
+            }
+
+            bytes = Array.Empty<byte>();
+            mimeType = string.Empty;
+            return false;
+        }
+
+        private static VideoJobError MissingInlineVideoArtifactError() =>
+            new(
+                VideoErrorCode.ExecutionFailed,
+                "Provider result envelope did not contain an inline video artifact.",
+                Retryable: false);
 
         private async Task<IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia>> ResolveAllMediaAsync(
             VideoGenerationRequest request, CancellationToken ct)
@@ -873,10 +1049,12 @@ namespace Rook.Services.Vision.Video
                 VideoJobState.Error or VideoJobState.Cancelled or VideoJobState.Interrupted =>
                     JobStatusResult.Failed(
                         record.State,
-                        record.Error ?? new VideoJobError(
-                            Code: VideoErrorCode.ExecutionFailed,
-                            Message: $"Terminal state {record.State} without error record.",
-                            Retryable: false)),
+                        ToVideoJobError(
+                            record.Error,
+                            new VideoJobError(
+                                Code: VideoErrorCode.ExecutionFailed,
+                                Message: $"Terminal state {record.State} without error record.",
+                                Retryable: false))),
 
                 _ => JobStatusResult.InFlight(
                     record.State,
@@ -907,6 +1085,13 @@ namespace Rook.Services.Vision.Video
             "video/webm" => "webm",
             _ => "bin",
         };
+
+        private static VideoJobError ToVideoJobError(
+            GenerationError? error,
+            VideoJobError fallback) =>
+            error is null
+                ? fallback
+                : VideoProviderOutcomeAdapters.ToVideoJobError(error);
 
         // Per-job runtime state. Mutable LatestRecord lets the manager's
         // public methods see freshest state without a ledger round-trip;

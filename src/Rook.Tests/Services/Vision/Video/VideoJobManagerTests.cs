@@ -2,10 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Video;
+using GenErrorCode = Rook.Services.Vision.Generation.GenerationErrorCode;
+using GenInlineArtifactBody = Rook.Services.Vision.Generation.InlineArtifactBody;
+using GenProviderResultEnvelope = Rook.Services.Vision.Generation.ProviderResultEnvelope;
+using GenResultArtifact = Rook.Services.Vision.Generation.ResultArtifact;
+using GenSuccessResultOutcome = Rook.Services.Vision.Generation.SuccessResultOutcome;
+using GenSyncSubmitOutcome = Rook.Services.Vision.Generation.SyncSubmitOutcome;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
@@ -255,6 +262,51 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoErrorCode.DependencyUnavailable, final.Error!.Code);
         }
 
+        [Fact]
+        public async Task Provider_fetch_success_without_video_artifact_transitions_to_typed_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => ProviderSubmitResult.Ok("op-123");
+            _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
+            _provider.OnFetchResultOutcome = _ =>
+                new GenSuccessResultOutcome(NonVideoSuccessEnvelope());
+
+            var mgr = Manager();
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.ExecutionFailed, final.Error!.Code);
+            Assert.Equal(
+                "Provider result envelope did not contain an inline video artifact.",
+                final.Error.Message);
+            Assert.DoesNotContain("Unexpected error during job", final.Error.Message);
+        }
+
+        [Fact]
+        public async Task Sync_submit_success_without_video_artifact_transitions_to_typed_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmitOutcome = (_, _) =>
+                new GenSyncSubmitOutcome(
+                    new GenSuccessResultOutcome(NonVideoSuccessEnvelope()));
+
+            var mgr = Manager();
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.ExecutionFailed, final.Error!.Code);
+            Assert.Equal(
+                "Provider result envelope did not contain an inline video artifact.",
+                final.Error.Message);
+            Assert.DoesNotContain("Unexpected error during job", final.Error.Message);
+        }
+
         // ─── Cancel ──────────────────────────────────────────────────
 
         [Fact]
@@ -349,7 +401,7 @@ namespace Rook.Tests.Services.Vision.Video
             var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
             Assert.Equal(VideoJobState.Cancelled, latest.State);
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, latest.Error!.Code);
             Assert.False(latest.Error.Retryable);
         }
 
@@ -469,7 +521,7 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Cancelled, final.State);
             // Background task's catch path persists the Cancelled error.
             Assert.NotNull(final.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, final.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, final.Error!.Code);
         }
 
         // ─── Reconcile (no auto-resume) ──────────────────────────────
@@ -506,7 +558,7 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Interrupted, latest.State);
             Assert.Equal("op-stale-123", latest.ProviderJobId);  // persisted for explicit cancel
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Interrupted, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Interrupted, latest.Error!.Code);
         }
 
         [Fact]
@@ -694,7 +746,7 @@ namespace Rook.Tests.Services.Vision.Video
             var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
             Assert.Equal(VideoJobState.Cancelled, latest.State);
             Assert.NotNull(latest.Error);
-            Assert.Equal(VideoErrorCode.Cancelled, latest.Error!.Code);
+            Assert.Equal(GenErrorCode.Cancelled, latest.Error!.Code);
         }
 
         // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──
@@ -1055,6 +1107,21 @@ namespace Rook.Tests.Services.Vision.Video
             _provider.OnGetStatus = _ => ProviderStatusResult.Complete("https://veo/result/x");
             _provider.OnFetchResult = (_, _) => ProviderFetchResult.Ok(FakeMp4, "video/mp4");
             _provider.OnCancel = _ => ProviderCancelResult.Ok(VideoJobState.Cancelled);
+        }
+
+        private static GenProviderResultEnvelope NonVideoSuccessEnvelope()
+        {
+            var emptyMetadata = new Dictionary<string, JsonNode>();
+            return new GenProviderResultEnvelope(
+                new[]
+                {
+                    new GenResultArtifact(
+                        Role: "image",
+                        Body: new GenInlineArtifactBody(new byte[] { 1, 2, 3, 4 }),
+                        DeclaredMimeType: "image/png",
+                        ProviderMetadata: emptyMetadata),
+                },
+                emptyMetadata);
         }
     }
 

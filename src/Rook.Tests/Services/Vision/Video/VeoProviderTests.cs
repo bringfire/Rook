@@ -19,6 +19,9 @@ namespace Rook.Tests.Services.Vision.Video
         private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
             = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
 
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> NoGenerationMedia
+            = new Dictionary<MediaRef, ResolvedMedia>();
+
         private static (VeoProvider provider, TestHttpMessageHandler handler) MakeProvider(
             Func<HttpRequestMessage, HttpResponseMessage> onSend,
             string? apiKey = "test-key")
@@ -47,6 +50,20 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("operations/abc-123", result.ProviderJobId);
             Assert.Equal(VideoJobState.Submitting, result.State);
             Assert.Null(result.Error);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_generic_happy_path_returns_Queued_never_Sync()
+        {
+            var (provider, _) = MakeProvider(_ =>
+                JsonResponse(HttpStatusCode.OK, "{\"name\":\"operations/abc-123\"}"));
+
+            var outcome = await provider.SubmitAsync(
+                T2vRequest(), NoGenerationMedia, CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("operations/abc-123", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.ProviderResultToken);
         }
 
         [Fact]
@@ -210,6 +227,7 @@ namespace Rook.Tests.Services.Vision.Video
                 CancellationToken.None);
 
             Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal("providerResultToken", result.Error.Field);
             Assert.Null(result.Bytes);
             Assert.Empty(handler.Requests);  // never called the network
         }

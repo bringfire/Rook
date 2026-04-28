@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
 using Xunit;
 
@@ -12,8 +13,8 @@ namespace Rook.Tests.Services.Vision.Video
         private static VideoGenerationRequest SampleRequest() =>
             TestVideoFixtures.DefaultT2vRequest();
 
-        private static IReadOnlyDictionary<VideoMediaRef, ResolvedVideoMedia> NoMedia
-            = new Dictionary<VideoMediaRef, ResolvedVideoMedia>();
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> NoMedia
+            = new Dictionary<MediaRef, ResolvedMedia>();
 
         // ─── Hooks fire when set ──────────────────────────────────────
 
@@ -22,13 +23,15 @@ namespace Rook.Tests.Services.Vision.Video
         {
             var fake = new FakeVideoProvider
             {
-                OnSubmit = (req, media) => ProviderSubmitResult.Ok("custom-id-42"),
+                OnSubmitOutcome = (req, media) => new QueuedSubmitOutcome(
+                    new ProviderJobHandle("custom-id-42")),
             };
 
             var result = await fake.SubmitAsync(SampleRequest(), NoMedia, CancellationToken.None);
 
-            Assert.Equal("custom-id-42", result.ProviderJobId);
-            Assert.Equal(VideoJobState.Submitting, result.State);
+            var queued = Assert.IsType<QueuedSubmitOutcome>(result);
+            Assert.Equal("custom-id-42", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.ProviderResultToken);
         }
 
         [Fact]
@@ -72,9 +75,9 @@ namespace Rook.Tests.Services.Vision.Video
 
             var result = await fake.SubmitAsync(SampleRequest(), NoMedia, CancellationToken.None);
 
-            Assert.Equal(VideoJobState.Submitting, result.State);
-            Assert.NotNull(result.ProviderJobId);
-            Assert.Null(result.Error);
+            var queued = Assert.IsType<QueuedSubmitOutcome>(result);
+            Assert.Equal("fake-job-1", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.ProviderResultToken);
         }
 
         [Fact]
