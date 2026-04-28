@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "data": {
+    "code": "dependency_unavailable",
+    "message": "Veo submit rejected: authentication failed (401). {\u0022error\u0022:\u0022unauthenticated\u0022}",
+    "retryable": false,
+    "field": null
+  },
+  "http_status": 503
+}

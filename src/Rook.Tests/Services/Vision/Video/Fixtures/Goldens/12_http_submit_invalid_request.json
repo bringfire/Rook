@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "data": {
+    "code": "invalid_request",
+    "message": "Veo submit rejected as invalid (400). {\u0022error\u0022:\u0022durationSeconds must be a number\u0022}",
+    "retryable": false,
+    "field": "duration_seconds"
+  },
+  "http_status": 400
+}

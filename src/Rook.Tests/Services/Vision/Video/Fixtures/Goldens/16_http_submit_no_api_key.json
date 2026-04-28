@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "data": {
+    "code": "dependency_unavailable",
+    "message": "Veo API key not configured. Set it via the Vision tab Settings panel.",
+    "retryable": false,
+    "field": null
+  },
+  "http_status": 503
+}

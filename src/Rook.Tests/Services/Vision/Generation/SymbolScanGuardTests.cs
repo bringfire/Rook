@@ -57,7 +57,18 @@ namespace Rook.Tests.Services.Vision.Generation
                 {
                     if (Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase))
                     {
-                        matches.Add($"{Path.GetFileName(path)}: {pattern}");
+                        // Report path relative to the Generation root so
+                        // failure output unambiguously points at the
+                        // file. Path.GetRelativePath isn't on net48;
+                        // substring is safe because we know `path`
+                        // starts with `root`.
+                        var rel = path.Length > root.Length
+                            ? path.Substring(root.Length).TrimStart(
+                                Path.DirectorySeparatorChar,
+                                Path.AltDirectorySeparatorChar)
+                                  .Replace(Path.DirectorySeparatorChar, '/')
+                            : Path.GetFileName(path);
+                        matches.Add($"Generation/{rel}: {pattern}");
                     }
                 }
             }

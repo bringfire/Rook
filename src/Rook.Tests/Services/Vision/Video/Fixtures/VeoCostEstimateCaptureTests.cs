@@ -1,90 +1,59 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using Rook.Handlers;
 using Rook.Services.Vision.Video;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video.Fixtures
 {
     /// <summary>
-    /// Captures the V1c <see cref="VideoCostEstimateResult"/> JSON
-    /// projection for a representative Veo request. Pure call; no HTTP.
-    /// Pinned post-retrofit by commit 6's parity tests so the
-    /// <c>estimate_video_job</c> route's wire shape (model, resolution,
-    /// duration, count, breakdown[].label/dollars, pricing.kind/quantity/
-    /// unit_price/total/source) is byte-identical pre/post.
+    /// Captures the V1c <c>estimate_video_job</c> wire response by
+    /// driving <see cref="VideoOpHandler.DispatchOffUi"/> end-to-end.
+    /// The capture goes through the same code path the native HTTP
+    /// route exercises in production — production projection
+    /// (<c>VideoOpHandler.Estimate</c>) is the source of the golden
+    /// bytes, so any drift there breaks the assertion.
+    ///
+    /// <para>Drives a real <see cref="DefaultVideoProviderRegistry"/>
+    /// + real <see cref="VideoCostEstimator"/> + a fake
+    /// <see cref="IVideoJobManager"/> (estimate does not touch the
+    /// manager, but the handler's constructor requires one).</para>
     /// </summary>
     public class VeoCostEstimateCaptureTests
     {
         [Fact]
         public void Golden_10_cost_estimate_veo_3_1_1080p_8s()
         {
-            // Veo 3.1 full @ 1080p × 8s × 1 video — exercises the
-            // PerSecondPricingModel via VideoCostEstimator end-to-end.
-            // The lookup table at VeoCapabilities lists 1080p = $0.40/s,
-            // so the captured Total is the audit-snapshot of that rate.
-            var resolved = TestVideoFixtures.VeoLiteResolved(
-                modelId: "veo-3.1-generate-preview");
-            var request = TestVideoFixtures.DefaultT2vRequest(
-                model: "veo-3.1-generate-preview",
-                duration: 8,
-                resolution: "1080p",
-                personGeneration: PersonGenerationPolicy.AllowAll);
-
+            // Veo 3.1 full @ 1080p × 8s × 1 video — exercises
+            // PerSecondPricingModel via VideoCostEstimator. Per
+            // VeoCapabilities, 1080p costs $0.40/s on Veo 3.1, so the
+            // captured Total is the audit-snapshot of that rate.
+            var registry = TestVideoFixtures.RegistryWithVeo();
             var estimator = new VideoCostEstimator();
-            var result = estimator.Estimate(resolved, request);
+            var manager = new FakeVideoJobManager();  // estimate path doesn't reach the manager
 
-            Assert.True(result.Success, result.Error?.Message);
+            var handler = new VideoOpHandler(manager, registry, estimator);
 
-            var json = ProjectEstimateToJson(result);
+            var body = JsonSerializer.Serialize(new
+            {
+                op = VideoOpHandler.OpEstimate,
+                model = "veo-3.1-generate-preview",
+                mode = "t2v",
+                duration_seconds = 8,
+                resolution = "1080p",
+                aspect_ratio = "16:9",
+                prompt = "a cinematic shot of a coastline at dusk",
+                options = new { person_generation = "allow_all" },
+                number_of_videos = 1,
+            });
+
+            var response = handler.DispatchOffUi(body);
+            Assert.True(response.Success,
+                "estimate_video_job should succeed in this fixture; got: "
+                + ApiResponseSerializer.ToJson(response));
+
+            var json = ApiResponseSerializer.ToJson(response);
             VeoBehaviorParityFixture.AssertOrCapture(
                 "10_cost_estimate_veo_3_1_1080p_8s.json", json);
-        }
-
-        // Mirror the public estimate-route projection by hand. The
-        // captured shape pins both the field set and ordering as the
-        // V1c VideoOpHandler.Estimate currently produces. Commit 5's
-        // VideoOpHandler retarget reuses these exact keys.
-        private static string ProjectEstimateToJson(VideoCostEstimateResult result)
-        {
-            var est = result.Estimate!;
-            var pricing = est.Pricing;
-
-            var breakdown = new JsonArray();
-            foreach (var c in est.Breakdown)
-            {
-                breakdown.Add(new JsonObject
-                {
-                    ["label"] = c.Label,
-                    ["dollars_usd"] = c.DollarsUsd,
-                });
-            }
-
-            var obj = new JsonObject
-            {
-                ["dollars_usd"] = est.DollarsUsd,
-                ["model"] = est.Model,
-                ["resolution"] = est.Resolution,
-                ["duration_seconds"] = est.DurationSeconds,
-                ["number_of_videos"] = est.NumberOfVideos,
-                ["breakdown"] = breakdown,
-                ["pricing"] = new JsonObject
-                {
-                    ["kind"] = pricing.Kind switch
-                    {
-                        PricingKind.PerSecond => "per_second",
-                        PricingKind.PerGeneration => "per_generation",
-                        PricingKind.External => "external",
-                        _ => pricing.Kind.ToString().ToLowerInvariant(),
-                    },
-                    ["currency"] = pricing.Currency,
-                    ["quantity"] = pricing.Quantity,
-                    ["unit_price_usd"] = pricing.UnitPriceUsd,
-                    ["total_usd"] = pricing.TotalUsd,
-                    ["pricing_source"] = pricing.PricingSource,
-                },
-            };
-
-            return obj.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
         }
     }
 }
