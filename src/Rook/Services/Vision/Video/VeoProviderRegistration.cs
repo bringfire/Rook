@@ -29,13 +29,15 @@ namespace Rook.Services.Vision.Video
 
         public IReadOnlyDictionary<string, (VideoCapability Capability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
 
-        public IReadOnlyList<Rook.Services.Vision.Generation.ProviderSecretRequirement> SecretRequirements { get; }
-            = new[]
+        public IReadOnlyList<Rook.Services.Vision.Generation.ProviderSecretRequirement> SecretRequirements => _secretRequirements;
+
+        private static readonly IReadOnlyList<Rook.Services.Vision.Generation.ProviderSecretRequirement> _secretRequirements =
+            Array.AsReadOnly(new[]
             {
                 new Rook.Services.Vision.Generation.ProviderSecretRequirement(
                     Rook.Services.Vision.Generation.GenerationSecretKeys.GeminiApiKey,
                     "Gemini API key",
                     isRequired: true),
-            };
+            });
     }
 }

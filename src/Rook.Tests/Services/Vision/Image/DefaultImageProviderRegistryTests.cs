@@ -58,7 +58,9 @@ namespace Rook.Tests.Services.Vision.Image
 
             var requirement = Assert.Single(registration.SecretRequirements);
             Assert.Equal(GenerationSecretKeys.GeminiApiKey, requirement.Key);
+            Assert.Equal("Gemini API key", requirement.DisplayName);
             Assert.True(requirement.IsRequired);
+            Assert.True(requirement.IsSensitive);
         }
 
         [Fact]
