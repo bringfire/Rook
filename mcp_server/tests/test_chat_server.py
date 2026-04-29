@@ -98,17 +98,21 @@ class TestChatServer(AioHTTPTestCase):
         )
         assert resp.status == 404
 
-    async def test_ui_response_accepted(self):
-        """POST /agent/chat/ui-response appends message to conversation."""
-        # Start a conversation first
-        resp = await self.client.post(
-            "/agent/chat/start",
-            json={"persona": "worker"},
-        )
-        data = await resp.json()
-        conv_id = data["conversation_id"]
+    async def test_ui_response_streams_turn_with_serialized_payload(self):
+        """POST /agent/chat/ui-response runs an agent turn with the UI response as user_message."""
+        captured: list[dict] = []
 
-        # Send a UI response
+        class CapturingRunner:
+            async def run_turn(self, conv, message, system_prompt):
+                captured.append({"message": message, "conv_id": conv.id})
+                yield ChatEvent("done", usage={})
+
+        # Inject the capturing runner onto the running test app
+        self.app[chat_server._RUNNER_KEY] = CapturingRunner()
+
+        resp = await self.client.post("/agent/chat/start", json={"persona": "worker"})
+        conv_id = (await resp.json())["conversation_id"]
+
         resp = await self.client.post(
             "/agent/chat/ui-response",
             json={
@@ -118,11 +122,17 @@ class TestChatServer(AioHTTPTestCase):
             },
         )
         assert resp.status == 200
-        result = await resp.json()
-        assert result["accepted"] is True
+        assert resp.headers["Content-Type"].startswith("application/x-ndjson")
+        body = await resp.text()
+        assert '"type": "done"' in body or '"type":"done"' in body
 
-        # Verify CORS header uses virtual host origin (not wildcard)
-        assert resp.headers.get("Access-Control-Allow-Origin") == "https://app.rook.invalid"
+        assert len(captured) == 1
+        payload = json.loads(captured[0]["message"])
+        assert payload == {
+            "type": "ui_response",
+            "block_id": "blk_test1234",
+            "value": {"height": 10},
+        }
 
     async def test_ui_response_missing_fields(self):
         """POST /agent/chat/ui-response rejects missing conversation_id or block_id."""
@@ -149,6 +159,67 @@ class TestChatServer(AioHTTPTestCase):
             },
         )
         assert resp.status == 404
+
+    async def test_ui_response_rejects_when_conversation_active(self):
+        """POST /agent/chat/ui-response returns 409 if a turn is already running."""
+        resp = await self.client.post("/agent/chat/start", json={"persona": "worker"})
+        conv_id = (await resp.json())["conversation_id"]
+
+        # Mark the conversation as actively running
+        conv = self.store.get(conv_id)
+        conv.active_run_id = "run_in_flight"
+
+        resp = await self.client.post(
+            "/agent/chat/ui-response",
+            json={
+                "conversation_id": conv_id,
+                "block_id": "blk_x",
+                "value": "confirm",
+            },
+        )
+        assert resp.status == 409
+
+    async def test_ui_response_runs_turn_with_scoped_rhino_context(self):
+        """POST /agent/chat/ui-response propagates documentSerialNumber into rhino_request_context.
+
+        Mirrors the /message context test — agent reactions to UI submissions
+        must use the same Rhino document scope as typed messages.
+        """
+        captured: list[dict] = []
+
+        class ContextCapturingRunner:
+            async def run_turn(self, conv, message, system_prompt):
+                captured.append({
+                    "conversation_document": conv.document_serial_number,
+                    **bridge.get_rhino_request_context(),
+                })
+                yield ChatEvent("done", usage={})
+
+        self.app[chat_server._RUNNER_KEY] = ContextCapturingRunner()
+
+        resp = await self.client.post(
+            "/agent/chat/start",
+            json={"persona": "worker", "documentSerialNumber": 42},
+        )
+        conv_id = (await resp.json())["conversation_id"]
+
+        resp = await self.client.post(
+            "/agent/chat/ui-response",
+            json={
+                "conversation_id": conv_id,
+                "block_id": "blk_ctx",
+                "value": "ok",
+                "documentSerialNumber": 99,
+            },
+        )
+        assert resp.status == 200
+        # Drain the stream
+        await resp.text()
+
+        assert len(captured) == 1
+        # Latest documentSerialNumber from the request body wins (matches /message)
+        assert captured[0]["conversation_document"] == 99
+        assert captured[0].get("document_serial_number") == 99
 
     async def test_cors_preflight_any_route(self):
         """OPTIONS on any route returns CORS headers via middleware."""

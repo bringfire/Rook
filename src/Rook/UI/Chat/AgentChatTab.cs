@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Eto.Drawing;
@@ -25,6 +26,7 @@ namespace Rook.UI.Chat
         private ChatServiceHealth? _lastHealth;
         private readonly SemaphoreSlim _initializeGate = new SemaphoreSlim(1, 1);
         private bool _connectionBannerShown;
+        private string? _activeUIBlockId;
 
         public AgentChatTab(
             string persona,
@@ -299,6 +301,13 @@ namespace Rook.UI.Chat
                         break;
 
                     case "done":
+                        if (_activeUIBlockId != null)
+                        {
+                            var doneBlockId = _activeUIBlockId;
+                            _activeUIBlockId = null;
+                            ExecuteScript(
+                                $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(doneBlockId)}', {{state:'done', result_text:'Submitted'}})");
+                        }
                         FinalizeStreaming();
                         if (_lastHealth != null)
                         {
@@ -312,6 +321,7 @@ namespace Rook.UI.Chat
                         break;
 
                     case "error":
+                        MarkActiveUIBlockStale();
                         FinalizeStreaming();
                         AddMessageToChat("error", evt.Content ?? "Unknown error");
                         SetStatus("Error", Colors.Red);
@@ -358,6 +368,90 @@ namespace Rook.UI.Chat
         protected override void OnStopRequested()
         {
             _cts?.Cancel();
+        }
+
+        protected override async Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
+        {
+            // Capture refs into locals after the null check — fields can be
+            // mutated (cleared on tab close) between check and use, and the
+            // local-capture pattern also satisfies the C# 11 nullable analyzer
+            // since field reads aren't tracked across awaits.
+            var baseUri = _conversationBaseUri;
+            var conversationId = _conversationId;
+            if (baseUri == null || string.IsNullOrEmpty(conversationId))
+            {
+                return;
+            }
+
+            // Refuse if ANY chat work is in flight — a typed /message stream
+            // OR another UI block submission. Without this guard, a click on
+            // Apply during a typed-message stream would overwrite _cts and
+            // orphan the original stream's cancel token (Stop button would
+            // no longer cancel it). Mark the just-clicked block stale so its
+            // optimistic spinner clears.
+            if (IsProcessing || _activeUIBlockId != null)
+            {
+                Application.Instance.Invoke(() =>
+                {
+                    ExecuteScript(
+                        $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(blockId)}', {{state:'stale'}})");
+                });
+                return;
+            }
+
+            _activeUIBlockId = blockId;
+            // Dispose the previous (completed) CTS before replacing — the
+            // IsProcessing guard above ensures no live stream is using it.
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
+            var textBuffer = new StringBuilder();
+            SetProcessing(true);
+
+            // Pass the raw JsonNode as the value payload — JsonSerializer
+            // round-trips JsonNode correctly into the request body.
+            object valuePayload = (object?)value ?? new { };
+
+            try
+            {
+                var currentDocument = GetCurrentDocumentSerialNumber();
+                await _client.SendUIResponseStreamingAsync(
+                    baseUri,
+                    conversationId!,
+                    blockId,
+                    valuePayload,
+                    currentDocument,
+                    evt => HandleChatEvent(evt, textBuffer),
+                    _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                AddMessageToChat("error", $"UI block submission failed: {ex.Message}");
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                AddMessageToChat("error", ex.Message);
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+        }
+
+        private void MarkActiveUIBlockStale()
+        {
+            if (_activeUIBlockId == null) return;
+            var blockId = _activeUIBlockId;
+            _activeUIBlockId = null;
+            Application.Instance.Invoke(() =>
+            {
+                ExecuteScript(
+                    $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(blockId)}', {{state:'stale'}})");
+            });
         }
 
         protected override void OnClearRequested()

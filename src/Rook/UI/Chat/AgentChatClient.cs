@@ -212,6 +212,60 @@ namespace Rook.UI.Chat
         }
 
         /// <summary>
+        /// Submit a UI block response and yield the agent's reaction events as a stream.
+        /// Mirrors SendMessageStreamingAsync but POSTs to /agent/chat/ui-response.
+        /// Includes documentSerialNumber so Rhino tool calls in the agent's reaction
+        /// stay scoped to the same document as a typed message would.
+        /// </summary>
+        public async Task SendUIResponseStreamingAsync(
+            Uri baseUri,
+            string conversationId,
+            string blockId,
+            object value,
+            uint documentSerialNumber,
+            Action<ChatEvent> onEvent,
+            CancellationToken ct = default)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                conversation_id = conversationId,
+                block_id = blockId,
+                value = value,
+                documentSerialNumber = documentSerialNumber,
+            });
+            var request = new HttpRequestMessage(HttpMethod.Post, new Uri(baseUri, "/agent/chat/ui-response"))
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+
+            using var resp = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            resp.EnsureSuccessStatusCode();
+
+            using var stream = await resp.Content.ReadAsStreamAsync();
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                try
+                {
+                    var evt = JsonSerializer.Deserialize<ChatEvent>(line, JsonOptions);
+                    if (evt != null)
+                    {
+                        onEvent(evt);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Skip malformed lines
+                }
+            }
+        }
+
+        /// <summary>
         /// Stop a conversation.
         /// </summary>
         public async Task StopAsync(string conversationId, CancellationToken ct = default)
