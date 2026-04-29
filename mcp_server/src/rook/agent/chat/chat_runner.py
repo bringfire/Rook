@@ -46,6 +46,58 @@ MAX_META_ONLY_ROUNDS = 5  # Cap on consecutive rounds that only call meta-tools
 STALE_TOOL_TURNS = 8  # Deactivate tools unused for this many rounds
 
 
+def _patch_orphaned_tool_calls(messages: List[Dict[str, Any]]) -> int:
+    """Repair history left invalid by cancelled tool dispatches.
+
+    Anthropic requires every assistant tool_use to be followed immediately by
+    matching tool_result messages. If a turn is cancelled after the assistant
+    message is appended but before tool results are recorded, the next request
+    fails. This inserts short synthetic results at the end of each assistant's
+    contiguous tool-message run, before the next non-tool message.
+    """
+    synthetic_content = json.dumps({"error": "cancelled by user"})
+    patched = 0
+    i = 0
+
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            i += 1
+            continue
+
+        expected_ids = [
+            tc.get("id")
+            for tc in msg.get("tool_calls", [])
+            if isinstance(tc, dict) and tc.get("id")
+        ]
+
+        run_end = i + 1
+        while run_end < len(messages) and messages[run_end].get("role") == "tool":
+            run_end += 1
+
+        present_ids = {
+            messages[j].get("tool_call_id")
+            for j in range(i + 1, run_end)
+            if messages[j].get("tool_call_id")
+        }
+
+        for tc_id in expected_ids:
+            if tc_id in present_ids:
+                continue
+            messages.insert(run_end, {
+                "role": "tool",
+                "tool_call_id": tc_id,
+                "content": synthetic_content,
+            })
+            present_ids.add(tc_id)
+            run_end += 1
+            patched += 1
+
+        i = run_end
+
+    return patched
+
+
 @dataclass
 class ChatEvent:
     """A streaming event emitted during a conversation turn."""
@@ -417,6 +469,16 @@ class ChatRunner:
         conversation.abort_event.clear()
         conversation.touch()
 
+        # Repair previous cancelled turns before the new user message lands so
+        # synthetic tool results stay adjacent to the assistant tool_calls.
+        patched_pre = _patch_orphaned_tool_calls(conversation.messages)
+        if patched_pre:
+            logger.info(
+                "Conversation %s: repaired %s orphaned tool_call(s) from prior cancelled turn(s)",
+                conversation.id,
+                patched_pre,
+            )
+
         # Add user message to history
         conversation.messages.append({"role": "user", "content": user_message})
 
@@ -425,6 +487,7 @@ class ChatRunner:
         start_time = time.time()
         substrate_observations: List[Any] = []
         runtime_facts = await collect_runtime_facts(include_gh=False)
+        closing_due_to_generator_exit = False
 
         try:
             # Tool call loop -- keep calling LLM until it responds without tool calls
@@ -610,6 +673,16 @@ class ChatRunner:
                         _verified = result.get("verified")
                         _verification_note = result.get("verification_note")
 
+                    # Commit the completed result before yielding it. If the
+                    # client disconnects while the event is being written, the
+                    # server closes this generator and the repair pass must see
+                    # the real result, not synthesize a cancellation.
+                    conversation.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_str,
+                    })
+
                     yield ChatEvent(
                         "tool_result",
                         name=tool_name,
@@ -618,13 +691,6 @@ class ChatRunner:
                         verified=_verified,
                         verification_note=_verification_note,
                     )
-
-                    # Add tool result to history
-                    conversation.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result_str,
-                    })
 
                 # Track consecutive meta-only rounds (tool discovery loops)
                 if meta_only_round:
@@ -651,7 +717,19 @@ class ChatRunner:
                 logger.warning(f"Conversation {conversation.id} hit {MAX_TOOL_ROUNDS} tool rounds limit")
                 yield ChatEvent("error", content="Too many tool calls — stopping to prevent runaway loop")
 
+        except GeneratorExit:
+            closing_due_to_generator_exit = True
+            raise
+
         finally:
+            patched_post = _patch_orphaned_tool_calls(conversation.messages)
+            if patched_post:
+                logger.info(
+                    "Conversation %s: repaired %s orphaned tool_call(s) on turn exit",
+                    conversation.id,
+                    patched_post,
+                )
+
             wall_time = time.time() - start_time
             conversation.active_run_id = None
             conversation.touch()
@@ -667,7 +745,8 @@ class ChatRunner:
                 "rhino_connected": runtime_facts.get("rhino", {}).get("connected", False),
                 "prompt_available": runtime_facts.get("prompt", {}).get("available", False),
             }
-            yield ChatEvent("done", usage=done_usage)
+            if not closing_due_to_generator_exit:
+                yield ChatEvent("done", usage=done_usage)
 
     def _handle_meta_tool(self, name: str, params: dict) -> dict:
         """Handle request_tools and search_tools internally."""

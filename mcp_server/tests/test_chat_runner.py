@@ -601,3 +601,252 @@ def test_tool_registry_lru_eviction_protects_tier0():
     # Now with only tier0 left, eviction should fail
     freed = reg._evict_lru(1)
     assert freed == 0
+
+
+def _assistant_with_tool_calls(*tool_call_ids):
+    """Build an assistant message with the given tool_call_ids."""
+    return {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": tc_id,
+                "type": "function",
+                "function": {"name": "rhino_ping", "arguments": "{}"},
+            }
+            for tc_id in tool_call_ids
+        ],
+    }
+
+
+def _tool_result(tool_call_id, content="ok"):
+    return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+
+
+def test_patch_orphans_returns_zero_when_history_is_valid():
+    """No-op: every tool_call has a matching tool_result already."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [
+        {"role": "user", "content": "hi"},
+        _assistant_with_tool_calls("tc1"),
+        _tool_result("tc1"),
+    ]
+    before = list(messages)
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 0
+    assert messages == before
+
+
+def test_patch_orphans_appends_at_end_when_no_following_message():
+    """Last assistant has [tc1, tc2], only tc1 has a result."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [
+        {"role": "user", "content": "hi"},
+        _assistant_with_tool_calls("tc1", "tc2"),
+        _tool_result("tc1"),
+    ]
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 1
+    assert len(messages) == 4
+    assert messages[3]["role"] == "tool"
+    assert messages[3]["tool_call_id"] == "tc2"
+    assert json.loads(messages[3]["content"]) == {"error": "cancelled by user"}
+
+
+def test_patch_orphans_inserts_multiple_at_end_in_order():
+    """Last assistant has [tc1, tc2, tc3], only tc1 result present."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [
+        _assistant_with_tool_calls("tc1", "tc2", "tc3"),
+        _tool_result("tc1"),
+    ]
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 2
+    assert messages[2]["tool_call_id"] == "tc2"
+    assert messages[3]["tool_call_id"] == "tc3"
+
+
+def test_patch_orphans_inserts_before_user_message_not_after():
+    """Synthetic tool_results must precede any following user message."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [
+        _assistant_with_tool_calls("tc1", "tc2", "tc3"),
+        _tool_result("tc1"),
+        {"role": "user", "content": "follow-up"},
+    ]
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 2
+    assert [m.get("role") for m in messages] == ["assistant", "tool", "tool", "tool", "user"]
+    assert messages[1]["tool_call_id"] == "tc1"
+    assert messages[2]["tool_call_id"] == "tc2"
+    assert messages[3]["tool_call_id"] == "tc3"
+    assert messages[4]["content"] == "follow-up"
+
+
+def test_patch_orphans_repairs_multiple_cancelled_turns():
+    """Two prior cancelled turns, each with orphans, are both repaired."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [
+        _assistant_with_tool_calls("tc1", "tc2"),
+        _tool_result("tc1"),
+        {"role": "user", "content": "first follow-up"},
+        _assistant_with_tool_calls("tc3"),
+        {"role": "user", "content": "second follow-up"},
+    ]
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 2
+    assert [m.get("role") for m in messages] == [
+        "assistant", "tool", "tool", "user",
+        "assistant", "tool", "user",
+    ]
+    assert messages[2]["tool_call_id"] == "tc2"
+    assert messages[5]["tool_call_id"] == "tc3"
+
+
+def test_patch_orphans_synthetic_content_is_valid_json():
+    """Synthetic content must round-trip through json.loads."""
+    from rook.agent.chat.chat_runner import _patch_orphaned_tool_calls
+
+    messages = [_assistant_with_tool_calls("tc1")]
+    patched = _patch_orphaned_tool_calls(messages)
+    assert patched == 1
+    assert messages[1]["role"] == "tool"
+    assert json.loads(messages[1]["content"]) == {"error": "cancelled by user"}
+
+
+def test_run_turn_repairs_history_when_executor_raises_cancelled(conversation, runner):
+    """CancelledError during tool dispatch still leaves valid history."""
+    import asyncio
+
+    async def _exercise():
+        async def _stream():
+            chunk = MagicMock()
+            delta = MagicMock()
+            delta.content = None
+            tc_delta = MagicMock()
+            tc_delta.index = 0
+            tc_delta.id = "toolu_test_001"
+            tc_delta.function.name = "rhino_ping"
+            tc_delta.function.arguments = "{}"
+            delta.tool_calls = [tc_delta]
+            choice = MagicMock()
+            choice.delta = delta
+            chunk.choices = [choice]
+            chunk.usage = None
+            yield chunk
+
+            usage_chunk = MagicMock()
+            usage_chunk.choices = []
+            usage_chunk.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+            yield usage_chunk
+
+        async def _cancelling_executor(name, params):
+            raise asyncio.CancelledError()
+
+        runner._tool_executor = _cancelling_executor
+
+        with patch(
+            "rook.agent.chat.chat_runner.litellm.acompletion",
+            new=AsyncMock(return_value=_stream()),
+        ), patch(
+            "rook.agent.chat.chat_runner.collect_runtime_facts",
+            new=AsyncMock(return_value={"rhino": {"connected": False}, "prompt": {"available": False}}),
+        ):
+            async for _ in runner.run_turn(conversation, "test message", "system"):
+                pass
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(_exercise())
+
+    assistant_indices = [
+        i for i, m in enumerate(conversation.messages)
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert len(assistant_indices) == 1
+    asst_idx = assistant_indices[0]
+    assert conversation.messages[asst_idx + 1]["role"] == "tool"
+    assert conversation.messages[asst_idx + 1]["tool_call_id"] == "toolu_test_001"
+    assert json.loads(conversation.messages[asst_idx + 1]["content"]) == {
+        "error": "cancelled by user"
+    }
+
+
+def test_run_turn_repairs_prior_history_before_appending_new_user(conversation, runner):
+    """Top-of-run repair inserts synthetic results before the new user turn."""
+    import asyncio
+
+    conversation.messages = [
+        _assistant_with_tool_calls("tc1", "tc2"),
+        _tool_result("tc1"),
+    ]
+
+    async def _exercise():
+        with patch(
+            "rook.agent.chat.chat_runner.litellm.acompletion",
+            new=AsyncMock(return_value=_make_text_response("recovered")),
+        ), _runtime_facts_patch():
+            async for _ in runner.run_turn(conversation, "new question", "system"):
+                pass
+
+    asyncio.run(_exercise())
+
+    assert [m.get("role") for m in conversation.messages[:4]] == [
+        "assistant", "tool", "tool", "user",
+    ]
+    assert conversation.messages[2]["tool_call_id"] == "tc2"
+    assert conversation.messages[3]["content"] == "new question"
+
+
+def test_run_turn_repairs_history_when_generator_closes_at_tool_start(conversation, runner):
+    """Client disconnect at a yielded tool_start repairs without close noise."""
+    import asyncio
+
+    async def _exercise():
+        async def _stream():
+            chunk = MagicMock()
+            delta = MagicMock()
+            delta.content = None
+            tc_delta = MagicMock()
+            tc_delta.index = 0
+            tc_delta.id = "toolu_close_001"
+            tc_delta.function.name = "rhino_ping"
+            tc_delta.function.arguments = "{}"
+            delta.tool_calls = [tc_delta]
+            choice = MagicMock()
+            choice.delta = delta
+            chunk.choices = [choice]
+            chunk.usage = None
+            yield chunk
+
+            usage_chunk = MagicMock()
+            usage_chunk.choices = []
+            usage_chunk.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+            yield usage_chunk
+
+        with patch(
+            "rook.agent.chat.chat_runner.litellm.acompletion",
+            new=AsyncMock(return_value=_stream()),
+        ), _runtime_facts_patch():
+            gen = runner.run_turn(conversation, "test message", "system")
+            event = await anext(gen)
+            assert event.type == "tool_start"
+            assert event.tool_call_id == "toolu_close_001"
+            await gen.aclose()
+
+    asyncio.run(_exercise())
+
+    assistant_indices = [
+        i for i, m in enumerate(conversation.messages)
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert len(assistant_indices) == 1
+    asst_idx = assistant_indices[0]
+    assert conversation.messages[asst_idx + 1]["role"] == "tool"
+    assert conversation.messages[asst_idx + 1]["tool_call_id"] == "toolu_close_001"
+    assert json.loads(conversation.messages[asst_idx + 1]["content"]) == {
+        "error": "cancelled by user"
+    }
