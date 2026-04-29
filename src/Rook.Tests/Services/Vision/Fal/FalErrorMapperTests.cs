@@ -35,6 +35,19 @@ namespace Rook.Tests.Services.Vision.Fal
         }
 
         [Fact]
+        public void Preserves_json_null_provider_detail_fields()
+        {
+            var error = FalErrorMapper.MapHttpFailure(new FalHttpResponse(
+                422,
+                "{\"detail\":null}",
+                new Dictionary<string, IReadOnlyList<string>>()));
+
+            Assert.NotNull(error.ProviderDetail);
+            Assert.True(error.ProviderDetail!.ContainsKey("detail"));
+            Assert.Null(error.ProviderDetail["detail"]);
+        }
+
+        [Fact]
         public void Retry_header_controls_retryability()
         {
             var error = FalErrorMapper.MapHttpFailure(new FalHttpResponse(

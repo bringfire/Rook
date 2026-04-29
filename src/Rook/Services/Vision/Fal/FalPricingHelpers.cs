@@ -7,6 +7,10 @@ namespace Rook.Services.Vision.Fal
     public static class FalPricingHelpers
     {
         private const string BillableUnitsHeader = "x-fal-billable-units";
+        private const NumberStyles BillableUnitsStyles =
+            NumberStyles.AllowLeadingWhite
+            | NumberStyles.AllowTrailingWhite
+            | NumberStyles.AllowDecimalPoint;
 
         public static bool TryGetBillableUnits(
             IReadOnlyDictionary<string, IReadOnlyList<string>> headers,
@@ -30,10 +34,12 @@ namespace Rook.Services.Vision.Fal
 
                 if (decimal.TryParse(
                         kvp.Value[0],
-                        NumberStyles.Number,
+                        BillableUnitsStyles,
                         CultureInfo.InvariantCulture,
-                        out units))
+                        out var parsedUnits)
+                    && parsedUnits >= 0m)
                 {
+                    units = parsedUnits;
                     return true;
                 }
 

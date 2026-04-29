@@ -90,8 +90,7 @@ namespace Rook.Services.Vision.Fal
                 var detail = new Dictionary<string, JsonNode>();
                 foreach (var kvp in root)
                 {
-                    if (kvp.Value is JsonNode value)
-                        detail[kvp.Key] = value.DeepClone();
+                    detail[kvp.Key] = kvp.Value?.DeepClone()!;
                 }
 
                 return new ReadOnlyDictionary<string, JsonNode>(detail);
