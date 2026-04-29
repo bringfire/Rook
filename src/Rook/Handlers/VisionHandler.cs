@@ -15,6 +15,7 @@ using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 
 namespace Rook.Handlers
@@ -133,6 +134,7 @@ namespace Rook.Handlers
         private readonly PromptEnhancer _enhancer;
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
+        private readonly ImageArtifactMaterializer _imageArtifactMaterializer;
 
         public VisionHandler()
             : this(new ArtifactStore(), new DpapiGenerationSecretStore(),
@@ -145,14 +147,16 @@ namespace Rook.Handlers
             VisionSecretStore secrets,
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
-            IImageProviderRegistry? imageProviderRegistry = null)
+            IImageProviderRegistry? imageProviderRegistry = null,
+            ImageArtifactMaterializer? imageArtifactMaterializer = null)
             : this(
                 artifactStore,
                 secrets,
                 generationSecrets: null,
                 enhancer,
                 viewportHandler,
-                imageProviderRegistry)
+                imageProviderRegistry,
+                imageArtifactMaterializer)
         { }
 
         internal VisionHandler(
@@ -160,14 +164,16 @@ namespace Rook.Handlers
             IGenerationSecretStore generationSecrets,
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
-            IImageProviderRegistry? imageProviderRegistry = null)
+            IImageProviderRegistry? imageProviderRegistry = null,
+            ImageArtifactMaterializer? imageArtifactMaterializer = null)
             : this(
                 artifactStore,
                 new VisionSecretStore(generationSecrets),
                 generationSecrets,
                 enhancer,
                 viewportHandler,
-                imageProviderRegistry)
+                imageProviderRegistry,
+                imageArtifactMaterializer)
         { }
 
         private VisionHandler(
@@ -176,18 +182,22 @@ namespace Rook.Handlers
             IGenerationSecretStore? generationSecrets,
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
-            IImageProviderRegistry? imageProviderRegistry)
+            IImageProviderRegistry? imageProviderRegistry,
+            ImageArtifactMaterializer? imageArtifactMaterializer)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
             _generationSecrets = generationSecrets;
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
+            _imageArtifactMaterializer = imageArtifactMaterializer ?? new ImageArtifactMaterializer();
             _imageProviderRegistry = imageProviderRegistry
                 ?? new DefaultImageProviderRegistry(new IImageProviderRegistration[]
                 {
                     new GeminiImageProviderRegistration(
                         new GeminiImageProvider(GetGeminiApiKey)),
+                    new FalImageProviderRegistration(
+                        new FalImageProvider(GetFalApiKey)),
                 });
         }
 
@@ -196,6 +206,13 @@ namespace Rook.Handlers
             if (_generationSecrets is not null)
                 return _generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey);
             return _secrets.GetGeminiApiKey();
+        }
+
+        private string? GetFalApiKey()
+        {
+            if (_generationSecrets is not null)
+                return _generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey);
+            return null;
         }
 
         // ─── Synchronous dispatcher (capture_depth only) ────────────────
@@ -542,7 +559,8 @@ namespace Rook.Handlers
 
             if (submit is FailedSubmitOutcome failedSubmit)
             {
-                if (IsGeminiMissingApiKey(failedSubmit.Error))
+                if (IsGeminiMissingApiKey(failedSubmit.Error)
+                    || IsFalMissingApiKey(failedSubmit.Error))
                     return Fail(failedSubmit.Error.Message);
 
                 return Fail(
@@ -567,14 +585,30 @@ namespace Rook.Handlers
                 return Fail("Image generation failed. Provider returned an unknown result shape.");
             }
 
-            var providerArtifact = success.Envelope.Artifacts.FirstOrDefault();
-            if (providerArtifact?.Body is not InlineArtifactBody inline)
+            var providerArtifact = success.Envelope.Artifacts
+                .FirstOrDefault(a => string.Equals(
+                    a.Role,
+                    ImageMediaRoles.Image,
+                    StringComparison.Ordinal))
+                ?? success.Envelope.Artifacts.FirstOrDefault();
+            if (providerArtifact is null)
             {
-                return Fail("Image generation failed. Provider result did not contain an inline image artifact.");
+                return Fail("Image generation failed. Provider result did not contain an image artifact.");
             }
 
-            var imageBytes = inline.Bytes;
-            var mimeType = providerArtifact.DeclaredMimeType ?? "image/png";
+            var materialized = await _imageArtifactMaterializer
+                .MaterializeAsync(providerArtifact, cancellationToken)
+                .ConfigureAwait(false);
+            if (!materialized.Success || materialized.Bytes is null)
+            {
+                return Fail(
+                    "Image generation failed. " +
+                    GenericizeProviderError(materialized.Error?.Message
+                        ?? "Image artifact could not be materialized."));
+            }
+
+            var imageBytes = materialized.Bytes;
+            var mimeType = materialized.MimeType ?? "image/png";
             var extension = ExtensionForMime(mimeType);
             var generatedAt = DateTime.Now;
             var providerModel = MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
@@ -1805,6 +1839,14 @@ namespace Rook.Handlers
             return error.Code == GenerationErrorCode.DependencyUnavailable
                 && error.Message.StartsWith(
                     "Gemini API key is not configured.",
+                    StringComparison.Ordinal);
+        }
+
+        private static bool IsFalMissingApiKey(GenerationError error)
+        {
+            return error.Code == GenerationErrorCode.DependencyUnavailable
+                && error.Message.StartsWith(
+                    "fal API key is not configured.",
                     StringComparison.Ordinal);
         }
 
