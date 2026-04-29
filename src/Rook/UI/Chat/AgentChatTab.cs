@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Eto.Drawing;
@@ -25,6 +26,7 @@ namespace Rook.UI.Chat
         private ChatServiceHealth? _lastHealth;
         private readonly SemaphoreSlim _initializeGate = new SemaphoreSlim(1, 1);
         private bool _connectionBannerShown;
+        private string? _activeUIBlockId;
 
         public AgentChatTab(
             string persona,
@@ -299,6 +301,13 @@ namespace Rook.UI.Chat
                         break;
 
                     case "done":
+                        if (_activeUIBlockId != null)
+                        {
+                            var doneBlockId = _activeUIBlockId;
+                            _activeUIBlockId = null;
+                            ExecuteScript(
+                                $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(doneBlockId)}', {{state:'done', result_text:'Submitted'}})");
+                        }
                         FinalizeStreaming();
                         if (_lastHealth != null)
                         {
@@ -312,6 +321,7 @@ namespace Rook.UI.Chat
                         break;
 
                     case "error":
+                        MarkActiveUIBlockStale();
                         FinalizeStreaming();
                         AddMessageToChat("error", evt.Content ?? "Unknown error");
                         SetStatus("Error", Colors.Red);
@@ -358,6 +368,76 @@ namespace Rook.UI.Chat
         protected override void OnStopRequested()
         {
             _cts?.Cancel();
+        }
+
+        protected override async Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
+        {
+            if (_conversationBaseUri == null || string.IsNullOrEmpty(_conversationId))
+            {
+                return;
+            }
+
+            // Concurrency guard: if a UI block submission is already streaming,
+            // ignore the new click rather than canceling the in-flight stream.
+            // The server's 409 guard catches the race where two clicks both
+            // reach the endpoint; this short-circuit avoids opening a second
+            // doomed HTTP request and prevents accidental cancel of the first
+            // turn from a double-click.
+            if (_activeUIBlockId != null)
+            {
+                return;
+            }
+
+            _activeUIBlockId = blockId;
+            _cts = new CancellationTokenSource();
+            var textBuffer = new StringBuilder();
+            SetProcessing(true);
+
+            // Pass the raw JsonNode as the value payload — JsonSerializer
+            // round-trips JsonNode correctly into the request body.
+            object valuePayload = (object?)value ?? new { };
+
+            try
+            {
+                var currentDocument = GetCurrentDocumentSerialNumber();
+                await _client.SendUIResponseStreamingAsync(
+                    _conversationBaseUri,
+                    _conversationId,
+                    blockId,
+                    valuePayload,
+                    currentDocument,
+                    evt => HandleChatEvent(evt, textBuffer),
+                    _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                AddMessageToChat("error", $"UI block submission failed: {ex.Message}");
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                AddMessageToChat("error", ex.Message);
+                MarkActiveUIBlockStale();
+                SetProcessing(false);
+            }
+        }
+
+        private void MarkActiveUIBlockStale()
+        {
+            if (_activeUIBlockId == null) return;
+            var blockId = _activeUIBlockId;
+            _activeUIBlockId = null;
+            Application.Instance.Invoke(() =>
+            {
+                ExecuteScript(
+                    $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(blockId)}', {{state:'stale'}})");
+            });
         }
 
         protected override void OnClearRequested()
