@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -12,6 +15,7 @@ using Rook.Handlers;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 using Xunit;
 
@@ -298,6 +302,221 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Fact]
+        public async Task GenerateAsync_default_registry_resolves_fal_without_gemini_key()
+        {
+            var root = CreateTempRoot("rook-vision-generate-default-fal");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var handler = new VisionHandler(
+                    new ArtifactStore(Path.Combine(root, "artifacts")),
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler());
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "draw a quiet courtyard",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "fal-ai/flux/schnell",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.False(response.Success);
+                Assert.Equal(
+                    "fal API key is not configured. Set it via the Vision settings " +
+                    "before calling /vision/generate.",
+                    response.Data);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_exact_fal_model_id_wins_before_gemini_fallback()
+        {
+            var root = CreateTempRoot("rook-vision-generate-exact-fal");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var handler = new VisionHandler(
+                    new ArtifactStore(Path.Combine(root, "artifacts")),
+                    new InMemoryGenerationSecretStore(),
+                    new PromptEnhancer(),
+                    new ViewportHandler());
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "draw a quiet courtyard",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "fal-ai/flux/schnell",
+                      "resolution": "1K",
+                      "aspect_ratio": "4:3"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.False(response.Success);
+                var message = Assert.IsType<string>(response.Data);
+                Assert.Contains("fal API key is not configured", message);
+                Assert.DoesNotContain("Gemini", message);
+                Assert.DoesNotContain("Unknown image model", message);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_persists_remote_provider_artifact_through_materializer()
+        {
+            var root = CreateTempRoot("rook-vision-generate-remote-artifact");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var responseBytes = new byte[] { 0xFF, 0xD8, 0xFF };
+                var httpHandler = new CapturingHttpMessageHandler(_ =>
+                {
+                    var response = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(responseBytes),
+                    };
+                    response.Content.Headers.ContentType =
+                        new MediaTypeHeaderValue("image/png");
+                    return response;
+                });
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var provider = new FakeImageProvider(
+                    providerName: "fal",
+                    artifact: RemoteImageArtifact(
+                        "https://cdn.example.com/fal/out.jpg?token=secret",
+                        declaredMimeType: "image/jpeg"),
+                    envelopeMetadata: new Dictionary<string, JsonNode>
+                    {
+                        ["modelVersion"] = JsonValue.Create("fal-ai/flux/schnell")!,
+                    });
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: "fal",
+                        modelId: FalImageCapabilities.FluxSchnell,
+                        resolutions: new[] { "1K" },
+                        aspectRatios: new[] { "1:1" }),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new VisionSecretStore(new RookSettingsStore(
+                        Path.Combine(root, "RookSettings.json"))),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry,
+                    new ImageArtifactMaterializer(httpHandler));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "draw a quiet courtyard",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "fal-ai/flux/schnell",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.True(response.Success);
+                Assert.Equal("https://cdn.example.com/fal/out.jpg?token=secret",
+                    httpHandler.RequestUri!.ToString());
+                Assert.Null(httpHandler.Authorization);
+                var artifact = Assert.Single(artifactStore.List());
+                Assert.Equal("image/jpeg", artifact.Metadata["mime_type"]!.GetValue<string>());
+                Assert.Equal("fal-ai/flux/schnell", artifact.Metadata["model"]!.GetValue<string>());
+                var imagePath = artifactStore.GetBlobAbsolutePath(artifact.Id, "image");
+                Assert.Equal(responseBytes, File.ReadAllBytes(imagePath));
+                Assert.EndsWith(".jpg", imagePath, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_remote_materialization_failure_returns_sanitized_failure()
+        {
+            var root = CreateTempRoot("rook-vision-generate-remote-failure");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var httpHandler = new CapturingHttpMessageHandler(_ =>
+                    new HttpResponseMessage(HttpStatusCode.NotFound)
+                    {
+                        Content = new StringContent(
+                            "raw remote detail https://cdn.example.com/out.png?token=secret"),
+                    });
+                var artifactStore = new ArtifactStore(Path.Combine(root, "artifacts"));
+                var provider = new FakeImageProvider(
+                    providerName: "fal",
+                    artifact: RemoteImageArtifact(
+                        "https://cdn.example.com/out.png?token=secret"));
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: "fal",
+                        modelId: FalImageCapabilities.FluxSchnell,
+                        resolutions: new[] { "1K" },
+                        aspectRatios: new[] { "1:1" }),
+                });
+                var handler = new VisionHandler(
+                    artifactStore,
+                    new VisionSecretStore(new RookSettingsStore(
+                        Path.Combine(root, "RookSettings.json"))),
+                    new PromptEnhancer(),
+                    new ViewportHandler(),
+                    registry,
+                    new ImageArtifactMaterializer(httpHandler));
+                var args = ParseArgs($$"""
+                    {
+                      "prompt": "draw a quiet courtyard",
+                      "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                      "model": "fal-ai/flux/schnell",
+                      "resolution": "1K",
+                      "aspect_ratio": "1:1"
+                    }
+                    """);
+
+                var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+                Assert.False(response.Success);
+                Assert.Equal(
+                    "Image generation failed. Remote image artifact fetch failed with HTTP 404.",
+                    response.Data);
+                var message = Assert.IsType<string>(response.Data);
+                Assert.DoesNotContain("token", message);
+                Assert.Empty(artifactStore.List());
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
         // ─── Reveal artifact file ───────────────────────────────────────
 
         private static Dictionary<string, JsonElement> ParseArgs(string json)
@@ -305,9 +524,17 @@ namespace Rook.Tests.Handlers
 
         private sealed class FakeImageProvider : IImageProvider
         {
-            public FakeImageProvider(string providerName = GeminiImageCapabilities.ProviderName)
+            private readonly ResultArtifact? _artifact;
+            private readonly IReadOnlyDictionary<string, JsonNode>? _envelopeMetadata;
+
+            public FakeImageProvider(
+                string providerName = GeminiImageCapabilities.ProviderName,
+                ResultArtifact? artifact = null,
+                IReadOnlyDictionary<string, JsonNode>? envelopeMetadata = null)
             {
                 ProviderName = providerName;
+                _artifact = artifact;
+                _envelopeMetadata = envelopeMetadata;
             }
 
             public string ProviderName { get; }
@@ -321,25 +548,21 @@ namespace Rook.Tests.Handlers
             {
                 CapturedRequest = request;
                 CapturedMedia = resolvedMedia;
+                var artifact = _artifact ?? InlineImageArtifact(
+                    new byte[] { 1, 2, 3 },
+                    "image/png",
+                    "generated-by-provider");
+                var envelopeMetadata = _envelopeMetadata
+                    ?? new Dictionary<string, JsonNode>
+                    {
+                        ["modelVersion"] = JsonValue.Create("generated-by-provider")!,
+                    };
                 return Task.FromResult<ProviderSubmitOutcome>(
                     new SyncSubmitOutcome(
                         new SuccessResultOutcome(
                             new ProviderResultEnvelope(
-                                new[]
-                                {
-                                    new ResultArtifact(
-                                        Role: ImageMediaRoles.Image,
-                                        Body: new InlineArtifactBody(new byte[] { 1, 2, 3 }),
-                                        DeclaredMimeType: "image/png",
-                                        ProviderMetadata: new Dictionary<string, JsonNode>
-                                        {
-                                            ["model"] = JsonValue.Create("generated-by-provider")!,
-                                        }),
-                                },
-                                new Dictionary<string, JsonNode>
-                                {
-                                    ["modelVersion"] = JsonValue.Create("generated-by-provider")!,
-                                }))));
+                                new[] { artifact },
+                                envelopeMetadata))));
             }
 
             public Task<ProviderStatusOutcome> GetStatusAsync(
@@ -362,7 +585,9 @@ namespace Rook.Tests.Handlers
             public FakeImageProviderRegistration(
                 IImageProvider provider,
                 string providerName,
-                string modelId)
+                string modelId,
+                IReadOnlyList<string>? resolutions = null,
+                IReadOnlyList<string>? aspectRatios = null)
             {
                 Provider = provider;
                 ProviderName = providerName;
@@ -373,8 +598,8 @@ namespace Rook.Tests.Handlers
                             Id: modelId,
                             Name: modelId,
                             Status: "preview",
-                            Resolutions: new[] { "custom-resolution" },
-                            AspectRatios: new[] { "custom-aspect" },
+                            Resolutions: resolutions ?? new[] { "custom-resolution" },
+                            AspectRatios: aspectRatios ?? new[] { "custom-aspect" },
                             MaxReferenceImages: 0,
                             SupportsImageToImage: true,
                             SupportsTextToImage: true),
@@ -431,6 +656,74 @@ namespace Rook.Tests.Handlers
             var root = Path.Combine(Path.GetTempPath(), name + "-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             return root;
+        }
+
+        private static ResultArtifact InlineImageArtifact(
+            byte[] bytes,
+            string declaredMimeType,
+            string model) =>
+            new ResultArtifact(
+                Role: ImageMediaRoles.Image,
+                Body: new InlineArtifactBody(bytes),
+                DeclaredMimeType: declaredMimeType,
+                ProviderMetadata: new Dictionary<string, JsonNode>
+                {
+                    ["model"] = JsonValue.Create(model)!,
+                });
+
+        private static ResultArtifact RemoteImageArtifact(
+            string url,
+            string? declaredMimeType = null) =>
+            new ResultArtifact(
+                Role: ImageMediaRoles.Image,
+                Body: new RemoteArtifactBody(new Uri(url)),
+                DeclaredMimeType: declaredMimeType,
+                ProviderMetadata: new Dictionary<string, JsonNode>
+                {
+                    ["model"] = JsonValue.Create("fal-ai/flux/schnell")!,
+                });
+
+        private sealed class InMemoryGenerationSecretStore : IGenerationSecretStore
+        {
+            private readonly Dictionary<string, string> _secrets = new(StringComparer.Ordinal);
+
+            public string? GetSecret(string secretKey) =>
+                _secrets.TryGetValue(secretKey, out var value) ? value : null;
+
+            public void SetSecret(string secretKey, string value) =>
+                _secrets[secretKey] = value;
+
+            public void RemoveSecret(string secretKey) =>
+                _secrets.Remove(secretKey);
+
+            public bool HasSecret(string secretKey) =>
+                _secrets.ContainsKey(secretKey);
+
+            public string? GetPreview(string secretKey) =>
+                HasSecret(secretKey) ? "test-preview" : null;
+        }
+
+        private sealed class CapturingHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly Func<HttpRequestMessage, HttpResponseMessage> _onSend;
+
+            public CapturingHttpMessageHandler(
+                Func<HttpRequestMessage, HttpResponseMessage> onSend)
+            {
+                _onSend = onSend;
+            }
+
+            public Uri? RequestUri { get; private set; }
+            public AuthenticationHeaderValue? Authorization { get; private set; }
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                RequestUri = request.RequestUri;
+                Authorization = request.Headers.Authorization;
+                return Task.FromResult(_onSend(request));
+            }
         }
 
         [Fact]
