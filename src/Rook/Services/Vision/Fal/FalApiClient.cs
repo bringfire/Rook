@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -46,9 +47,13 @@ namespace Rook.Services.Vision.Fal
             if (url is null) throw new ArgumentNullException(nameof(url));
             if (!url.IsAbsoluteUri)
                 throw new ArgumentException("fal URL must be absolute.", nameof(url));
-            if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+            if (url.Scheme != Uri.UriSchemeHttps)
                 throw new ArgumentException(
-                    $"fal URL must use http or https scheme; got '{url.Scheme}'.",
+                    $"fal URL must use https scheme; got '{url.Scheme}'.",
+                    nameof(url));
+            if (!IsAllowedFalHost(url.Host))
+                throw new ArgumentException(
+                    $"fal URL host must be fal.run or a fal.run subdomain; got '{url.Host}'.",
                     nameof(url));
 
             using var request = new HttpRequestMessage(method, url);
@@ -70,6 +75,10 @@ namespace Rook.Services.Vision.Fal
                 CopyHeaders(response));
         }
 
+        private static bool IsAllowedFalHost(string host) =>
+            string.Equals(host, "fal.run", StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith(".fal.run", StringComparison.OrdinalIgnoreCase);
+
         private static IReadOnlyDictionary<string, IReadOnlyList<string>> CopyHeaders(
             HttpResponseMessage response)
         {
@@ -77,15 +86,17 @@ namespace Rook.Services.Vision.Fal
                 StringComparer.OrdinalIgnoreCase);
 
             foreach (var header in response.Headers)
-                headers[header.Key] = new List<string>(header.Value).ToArray();
+                headers[header.Key] = new ReadOnlyCollection<string>(
+                    new List<string>(header.Value));
 
             if (response.Content is not null)
             {
                 foreach (var header in response.Content.Headers)
-                    headers[header.Key] = new List<string>(header.Value).ToArray();
+                    headers[header.Key] = new ReadOnlyCollection<string>(
+                        new List<string>(header.Value));
             }
 
-            return headers;
+            return new ReadOnlyDictionary<string, IReadOnlyList<string>>(headers);
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace Rook.Services.Vision.Fal
 {
@@ -20,9 +21,10 @@ namespace Rook.Services.Vision.Fal
                 StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in headers)
             {
-                copy[kvp.Key] = new List<string>(kvp.Value).ToArray();
+                copy[kvp.Key] = new ReadOnlyCollection<string>(
+                    new List<string>(kvp.Value));
             }
-            Headers = copy;
+            Headers = new ReadOnlyDictionary<string, IReadOnlyList<string>>(copy);
         }
 
         public int StatusCode { get; }
