@@ -513,6 +513,10 @@
                     resultText.textContent = updates.result_text;
                 }
             } else if (updates.state === 'stale') {
+                // Remove 'executing' too — otherwise an optimistic spinner
+                // can persist alongside the stale class. (See 2026-04-29
+                // round-trip plan: callers add 'executing' before submit.)
+                block.classList.remove('executing');
                 block.classList.add('ui-block--stale');
             }
 
@@ -536,23 +540,29 @@
         // ═══════════════════════════════════════════════════════════
 
         function sendUIResponse(blockId, value) {
-            if (!_conversationId || !_servicePort) return;
+            // Route through the C# bridge so the streaming agent reaction
+            // can flow back through the existing chatAPI dispatch path.
+            // (Direct fetch was fire-and-forget and had no consumer for
+            // streamed events — see 2026-04-29 round-trip plan.)
             try {
-                var headers = { 'Content-Type': 'application/json' };
-                if (window.__rookSessionNonce) {
-                    headers['X-Rook-Session'] = window.__rookSessionNonce;
+                if (!window.rookBridge || typeof window.rookBridge.invoke !== 'function') {
+                    // No bridge — mark the block stale so the spinner clears.
+                    updateUIBlock(blockId, { state: 'stale' });
+                    return;
                 }
-                fetch('http://' + _serviceHost + ':' + _servicePort + '/agent/chat/ui-response', {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({
-                        conversation_id: _conversationId,
-                        block_id: blockId,
-                        value: value,
-                    }),
-                });
+                var result = window.rookBridge.invoke('ui_block_submit', { blockId: blockId, value: value });
+                // rookBridge.invoke returns a Promise. The bridge handler
+                // intentionally returns null (streaming events flow back
+                // separately), but we still attach .catch so unknown
+                // handler / dispatch errors don't become silent unhandled
+                // promise rejections while the optimistic spinner remains.
+                if (result && typeof result.catch === 'function') {
+                    result.catch(function(_err) {
+                        updateUIBlock(blockId, { state: 'stale' });
+                    });
+                }
             } catch (e) {
-                // Best-effort; don't break the UI
+                updateUIBlock(blockId, { state: 'stale' });
             }
         }
 
@@ -568,22 +578,25 @@
                 inputs.forEach(function(inp) { value[inp.id] = inp.value; });
             }
 
-            sendUIResponse(blockId, value);
+            // Add optimistic 'executing' BEFORE dispatch so a synchronous
+            // bridge failure inside sendUIResponse can transition the block
+            // to 'stale' from a known-good baseline.
             block.classList.add('executing');
+            sendUIResponse(blockId, value);
         }
 
         function handleBlockAction(blockId, actionValue) {
-            sendUIResponse(blockId, actionValue);
             var block = document.getElementById('ui-block-' + blockId);
             if (block) block.classList.add('executing');
+            sendUIResponse(blockId, actionValue);
         }
 
         function handleBlockTextSubmit(blockId) {
             var input = document.getElementById(blockId + '-input');
             var value = input ? input.value : '';
-            sendUIResponse(blockId, value);
             var block = document.getElementById('ui-block-' + blockId);
             if (block) block.classList.add('executing');
+            sendUIResponse(blockId, value);
         }
 
         function handleBlockCancel(blockId) {
