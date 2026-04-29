@@ -14,21 +14,24 @@ For definitions with 10+ components:
 2. **Build in dependency order** using `gh_edit` -- create all components, wiring, and values in atomic batches
    - New components use T-prefixed temp IDs (T1, T2, ...) within each edit
    - Start with input components: `type: "slider"` for numbers, `type: "panel"` for text
-   - Then processing components: `"component": "Series"`, `"component": "Cross Reference"`, etc.
-   - Finally output/display components: `"component": "Custom Preview"`
+   - Then processing components: `"name": "Series"`, `"name": "Cross Reference"`, etc.
+   - Finally output/display components: `"name": "Custom Preview"`
    - Wire them using flow strings: `"T1.O0>T2.I1"` (source.Output > target.Input)
 
    Example -- create inputs and a processing component in one atomic call:
    ```json
    {
+     "epoch": 7,
      "create": [
-       {"id": "T1", "type": "slider", "nickname": "Count", "min": 1, "max": 50, "value": 10, "x": 50, "y": 0},
-       {"id": "T2", "type": "slider", "nickname": "Step", "min": 0.1, "max": 5.0, "value": 1.0, "x": 50, "y": 80},
-       {"id": "T3", "component": "Series", "x": 300, "y": 40}
+       {"temp_id": "T1", "type": "slider", "nick": "Count", "min": 1, "max": 50, "value": 10, "pos": [50, 0]},
+       {"temp_id": "T2", "type": "slider", "nick": "Step", "min": 0.1, "max": 5.0, "value": 1.0, "pos": [50, 80]},
+       {"temp_id": "T3", "name": "Series", "pos": [300, 40]}
      ],
      "connect": ["T1.O0>T3.I1", "T2.O0>T3.I2"]
    }
    ```
+
+   Field-name reminders: `temp_id` (not `id`), `name` (not `component`), `nick` (not `nickname`), `pos: [x, y]` (not flat `x`/`y`), and `epoch` is required at the top level. `gh_move.positions` uses flat `x`/`y` instead — the two tools have different shapes.
 
 3. **Wire incrementally and verify**
    - After each `gh_edit`, check `gh_errors` for issues
