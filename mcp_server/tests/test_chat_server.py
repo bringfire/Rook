@@ -358,6 +358,104 @@ def test_message_disconnect_closes_turn_generator_before_return():
     assert json.loads(conv.messages[2]["content"]) == {"error": "cancelled by user"}
 
 
+def test_message_disconnect_at_tool_result_preserves_actual_result():
+    """If the tool completed, disconnect cleanup must keep its real result."""
+    import asyncio
+
+    class FakeRequest:
+        def __init__(self, app, body):
+            self.app = app
+            self._body = body
+
+        async def json(self):
+            return self._body
+
+    class DisconnectOnSecondWriteStreamResponse:
+        writes: list[bytes] = []
+
+        def __init__(self, *args, **kwargs):
+            self.status = kwargs.get("status", 200)
+
+        async def prepare(self, request):
+            return None
+
+        async def write(self, data):
+            self.__class__.writes.append(data)
+            if len(self.__class__.writes) == 2:
+                raise ConnectionResetError()
+
+        async def write_eof(self):
+            return None
+
+    async def _stream():
+        chunk = MagicMock()
+        delta = MagicMock()
+        delta.content = None
+        tc_delta = MagicMock()
+        tc_delta.index = 0
+        tc_delta.id = "toolu_result_disconnect"
+        tc_delta.function.name = "rhino_ping"
+        tc_delta.function.arguments = "{}"
+        delta.tool_calls = [tc_delta]
+        choice = MagicMock()
+        choice.delta = delta
+        chunk.choices = [choice]
+        chunk.usage = None
+        yield chunk
+
+        usage_chunk = MagicMock()
+        usage_chunk.choices = []
+        usage_chunk.usage = MagicMock(prompt_tokens=1, completion_tokens=1)
+        yield usage_chunk
+
+    async def _exercise():
+        store = ConversationStore()
+        conv = store.create("worker")
+        conv.model = "test-model"
+        runner = ChatRunner(
+            tool_executor=AsyncMock(return_value={"ok": True, "actual": "preserve me"})
+        )
+        app = {
+            chat_server._STORE_KEY: store,
+            chat_server._BUILDER_KEY: PromptBuilder(),
+            chat_server._RUNNER_KEY: runner,
+            chat_server._RHINO_PROCESS_ID_KEY: 0,
+        }
+        request = FakeRequest(app, {
+            "conversation_id": conv.id,
+            "message": "ping",
+        })
+
+        with patch(
+            "rook.agent.chat.server.web.StreamResponse",
+            DisconnectOnSecondWriteStreamResponse,
+        ), patch(
+            "rook.agent.chat.chat_runner.litellm.acompletion",
+            new=AsyncMock(return_value=_stream()),
+        ), patch(
+            "rook.agent.chat.chat_runner.collect_runtime_facts",
+            new=AsyncMock(return_value={"rhino": {"connected": False}, "prompt": {"available": False}}),
+        ):
+            response = await chat_server.handle_message(request)
+
+        return conv, response, DisconnectOnSecondWriteStreamResponse.writes
+
+    conv, response, writes = asyncio.run(_exercise())
+
+    assert response.status == 200
+    assert conv.abort_event.is_set()
+    assert conv.active_run_id is None
+    assert len(writes) == 2
+    assert b'"type": "tool_result"' in writes[1]
+    assert b"preserve me" in writes[1]
+    assert [m.get("role") for m in conv.messages] == ["user", "assistant", "tool"]
+    assert conv.messages[2]["tool_call_id"] == "toolu_result_disconnect"
+    assert json.loads(conv.messages[2]["content"]) == {
+        "ok": True,
+        "actual": "preserve me",
+    }
+
+
 class TestChatServerWithNonce(AioHTTPTestCase):
     """Tests with session nonce enforcement enabled."""
 

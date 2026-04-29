@@ -673,6 +673,16 @@ class ChatRunner:
                         _verified = result.get("verified")
                         _verification_note = result.get("verification_note")
 
+                    # Commit the completed result before yielding it. If the
+                    # client disconnects while the event is being written, the
+                    # server closes this generator and the repair pass must see
+                    # the real result, not synthesize a cancellation.
+                    conversation.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_str,
+                    })
+
                     yield ChatEvent(
                         "tool_result",
                         name=tool_name,
@@ -681,13 +691,6 @@ class ChatRunner:
                         verified=_verified,
                         verification_note=_verification_note,
                     )
-
-                    # Add tool result to history
-                    conversation.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result_str,
-                    })
 
                 # Track consecutive meta-only rounds (tool discovery loops)
                 if meta_only_round:
