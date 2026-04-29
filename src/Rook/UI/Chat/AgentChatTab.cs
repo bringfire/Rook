@@ -372,23 +372,37 @@ namespace Rook.UI.Chat
 
         protected override async Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
         {
-            if (_conversationBaseUri == null || string.IsNullOrEmpty(_conversationId))
+            // Capture refs into locals after the null check — fields can be
+            // mutated (cleared on tab close) between check and use, and the
+            // local-capture pattern also satisfies the C# 11 nullable analyzer
+            // since field reads aren't tracked across awaits.
+            var baseUri = _conversationBaseUri;
+            var conversationId = _conversationId;
+            if (baseUri == null || string.IsNullOrEmpty(conversationId))
             {
                 return;
             }
 
-            // Concurrency guard: if a UI block submission is already streaming,
-            // ignore the new click rather than canceling the in-flight stream.
-            // The server's 409 guard catches the race where two clicks both
-            // reach the endpoint; this short-circuit avoids opening a second
-            // doomed HTTP request and prevents accidental cancel of the first
-            // turn from a double-click.
-            if (_activeUIBlockId != null)
+            // Refuse if ANY chat work is in flight — a typed /message stream
+            // OR another UI block submission. Without this guard, a click on
+            // Apply during a typed-message stream would overwrite _cts and
+            // orphan the original stream's cancel token (Stop button would
+            // no longer cancel it). Mark the just-clicked block stale so its
+            // optimistic spinner clears.
+            if (IsProcessing || _activeUIBlockId != null)
             {
+                Application.Instance.Invoke(() =>
+                {
+                    ExecuteScript(
+                        $"window.chatAPI.updateUIBlock('{EscapeForJavaScript(blockId)}', {{state:'stale'}})");
+                });
                 return;
             }
 
             _activeUIBlockId = blockId;
+            // Dispose the previous (completed) CTS before replacing — the
+            // IsProcessing guard above ensures no live stream is using it.
+            _cts?.Dispose();
             _cts = new CancellationTokenSource();
             var textBuffer = new StringBuilder();
             SetProcessing(true);
@@ -401,8 +415,8 @@ namespace Rook.UI.Chat
             {
                 var currentDocument = GetCurrentDocumentSerialNumber();
                 await _client.SendUIResponseStreamingAsync(
-                    _conversationBaseUri,
-                    _conversationId,
+                    baseUri,
+                    conversationId!,
                     blockId,
                     valuePayload,
                     currentDocument,

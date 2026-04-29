@@ -280,6 +280,16 @@ namespace Rook.UI.Chat
             });
         }
 
+        /// <summary>
+        /// Read-only view of the chat-tab's processing state for subclasses
+        /// that need to coordinate side-channel input (e.g. WebView UI block
+        /// submissions) with the typed-message lifecycle. The base class
+        /// already disables the input area / Send button while processing,
+        /// but a WebView's Apply button is not gated by Eto controls and
+        /// can fire while a typed message is in flight.
+        /// </summary>
+        protected bool IsProcessing => _isProcessing;
+
         protected void SetProcessing(bool processing)
         {
             _isProcessing = processing;
