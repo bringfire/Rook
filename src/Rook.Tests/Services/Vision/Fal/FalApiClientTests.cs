@@ -38,6 +38,7 @@ namespace Rook.Tests.Services.Vision.Fal
             Assert.Equal("Key", request.Headers.Authorization!.Scheme);
             Assert.Equal("test-key", request.Headers.Authorization.Parameter);
             Assert.Equal("application/json", request.Content!.Headers.ContentType!.MediaType);
+            Assert.Equal("{\"prompt\":\"red cube\"}", await request.Content.ReadAsStringAsync());
         }
 
         [Fact]
@@ -51,7 +52,7 @@ namespace Rook.Tests.Services.Vision.Fal
                     {
                         Content = new StringContent("{\"status\":\"COMPLETED\"}", Encoding.UTF8, "application/json"),
                     };
-                    response.Headers.TryAddWithoutValidation("x-fal-billable-units", "2.0");
+                    response.Headers.TryAddWithoutValidation("X-Fal-Billable-Units", "2.0");
                     return response;
                 },
             };
