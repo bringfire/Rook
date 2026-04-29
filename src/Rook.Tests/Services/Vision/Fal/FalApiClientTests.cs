@@ -122,8 +122,11 @@ namespace Rook.Tests.Services.Vision.Fal
             Assert.Empty(handler.Requests);
         }
 
-        [Fact]
-        public async Task SendAsync_rejects_non_fal_https_urls_before_adding_auth()
+        [Theory]
+        [InlineData("https://example.com/status/abc")]
+        [InlineData("https://evilfal.run/status/abc")]
+        [InlineData("https://fal.run.evil.com/status/abc")]
+        public async Task SendAsync_rejects_non_fal_https_urls_before_adding_auth(string url)
         {
             var handler = new TestHttpMessageHandler();
             var client = new FalApiClient(new HttpClient(handler));
@@ -131,7 +134,7 @@ namespace Rook.Tests.Services.Vision.Fal
             await Assert.ThrowsAsync<ArgumentException>(
                 async () => await client.GetAsync(
                     "test-key",
-                    new Uri("https://example.com/status/abc"),
+                    new Uri(url),
                     CancellationToken.None));
 
             Assert.Empty(handler.Requests);
