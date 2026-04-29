@@ -60,7 +60,6 @@ namespace Rook.Services.Vision.Fal
 
             return FalNeedsRetry(headers)
                 || statusCode == 408
-                || statusCode == 429
                 || statusCode >= 500;
         }
 

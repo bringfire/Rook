@@ -76,12 +76,44 @@ namespace Rook.Tests.Services.Vision.Fal
         }
 
         [Fact]
-        public void Maps_429_to_quota_exceeded_retryable()
+        public void Maps_429_to_quota_exceeded_non_retryable_without_retry_signal()
         {
             var error = FalErrorMapper.MapHttpFailure(new FalHttpResponse(
                 429,
                 "{\"detail\":\"rate limited\"}",
                 new Dictionary<string, IReadOnlyList<string>>()));
+
+            Assert.Equal(GenerationErrorCode.QuotaExceeded, error.Code);
+            Assert.False(error.Retryable);
+            Assert.Equal("429", error.ProviderErrorCode);
+        }
+
+        [Fact]
+        public void Maps_429_to_quota_exceeded_non_retryable_when_retry_signal_is_false()
+        {
+            var error = FalErrorMapper.MapHttpFailure(new FalHttpResponse(
+                429,
+                "{\"detail\":\"rate limited\"}",
+                new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["x-fal-needs-retry"] = new[] { "false" },
+                }));
+
+            Assert.Equal(GenerationErrorCode.QuotaExceeded, error.Code);
+            Assert.False(error.Retryable);
+            Assert.Equal("429", error.ProviderErrorCode);
+        }
+
+        [Fact]
+        public void Maps_429_to_quota_exceeded_retryable_when_retry_signal_is_true()
+        {
+            var error = FalErrorMapper.MapHttpFailure(new FalHttpResponse(
+                429,
+                "{\"detail\":\"rate limited\"}",
+                new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["x-fal-needs-retry"] = new[] { "true" },
+                }));
 
             Assert.Equal(GenerationErrorCode.QuotaExceeded, error.Code);
             Assert.True(error.Retryable);

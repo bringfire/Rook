@@ -1306,7 +1306,14 @@ namespace Rook.Services.Vision.Fal
             if (state == GenerationLifecycleState.Pending
                 || state == GenerationLifecycleState.Running)
             {
-                var queuePosition = OptionalInt(root, "queue_position");
+                if (!TryOptionalQueuePosition(root, out var queuePosition))
+                {
+                    return new FailedStatusOutcome(new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal status body had invalid queue_position.",
+                        Retryable: false));
+                }
+
                 return new InFlightStatusOutcome(
                     state,
                     queuePosition is null
@@ -1344,13 +1351,26 @@ namespace Rook.Services.Vision.Fal
         private static string? OptionalString(JsonObject root, string name)
         {
             var node = root[name];
-            return node is null ? null : node.GetValue<string>();
+            return node is JsonValue value && value.TryGetValue<string>(out var stringValue)
+                ? stringValue
+                : null;
         }
 
-        private static int? OptionalInt(JsonObject root, string name)
+        private static bool TryOptionalQueuePosition(JsonObject root, out int? queuePosition)
         {
-            var node = root[name];
-            return node is null ? null : node.GetValue<int>();
+            queuePosition = null;
+            if (!root.TryGetPropertyValue("queue_position", out var node))
+                return true;
+
+            if (node is not JsonValue value
+                || !value.TryGetValue<int>(out var intValue)
+                || intValue < 0)
+            {
+                return false;
+            }
+
+            queuePosition = intValue;
+            return true;
         }
 
         private static Uri? OptionalUri(JsonObject root, string name)
@@ -1514,6 +1534,8 @@ Create `src/Rook/Services/Vision/Fal/FalErrorMapper.cs`:
 ```csharp
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rook.Services.Vision.Generation;
@@ -1526,79 +1548,90 @@ namespace Rook.Services.Vision.Fal
         {
             if (response is null) throw new ArgumentNullException(nameof(response));
 
-            var code = response.StatusCode switch
-            {
-                400 => GenerationErrorCode.InvalidRequest,
-                401 => GenerationErrorCode.DependencyUnavailable,
-                403 => GenerationErrorCode.DependencyUnavailable,
-                422 => GenerationErrorCode.InvalidRequest,
-                429 => GenerationErrorCode.QuotaExceeded,
-                >= 500 => GenerationErrorCode.DependencyUnavailable,
-                _ => GenerationErrorCode.ExecutionFailed,
-            };
-
-            var retryable = NeedsRetry(response.Headers)
-                || response.StatusCode == 408
-                || response.StatusCode == 429
-                || response.StatusCode >= 500;
-
-            if (response.StatusCode == 401 || response.StatusCode == 403)
-                retryable = false;
-            if (response.StatusCode == 400 || response.StatusCode == 422)
-                retryable = false;
-
-            var detail = ParseBody(response.Body);
+            var statusCode = response.StatusCode;
             return new GenerationError(
-                code,
-                BuildMessage(response.StatusCode, detail, response.Body),
-                retryable,
-                ProviderErrorCode: response.StatusCode.ToString(),
-                ProviderDetail: detail);
+                MapErrorCode(statusCode),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "fal request failed with HTTP {0}.",
+                    statusCode),
+                IsRetryable(statusCode, response.Headers),
+                ProviderErrorCode: statusCode.ToString(CultureInfo.InvariantCulture),
+                ProviderDetail: TryParseProviderDetail(response.Body));
         }
 
-        private static bool NeedsRetry(
+        private static GenerationErrorCode MapErrorCode(int statusCode)
+        {
+            switch (statusCode)
+            {
+                case 400:
+                case 422:
+                    return GenerationErrorCode.InvalidRequest;
+                case 401:
+                case 403:
+                    return GenerationErrorCode.DependencyUnavailable;
+                case 429:
+                    return GenerationErrorCode.QuotaExceeded;
+                default:
+                    return statusCode >= 500
+                        ? GenerationErrorCode.DependencyUnavailable
+                        : GenerationErrorCode.ExecutionFailed;
+            }
+        }
+
+        private static bool IsRetryable(
+            int statusCode,
             IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
         {
-            foreach (var kvp in headers)
+            switch (statusCode)
             {
-                if (!string.Equals(kvp.Key, "x-fal-needs-retry",
-                        StringComparison.OrdinalIgnoreCase))
-                    continue;
-                return kvp.Value.Count > 0
-                    && string.Equals(kvp.Value[0], "true", StringComparison.OrdinalIgnoreCase);
+                case 400:
+                case 401:
+                case 403:
+                case 422:
+                    return false;
             }
-            return false;
+
+            return FalNeedsRetry(headers)
+                || statusCode == 408
+                || statusCode >= 500;
         }
 
-        private static IReadOnlyDictionary<string, JsonNode>? ParseBody(string body)
+        private static bool FalNeedsRetry(
+            IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
+        {
+            if (!headers.TryGetValue("x-fal-needs-retry", out var values)
+                || values.Count == 0)
+            {
+                return false;
+            }
+
+            return bool.TryParse(values[0], out var needsRetry) && needsRetry;
+        }
+
+        private static IReadOnlyDictionary<string, JsonNode>? TryParseProviderDetail(
+            string body)
         {
             if (string.IsNullOrWhiteSpace(body))
                 return null;
+
             try
             {
-                var root = JsonNode.Parse(body);
-                if (root is not JsonObject obj)
+                if (JsonNode.Parse(body) is not JsonObject root)
                     return null;
+
                 var dict = new Dictionary<string, JsonNode>();
-                foreach (var kvp in obj)
+                foreach (var kvp in root)
                 {
-                    if (kvp.Value is not null)
-                        dict[kvp.Key] = kvp.Value.DeepClone();
+                    dict[kvp.Key] = kvp.Value?.DeepClone()!;
                 }
-                return dict;
+
+                return new ReadOnlyDictionary<string, JsonNode>(dict);
             }
             catch (JsonException)
             {
                 return null;
             }
-        }
-
-        private static string BuildMessage(
-            int statusCode,
-            IReadOnlyDictionary<string, JsonNode>? detail,
-            string body)
-        {
-            return $"fal request failed with HTTP {statusCode}.";
         }
     }
 }
@@ -1617,28 +1650,47 @@ namespace Rook.Services.Vision.Fal
 {
     public static class FalPricingHelpers
     {
+        private const string BillableUnitsHeader = "x-fal-billable-units";
+        private const NumberStyles BillableUnitsStyles =
+            NumberStyles.AllowLeadingWhite
+            | NumberStyles.AllowTrailingWhite
+            | NumberStyles.AllowDecimalPoint;
+
         public static bool TryGetBillableUnits(
             IReadOnlyDictionary<string, IReadOnlyList<string>> headers,
             out decimal units)
         {
             if (headers is null) throw new ArgumentNullException(nameof(headers));
 
+            units = 0m;
             foreach (var kvp in headers)
             {
-                if (!string.Equals(kvp.Key, "x-fal-billable-units",
+                if (!string.Equals(
+                        kvp.Key,
+                        BillableUnitsHeader,
                         StringComparison.OrdinalIgnoreCase))
+                {
                     continue;
+                }
 
-                if (kvp.Value.Count > 0
-                    && decimal.TryParse(
+                if (kvp.Value.Count == 0)
+                    return false;
+
+                if (decimal.TryParse(
                         kvp.Value[0],
-                        NumberStyles.Number,
+                        BillableUnitsStyles,
                         CultureInfo.InvariantCulture,
-                        out units))
+                        out var parsedUnits)
+                    && parsedUnits >= 0m)
+                {
+                    units = parsedUnits;
                     return true;
+                }
+
+                units = 0m;
+                return false;
             }
 
-            units = 0m;
             return false;
         }
     }
