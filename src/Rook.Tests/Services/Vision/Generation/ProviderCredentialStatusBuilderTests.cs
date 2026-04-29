@@ -7,6 +7,57 @@ namespace Rook.Tests.Services.Vision.Generation
 {
     public class ProviderCredentialStatusBuilderTests
     {
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Empty_or_whitespace_provider_name_throws_argument_exception(
+            string providerName)
+        {
+            var ex = Assert.Throws<ArgumentException>(() =>
+                ProviderCredentialStatusBuilder.Build(
+                    providerName,
+                    new[] { new ProviderSecretRequirement("provider.api_key", "API key", true) },
+                    new FakeSecretStore()));
+
+            Assert.Equal("providerName", ex.ParamName);
+        }
+
+        [Fact]
+        public void Null_requirements_throws_argument_null_exception()
+        {
+            var ex = Assert.Throws<ArgumentNullException>(() =>
+                ProviderCredentialStatusBuilder.Build(
+                    "provider",
+                    null!,
+                    new FakeSecretStore()));
+
+            Assert.Equal("requirements", ex.ParamName);
+        }
+
+        [Fact]
+        public void Null_secret_store_throws_argument_null_exception()
+        {
+            var ex = Assert.Throws<ArgumentNullException>(() =>
+                ProviderCredentialStatusBuilder.Build(
+                    "provider",
+                    new[] { new ProviderSecretRequirement("provider.api_key", "API key", true) },
+                    null!));
+
+            Assert.Equal("secretStore", ex.ParamName);
+        }
+
+        [Fact]
+        public void Null_requirement_entry_throws_argument_exception()
+        {
+            var ex = Assert.Throws<ArgumentException>(() =>
+                ProviderCredentialStatusBuilder.Build(
+                    "provider",
+                    new ProviderSecretRequirement[] { null! },
+                    new FakeSecretStore()));
+
+            Assert.Equal("requirements", ex.ParamName);
+        }
+
         [Fact]
         public void Missing_required_secret_blocks_provider()
         {
@@ -28,6 +79,19 @@ namespace Rook.Tests.Services.Vision.Generation
                 status.Availability);
             Assert.Equal(ProviderSecretPresence.Missing, status.Secrets[0].Presence);
             Assert.Equal(ProviderSecretPresence.Present, status.Secrets[1].Presence);
+        }
+
+        [Fact]
+        public void Missing_required_secret_sets_provider_message()
+        {
+            var status = ProviderCredentialStatusBuilder.Build(
+                "provider",
+                new[] { new ProviderSecretRequirement("provider.api_key", "API key", true) },
+                new FakeSecretStore());
+
+            Assert.Equal(
+                "Missing required credential: API key.",
+                status.Message);
         }
 
         [Fact]
@@ -71,6 +135,49 @@ namespace Rook.Tests.Services.Vision.Generation
             Assert.Equal(
                 ProviderCredentialAvailability.InvalidCredential,
                 status.Availability);
+        }
+
+        [Fact]
+        public void Required_invalid_validation_uses_validation_message_as_provider_message()
+        {
+            var store = new FakeSecretStore();
+            store.SetSecret("provider.api_key", "value");
+            var validations = new Dictionary<string, ProviderSecretValidationState>
+            {
+                ["provider.api_key"] = ProviderSecretValidationState.Invalid,
+            };
+            var validationMessages = new Dictionary<string, string>
+            {
+                ["provider.api_key"] = "Provider rejected the API key.",
+            };
+
+            var status = ProviderCredentialStatusBuilder.Build(
+                "provider",
+                new[] { new ProviderSecretRequirement("provider.api_key", "API key", true) },
+                store,
+                validations,
+                validationMessages);
+
+            Assert.Equal("Provider rejected the API key.", status.Message);
+        }
+
+        [Fact]
+        public void Required_invalid_validation_without_message_sets_fallback_provider_message()
+        {
+            var store = new FakeSecretStore();
+            store.SetSecret("provider.api_key", "value");
+            var validations = new Dictionary<string, ProviderSecretValidationState>
+            {
+                ["provider.api_key"] = ProviderSecretValidationState.Invalid,
+            };
+
+            var status = ProviderCredentialStatusBuilder.Build(
+                "provider",
+                new[] { new ProviderSecretRequirement("provider.api_key", "API key", true) },
+                store,
+                validations);
+
+            Assert.Equal("Invalid credential: API key.", status.Message);
         }
 
         [Fact]
