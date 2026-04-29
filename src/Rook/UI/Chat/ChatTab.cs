@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
@@ -77,6 +78,17 @@ namespace Rook.UI.Chat
         protected virtual void OnClearRequested()
         {
         }
+
+        /// <summary>
+        /// Called when the WebView's UI block submits a value (Apply click,
+        /// button choice, text input, confirmation). Default is no-op so
+        /// non-agent ChatTab subclasses don't need to handle it. AgentChatTab
+        /// overrides to run a streaming agent turn. Returns a Task so the
+        /// bridge handler can await completion (or fire-and-forget with
+        /// observed exceptions); avoids the brittle `async void` pattern.
+        /// </summary>
+        protected virtual Task OnUIBlockSubmitAsync(string blockId, JsonNode? value)
+            => Task.CompletedTask;
 
         // ─── Constructor ──────────────────────────────────────────────
 
@@ -373,7 +385,30 @@ namespace Rook.UI.Chat
         {
             private readonly ChatTab _owner;
 
-            public ChatWebSurface(ChatTab owner) => _owner = owner;
+            public ChatWebSurface(ChatTab owner)
+            {
+                _owner = owner;
+                RegisterBridgeHandler("ui_block_submit", HandleUIBlockSubmit);
+            }
+
+            private async Task<JsonNode?> HandleUIBlockSubmit(JsonNode? args)
+            {
+                // Bridge invokes are RPC-shaped, but UI block submission triggers
+                // a long-running streaming agent turn. We await OnUIBlockSubmitAsync
+                // so exceptions surface to the dispatcher's logger; the streaming
+                // events themselves flow back to the WebView via ExecuteScript
+                // inside HandleChatEvent — not through this return value.
+                if (args is JsonObject obj)
+                {
+                    var blockId = obj["blockId"]?.GetValue<string>();
+                    var value = obj["value"];
+                    if (!string.IsNullOrEmpty(blockId))
+                    {
+                        await _owner.OnUIBlockSubmitAsync(blockId!, value);
+                    }
+                }
+                return null;
+            }
 
             protected override string ResourceRoot => "Rook.UI.Chat.Resources";
             protected override string EntryPage => "chat.html";
