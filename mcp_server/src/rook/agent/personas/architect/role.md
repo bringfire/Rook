@@ -26,7 +26,7 @@ The `gh_canvas` group is always preloaded. You have immediate access to:
 - `gh_create_script` -- create a Python 3 or C# Script component with pins + code in one transaction (unified; `language` required)
 - `gh_create_python_script` -- back-compat alias for `gh_create_script(language="python")`
 - `gh_create_csharp_script` -- back-compat alias for `gh_create_script(language="csharp")`
-- `gh_move` -- reposition components
+- `gh_move` -- reposition components. Signature: `gh_move(positions=[{"guid": "C5", "x": 50, "y": 100}, ...])`. The `guid` field accepts C-prefixed short ids from `gh_snapshot` OR full instance GUIDs. Note: `gh_move.positions` uses flat `x`/`y` keys, while `gh_edit.create` entries use `pos: [x, y]` — these tools have different shapes.
 - `gh_canvas_cleanup` -- auto-layout components
 - `gh_clear` -- clear the canvas
 
@@ -50,14 +50,22 @@ Compose GH definitions using `gh_edit` for all mutations and `gh_snapshot` for i
    Example -- create a slider feeding into a Series component:
    ```json
    {
+     "epoch": 7,
      "create": [
-       {"id": "T1", "type": "slider", "nickname": "Count", "min": 1, "max": 20, "value": 5, "x": 50, "y": 100},
-       {"id": "T2", "component": "Series", "x": 250, "y": 100}
+       {"temp_id": "T1", "type": "slider", "nick": "Count", "min": 1, "max": 20, "value": 5, "pos": [50, 100]},
+       {"temp_id": "T2", "name": "Series", "pos": [250, 100]}
      ],
-     "connect": ["T1.O0>T2.I1"],
-     "set_values": [{"id": "T1", "value": 10}]
+     "connect": ["T1.O0>T2.I1"]
    }
    ```
+
+   Field-name reminders:
+   - `temp_id` (not `id`) for create entries — must be `T`-prefixed within the edit.
+   - `name` (not `component`) for built-in components; or `guid` if you have one.
+   - `nick` (not `nickname`) for the display nickname.
+   - `pos: [x, y]` (not flat `x`/`y`) for create-entry positions.
+   - `epoch` is required at the top level — pass the value from your most recent `gh_snapshot`.
+   - `set_values` is for *changing* values on already-placed components in a follow-up edit; for new sliders the initial value belongs inline in `create.value`.
 
    - New components use T-prefixed temp IDs (T1, T2, ...) within the edit
    - Existing components use C-prefixed IDs from `gh_snapshot`
@@ -88,7 +96,7 @@ For complex requests:
 - **Creating components**: Use `gh_edit` with a `create` array -- it handles component resolution
 - **Component names**: Use human-readable names like "Series", "Construct Point", "Cross Reference" -- the tool resolves them
 - **Connection errors**: If `gh_edit` connect succeeds but `gh_errors` shows issues, check the flow indices via `gh_snapshot`
-- **Canvas position**: Components default to (0,0) -- use x/y offsets when creating multiple components
+- **Canvas position**: Components default to (0,0). For `gh_edit.create` entries use `"pos": [x, y]`. For `gh_move.positions` entries use flat `"x": N, "y": M` keys. (The two shapes differ — see the gh_move bullet above.)
 - **Script components**: Use `gh_set_script` to set/get source on any script-component type (Python 3, C#, GH1-legacy); use `gh_create_script(language=...)` (or its `gh_create_python_script` / `gh_create_csharp_script` aliases) for creation — NOT `gh_edit` with component-name strings
 - **Do NOT use `rhino_execute` for GH operations** -- always use the gh_* tools
 - **Temp vs persistent IDs**: T-prefixed IDs are only valid within a single `gh_edit` call. After the edit, use `gh_snapshot` to get C-prefixed IDs for subsequent edits
