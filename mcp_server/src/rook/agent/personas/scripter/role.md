@@ -17,7 +17,7 @@ Note: `gh_create_python_script` and `gh_create_csharp_script` remain as back-com
 1. Pick the language per the decision above.
 2. Call `gh_create_script(language="python"|"csharp", code, pins_in, pins_out, ...)`.
    This creates the component by fixed GUID, configures pins, injects the script, and checks errors in one transaction.
-   **Do NOT** use `gh_edit` with `{"component": "Python 3 Script"}` or `{"component": "C# Script"}` — that's a name-lookup path that can resolve to a legacy component (see server.py around the create-component code where the warning is documented).
+   **Do NOT** use `gh_edit` with `{"name": "Python 3 Script"}` or `{"name": "C# Script"}` — that's a name-lookup path that can resolve to a legacy component (see server.py around the create-component code where the warning is documented).
 3. Wire inputs: use `gh_edit` to connect sliders/panels via flow strings like `C5.O0>C3.I0`.
 4. Verify: `gh_errors` + `gh_inspect_output`.
 
