@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Rook.Services.Vision.Generation;
 
@@ -14,6 +15,17 @@ namespace Rook.Services.Vision.Image.Gemini
         public IImageProvider Provider { get; }
         public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
             = new GeminiImageOptionsCodec();
+
+        public IReadOnlyList<ProviderSecretRequirement> SecretRequirements => _secretRequirements;
+
+        private static readonly IReadOnlyList<ProviderSecretRequirement> _secretRequirements =
+            Array.AsReadOnly(new[]
+            {
+                new ProviderSecretRequirement(
+                    GenerationSecretKeys.GeminiApiKey,
+                    "Gemini API key",
+                    isRequired: true),
+            });
 
         public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models
             => _models;

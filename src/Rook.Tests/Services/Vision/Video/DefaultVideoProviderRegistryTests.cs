@@ -151,6 +151,8 @@ namespace Rook.Tests.Services.Vision.Video
             public IVideoProvider Provider { get; }
             public GenerationOptionsCodec OptionsCodec { get; } = new VeoOptionsCodec();
             public System.Collections.Generic.IReadOnlyDictionary<string, (VideoCapability Capability, GenerationPricingModel PricingModel)> Models { get; }
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
+                = Array.Empty<ProviderSecretRequirement>();
 
             public FakeRegistration(
                 string providerName,
@@ -255,6 +257,18 @@ namespace Rook.Tests.Services.Vision.Video
             // Codex Finding 5) but the message must reference the
             // provider name twice for diagnosability.
             Assert.Contains("veo", ex.Message);
+        }
+
+        [Fact]
+        public void Veo_registration_declares_gemini_secret_requirement()
+        {
+            var registration = new VeoProviderRegistration(new FakeVideoProvider());
+
+            var requirement = Assert.Single(registration.SecretRequirements);
+            Assert.Equal(GenerationSecretKeys.GeminiApiKey, requirement.Key);
+            Assert.Equal("Gemini API key", requirement.DisplayName);
+            Assert.True(requirement.IsRequired);
+            Assert.True(requirement.IsSensitive);
         }
 
         // ─── Build-time validation: duplicate provider name ALLOWED ──
@@ -523,6 +537,8 @@ namespace Rook.Tests.Services.Vision.Video
                             ratesPerSecondUsd: new Dictionary<string, decimal> { ["720p"] = 0.01m },
                             pricingSource: "test-rate-card")),
                 };
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; init; }
+                = Array.Empty<ProviderSecretRequirement>();
         }
     }
 }

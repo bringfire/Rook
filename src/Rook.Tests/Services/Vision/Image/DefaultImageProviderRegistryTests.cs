@@ -51,6 +51,19 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public void Gemini_registration_declares_gemini_secret_requirement()
+        {
+            var registration = new GeminiImageProviderRegistration(
+                new GeminiImageProvider(() => "key"));
+
+            var requirement = Assert.Single(registration.SecretRequirements);
+            Assert.Equal(GenerationSecretKeys.GeminiApiKey, requirement.Key);
+            Assert.Equal("Gemini API key", requirement.DisplayName);
+            Assert.True(requirement.IsRequired);
+            Assert.True(requirement.IsSensitive);
+        }
+
+        [Fact]
         public void Constructor_throws_on_duplicate_model_id()
         {
             var first = new GeminiImageProviderRegistration(

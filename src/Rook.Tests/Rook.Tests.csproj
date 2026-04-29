@@ -16,6 +16,9 @@
          references to silence MSB3277 conflicts on net48. -->
     <PackageReference Include="System.Collections.Immutable" Version="8.0.0" />
     <PackageReference Include="System.Reflection.Metadata" Version="8.0.0" />
+    <!-- Rook excludes RhinoCommon runtime assets for plugin deployment, but
+         xUnit needs the assembly beside Rook.Tests.dll for discovery. -->
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" PrivateAssets="all" GeneratePathProperty="true" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +33,13 @@
           DestinationFiles="$(OutputPath)Rook.dll"
           SkipUnchangedFiles="true"
           Condition="Exists('$(OutputPath)Rook.rhp')" />
+  </Target>
+
+  <Target Name="CopyRhinoCommonToTestOutput" AfterTargets="Build">
+    <Copy SourceFiles="$(PkgRhinoCommon)\lib\net48\RhinoCommon.dll"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(PkgRhinoCommon)\lib\net48\RhinoCommon.dll')" />
   </Target>
 
 </Project>
