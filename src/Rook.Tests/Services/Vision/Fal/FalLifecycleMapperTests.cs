@@ -123,6 +123,26 @@ namespace Rook.Tests.Services.Vision.Fal
         }
 
         [Fact]
+        public void MapStatus_null_queue_position_returns_failed_status()
+        {
+            var handle = new ProviderJobHandle("abc123");
+            var json = JsonNode.Parse("""
+                {
+                  "request_id": "abc123",
+                  "status": "IN_QUEUE",
+                  "queue_position": null
+                }
+                """)!;
+
+            var outcome = FalLifecycleMapper.MapStatus(handle, json);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Equal("fal status body had invalid queue_position.", failed.Error.Message);
+        }
+
+        [Fact]
         public void MapStatus_negative_queue_position_returns_failed_status()
         {
             var handle = new ProviderJobHandle("abc123");

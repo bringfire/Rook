@@ -110,8 +110,7 @@ namespace Rook.Services.Vision.Fal
         private static bool TryOptionalQueuePosition(JsonObject root, out int? queuePosition)
         {
             queuePosition = null;
-            var node = root["queue_position"];
-            if (node is null)
+            if (!root.TryGetPropertyValue("queue_position", out var node))
                 return true;
 
             if (node is not JsonValue value
