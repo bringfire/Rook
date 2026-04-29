@@ -265,17 +265,24 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     )
     await response.prepare(request)
 
+    turn_events = None
     try:
         with rhino_request_context(
             process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
             document_serial_number=conv.document_serial_number,
         ):
-            async for event in runner.run_turn(conv, message, system_prompt):
+            turn_events = runner.run_turn(conv, message, system_prompt)
+            async for event in turn_events:
                 line = json.dumps(event.to_dict()) + "\n"
                 await response.write(line.encode("utf-8"))
     except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
         logger.info(f"Client disconnected during streaming for conversation {conv_id}")
         conv.abort_event.set()
+    finally:
+        if turn_events is not None:
+            close = getattr(turn_events, "aclose", None)
+            if close is not None:
+                await close()
 
     try:
         await response.write_eof()
@@ -352,12 +359,14 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
     )
     await response.prepare(request)
 
+    turn_events = None
     try:
         with rhino_request_context(
             process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
             document_serial_number=conv.document_serial_number,
         ):
-            async for event in runner.run_turn(conv, user_message, system_prompt):
+            turn_events = runner.run_turn(conv, user_message, system_prompt)
+            async for event in turn_events:
                 line = json.dumps(event.to_dict()) + "\n"
                 await response.write(line.encode("utf-8"))
     except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
@@ -365,6 +374,11 @@ async def handle_ui_response(request: web.Request) -> web.StreamResponse:
             f"Client disconnected during ui-response streaming for conversation {conv_id}"
         )
         conv.abort_event.set()
+    finally:
+        if turn_events is not None:
+            close = getattr(turn_events, "aclose", None)
+            if close is not None:
+                await close()
 
     try:
         await response.write_eof()
