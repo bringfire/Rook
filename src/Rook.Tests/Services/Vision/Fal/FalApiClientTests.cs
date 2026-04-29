@@ -16,11 +16,18 @@ namespace Rook.Tests.Services.Vision.Fal
         [Fact]
         public async Task PostJsonAsync_sends_key_auth_and_json_body()
         {
+            string? requestBody = null;
+            string? requestMediaType = null;
             var handler = new TestHttpMessageHandler
             {
-                OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
+                OnSend = req =>
                 {
-                    Content = new StringContent("{\"ok\":true}", Encoding.UTF8, "application/json"),
+                    requestMediaType = req.Content!.Headers.ContentType!.MediaType;
+                    requestBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"ok\":true}", Encoding.UTF8, "application/json"),
+                    };
                 },
             };
             var client = new FalApiClient(new HttpClient(handler));
@@ -37,8 +44,8 @@ namespace Rook.Tests.Services.Vision.Fal
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal("Key", request.Headers.Authorization!.Scheme);
             Assert.Equal("test-key", request.Headers.Authorization.Parameter);
-            Assert.Equal("application/json", request.Content!.Headers.ContentType!.MediaType);
-            Assert.Equal("{\"prompt\":\"red cube\"}", await request.Content.ReadAsStringAsync());
+            Assert.Equal("application/json", requestMediaType);
+            Assert.Equal("{\"prompt\":\"red cube\"}", requestBody);
         }
 
         [Fact]
