@@ -35,7 +35,6 @@ namespace Rook.Tests.Services.Vision.Fal
         [Theory]
         [InlineData("IN_QUEUE", typeof(InFlightStatusOutcome), GenerationLifecycleState.Pending)]
         [InlineData("IN_PROGRESS", typeof(InFlightStatusOutcome), GenerationLifecycleState.Running)]
-        [InlineData("COMPLETED", typeof(ProviderCompleteStatusOutcome), GenerationLifecycleState.Completed)]
         public void MapStatus_maps_fal_states(string rawState, Type expectedType, GenerationLifecycleState expectedState)
         {
             var handle = new ProviderJobHandle("abc123");
@@ -55,6 +54,23 @@ namespace Rook.Tests.Services.Vision.Fal
         }
 
         [Fact]
+        public void MapStatus_completed_returns_same_handle()
+        {
+            var handle = new ProviderJobHandle("abc123");
+            var json = JsonNode.Parse("""
+                {
+                  "request_id": "abc123",
+                  "status": "COMPLETED"
+                }
+                """)!;
+
+            var outcome = FalLifecycleMapper.MapStatus(handle, json);
+
+            var completed = Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
+            Assert.Same(handle, completed.UpdatedHandle);
+        }
+
+        [Fact]
         public void MapStatus_unknown_state_returns_failed_status()
         {
             var handle = new ProviderJobHandle("abc123");
@@ -67,6 +83,63 @@ namespace Rook.Tests.Services.Vision.Fal
             var failed = Assert.IsType<FailedStatusOutcome>(outcome);
             Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
             Assert.Contains("Unknown fal lifecycle state", failed.Error.Message);
+        }
+
+        [Fact]
+        public void MapStatus_non_string_status_returns_failed_status()
+        {
+            var handle = new ProviderJobHandle("abc123");
+            var json = JsonNode.Parse("""
+                { "request_id": "abc123", "status": 200 }
+                """)!;
+
+            var outcome = FalLifecycleMapper.MapStatus(handle, json);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("Unknown fal lifecycle state", failed.Error.Message);
+            Assert.Null(failed.Error.ProviderErrorCode);
+        }
+
+        [Fact]
+        public void MapStatus_non_int_queue_position_returns_failed_status()
+        {
+            var handle = new ProviderJobHandle("abc123");
+            var json = JsonNode.Parse("""
+                {
+                  "request_id": "abc123",
+                  "status": "IN_QUEUE",
+                  "queue_position": "first"
+                }
+                """)!;
+
+            var outcome = FalLifecycleMapper.MapStatus(handle, json);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Equal("fal status body had invalid queue_position.", failed.Error.Message);
+        }
+
+        [Fact]
+        public void MapStatus_negative_queue_position_returns_failed_status()
+        {
+            var handle = new ProviderJobHandle("abc123");
+            var json = JsonNode.Parse("""
+                {
+                  "request_id": "abc123",
+                  "status": "IN_QUEUE",
+                  "queue_position": -1
+                }
+                """)!;
+
+            var outcome = FalLifecycleMapper.MapStatus(handle, json);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Equal("fal status body had invalid queue_position.", failed.Error.Message);
         }
     }
 }

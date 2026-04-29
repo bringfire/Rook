@@ -57,7 +57,14 @@ namespace Rook.Services.Vision.Fal
             if (state == GenerationLifecycleState.Pending
                 || state == GenerationLifecycleState.Running)
             {
-                var queuePosition = OptionalInt(root, "queue_position");
+                if (!TryOptionalQueuePosition(root, out var queuePosition))
+                {
+                    return new FailedStatusOutcome(new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal status body had invalid queue_position.",
+                        Retryable: false));
+                }
+
                 return new InFlightStatusOutcome(
                     state,
                     queuePosition is null
@@ -95,13 +102,27 @@ namespace Rook.Services.Vision.Fal
         private static string? OptionalString(JsonObject root, string name)
         {
             var node = root[name];
-            return node is null ? null : node.GetValue<string>();
+            return node is JsonValue value && value.TryGetValue<string>(out var stringValue)
+                ? stringValue
+                : null;
         }
 
-        private static int? OptionalInt(JsonObject root, string name)
+        private static bool TryOptionalQueuePosition(JsonObject root, out int? queuePosition)
         {
-            var node = root[name];
-            return node is null ? null : node.GetValue<int>();
+            queuePosition = null;
+            var node = root["queue_position"];
+            if (node is null)
+                return true;
+
+            if (node is not JsonValue value
+                || !value.TryGetValue<int>(out var intValue)
+                || intValue < 0)
+            {
+                return false;
+            }
+
+            queuePosition = intValue;
+            return true;
         }
 
         private static Uri? OptionalUri(JsonObject root, string name)
