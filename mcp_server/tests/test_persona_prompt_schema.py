@@ -75,17 +75,19 @@ def test_persona_prompt_documents_current_gh_edit_cues(persona):
     _assert_has_schema_cues(prompt, f"persona {persona}")
 
 
-def test_persona_prompt_documents_gh_move_signature():
-    """At least one of worker/architect mentions the full gh_move signature.
+@pytest.mark.parametrize("persona", ["worker", "architect"])
+def test_persona_prompt_documents_gh_move_signature(persona):
+    """Each persona that lists `gh_move` must spell out the full signature.
 
     Without the explicit positions=[{guid, x, y}] signature, agents have
-    historically invented gh_move(moves=[{id, x, y}]).
+    historically invented gh_move(moves=[{id, x, y}]). Parameterized so a
+    drift in one persona doesn't get masked by the other still having it
+    (concatenation would have hidden a single-prompt regression).
     """
-    builder = PromptBuilder()
-    combined = builder.build_system("worker") + builder.build_system("architect")
-    assert "gh_move(positions=" in combined, (
-        "Neither worker nor architect prompt documents the gh_move(positions=...) "
-        "signature — agents will keep guessing the wrong field names."
+    prompt = PromptBuilder().build_system(persona)
+    assert "gh_move(positions=" in prompt, (
+        f"persona {persona}: prompt lists gh_move but no longer documents the "
+        f"gh_move(positions=...) signature — agents will guess the wrong field names."
     )
 
 
