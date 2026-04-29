@@ -22,5 +22,7 @@ namespace Rook.Services.Vision.Video
         Rook.Services.Vision.Generation.IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> OptionsCodec { get; }
 
         IReadOnlyDictionary<string, (VideoCapability Capability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
+
+        IReadOnlyList<Rook.Services.Vision.Generation.ProviderSecretRequirement> SecretRequirements { get; }
     }
 }

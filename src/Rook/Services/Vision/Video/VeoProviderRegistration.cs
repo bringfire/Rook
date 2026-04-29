@@ -28,5 +28,14 @@ namespace Rook.Services.Vision.Video
         public Rook.Services.Vision.Generation.IProviderOptionsCodec<VideoGenerationRequest, VideoCapability> OptionsCodec { get; }
 
         public IReadOnlyDictionary<string, (VideoCapability Capability, Rook.Services.Vision.Generation.IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
+
+        public IReadOnlyList<Rook.Services.Vision.Generation.ProviderSecretRequirement> SecretRequirements { get; }
+            = new[]
+            {
+                new Rook.Services.Vision.Generation.ProviderSecretRequirement(
+                    Rook.Services.Vision.Generation.GenerationSecretKeys.GeminiApiKey,
+                    "Gemini API key",
+                    isRequired: true),
+            };
     }
 }

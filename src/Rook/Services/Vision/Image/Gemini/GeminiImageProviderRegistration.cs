@@ -15,6 +15,15 @@ namespace Rook.Services.Vision.Image.Gemini
         public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
             = new GeminiImageOptionsCodec();
 
+        public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
+            = new[]
+            {
+                new ProviderSecretRequirement(
+                    GenerationSecretKeys.GeminiApiKey,
+                    "Gemini API key",
+                    isRequired: true),
+            };
+
         public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models
             => _models;
 

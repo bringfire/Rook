@@ -388,6 +388,8 @@ namespace Rook.Tests.Handlers
                 = new FakeImageOptionsCodec();
             public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models
                 => _models;
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
+                = Array.Empty<ProviderSecretRequirement>();
         }
 
         private sealed record FakeImageOptions : ProviderOptions;
