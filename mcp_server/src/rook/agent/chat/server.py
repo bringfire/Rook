@@ -284,17 +284,14 @@ async def handle_message(request: web.Request) -> web.StreamResponse:
     return response
 
 
-async def handle_ui_response(request: web.Request) -> web.Response:
-    """POST /agent/chat/ui-response — receive structured input from a UI block.
+async def handle_ui_response(request: web.Request) -> web.StreamResponse:
+    """POST /agent/chat/ui-response — receive structured input from a UI block
+    and run an agent turn so the agent reacts to it in real time.
 
-    Called from the WebView via fetch().  The WebView loads from
-    https://app.rook.invalid (virtual host backed by embedded resources).
-    CORS and session nonce are enforced by cors_and_session_middleware.
-
-    NOTE: This endpoint only appends the UI response to the conversation history.
-    It does NOT trigger a new LLM turn automatically — the agent sees the response
-    on the next user-initiated /message call. Auto-triggering is a known future
-    enhancement (requires the WebView to initiate a streaming response).
+    Mirrors `handle_message`'s streaming shape: NDJSON events for the duration
+    of `runner.run_turn`. The user's submission is serialized as
+    `{type: ui_response, block_id, value}` and passed as the user_message to
+    run_turn, which appends it to conversation history and runs the loop.
     """
     try:
         body = await request.json()
@@ -304,26 +301,76 @@ async def handle_ui_response(request: web.Request) -> web.Response:
     conv_id = body.get("conversation_id")
     block_id = body.get("block_id")
     value = body.get("value")
+    raw_document_serial_number = body.get("documentSerialNumber", 0) or 0
 
     if not conv_id or not block_id:
-        return web.json_response({"error": "Missing conversation_id or block_id"}, status=400)
+        return web.json_response(
+            {"error": "Missing conversation_id or block_id"}, status=400
+        )
+
+    try:
+        document_serial_number = int(raw_document_serial_number)
+    except (TypeError, ValueError):
+        return web.json_response(
+            {"error": "documentSerialNumber must be an integer"},
+            status=400,
+        )
 
     store = request.app.get(_STORE_KEY) or _get_store()
     conv = store.get(conv_id)
     if conv is None:
         return web.json_response({"error": "Conversation not found"}, status=404)
 
-    # Inject as a structured user message so the LLM sees the response
-    conv.messages.append({
-        "role": "user",
-        "content": json.dumps({
-            "type": "ui_response",
-            "block_id": block_id,
-            "value": value,
-        }),
+    # Same concurrency guard as /message — reject if a turn is already running
+    if conv.active_run_id is not None:
+        return web.json_response(
+            {"error": "Conversation already processing"}, status=409
+        )
+
+    if document_serial_number > 0:
+        conv.document_serial_number = document_serial_number
+
+    # Serialize the structured UI response as the user_message for run_turn.
+    # run_turn appends it to conv.messages itself.
+    user_message = json.dumps({
+        "type": "ui_response",
+        "block_id": block_id,
+        "value": value,
     })
 
-    return web.json_response({"accepted": True})
+    builder = request.app.get(_BUILDER_KEY) or _get_builder()
+    runner = request.app.get(_RUNNER_KEY) or _get_runner()
+    system_prompt = builder.build_system(conv.persona)
+
+    response = web.StreamResponse(
+        status=200,
+        reason="OK",
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+        },
+    )
+    await response.prepare(request)
+
+    try:
+        with rhino_request_context(
+            process_id=request.app.get(_RHINO_PROCESS_ID_KEY, 0),
+            document_serial_number=conv.document_serial_number,
+        ):
+            async for event in runner.run_turn(conv, user_message, system_prompt):
+                line = json.dumps(event.to_dict()) + "\n"
+                await response.write(line.encode("utf-8"))
+    except (ConnectionResetError, ConnectionError, asyncio.CancelledError):
+        logger.info(
+            f"Client disconnected during ui-response streaming for conversation {conv_id}"
+        )
+        conv.abort_event.set()
+
+    try:
+        await response.write_eof()
+    except (ConnectionResetError, ConnectionError):
+        pass
+    return response
 
 
 async def handle_stop(request: web.Request) -> web.Response:
