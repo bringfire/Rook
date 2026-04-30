@@ -290,6 +290,38 @@ namespace Rook.Tests.UI.Web
             // No exception = pass.
         }
 
+        [Fact]
+        public void WebViewFocusBlackoutWorkaround_CoversFocusLossAndHostRecovery()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("_webView.GotFocus += OnWebViewGotFocus;", source);
+            Assert.Contains("_webView.Shown += OnWebViewShown;", source);
+            Assert.Contains("Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;", source);
+            Assert.Contains("Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged;", source);
+            Assert.Contains("if (!Application.Instance.IsActive)", source);
+            Assert.DoesNotContain("_webView.LostFocus += OnWebViewLostFocus;", source);
+            Assert.Contains("RequestWebViewRepaint", source);
+            Assert.Contains("ScheduleWebViewRepaint", source);
+            Assert.Contains("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND", source);
+            Assert.Contains("request-repaint-skip", source);
+            Assert.Contains("ROOK_ENABLE_WEBVIEW_FOCUS_DIAGNOSTICS", source);
+            Assert.Contains("if (IsWebViewFocusDiagnosticsEnabled())", source);
+            Assert.Contains("if (!IsWebViewFocusDiagnosticsEnabled())", source);
+        }
+
+        [Fact]
+        public void WebViewFocusBlackoutWorkaround_ResolvesNestedWebView2Control()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("GetWebView2NativeControl", source);
+            Assert.Contains("CoreWebView2Controller", source);
+            Assert.Contains("DefaultBackgroundColor", source);
+            Assert.Contains("GetInstanceProperty(type, \"Control\")", source);
+            Assert.Contains("BindingFlags.NonPublic", source);
+        }
+
         // ─── TryResolveVirtualResource hook (PR-7a) ──────────────────
 
         /// <summary>
@@ -347,6 +379,21 @@ namespace Rook.Tests.UI.Web
             var result = s.TryResolveForTest(uri);
 
             Assert.Null(result);
+        }
+
+        private static string ReadSourceFile(params string[] pathParts)
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, Path.Combine(pathParts));
+                if (File.Exists(candidate))
+                    return File.ReadAllText(candidate);
+                dir = dir.Parent;
+            }
+
+            throw new FileNotFoundException(
+                "Could not locate source file " + string.Join("/", pathParts));
         }
 
         [Fact]
