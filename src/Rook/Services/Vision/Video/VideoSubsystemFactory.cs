@@ -49,20 +49,10 @@ namespace Rook.Services.Vision.Video
                 throw new ArgumentNullException(nameof(generationSecrets));
             if (artifactStore is null) throw new ArgumentNullException(nameof(artifactStore));
 
-            // Capture the secret-store reference, not a key snapshot, so a
-            // user setting the API key after factory build reaches the
-            // provider on its next op.
-            var veoProvider = new VeoProvider(
-                () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey));
-            var falVideoProvider = new Fal.FalVideoProvider(
-                () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey));
-
             var registry = new DefaultVideoProviderRegistry(
-                new IVideoProviderRegistration[]
-                {
-                    new VeoProviderRegistration(veoProvider),
-                    new Fal.FalVideoProviderRegistration(falVideoProvider),
-                });
+                VisionProviderRegistrations.CreateVideoRegistrations(
+                    () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey),
+                    () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey)));
 
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
             var actualLedger = ledger ?? new JsonlVideoJobLedger();

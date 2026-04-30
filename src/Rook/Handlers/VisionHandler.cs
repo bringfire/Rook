@@ -192,13 +192,10 @@ namespace Rook.Handlers
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
             _imageArtifactMaterializer = imageArtifactMaterializer ?? new ImageArtifactMaterializer();
             _imageProviderRegistry = imageProviderRegistry
-                ?? new DefaultImageProviderRegistry(new IImageProviderRegistration[]
-                {
-                    new GeminiImageProviderRegistration(
-                        new GeminiImageProvider(GetGeminiApiKey)),
-                    new FalImageProviderRegistration(
-                        new FalImageProvider(GetFalApiKey)),
-                });
+                ?? new DefaultImageProviderRegistry(
+                    VisionProviderRegistrations.CreateImageRegistrations(
+                        GetGeminiApiKey,
+                        GetFalApiKey));
         }
 
         private string? GetGeminiApiKey()
