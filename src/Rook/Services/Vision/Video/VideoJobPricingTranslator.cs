@@ -1,5 +1,6 @@
 using System;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Video.Fal;
 
 namespace Rook.Services.Vision.Video
 {
@@ -28,6 +29,7 @@ namespace Rook.Services.Vision.Video
             return model switch
             {
                 PerSecondVideoPricingModel => PricingKind.PerSecond,
+                FalWanT2vPricingModel => PricingKind.PerSecond,
                 _ => PricingKind.External,
             };
         }
