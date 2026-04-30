@@ -780,6 +780,22 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void SetProviderSecret_RejectsWhitespaceOnlyValue()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\",\"value\":\"   \"}");
+
+            var response = handler.SetProviderSecret(args);
+
+            Assert.False(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("non-empty", message);
+        }
+
+        [Fact]
         public void ClearProviderSecret_RemovesDeclaredFalKey()
         {
             var store = new InMemoryGenerationSecretStore();

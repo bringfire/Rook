@@ -627,6 +627,18 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_PopulateImageModelsPreservesCurrentSelectableValues()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function restoreSelectValueIfSelectable", js);
+            Assert.Contains("const generateModelValue = el.modelSelect && el.modelSelect.value;", js);
+            Assert.Contains("const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;", js);
+            Assert.Contains("restoreSelectValueIfSelectable(el.modelSelect, generateModelValue);", js);
+            Assert.Contains("restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);", js);
+        }
+
+        [Fact]
         public void AppJs_GalleryToolbar_OpensArtifactsFolder()
         {
             var js = ReadVisionResource("app.js");

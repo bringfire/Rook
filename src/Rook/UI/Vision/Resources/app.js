@@ -621,7 +621,19 @@ function validateImageModelForSubmit(selectEl) {
     return null;
 }
 
+function restoreSelectValueIfSelectable(selectEl, value) {
+    if (!selectEl || !value) return;
+    for (const option of selectEl.options) {
+        if (option.value === value && !option.disabled) {
+            selectEl.value = value;
+            return;
+        }
+    }
+}
+
 function populateImageModelDropdowns(models) {
+    const generateModelValue = el.modelSelect && el.modelSelect.value;
+    const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;
     const options = models.map(m => {
         const availability = effectiveCredentialAvailability(m);
         const missingCredential = availability === "missing_required_secret";
@@ -636,6 +648,8 @@ function populateImageModelDropdowns(models) {
     }).join("");
     if (el.modelSelect) el.modelSelect.innerHTML = options;
     if (el.studioModelSelect) el.studioModelSelect.innerHTML = options;
+    restoreSelectValueIfSelectable(el.modelSelect, generateModelValue);
+    restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);
     syncResolutionOptions();
 }
 

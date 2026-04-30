@@ -1601,6 +1601,9 @@ namespace Rook.Handlers
                 return Fail(storeError);
 
             var value = RequireString(args, "value", 4096);
+            if (string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
             try
             {
                 secretStore!.SetSecret(requirement!.Key, value);
