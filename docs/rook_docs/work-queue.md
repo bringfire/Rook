@@ -164,7 +164,7 @@ Each item carries:
 
 ---
 
-**Parallel passive lane: substrate-observation accumulation.** `substrate_observations.jsonl` started capturing 2026-04-21 with PR #88's merge (`fb970a7`) and still exists locally as an untracked file. It is not part of the WebView hotfix or multi-provider PRs. Re-triage only after reviewing actual hotspot signal.
+**Parallel passive lane: substrate-observation accumulation.** `knowledge/substrate_observations.jsonl` started capturing 2026-04-21 with PR #88's merge (`fb970a7`) and now contains the current one-line routed-tool observation corpus. It is not part of the WebView hotfix or multi-provider PRs. Re-triage only after reviewing actual hotspot signal.
 
 ---
 
