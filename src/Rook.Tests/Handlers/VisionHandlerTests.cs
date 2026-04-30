@@ -665,6 +665,66 @@ namespace Rook.Tests.Handlers
                 new PromptEnhancer(),
                 new ViewportHandler());
 
+        private static IReadOnlyList<Dictionary<string, object?>> AssertObjectList(
+            object? value)
+        {
+            var items = Assert.IsAssignableFrom<IEnumerable<object>>(value);
+            return items
+                .Select(item => Assert.IsType<Dictionary<string, object?>>(item))
+                .ToArray();
+        }
+
+        private static string ProviderName(Dictionary<string, object?> item) =>
+            Assert.IsType<string>(item["provider_name"]);
+
+        private static void AssertProviderCredential(
+            IReadOnlyList<Dictionary<string, object?>> credentials,
+            string providerName,
+            string availability,
+            string secretKey,
+            string presence)
+        {
+            var credential = Assert.Single(
+                credentials,
+                c => ProviderName(c) == providerName);
+            Assert.Equal(availability, Assert.IsType<string>(credential["availability"]));
+
+            var secrets = AssertObjectList(credential["secrets"]);
+            var secret = Assert.Single(
+                secrets,
+                s => Assert.IsType<string>(s["key"]) == secretKey);
+            Assert.Equal(secretKey, Assert.IsType<string>(secret["key"]));
+            Assert.Equal(presence, Assert.IsType<string>(secret["presence"]));
+        }
+
+        private static void AssertNoReplicateCredentialRequirements(
+            IReadOnlyList<Dictionary<string, object?>> credentials)
+        {
+            foreach (var credential in credentials)
+            {
+                Assert.DoesNotContain(
+                    AssertObjectList(credential["secrets"]),
+                    s => Assert.IsType<string>(s["key"]) ==
+                        GenerationSecretKeys.ReplicateApiToken);
+            }
+        }
+
+        private static void AssertImageModel(
+            IReadOnlyList<Dictionary<string, object?>> models,
+            string modelId,
+            string providerName,
+            string credentialAvailability)
+        {
+            var model = Assert.Single(
+                models,
+                m => Assert.IsType<string>(m["model_id"]) == modelId);
+
+            Assert.Equal(providerName, ProviderName(model));
+            Assert.Equal(
+                credentialAvailability,
+                Assert.IsType<string>(model["credential_availability"]));
+        }
+
         private static ResultArtifact InlineImageArtifact(
             byte[] bytes,
             string declaredMimeType,
@@ -796,6 +856,26 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void SetProviderSecret_RejectsReplicateBecauseItIsNotCredentialOwner()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-key-value");
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-key-value");
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"replicate\",\"secret_key\":\"replicate.api_token\",\"value\":\"replicate-token\"}");
+
+            var response = handler.SetProviderSecret(args);
+
+            Assert.False(response.Success);
+            Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
+            Assert.Equal("fal-key-value", store.GetSecret(GenerationSecretKeys.FalApiKey));
+            Assert.Null(store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("replicate", message);
+        }
+
+        [Fact]
         public void ClearProviderSecret_RemovesDeclaredFalKey()
         {
             var store = new InMemoryGenerationSecretStore();
@@ -817,6 +897,27 @@ namespace Rook.Tests.Handlers
             Assert.Equal(GenerationSecretKeys.FalApiKey, data["secret_key"]);
             Assert.Equal(false, data["has_secret"]);
             Assert.Null(data["preview"]);
+        }
+
+        [Fact]
+        public void ClearProviderSecret_RejectsReplicateAndPreservesStoredSecrets()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-key-value");
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-key-value");
+            store.SetSecret(GenerationSecretKeys.ReplicateApiToken, "replicate-token");
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"replicate\",\"secret_key\":\"replicate.api_token\"}");
+
+            var response = handler.ClearProviderSecret(args);
+
+            Assert.False(response.Success);
+            Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
+            Assert.Equal("fal-key-value", store.GetSecret(GenerationSecretKeys.FalApiKey));
+            Assert.Equal("replicate-token", store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("replicate", message);
         }
 
         [Fact]
@@ -931,12 +1032,21 @@ namespace Rook.Tests.Handlers
 
             Assert.True(response.Success);
             var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
-            var credentials = Assert.IsAssignableFrom<IEnumerable<object>>(data["provider_credentials"]);
-            var serialized = JsonSerializer.Serialize(credentials);
-            Assert.Contains("\"provider_name\":\"gemini\"", serialized);
-            Assert.Contains("\"provider_name\":\"fal\"", serialized);
-            Assert.Contains("\"availability\":\"available_but_unverified\"", serialized);
-            Assert.Contains("\"availability\":\"missing_required_secret\"", serialized);
+            var credentials = AssertObjectList(data["provider_credentials"]);
+            AssertProviderCredential(
+                credentials,
+                "gemini",
+                "available_but_unverified",
+                GenerationSecretKeys.GeminiApiKey,
+                "present");
+            AssertProviderCredential(
+                credentials,
+                "fal",
+                "missing_required_secret",
+                GenerationSecretKeys.FalApiKey,
+                "missing");
+            Assert.DoesNotContain(credentials, c => ProviderName(c) == "replicate");
+            AssertNoReplicateCredentialRequirements(credentials);
         }
 
         [Fact]
@@ -968,11 +1078,22 @@ namespace Rook.Tests.Handlers
             var response = handler.GetSettingsOverview(new Dictionary<string, JsonElement>());
 
             Assert.True(response.Success);
-            var serialized = JsonSerializer.Serialize(response.Data);
-            Assert.Contains("\"provider_name\":\"gemini\"", serialized);
-            Assert.Contains("\"provider_name\":\"fal\"", serialized);
-            Assert.Contains("\"presence\":\"present\"", serialized);
-            Assert.Contains("\"missing_required_secret\"", serialized);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            var credentials = AssertObjectList(data["provider_credentials"]);
+            AssertProviderCredential(
+                credentials,
+                "gemini",
+                "available_but_unverified",
+                GenerationSecretKeys.GeminiApiKey,
+                "present");
+            AssertProviderCredential(
+                credentials,
+                "fal",
+                "missing_required_secret",
+                GenerationSecretKeys.FalApiKey,
+                "missing");
+            Assert.DoesNotContain(credentials, c => ProviderName(c) == "replicate");
+            AssertNoReplicateCredentialRequirements(credentials);
         }
 
         [Fact]
@@ -985,13 +1106,19 @@ namespace Rook.Tests.Handlers
             var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
 
             Assert.True(response.Success);
-            var json = JsonSerializer.Serialize(response.Data);
-            Assert.Contains(GeminiImageCapabilities.NanoBanana2, json);
-            Assert.Contains(FalImageCapabilities.FluxSchnell, json);
-            Assert.Contains("\"provider_name\":\"gemini\"", json);
-            Assert.Contains("\"provider_name\":\"fal\"", json);
-            Assert.Contains("\"credential_availability\":\"available_but_unverified\"", json);
-            Assert.Contains("\"credential_availability\":\"missing_required_secret\"", json);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            var models = AssertObjectList(data["models"]);
+            AssertImageModel(
+                models,
+                GeminiImageCapabilities.NanoBanana2,
+                "gemini",
+                "available_but_unverified");
+            AssertImageModel(
+                models,
+                FalImageCapabilities.FluxSchnell,
+                "fal",
+                "missing_required_secret");
+            Assert.DoesNotContain(models, m => ProviderName(m) == "replicate");
         }
 
         [Fact]
@@ -1023,11 +1150,19 @@ namespace Rook.Tests.Handlers
             var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
 
             Assert.True(response.Success);
-            var json = JsonSerializer.Serialize(response.Data);
-            Assert.Contains("\"provider_name\":\"gemini\"", json);
-            Assert.Contains("\"provider_name\":\"fal\"", json);
-            Assert.Contains("\"credential_availability\":\"available_but_unverified\"", json);
-            Assert.Contains("\"credential_availability\":\"missing_required_secret\"", json);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            var models = AssertObjectList(data["models"]);
+            AssertImageModel(
+                models,
+                GeminiImageCapabilities.NanoBanana2,
+                "gemini",
+                "available_but_unverified");
+            AssertImageModel(
+                models,
+                FalImageCapabilities.FluxSchnell,
+                "fal",
+                "missing_required_secret");
+            Assert.DoesNotContain(models, m => ProviderName(m) == "replicate");
         }
 
         [Fact]

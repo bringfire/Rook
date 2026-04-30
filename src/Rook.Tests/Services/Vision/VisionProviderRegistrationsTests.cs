@@ -17,11 +17,23 @@ namespace Rook.Tests.Services.Vision
             var providers = metadata.EnumerateProviders().ToArray();
 
             Assert.Equal(new[] { "gemini", "fal" }, providers.Select(p => p.ProviderName));
-            Assert.Contains(providers, p => p.ProviderName == "gemini"
-                && p.SecretRequirements.Any(r => r.Key == GenerationSecretKeys.GeminiApiKey));
-            Assert.Contains(providers, p => p.ProviderName == "fal"
-                && p.SecretRequirements.Any(r => r.Key == GenerationSecretKeys.FalApiKey));
+            var gemini = Assert.Single(providers, p => p.ProviderName == "gemini");
+            Assert.Contains(
+                gemini.SecretRequirements,
+                r => r.Key == GenerationSecretKeys.GeminiApiKey);
+
+            var fal = Assert.Single(providers, p => p.ProviderName == "fal");
+            Assert.Contains(
+                fal.SecretRequirements,
+                r => r.Key == GenerationSecretKeys.FalApiKey);
+
             Assert.DoesNotContain(providers, p => p.ProviderName == "veo");
+            Assert.DoesNotContain(providers, p => p.ProviderName == "replicate");
+            Assert.All(
+                providers,
+                p => Assert.DoesNotContain(
+                    p.SecretRequirements,
+                    r => r.Key == GenerationSecretKeys.ReplicateApiToken));
         }
 
         [Fact]
