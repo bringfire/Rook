@@ -137,6 +137,9 @@ namespace Rook.Handlers
         private readonly ImageArtifactMaterializer _imageArtifactMaterializer;
         private readonly ProviderCredentialMetadataCatalog _credentialMetadata;
 
+        internal Func<string, CancellationToken, Task<ProviderSecretValidationResult>>
+            FalCredentialProbeAsync { get; set; } = DefaultFalCredentialProbeAsync;
+
         public VisionHandler()
             : this(new ArtifactStore(), new DpapiGenerationSecretStore(),
                    new PromptEnhancer(),
@@ -745,21 +748,142 @@ namespace Rook.Handlers
                 }
             }
 
-            var probe = await _enhancer.EnhancePromptAsync(
-                apiKey!, "ping", null, cancellationToken).ConfigureAwait(false);
-
-            if (probe.Success)
+            var result = await TestGeminiProviderSecretAsync(
+                apiKey!, cancellationToken).ConfigureAwait(false);
+            if (string.Equals(result.ValidationState, "valid", StringComparison.Ordinal))
             {
                 return Ok(new Dictionary<string, object?> { ["ok"] = true });
             }
-            return Fail(GenericizeProviderError(probe.Error));
+            return Fail(result.Message ?? "API key test failed.");
         }
 
-        internal Task<ApiResponse> TestProviderSecretAsync(
+        internal async Task<ApiResponse> TestProviderSecretAsync(
             Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
         {
-            return Task.FromResult(Fail("test_provider_secret is not implemented."));
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+
+            var hasCandidate = args.ContainsKey("candidate_value");
+            string? value;
+            if (hasCandidate)
+            {
+                value = GetStringArg(args, "candidate_value");
+            }
+            else
+            {
+                if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                    return Fail(storeError);
+                value = secretStore!.GetSecret(requirement!.Key);
+            }
+
+            if (hasCandidate && string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
+            if (!hasCandidate && string.IsNullOrEmpty(value))
+            {
+                return Fail(
+                    $"No stored credential for provider '{metadata!.ProviderName}' key '{requirement!.Key}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
+            if (string.Equals(metadata!.ProviderName, "gemini", StringComparison.Ordinal)
+                && string.Equals(requirement!.Key, GenerationSecretKeys.GeminiApiKey, StringComparison.Ordinal))
+            {
+                var result = await TestGeminiProviderSecretAsync(
+                    value!, cancellationToken).ConfigureAwait(false);
+                return Ok(ProviderSecretTestEnvelope(
+                    "gemini",
+                    GenerationSecretKeys.GeminiApiKey,
+                    result.ValidationState,
+                    result.Message));
+            }
+
+            if (string.Equals(metadata.ProviderName, "fal", StringComparison.Ordinal)
+                && string.Equals(requirement!.Key, GenerationSecretKeys.FalApiKey, StringComparison.Ordinal))
+            {
+                return await TestFalProviderSecretAsync(value!, cancellationToken).ConfigureAwait(false);
+            }
+
+            return Ok(ProviderSecretTestEnvelope(
+                metadata.ProviderName,
+                requirement!.Key,
+                "inconclusive",
+                "No provider-specific validation probe is available."));
         }
+
+        private async Task<ProviderSecretValidationResult> TestGeminiProviderSecretAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            var probe = await _enhancer.EnhancePromptAsync(
+                apiKey, "ping", null, cancellationToken).ConfigureAwait(false);
+
+            if (probe.Success)
+                return ProviderSecretValidationResult.Valid();
+
+            return ProviderSecretValidationResult.Invalid(GenericizeProviderError(probe.Error));
+        }
+
+        private async Task<ApiResponse> TestFalProviderSecretAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            var result = await FalCredentialProbeAsync(
+                apiKey, cancellationToken).ConfigureAwait(false);
+            return Ok(ProviderSecretTestEnvelope(
+                "fal",
+                GenerationSecretKeys.FalApiKey,
+                result.ValidationState,
+                result.Message));
+        }
+
+        private static Task<ProviderSecretValidationResult> DefaultFalCredentialProbeAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            _ = apiKey;
+            _ = cancellationToken;
+            return Task.FromResult(ProviderSecretValidationResult.Inconclusive(
+                "fal credential could not be proven without running generation work."));
+        }
+
+        internal readonly struct ProviderSecretValidationResult
+        {
+            private ProviderSecretValidationResult(
+                string validationState,
+                string? message)
+            {
+                ValidationState = validationState;
+                Message = message;
+            }
+
+            public string ValidationState { get; }
+            public string? Message { get; }
+
+            public static ProviderSecretValidationResult Valid(string? message = null)
+                => new("valid", message);
+
+            public static ProviderSecretValidationResult Invalid(string? message = null)
+                => new("invalid", message);
+
+            public static ProviderSecretValidationResult Inconclusive(string? message = null)
+                => new("inconclusive", message);
+        }
+
+        private static Dictionary<string, object?> ProviderSecretTestEnvelope(
+            string providerName,
+            string secretKey,
+            string validationState,
+            string? message)
+            => new()
+            {
+                ["provider_name"] = providerName,
+                ["secret_key"] = secretKey,
+                ["validation_state"] = validationState,
+                ["message"] = string.IsNullOrEmpty(message) ? null : message,
+            };
 
         // ─── op: capture_depth (sync — UI thread) ───────────────────────
 

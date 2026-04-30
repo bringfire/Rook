@@ -658,6 +658,13 @@ namespace Rook.Tests.Handlers
             return root;
         }
 
+        private static VisionHandler NewHandlerWithSecrets(IGenerationSecretStore secrets)
+            => new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-vision-secrets")),
+                secrets,
+                new PromptEnhancer(),
+                new ViewportHandler());
+
         private static ResultArtifact InlineImageArtifact(
             byte[] bytes,
             string declaredMimeType,
@@ -800,11 +807,7 @@ namespace Rook.Tests.Handlers
         public void LegacySetApiKey_RemainsGeminiOnly()
         {
             var store = new InMemoryGenerationSecretStore();
-            var handler = new VisionHandler(
-                new ArtifactStore(CreateTempRoot("rook-provider-secret-legacy")),
-                store,
-                new PromptEnhancer(),
-                new ViewportHandler());
+            var handler = NewHandlerWithSecrets(store);
             var args = VisionHandler.ParseObjectBody(
                 "{\"api_key\":\"gemini-key-value\",\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\"}");
 
@@ -813,6 +816,92 @@ namespace Rook.Tests.Handlers
             Assert.True(response.Success);
             Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
             Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+        }
+
+        [Fact]
+        public async Task TestProviderSecret_WithoutCandidate_ReadsStoredSecretWithoutPersistingValidation()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-stored-key");
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\"}");
+
+            var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
+
+            Assert.True(response.Success);
+            Assert.Equal("fal-stored-key", store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("fal", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.FalApiKey, data["secret_key"]);
+            Assert.Equal("inconclusive", data["validation_state"]);
+        }
+
+        [Fact]
+        public async Task TestProviderSecret_WithCandidate_DoesNotSaveOrReturnCandidate()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\",\"candidate_value\":\"fal-candidate\"}");
+
+            var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
+
+            Assert.True(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var serialized = JsonSerializer.Serialize(response.Data);
+            Assert.DoesNotContain("fal-candidate", serialized);
+        }
+
+        [Fact]
+        public async Task TestProviderSecret_WithBlankCandidate_FailsWithoutUsingStoredSecret()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-stored-key");
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\",\"candidate_value\":\"   \"}");
+
+            var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
+
+            Assert.False(response.Success);
+            Assert.Equal("fal-stored-key", store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("non-empty", message);
+        }
+
+        [Fact]
+        public async Task TestProviderSecret_FalInvalidProbe_ReturnsInvalidEnvelope()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = NewHandlerWithSecrets(store);
+            handler.FalCredentialProbeAsync = (_, _) => Task.FromResult(
+                VisionHandler.ProviderSecretValidationResult.Invalid("fal rejected the key"));
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\",\"candidate_value\":\"fal-candidate\"}");
+
+            var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
+
+            Assert.True(response.Success);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("invalid", data["validation_state"]);
+            Assert.Equal("fal rejected the key", data["message"]);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+        }
+
+        [Fact]
+        public async Task LegacyTestApiKey_CannotTestFalSecret()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-stored-key");
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\"}");
+
+            var response = await handler.TestApiKeyAsync(args, CancellationToken.None);
+
+            Assert.False(response.Success);
+            Assert.Contains("No API key provided or stored", response.Data?.ToString());
         }
 
         [Fact]
