@@ -570,6 +570,28 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_ImageCatalog_PrefersListImageModelsWithAvailableModelsFallback()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("bridgeCall(\"list_image_models\"", js);
+            Assert.Contains("function normalizeImageModelDescriptor", js);
+            Assert.Contains("data.available_models", js);
+        }
+
+        [Fact]
+        public void AppJs_InvalidCredentialWarningDoesNotDisableSubmit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function effectiveCredentialAvailability", js);
+            Assert.Contains("function markProviderCredentialInvalid", js);
+            Assert.Contains("sessionValidationBySecret.get", js);
+            Assert.Contains("invalid_credential", js);
+            Assert.DoesNotContain("availability === \"invalid_credential\" && option.disabled", js);
+        }
+
+        [Fact]
         public void AppJs_GalleryToolbar_OpensArtifactsFolder()
         {
             var js = ReadVisionResource("app.js");

@@ -79,6 +79,7 @@ let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
 const sessionValidationBySecret = new Map();
+const providerSecretKeyByProvider = new Map();
 
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
@@ -353,6 +354,11 @@ async function generateImage() {
         showStatus("Capture a viewport first.", "error");
         return;
     }
+    const modelError = validateImageModelForSubmit(el.modelSelect);
+    if (modelError) {
+        showStatus(modelError, "error");
+        return;
+    }
 
     setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
     showStatus("Generating image...", "info");
@@ -380,6 +386,10 @@ async function generateImage() {
             showStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
+        const model = selectedImageModel(el.modelSelect);
+        if (model && isCredentialFailureMessage(e.message)) {
+            markProviderCredentialInvalid(model.provider_name);
+        }
         showStatus(e.message, "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
@@ -477,7 +487,7 @@ function refreshPreviewFraming() {
 
 function supportedResolutionsForSelectedModel(selectEl) {
     const selected = selectEl && selectEl.value;
-    const entry = modelCatalog.find(m => m.short_name === selected);
+    const entry = modelCatalog.find(m => imageModelOptionValue(m) === selected);
     if (entry && Array.isArray(entry.supported_resolutions) && entry.supported_resolutions.length > 0) {
         return entry.supported_resolutions;
     }
@@ -500,6 +510,145 @@ function syncResolutionOptions() {
     populateResolutionSelect(
         el.studioResolutionSelect,
         supportedResolutionsForSelectedModel(el.studioModelSelect));
+}
+
+function imageModelOptionValue(model) {
+    return model && (model.short_name || model.model_id) || "";
+}
+
+function selectedImageModel(selectEl) {
+    const selected = selectEl && selectEl.value;
+    if (!selected) return null;
+    return modelCatalog.find(m => imageModelOptionValue(m) === selected) || null;
+}
+
+function normalizeImageModelDescriptor(m) {
+    const cap = m.capability || {};
+    return {
+        model_id: m.model_id || "",
+        short_name: m.short_name || m.model_id || "",
+        label: cap.name || m.label || m.model_id || "",
+        provider_name: m.provider_name || "",
+        pricing_source: m.pricing_source || "",
+        pricing_kind: m.pricing_kind || null,
+        credential_availability: m.credential_availability || "available_but_unverified",
+        credential_message: m.credential_message || "",
+        credential_secret_key: m.credential_secret_key || "",
+        supported_resolutions: cap.resolutions || m.supported_resolutions || [],
+        aspect_ratios: cap.aspect_ratios || [],
+        supports_image_to_image: cap.supports_image_to_image !== false,
+        supports_text_to_image: cap.supports_text_to_image !== false,
+        max_reference_images: Number(cap.max_reference_images || m.max_reference_images || 0),
+    };
+}
+
+function normalizeLegacyAvailableModel(m) {
+    return {
+        model_id: m.model_id || m.short_name || "",
+        short_name: m.short_name || m.model_id || "",
+        label: m.label || m.short_name || m.model_id || "",
+        provider_name: m.provider_name || "gemini",
+        pricing_source: m.pricing_source || "",
+        pricing_kind: m.pricing_kind || null,
+        credential_availability: m.credential_availability || "available_but_unverified",
+        credential_message: m.credential_message || "",
+        credential_secret_key: m.credential_secret_key || "",
+        supported_resolutions: m.supported_resolutions || [],
+        aspect_ratios: m.aspect_ratios || [],
+        supports_image_to_image: m.supports_image_to_image !== false,
+        supports_text_to_image: m.supports_text_to_image !== false,
+        max_reference_images: Number(m.max_reference_images || 0),
+    };
+}
+
+function rememberProviderSecretKeys(providers) {
+    providerSecretKeyByProvider.clear();
+    const list = Array.isArray(providers) ? providers : [];
+    list.forEach(provider => {
+        const providerName = provider.provider_name || "";
+        const secrets = Array.isArray(provider.secrets) ? provider.secrets : [];
+        const primary = secrets.find(s => s && s.is_required !== false) || secrets[0];
+        if (providerName && primary && primary.key) {
+            providerSecretKeyByProvider.set(providerName, primary.key);
+        }
+    });
+}
+
+function effectiveCredentialAvailability(model) {
+    const base = model.credential_availability || "available_but_unverified";
+    const providerName = model.provider_name || "";
+    const secretKey = model.credential_secret_key || providerSecretKeyByProvider.get(providerName);
+    if (!providerName || !secretKey) return base;
+
+    const overlay = sessionValidationBySecret.get(secretOverlayKey(providerName, secretKey));
+    if (overlay === "invalid") return "invalid_credential";
+    if (overlay === "valid") return "available";
+    if (overlay === "inconclusive" && base !== "missing_required_secret") {
+        return "available_with_inconclusive_validation";
+    }
+    return base;
+}
+
+function markProviderCredentialInvalid(providerName) {
+    const secretKey = providerSecretKeyByProvider.get(providerName || "");
+    if (!providerName || !secretKey) return;
+    sessionValidationBySecret.set(secretOverlayKey(providerName, secretKey), "invalid");
+    populateImageModelDropdowns(modelCatalog);
+}
+
+function isCredentialFailureMessage(message) {
+    const text = String(message || "").toLowerCase();
+    return text.includes("api key")
+        || text.includes("credential")
+        || text.includes("auth")
+        || text.includes("unauthorized")
+        || text.includes("forbidden")
+        || text.includes("permission denied");
+}
+
+function validateImageModelForSubmit(selectEl) {
+    const model = selectedImageModel(selectEl);
+    if (!model) return null;
+    const availability = effectiveCredentialAvailability(model);
+    if (availability === "missing_required_secret") {
+        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+    }
+    if (model.supports_image_to_image === false) {
+        return "Selected model is incompatible with the current image input workflow.";
+    }
+    return null;
+}
+
+function populateImageModelDropdowns(models) {
+    const options = models.map(m => {
+        const availability = effectiveCredentialAvailability(m);
+        const missingCredential = availability === "missing_required_secret";
+        const capabilityMismatch = m.supports_image_to_image === false;
+        const disabled = missingCredential || capabilityMismatch;
+        const provider = m.provider_name ? ` · ${providerDisplayName(m.provider_name)}` : "";
+        const warning = availability === "invalid_credential" ? " · credential warning" : "";
+        const blocker = missingCredential
+            ? " · configure key"
+            : capabilityMismatch ? " · incompatible" : "";
+        return `<option value="${escapeAttr(imageModelOptionValue(m))}"${disabled ? " disabled" : ""}>${escapeHtml(m.label || m.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
+    }).join("");
+    if (el.modelSelect) el.modelSelect.innerHTML = options;
+    if (el.studioModelSelect) el.studioModelSelect.innerHTML = options;
+    syncResolutionOptions();
+}
+
+async function loadImageModels() {
+    try {
+        const data = await bridgeCall("list_image_models");
+        if (Array.isArray(data.models) && data.models.length > 0) {
+            modelCatalog = data.models.map(normalizeImageModelDescriptor);
+            populateImageModelDropdowns(modelCatalog);
+            return true;
+        }
+    } catch (e) {
+        // Legacy fallback remains below via get_settings_overview.available_models.
+    }
+    return false;
 }
 
 // ─── Studio View ──────────────────────────────────────────────────
@@ -629,6 +778,11 @@ async function studioGenerate() {
         showStudioStatus("Load a source image first.", "error");
         return;
     }
+    const modelError = validateImageModelForSubmit(el.studioModelSelect);
+    if (modelError) {
+        showStudioStatus(modelError, "error");
+        return;
+    }
     setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, true);
     showStudioStatus("Generating image...", "info");
 
@@ -655,6 +809,10 @@ async function studioGenerate() {
             showStudioStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
+        const model = selectedImageModel(el.studioModelSelect);
+        if (model && isCredentialFailureMessage(e.message)) {
+            markProviderCredentialInvalid(model.provider_name);
+        }
         showStudioStatus(e.message, "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
@@ -898,6 +1056,7 @@ async function loadSettingsOverview() {
         el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);
         el.overviewArtifactCount.textContent = formatCount(data.artifact_count);
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
+        rememberProviderSecretKeys(data.provider_credentials);
         renderProviderCredentials(data.provider_credentials);
         if (el.apiKey && el.apiKeyStatus && data.has_api_key) {
             // Show the truncated preview in the input placeholder so
@@ -914,39 +1073,39 @@ async function loadSettingsOverview() {
             el.apiKeyStatus.className = "status-indicator error";
         }
 
-        // Populate model dropdowns from the server-side catalog when
-        // provided. If `available_models` is absent (e.g. an older
-        // companion), leave the HTML-embedded defaults in place rather
-        // than wiping them — that mistake was PR-7b's original "only
-        // one option" bug.
-        if (Array.isArray(data.available_models) && data.available_models.length > 0) {
-            modelCatalog = data.available_models;
-            const modelOptions = data.available_models.map(m => {
-                const shortName = m.short_name || "";
-                const label = m.label || shortName;
-                const selected = shortName === data.default_model ? " selected" : "";
-                const title = m.description ? ` title="${escapeAttr(m.description)}"` : "";
-                return `<option value="${escapeAttr(shortName)}"${selected}${title}>${escapeHtml(label)}</option>`;
-            }).join("");
-            if (el.modelSelect) el.modelSelect.innerHTML = modelOptions;
-            if (el.studioModelSelect) el.studioModelSelect.innerHTML = modelOptions;
-            syncResolutionOptions();
-        } else if (data.default_model) {
-            // Server returned no catalog but did give a default — select
-            // that option in the existing dropdown if it's there, else
-            // leave the HTML defaults alone.
-            const pickDefault = (sel) => {
-                if (!sel) return;
-                for (const opt of sel.options) {
-                    if (opt.value === data.default_model) {
-                        sel.value = data.default_model;
-                        break;
-                    }
+        const loadedImageModels = await loadImageModels();
+        if (!loadedImageModels) {
+            // Populate model dropdowns from the legacy server-side alias
+            // when the canonical image catalog op is absent or fails. If
+            // `available_models` is absent (e.g. an older companion),
+            // leave the HTML-embedded defaults in place rather than
+            // wiping them — that mistake was PR-7b's original "only one
+            // option" bug.
+            if (Array.isArray(data.available_models) && data.available_models.length > 0) {
+                modelCatalog = data.available_models.map(normalizeLegacyAvailableModel);
+                populateImageModelDropdowns(modelCatalog);
+                if (data.default_model) {
+                    if (el.modelSelect) el.modelSelect.value = data.default_model;
+                    if (el.studioModelSelect) el.studioModelSelect.value = data.default_model;
+                    syncResolutionOptions();
                 }
-            };
-            pickDefault(el.modelSelect);
-            pickDefault(el.studioModelSelect);
-            syncResolutionOptions();
+            } else if (data.default_model) {
+                // Server returned no catalog but did give a default —
+                // select that option in the existing dropdown if it's
+                // there, else leave the HTML defaults alone.
+                const pickDefault = (sel) => {
+                    if (!sel) return;
+                    for (const opt of sel.options) {
+                        if (opt.value === data.default_model) {
+                            sel.value = data.default_model;
+                            break;
+                        }
+                    }
+                };
+                pickDefault(el.modelSelect);
+                pickDefault(el.studioModelSelect);
+                syncResolutionOptions();
+            }
         }
 
         if (modelCatalog.length === 0) {
@@ -1179,6 +1338,7 @@ async function testProviderSecret(ctx) {
         const data = await bridgeCall("test_provider_secret", args);
         const validation = data.validation_state || "inconclusive";
         sessionValidationBySecret.set(secretOverlayKey(ctx.providerName, ctx.secretKey), validation);
+        populateImageModelDropdowns(modelCatalog);
         setProviderSecretStatus(
             ctx,
             data.message || credentialStatusText({ presence: "present" }, validation),
