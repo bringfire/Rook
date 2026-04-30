@@ -237,6 +237,8 @@ namespace Rook.Tests.UI.Vision
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
+                "set_provider_secret", "test_provider_secret",
+                "clear_provider_secret", "list_image_models",
                 "open_artifacts_folder", "reveal_artifact_file",
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
@@ -262,6 +264,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("generate", "Async")]
         [InlineData("enhance_prompt", "Async")]
         [InlineData("test_api_key", "Async")]
+        [InlineData("test_provider_secret", "Async")]
         [InlineData("capture_depth", "Ui")]
         [InlineData("capture_viewport", "Ui")]
         [InlineData("preview_viewport", "Ui")]
@@ -274,6 +277,9 @@ namespace Rook.Tests.UI.Vision
         [InlineData("consume_approved", "OffUi")]
         [InlineData("set_api_key", "OffUi")]
         [InlineData("get_settings_overview", "OffUi")]
+        [InlineData("set_provider_secret", "OffUi")]
+        [InlineData("clear_provider_secret", "OffUi")]
+        [InlineData("list_image_models", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
         [InlineData("reveal_artifact_file", "OffUi")]
         // V2 video ops — submit/cancel are async (provider HTTP via

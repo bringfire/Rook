@@ -726,6 +726,95 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        // ─── Provider secret ops ───────────────────────────────────────
+
+        [Fact]
+        public void SetProviderSecret_SavesDeclaredFalKey()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-provider-secret-set")),
+                store,
+                new PromptEnhancer(),
+                new ViewportHandler());
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\",\"value\":\"fal-key-value\"}");
+
+            var response = handler.SetProviderSecret(args);
+
+            Assert.True(response.Success);
+            Assert.Equal("fal-key-value", store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("fal", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.FalApiKey, data["secret_key"]);
+            Assert.Equal(true, data["has_secret"]);
+            Assert.Equal("test-preview", data["preview"]);
+        }
+
+        [Fact]
+        public void SetProviderSecret_RejectsCrossProviderSecretKey()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-provider-secret-cross")),
+                store,
+                new PromptEnhancer(),
+                new ViewportHandler());
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"gemini\",\"secret_key\":\"fal.api_key\",\"value\":\"fal-key-value\"}");
+
+            var response = handler.SetProviderSecret(args);
+
+            Assert.False(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("fal.api_key", message);
+            Assert.Contains("gemini", message);
+        }
+
+        [Fact]
+        public void ClearProviderSecret_RemovesDeclaredFalKey()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-key-value");
+            var handler = new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-provider-secret-clear")),
+                store,
+                new PromptEnhancer(),
+                new ViewportHandler());
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\"}");
+
+            var response = handler.ClearProviderSecret(args);
+
+            Assert.True(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("fal", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.FalApiKey, data["secret_key"]);
+            Assert.Equal(false, data["has_secret"]);
+            Assert.Null(data["preview"]);
+        }
+
+        [Fact]
+        public void LegacySetApiKey_RemainsGeminiOnly()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-provider-secret-legacy")),
+                store,
+                new PromptEnhancer(),
+                new ViewportHandler());
+            var args = VisionHandler.ParseObjectBody(
+                "{\"api_key\":\"gemini-key-value\",\"provider_name\":\"fal\",\"secret_key\":\"fal.api_key\"}");
+
+            var response = handler.SetApiKey(args);
+
+            Assert.True(response.Success);
+            Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
+            Assert.Null(store.GetSecret(GenerationSecretKeys.FalApiKey));
+        }
+
         [Fact]
         public void BuildRevealFileStartInfo_SelectsCanonicalFilePath()
         {

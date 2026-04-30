@@ -135,6 +135,7 @@ namespace Rook.Handlers
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
         private readonly ImageArtifactMaterializer _imageArtifactMaterializer;
+        private readonly ProviderCredentialMetadataCatalog _credentialMetadata;
 
         public VisionHandler()
             : this(new ArtifactStore(), new DpapiGenerationSecretStore(),
@@ -183,7 +184,8 @@ namespace Rook.Handlers
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry,
-            ImageArtifactMaterializer? imageArtifactMaterializer)
+            ImageArtifactMaterializer? imageArtifactMaterializer,
+            ProviderCredentialMetadataCatalog? credentialMetadata = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
@@ -191,6 +193,8 @@ namespace Rook.Handlers
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
             _imageArtifactMaterializer = imageArtifactMaterializer ?? new ImageArtifactMaterializer();
+            _credentialMetadata = credentialMetadata
+                ?? VisionProviderRegistrations.CreateCredentialMetadata();
             _imageProviderRegistry = imageProviderRegistry
                 ?? new DefaultImageProviderRegistry(
                     VisionProviderRegistrations.CreateImageRegistrations(
@@ -247,11 +251,14 @@ namespace Rook.Handlers
                     "preview_viewport" => PreviewViewport(args),
                     "list_views" => ListViews(args),
                     "open_image_picker" => OpenImagePicker(args),
-                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
+                    "generate" or "enhance_prompt" or "test_api_key"
+                        or "test_provider_secret" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
+                        or "set_provider_secret" or "clear_provider_secret"
+                        or "list_image_models"
                         or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
@@ -315,13 +322,17 @@ namespace Rook.Handlers
                     "delete_artifact" => DeleteArtifact(args),
                     "consume_approved" => ConsumeApproved(args),
                     "set_api_key" => SetApiKey(args),
+                    "set_provider_secret" => SetProviderSecret(args),
+                    "clear_provider_secret" => ClearProviderSecret(args),
                     "get_settings_overview" => GetSettingsOverview(args),
+                    "list_image_models" => ListImageModels(args),
                     "open_artifacts_folder" => OpenArtifactsFolder(args),
                     "reveal_artifact_file" => RevealArtifactFile(args),
                     "capture_depth" or "capture_viewport" or "preview_viewport"
                         or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
-                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
+                    "generate" or "enhance_prompt" or "test_api_key"
+                        or "test_provider_secret" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -389,12 +400,15 @@ namespace Rook.Handlers
                     "generate" => await GenerateAsync(args, cancellationToken).ConfigureAwait(false),
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
                     "test_api_key" => await TestApiKeyAsync(args, cancellationToken).ConfigureAwait(false),
+                    "test_provider_secret" => await TestProviderSecretAsync(args, cancellationToken).ConfigureAwait(false),
                     "capture_depth" or "capture_viewport" or "preview_viewport"
                         or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
+                        or "set_provider_secret" or "clear_provider_secret"
+                        or "list_image_models"
                         or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
@@ -739,6 +753,12 @@ namespace Rook.Handlers
                 return Ok(new Dictionary<string, object?> { ["ok"] = true });
             }
             return Fail(GenericizeProviderError(probe.Error));
+        }
+
+        internal Task<ApiResponse> TestProviderSecretAsync(
+            Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(Fail("test_provider_secret is not implemented."));
         }
 
         // ─── op: capture_depth (sync — UI thread) ───────────────────────
@@ -1447,6 +1467,94 @@ namespace Rook.Handlers
             });
         }
 
+        // ─── op: set_provider_secret / clear_provider_secret (off-UI) ───
+
+        internal ApiResponse SetProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+            if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                return Fail(storeError);
+
+            var value = RequireString(args, "value", 4096);
+            try
+            {
+                secretStore!.SetSecret(requirement!.Key, value);
+            }
+            catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+
+            return Ok(ProviderSecretMutationEnvelope(
+                secretStore,
+                metadata!.ProviderName,
+                requirement.Key));
+        }
+
+        internal ApiResponse ClearProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+            if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                return Fail(storeError);
+
+            secretStore!.RemoveSecret(requirement!.Key);
+            return Ok(ProviderSecretMutationEnvelope(
+                secretStore,
+                metadata!.ProviderName,
+                requirement.Key));
+        }
+
+        private bool TryGetProviderSecretStore(
+            out IGenerationSecretStore? secretStore,
+            out string error)
+        {
+            if (_generationSecrets is not null)
+            {
+                secretStore = _generationSecrets;
+                error = "";
+                return true;
+            }
+
+            secretStore = null;
+            error = "Provider secret operations require the generation secret store.";
+            return false;
+        }
+
+        private (ProviderCredentialMetadata? Metadata, ProviderSecretRequirement? Requirement, string? Error)
+            ResolveProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var providerName = RequireString(args, "provider_name", 128);
+            var secretKey = RequireString(args, "secret_key", 256);
+
+            if (!_credentialMetadata.TryGetProvider(providerName, out var metadata))
+                return (null, null, $"Unknown provider '{providerName}'.");
+
+            foreach (var requirement in metadata!.SecretRequirements)
+            {
+                if (string.Equals(requirement.Key, secretKey, StringComparison.Ordinal))
+                    return (metadata, requirement, null);
+            }
+
+            return (
+                metadata,
+                null,
+                $"Secret key '{secretKey}' is not declared by provider '{providerName}'.");
+        }
+
+        private static Dictionary<string, object?> ProviderSecretMutationEnvelope(
+            IGenerationSecretStore secretStore,
+            string providerName,
+            string secretKey)
+            => new()
+            {
+                ["provider_name"] = providerName,
+                ["secret_key"] = secretKey,
+                ["has_secret"] = secretStore.HasSecret(secretKey),
+                ["preview"] = secretStore.GetPreview(secretKey),
+            };
+
         // ─── op: get_settings_overview (off-UI) ─────────────────────────
 
         /// <summary>
@@ -1508,6 +1616,11 @@ namespace Rook.Handlers
             }
 
             return Ok(overview);
+        }
+
+        internal ApiResponse ListImageModels(Dictionary<string, JsonElement> args)
+        {
+            return Fail("list_image_models is not implemented.");
         }
 
         internal static Dictionary<string, int> BuildArtifactCountsByKind(
