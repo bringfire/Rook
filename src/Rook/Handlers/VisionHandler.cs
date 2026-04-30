@@ -1862,8 +1862,68 @@ namespace Rook.Handlers
 
         internal ApiResponse ListImageModels(Dictionary<string, JsonElement> args)
         {
-            return Fail("list_image_models is not implemented.");
+            _ = args;
+            var descriptors = _imageProviderRegistry.EnumerateAllModels();
+            var models = new List<Dictionary<string, object?>>(descriptors.Count);
+            foreach (var descriptor in descriptors)
+                models.Add(ImageModelDescriptorToObj(descriptor));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["models"] = models,
+            });
         }
+
+        private Dictionary<string, object?> ImageModelDescriptorToObj(
+            ImageModelDescriptor descriptor)
+        {
+            var credentialStatus = BuildCredentialStatusForProvider(
+                descriptor.ProviderName);
+            return new Dictionary<string, object?>
+            {
+                ["model_id"] = descriptor.ModelId,
+                ["provider_name"] = descriptor.ProviderName,
+                ["pricing_source"] = descriptor.PricingSource,
+                ["credential_availability"] =
+                    CredentialAvailabilityToString(credentialStatus.Availability),
+                ["credential_message"] = credentialStatus.Message,
+                ["capability"] = ImageCapabilityToObj(descriptor.Capability),
+            };
+        }
+
+        private ProviderCredentialStatus BuildCredentialStatusForProvider(
+            string providerName)
+        {
+            if (!_credentialMetadata.TryGetProvider(providerName, out var metadata))
+            {
+                return new ProviderCredentialStatus(
+                    providerName,
+                    ProviderCredentialAvailability.AvailableButUnverified,
+                    Array.Empty<ProviderSecretStatus>(),
+                    null);
+            }
+
+            return ProviderCredentialStatusBuilder.Build(
+                metadata!.ProviderName,
+                metadata.SecretRequirements,
+                CredentialStatusSecretStore);
+        }
+
+        private static Dictionary<string, object?> ImageCapabilityToObj(
+            ImageCapability capability)
+            => new()
+            {
+                ["id"] = capability.Id,
+                ["name"] = capability.Name,
+                ["status"] = capability.Status,
+                ["modality"] = capability.Modality,
+                ["sub_capabilities"] = capability.SubCapabilities,
+                ["resolutions"] = capability.Resolutions,
+                ["aspect_ratios"] = capability.AspectRatios,
+                ["max_reference_images"] = capability.MaxReferenceImages,
+                ["supports_image_to_image"] = capability.SupportsImageToImage,
+                ["supports_text_to_image"] = capability.SupportsTextToImage,
+            };
 
         internal static Dictionary<string, int> BuildArtifactCountsByKind(
             IEnumerable<Artifact> artifacts)

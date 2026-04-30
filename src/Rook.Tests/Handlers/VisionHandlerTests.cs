@@ -960,6 +960,61 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ListImageModels_ReturnsGeminiAndFalDescriptorsWithCredentialPresence()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-secret");
+            var handler = NewHandlerWithSecrets(store);
+
+            var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var json = JsonSerializer.Serialize(response.Data);
+            Assert.Contains(GeminiImageCapabilities.NanoBanana2, json);
+            Assert.Contains(FalImageCapabilities.FluxSchnell, json);
+            Assert.Contains("\"provider_name\":\"gemini\"", json);
+            Assert.Contains("\"provider_name\":\"fal\"", json);
+            Assert.Contains("\"credential_availability\":\"available_but_unverified\"", json);
+            Assert.Contains("\"credential_availability\":\"missing_required_secret\"", json);
+        }
+
+        [Fact]
+        public void ListImageModels_DoesNotDependOnSettingsOverviewAvailableModels()
+        {
+            var handler = NewHandlerWithSecrets(new InMemoryGenerationSecretStore());
+
+            var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.True(data.ContainsKey("models"));
+            Assert.False(data.ContainsKey("available_models"));
+        }
+
+        [Fact]
+        public void ListImageModels_WithLegacyVisionSecretStore_DoesNotThrow()
+        {
+            var root = CreateTempRoot("rook-vision-list-image-models-legacy-provider-summary");
+            var settingsPath = Path.Combine(root, "RookSettings.json");
+            var secrets = new VisionSecretStore(new RookSettingsStore(settingsPath));
+            secrets.SetGeminiApiKey("gemini-legacy-secret");
+            var handler = new VisionHandler(
+                new ArtifactStore(Path.Combine(root, "artifacts")),
+                secrets,
+                new PromptEnhancer(),
+                new ViewportHandler());
+
+            var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var json = JsonSerializer.Serialize(response.Data);
+            Assert.Contains("\"provider_name\":\"gemini\"", json);
+            Assert.Contains("\"provider_name\":\"fal\"", json);
+            Assert.Contains("\"credential_availability\":\"available_but_unverified\"", json);
+            Assert.Contains("\"credential_availability\":\"missing_required_secret\"", json);
+        }
+
+        [Fact]
         public void BuildRevealFileStartInfo_SelectsCanonicalFilePath()
         {
             var path = Path.Combine(Path.GetTempPath(), "rook vision image.png");
