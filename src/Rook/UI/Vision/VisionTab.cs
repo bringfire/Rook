@@ -39,6 +39,7 @@ namespace Rook.UI.Vision
         internal void RecoverAfterHostActivation(string reason)
         {
             if (_closed) return;
+            _surface.RequestWebViewRepaint(reason);
             _surface.ReloadAfterHostActivation(reason);
         }
 

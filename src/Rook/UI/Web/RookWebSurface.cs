@@ -56,6 +56,7 @@ namespace Rook.UI.Web
         private object? _nativeControlWithInitHandler;
         private EventInfo? _initEvent;
         private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
+        private bool _repaintQueued;
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -149,7 +150,8 @@ namespace Rook.UI.Web
         /// <c>AddScriptToExecuteOnDocumentCreatedAsync</c>, in this exact order:
         ///   1. Session nonce (substrate-owned, may be empty)
         ///   2. Bridge shim (substrate-owned, always present)
-        ///   3. Surface bootstrap (subclass-owned, from <see cref="GetBootstrapScript"/>)
+        ///   3. Focus diagnostics (substrate-owned)
+        ///   4. Surface bootstrap (subclass-owned, from <see cref="GetBootstrapScript"/>)
         /// Empty entries are filtered out, but order is preserved.
         /// Override to insert additional substrate-level scripts.
         /// </summary>
@@ -170,7 +172,13 @@ namespace Rook.UI.Web
             // 2. Bridge shim — always present
             scripts.Add(BuildBridgeShimScript());
 
-            // 3. Surface bootstrap
+            // 3. Focus diagnostics
+#if NET7_0_OR_GREATER
+            if (IsWebViewFocusDiagnosticsEnabled())
+                scripts.Add(BuildFocusProbeScript());
+#endif
+
+            // 4. Surface bootstrap
             var bootstrap = GetBootstrapScript();
             if (!string.IsNullOrEmpty(bootstrap))
             {
@@ -222,6 +230,7 @@ namespace Rook.UI.Web
             if (_disposed)
                 return;
 
+            RequestWebViewRepaint("pre-reload:" + reason);
             _webViewReady = false;
 
             try
@@ -246,6 +255,7 @@ namespace Rook.UI.Web
 
                         Log($"Rook: WebView reload requested after host activation for surface " +
                             $"'{ResourceRoot}' (reason={reason})");
+                        RequestWebViewRepaint("post-reload:" + reason);
                     }
                     catch (Exception reloadEx)
                     {
@@ -263,6 +273,22 @@ namespace Rook.UI.Web
             {
                 Log($"Rook: WebView host-activation reload dispatch failed: {ex.Message}");
             }
+        }
+
+        internal void RequestWebViewRepaint(string reason)
+        {
+#if NET7_0_OR_GREATER
+            TraceWebViewFocus("request-repaint", reason);
+            if (!IsWebViewRepaintWorkaroundEnabled())
+            {
+                TraceWebViewFocus("request-repaint-skip", "workaround-disabled");
+                return;
+            }
+
+            ScheduleWebViewRepaint();
+#else
+            _ = reason;
+#endif
         }
 
         /// <summary>
@@ -297,14 +323,19 @@ namespace Rook.UI.Web
                 // window or Eto tab loses focus and regains it, the
                 // WebView2 swap chain can land in a state where it
                 // renders solid background-color until something
-                // forces a re-present. Wiring GotFocus + Shown to
-                // toggle the controller's IsVisible flag (and notify
-                // it of position changes) is the documented workaround
-                // for the WebView2 black-screen-on-focus-loss bug. Cost:
-                // two extra event subscriptions per panel; benefit:
-                // recovers Vision/Chat/KG panels automatically.
-                _webView.GotFocus += OnWebViewGotFocus;
-                _webView.Shown += OnWebViewShown;
+                // forces a re-present. Wiring app reactivation, GotFocus,
+                // and Shown to toggle the controller's IsVisible flag
+                // (and notify it of position changes) is the documented
+                // workaround for the WebView2 black-screen-on-focus-loss
+                // bug. The app-level hook covers returning focus to Rhino
+                // without focusing the WebView itself.
+                if (IsWebViewRepaintWorkaroundEnabled())
+                {
+                    _webView.GotFocus += OnWebViewGotFocus;
+                    _webView.Shown += OnWebViewShown;
+                    Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
+                }
+                TraceWebViewFocus("create-web-content");
 
                 if (TrySetupVirtualHost())
                 {
@@ -338,30 +369,54 @@ namespace Rook.UI.Web
             if (_disposed || _webView == null) return;
             try
             {
+                TraceWebViewFocus("force-repaint-start");
                 var nativeControl = _webView.ControlObject;
-                if (nativeControl == null) return;
+                if (nativeControl == null)
+                {
+                    TraceWebViewFocus("force-repaint-skip", "native-control-null");
+                    return;
+                }
+                var webView2Control = GetWebView2NativeControl(nativeControl);
+                if (webView2Control == null)
+                {
+                    TraceWebViewFocus("force-repaint-skip", "webview2-control-null");
+                    return;
+                }
 
-                var controllerProp = nativeControl.GetType()
-                    .GetProperty("CoreWebView2Controller");
-                if (controllerProp == null) return;
+                var controllerProp = GetInstanceProperty(
+                    webView2Control.GetType(),
+                    "CoreWebView2Controller");
+                if (controllerProp == null)
+                {
+                    TraceWebViewFocus("force-repaint-skip", "controller-prop-null");
+                    return;
+                }
 
-                var controller = controllerProp.GetValue(nativeControl);
-                if (controller == null) return;
+                var controller = controllerProp.GetValue(webView2Control);
+                if (controller == null)
+                {
+                    TraceWebViewFocus("force-repaint-skip", "controller-null");
+                    return;
+                }
 
                 var controllerType = controller.GetType();
 
                 // Toggle IsVisible false → true. The off-frame is what
                 // actually clears the bad swap-chain state; the on-frame
                 // re-presents the live document.
-                var isVisibleProp = controllerType.GetProperty("IsVisible");
+                var isVisibleProp = GetInstanceProperty(controllerType, "IsVisible");
                 if (isVisibleProp != null && isVisibleProp.CanWrite)
                 {
                     try
                     {
                         isVisibleProp.SetValue(controller, false);
                         isVisibleProp.SetValue(controller, true);
+                        TraceWebViewFocus("force-repaint-visible-toggle");
                     }
-                    catch { /* best-effort */ }
+                    catch (Exception ex)
+                    {
+                        TraceWebViewFocus("force-repaint-visible-toggle-failed", ex.Message);
+                    }
                 }
 
                 // Belt-and-suspenders: notify the controller that the
@@ -370,11 +425,19 @@ namespace Rook.UI.Web
                 var notifyMethod = controllerType.GetMethod(
                     "NotifyParentWindowPositionChanged",
                     Type.EmptyTypes);
-                try { notifyMethod?.Invoke(controller, null); }
-                catch { /* best-effort */ }
+                try
+                {
+                    notifyMethod?.Invoke(controller, null);
+                    TraceWebViewFocus("force-repaint-notify-parent");
+                }
+                catch (Exception ex)
+                {
+                    TraceWebViewFocus("force-repaint-notify-parent-failed", ex.Message);
+                }
             }
-            catch
+            catch (Exception ex)
             {
+                TraceWebViewFocus("force-repaint-failed", ex.Message);
                 // Never let a focus-handler exception escape — would
                 // create an unhandled-exception loop on every focus
                 // transition.
@@ -382,10 +445,179 @@ namespace Rook.UI.Web
         }
 
         private void OnWebViewGotFocus(object? sender, EventArgs e)
-            => TryForceWebViewRepaint();
+        {
+            TraceWebViewFocus("webview-got-focus");
+            ScheduleWebViewRepaint();
+        }
 
         private void OnWebViewShown(object? sender, EventArgs e)
-            => TryForceWebViewRepaint();
+        {
+            TraceWebViewFocus("webview-shown");
+            ScheduleWebViewRepaint();
+        }
+
+        private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
+        {
+            TraceWebViewFocus("app-active-changed", Application.Instance.IsActive ? "active" : "inactive");
+            if (!Application.Instance.IsActive)
+                return;
+
+            ScheduleWebViewRepaint();
+        }
+
+        private void ScheduleWebViewRepaint()
+        {
+            if (!IsWebViewRepaintWorkaroundEnabled())
+            {
+                TraceWebViewFocus("schedule-repaint-skip", "workaround-disabled");
+                return;
+            }
+
+            if (_disposed || _webView == null)
+            {
+                TraceWebViewFocus("schedule-repaint-skip", "disposed-or-no-webview");
+                return;
+            }
+
+            if (_repaintQueued)
+            {
+                TraceWebViewFocus("schedule-repaint-skip", "already-queued");
+                return;
+            }
+
+            _repaintQueued = true;
+            TraceWebViewFocus("schedule-repaint-queued");
+            try
+            {
+                Application.Instance.AsyncInvoke(() =>
+                {
+                    _repaintQueued = false;
+                    TraceWebViewFocus("schedule-repaint-run");
+                    TryForceWebViewRepaint();
+                });
+            }
+            catch (Exception ex)
+            {
+                _repaintQueued = false;
+                TraceWebViewFocus("schedule-repaint-dispatch-failed", ex.Message);
+                TryForceWebViewRepaint();
+            }
+        }
+
+        private static object? GetWebView2NativeControl(object nativeControl)
+        {
+            var type = nativeControl.GetType();
+            if (GetInstanceProperty(type, "CoreWebView2Controller") != null ||
+                GetInstanceProperty(type, "DefaultBackgroundColor") != null)
+            {
+                return nativeControl;
+            }
+
+            var control = GetInstanceProperty(type, "Control")?.GetValue(nativeControl);
+            return control ?? nativeControl;
+        }
+
+        private static object? GetCoreWebView2ReflectionHost(object nativeControl)
+        {
+            if (GetInstanceProperty(nativeControl.GetType(), "CoreWebView2") != null)
+                return nativeControl;
+
+            var webView2Control = GetWebView2NativeControl(nativeControl);
+            if (webView2Control != null &&
+                GetInstanceProperty(webView2Control.GetType(), "CoreWebView2") != null)
+                return webView2Control;
+
+            return null;
+        }
+
+        private static void TrySetDefaultBackgroundColor(object nativeControl)
+        {
+            var bgProp = GetInstanceProperty(nativeControl.GetType(), "DefaultBackgroundColor");
+            if (bgProp == null)
+                return;
+
+            try { bgProp.SetValue(nativeControl, System.Drawing.Color.FromArgb(30, 30, 30)); }
+            catch { /* best-effort — property may not exist on all platforms */ }
+        }
+
+        private void TraceWebViewFocus(string evt, string? detail = null)
+        {
+            if (!IsWebViewFocusDiagnosticsEnabled())
+                return;
+
+            try
+            {
+                var nativeControl = _webView?.ControlObject;
+                var webView2Control = nativeControl == null ? null : GetWebView2NativeControl(nativeControl);
+                var coreHost = nativeControl == null ? null : GetCoreWebView2ReflectionHost(nativeControl);
+                var core = coreHost == null
+                    ? null
+                    : GetInstanceProperty(coreHost.GetType(), "CoreWebView2")?.GetValue(coreHost) as CoreWebView2;
+
+                string controllerState = "controller=null";
+                if (webView2Control != null)
+                {
+                    var controller = GetInstanceProperty(
+                            webView2Control.GetType(),
+                            "CoreWebView2Controller")
+                        ?.GetValue(webView2Control);
+                    if (controller != null)
+                    {
+                        var isVisible = GetInstanceProperty(controller.GetType(), "IsVisible")
+                            ?.GetValue(controller);
+                        controllerState = "controller=" + controller.GetType().FullName +
+                            ";isVisible=" + (isVisible?.ToString() ?? "null");
+                    }
+                }
+
+                var logDir = Path.Combine(Path.GetTempPath(), "rook");
+                Directory.CreateDirectory(logDir);
+                var line =
+                    DateTimeOffset.Now.ToString("O") +
+                    "\tsurface=" + ResourceRoot +
+                    "\tevent=" + evt +
+                    "\tdetail=" + (detail ?? "") +
+                    "\tappActive=" + SafeBool(() => Application.Instance.IsActive) +
+                    "\tready=" + _webViewReady +
+                    "\tbridge=" + IsBridgeAvailable +
+                    "\tdisposed=" + _disposed +
+                    "\twebViewVisible=" + SafeBool(() => _webView?.Visible == true) +
+                    "\tnative=" + (nativeControl?.GetType().FullName ?? "null") +
+                    "\twebView2=" + (webView2Control?.GetType().FullName ?? "null") +
+                    "\tcoreHost=" + (coreHost?.GetType().FullName ?? "null") +
+                    "\tcoreSource=" + (core?.Source ?? "null") +
+                    "\t" + controllerState +
+                    Environment.NewLine;
+                File.AppendAllText(Path.Combine(logDir, "webview-focus.log"), line);
+            }
+            catch
+            {
+                // Diagnostics must never affect panel rendering.
+            }
+        }
+
+        private static string SafeBool(Func<bool> read)
+        {
+            try { return read() ? "true" : "false"; }
+            catch { return "unknown"; }
+        }
+
+        private static bool IsWebViewRepaintWorkaroundEnabled()
+            => string.Equals(
+                Environment.GetEnvironmentVariable("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND"),
+                "1",
+                StringComparison.Ordinal);
+
+        private static bool IsWebViewFocusDiagnosticsEnabled()
+            => string.Equals(
+                Environment.GetEnvironmentVariable("ROOK_ENABLE_WEBVIEW_FOCUS_DIAGNOSTICS"),
+                "1",
+                StringComparison.Ordinal);
+
+        private static PropertyInfo? GetInstanceProperty(Type type, string name)
+            => type.GetProperty(
+                name,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 #endif
 
         /// <summary>
@@ -437,6 +669,10 @@ namespace Rook.UI.Web
         private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e)
         {
             if (_disposed) return;
+
+#if NET7_0_OR_GREATER
+            TraceWebViewFocus("document-loaded", e.Uri?.ToString());
+#endif
 
             // Flush buffered scripts BEFORE marking ready, so any
             // ExecuteScript call arriving during the flush still queues
@@ -534,6 +770,32 @@ namespace Rook.UI.Web
   });
 })();";
 
+        private static string BuildFocusProbeScript() => @"(function() {
+  if (!window.chrome || !window.chrome.webview || window.__rookFocusProbeInstalled) return;
+  window.__rookFocusProbeInstalled = true;
+  function post(eventName) {
+    try {
+      window.chrome.webview.postMessage({
+        type: 'rook_focus_probe',
+        event: eventName,
+        hidden: document.hidden,
+        visibilityState: document.visibilityState,
+        hasFocus: document.hasFocus ? document.hasFocus() : null,
+        readyState: document.readyState,
+        href: window.location ? String(window.location.href) : '',
+        time: Date.now()
+      });
+    } catch (_) { }
+  }
+  document.addEventListener('visibilitychange', function() { post('visibilitychange'); });
+  window.addEventListener('focus', function() { post('window-focus'); });
+  window.addEventListener('blur', function() { post('window-blur'); });
+  window.addEventListener('pageshow', function() { post('pageshow'); });
+  window.addEventListener('pagehide', function() { post('pagehide'); });
+  setInterval(function() { post('heartbeat'); }, 30000);
+  post('installed');
+})();";
+
 #if NET7_0_OR_GREATER
 
         private bool TrySetupVirtualHost()
@@ -542,36 +804,53 @@ namespace Rook.UI.Web
             {
                 var nativeControl = _webView?.ControlObject;
                 if (nativeControl == null)
+                {
+                    TraceWebViewFocus("setup-skip", "native-control-null");
                     return false;
+                }
 
                 // Set dark background immediately to prevent white flash when
                 // the panel loses focus or during navigation.
-                var bgProp = nativeControl.GetType().GetProperty("DefaultBackgroundColor");
-                if (bgProp != null)
+                TraceWebViewFocus("setup-start");
+                var webView2Control = GetWebView2NativeControl(nativeControl);
+                if (webView2Control != null)
+                    TrySetDefaultBackgroundColor(webView2Control);
+
+                var coreHost = GetCoreWebView2ReflectionHost(nativeControl);
+                if (coreHost == null)
                 {
-                    try { bgProp.SetValue(nativeControl, System.Drawing.Color.FromArgb(30, 30, 30)); }
-                    catch { /* best-effort — property may not exist on all platforms */ }
+                    TraceWebViewFocus("setup-skip", "core-host-null");
+                    return false;
                 }
 
-                var coreWv2Property = nativeControl.GetType().GetProperty("CoreWebView2");
+                var coreWv2Property = GetInstanceProperty(coreHost.GetType(), "CoreWebView2");
                 if (coreWv2Property == null)
+                {
+                    TraceWebViewFocus("setup-skip", "core-webview2-prop-null");
                     return false;
+                }
 
-                var coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
+                var coreWv2 = coreWv2Property.GetValue(coreHost) as CoreWebView2;
                 if (coreWv2 != null)
                 {
+                    TraceWebViewFocus("setup-existing-core");
                     ConfigureVirtualHost(coreWv2);
                     return true;
                 }
 
-                var initEvent = nativeControl.GetType().GetEvent("CoreWebView2InitializationCompleted");
+                var initEvent = coreHost.GetType().GetEvent(
+                    "CoreWebView2InitializationCompleted",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (initEvent == null)
+                {
+                    TraceWebViewFocus("setup-skip", "init-event-null");
                     return false;
+                }
 
                 EventHandler<CoreWebView2InitializationCompletedEventArgs> handler = null!;
                 handler = (sender, args) =>
                 {
-                    initEvent.RemoveEventHandler(nativeControl, handler);
+                    initEvent.RemoveEventHandler(coreHost, handler);
                     if (ReferenceEquals(_initHandler, handler))
                     {
                         _initEvent = null;
@@ -581,29 +860,37 @@ namespace Rook.UI.Web
                     if (_disposed) return;
                     if (args.IsSuccess)
                     {
-                        coreWv2 = coreWv2Property.GetValue(nativeControl) as CoreWebView2;
+                        TraceWebViewFocus("setup-init-success");
+                        coreWv2 = coreWv2Property.GetValue(coreHost) as CoreWebView2;
                         if (coreWv2 != null)
                             ConfigureVirtualHost(coreWv2);
                     }
                     else
                     {
+                        TraceWebViewFocus("setup-init-failed", args.InitializationException?.Message);
                         RhinoApp.WriteLine("Rook: WebView2 init failed, falling back to minimal HTML");
                         Application.Instance.Invoke(() => _webView?.LoadHtml(MinimalFallbackHtml));
                     }
                 };
-                _nativeControlWithInitHandler = nativeControl;
+                _nativeControlWithInitHandler = coreHost;
                 _initEvent = initEvent;
                 _initHandler = handler;
-                initEvent.AddEventHandler(nativeControl, handler);
+                initEvent.AddEventHandler(coreHost, handler);
 
-                var ensureMethod = nativeControl.GetType().GetMethod("EnsureCoreWebView2Async",
-                    new[] { typeof(CoreWebView2Environment) });
-                ensureMethod?.Invoke(nativeControl, new object?[] { null });
+                var ensureMethod = coreHost.GetType().GetMethod(
+                    "EnsureCoreWebView2Async",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                    binder: null,
+                    types: new[] { typeof(CoreWebView2Environment) },
+                    modifiers: null);
+                ensureMethod?.Invoke(coreHost, new object?[] { null });
+                TraceWebViewFocus("setup-ensure-core");
 
                 return true;
             }
             catch (Exception ex)
             {
+                TraceWebViewFocus("setup-failed", ex.Message);
                 RhinoApp.WriteLine($"Rook: virtual host setup failed: {ex.Message}");
                 return false;
             }
@@ -614,6 +901,7 @@ namespace Rook.UI.Web
             try
             {
                 if (_disposed) return;
+                TraceWebViewFocus("configure-start");
 
                 coreWebView2.AddWebResourceRequestedFilter(
                     $"{VirtualHostOrigin}/*",
@@ -641,10 +929,12 @@ namespace Rook.UI.Web
                 // any post-Navigate code paths see the correct state.
                 IsBridgeAvailable = true;
 
+                TraceWebViewFocus("navigate", $"{VirtualHostOrigin}/{EntryPage}");
                 coreWebView2.Navigate($"{VirtualHostOrigin}/{EntryPage}");
             }
             catch (Exception ex)
             {
+                TraceWebViewFocus("configure-failed", ex.Message);
                 RhinoApp.WriteLine($"Rook: virtual host navigation failed: {ex.Message}");
                 IsBridgeAvailable = false;
                 Application.Instance.Invoke(() => _webView?.LoadHtml(MinimalFallbackHtml));
@@ -657,6 +947,8 @@ namespace Rook.UI.Web
 
             var kind = e.ProcessFailedKind.ToString();
             var action = ClassifyProcessFailure(kind);
+            TraceWebViewFocus("process-failed",
+                $"kind={kind};reason={e.Reason};exitCode={e.ExitCode};description={e.ProcessDescription};recovery={action}");
             Log("Rook: WebView2 process failure on surface " +
                 $"'{ResourceRoot}': kind={kind}, reason={e.Reason}, " +
                 $"exitCode={e.ExitCode}, description='{e.ProcessDescription}', " +
@@ -738,6 +1030,8 @@ namespace Rook.UI.Web
                 return;
             }
 
+            TraceFocusProbeMessage(incomingJson);
+
             var responseJson = await _dispatcher.DispatchAsync(incomingJson);
             if (responseJson is null || _disposed) return;
 
@@ -749,6 +1043,38 @@ namespace Rook.UI.Web
                     RhinoApp.WriteLine($"Rook: bridge response post failed: {ex.Message}");
                 }
             });
+        }
+
+        private void TraceFocusProbeMessage(string? incomingJson)
+        {
+            if (!IsWebViewFocusDiagnosticsEnabled())
+                return;
+
+            if (string.IsNullOrEmpty(incomingJson) ||
+                incomingJson.IndexOf("rook_focus_probe", StringComparison.Ordinal) < 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var root = JsonNode.Parse(incomingJson) as JsonObject;
+                if (root?["type"]?.GetValue<string>() != "rook_focus_probe")
+                    return;
+
+                var evt = root["event"]?.GetValue<string>() ?? "";
+                var detail =
+                    "hidden=" + (root["hidden"]?.ToString() ?? "") +
+                    ";visibility=" + (root["visibilityState"]?.GetValue<string>() ?? "") +
+                    ";hasFocus=" + (root["hasFocus"]?.ToString() ?? "") +
+                    ";readyState=" + (root["readyState"]?.GetValue<string>() ?? "") +
+                    ";href=" + (root["href"]?.GetValue<string>() ?? "");
+                TraceWebViewFocus("js-" + evt, detail);
+            }
+            catch (Exception ex)
+            {
+                TraceWebViewFocus("js-probe-parse-failed", ex.Message);
+            }
         }
 
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -903,6 +1229,8 @@ namespace Rook.UI.Web
             try { _webView!.GotFocus -= OnWebViewGotFocus; }
             catch { }
             try { _webView!.Shown -= OnWebViewShown; }
+            catch { }
+            try { Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged; }
             catch { }
 #endif
             try { _webView!.Dispose(); }
