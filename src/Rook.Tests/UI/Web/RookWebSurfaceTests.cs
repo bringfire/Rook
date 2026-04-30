@@ -311,6 +311,28 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
+        public void WebViewFocusDiagnostics_CapturesNavigationResourcesJsAndLayout()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("NavigationStarting += OnNavigationStarting", source);
+            Assert.Contains("NavigationCompleted += OnNavigationCompleted", source);
+            Assert.Contains("NavigationStarting -= OnNavigationStarting", source);
+            Assert.Contains("NavigationCompleted -= OnNavigationCompleted", source);
+            Assert.Contains("navigation-starting", source);
+            Assert.Contains("navigation-completed", source);
+            Assert.Contains("resource-missing", source);
+            Assert.Contains("resource-virtual-error", source);
+            Assert.Contains("resource-resolver-failed", source);
+            Assert.Contains("js-error", source);
+            Assert.Contains("js-unhandledrejection", source);
+            Assert.Contains("resource-error", source);
+            Assert.Contains("layout-snapshot", source);
+            Assert.Contains("appRect", source);
+            Assert.Contains("host-activation-reload", source);
+        }
+
+        [Fact]
         public void WebViewFocusBlackoutWorkaround_ResolvesNestedWebView2Control()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");

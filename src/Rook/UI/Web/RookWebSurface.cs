@@ -230,6 +230,9 @@ namespace Rook.UI.Web
             if (_disposed)
                 return;
 
+#if NET7_0_OR_GREATER
+            TraceWebViewFocus("host-activation-reload", reason);
+#endif
             RequestWebViewRepaint("pre-reload:" + reason);
             _webViewReady = false;
 
@@ -773,9 +776,37 @@ namespace Rook.UI.Web
         private static string BuildFocusProbeScript() => @"(function() {
   if (!window.chrome || !window.chrome.webview || window.__rookFocusProbeInstalled) return;
   window.__rookFocusProbeInstalled = true;
-  function post(eventName) {
+  function clean(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).replace(/[\r\n\t]+/g, ' ').slice(0, 500);
+  }
+  function rectText(el) {
     try {
-      window.chrome.webview.postMessage({
+      if (!el || !el.getBoundingClientRect) return '';
+      var r = el.getBoundingClientRect();
+      return Math.round(r.left) + ',' + Math.round(r.top) + ',' +
+        Math.round(r.width) + 'x' + Math.round(r.height);
+    } catch (_) { return ''; }
+  }
+  function layoutSnapshot() {
+    var de = document.documentElement;
+    var body = document.body;
+    var app = document.getElementById('app') ||
+      document.querySelector('.app-shell') ||
+      document.querySelector('main');
+    return {
+      viewport: window.innerWidth + 'x' + window.innerHeight,
+      docClient: de ? de.clientWidth + 'x' + de.clientHeight : '',
+      docScroll: de ? de.scrollWidth + 'x' + de.scrollHeight : '',
+      bodyClient: body ? body.clientWidth + 'x' + body.clientHeight : '',
+      bodyScroll: body ? body.scrollWidth + 'x' + body.scrollHeight : '',
+      appRect: rectText(app),
+      activeElement: document.activeElement ? clean(document.activeElement.tagName) : ''
+    };
+  }
+  function post(eventName, extra) {
+    try {
+      var payload = {
         type: 'rook_focus_probe',
         event: eventName,
         hidden: document.hidden,
@@ -784,16 +815,58 @@ namespace Rook.UI.Web
         readyState: document.readyState,
         href: window.location ? String(window.location.href) : '',
         time: Date.now()
-      });
+      };
+      var layout = layoutSnapshot();
+      for (var key in layout) payload[key] = layout[key];
+      if (extra) {
+        for (var extraKey in extra) payload[extraKey] = clean(extra[extraKey]);
+      }
+      window.chrome.webview.postMessage(payload);
     } catch (_) { }
   }
-  document.addEventListener('visibilitychange', function() { post('visibilitychange'); });
+  function postLayout(reason) { post('layout-snapshot', { reason: reason }); }
+  document.addEventListener('visibilitychange', function() {
+    post('visibilitychange');
+    postLayout('visibilitychange');
+  });
+  document.addEventListener('DOMContentLoaded', function() { post('domcontentloaded'); });
   window.addEventListener('focus', function() { post('window-focus'); });
   window.addEventListener('blur', function() { post('window-blur'); });
-  window.addEventListener('pageshow', function() { post('pageshow'); });
+  window.addEventListener('load', function() { post('window-load'); });
+  window.addEventListener('pageshow', function() {
+    post('pageshow');
+    setTimeout(function() { postLayout('pageshow+250ms'); }, 250);
+  });
   window.addEventListener('pagehide', function() { post('pagehide'); });
+  window.addEventListener('error', function(e) {
+    var target = e.target || e.srcElement;
+    if (target && target !== window && target.tagName) {
+      post('resource-error', {
+        tag: target.tagName,
+        target: target.currentSrc || target.src || target.href || target.id || ''
+      });
+      return;
+    }
+    post('js-error', {
+      message: e.message || '',
+      filename: e.filename || '',
+      lineno: e.lineno || '',
+      colno: e.colno || '',
+      errorName: e.error && e.error.name ? e.error.name : '',
+      stack: e.error && e.error.stack ? e.error.stack : ''
+    });
+  }, true);
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason || '';
+    post('js-unhandledrejection', {
+      reason: reason && reason.message ? reason.message : reason,
+      errorName: reason && reason.name ? reason.name : '',
+      stack: reason && reason.stack ? reason.stack : ''
+    });
+  });
   setInterval(function() { post('heartbeat'); }, 30000);
   post('installed');
+  setTimeout(function() { postLayout('installed+500ms'); }, 500);
 })();";
 
 #if NET7_0_OR_GREATER
@@ -912,6 +985,8 @@ namespace Rook.UI.Web
                 // is connected before any page script can post.
                 coreWebView2.WebMessageReceived += OnWebMessageReceived;
                 coreWebView2.ProcessFailed += OnWebViewProcessFailed;
+                coreWebView2.NavigationStarting += OnNavigationStarting;
+                coreWebView2.NavigationCompleted += OnNavigationCompleted;
                 _coreWebView2 = coreWebView2;
 
                 // Inject document-creation scripts in the locked order:
@@ -966,6 +1041,24 @@ namespace Rook.UI.Web
                         "Rook panel if the surface does not recover.");
                     break;
             }
+        }
+
+        private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (_disposed) return;
+
+            TraceWebViewFocus("navigation-starting",
+                $"id={e.NavigationId};uri={e.Uri};redirected={e.IsRedirected};" +
+                $"userInitiated={e.IsUserInitiated};cancel={e.Cancel}");
+        }
+
+        private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (_disposed) return;
+
+            TraceWebViewFocus("navigation-completed",
+                $"id={e.NavigationId};success={e.IsSuccess};status={e.HttpStatusCode};" +
+                $"webError={e.WebErrorStatus}");
         }
 
         private void ReloadAfterRendererExit(CoreWebView2? eventCore)
@@ -1063,17 +1156,65 @@ namespace Rook.UI.Web
                     return;
 
                 var evt = root["event"]?.GetValue<string>() ?? "";
-                var detail =
-                    "hidden=" + (root["hidden"]?.ToString() ?? "") +
-                    ";visibility=" + (root["visibilityState"]?.GetValue<string>() ?? "") +
-                    ";hasFocus=" + (root["hasFocus"]?.ToString() ?? "") +
-                    ";readyState=" + (root["readyState"]?.GetValue<string>() ?? "") +
-                    ";href=" + (root["href"]?.GetValue<string>() ?? "");
+                var parts = new List<string>
+                {
+                    "hidden=" + (root["hidden"]?.ToString() ?? ""),
+                    "visibility=" + JsonFieldForLog(root, "visibilityState"),
+                    "hasFocus=" + (root["hasFocus"]?.ToString() ?? ""),
+                    "readyState=" + JsonFieldForLog(root, "readyState"),
+                    "href=" + JsonFieldForLog(root, "href"),
+                };
+                AppendProbeField(parts, root, "viewport");
+                AppendProbeField(parts, root, "docClient");
+                AppendProbeField(parts, root, "docScroll");
+                AppendProbeField(parts, root, "bodyClient");
+                AppendProbeField(parts, root, "bodyScroll");
+                AppendProbeField(parts, root, "appRect");
+                AppendProbeField(parts, root, "activeElement");
+                AppendProbeField(parts, root, "reason");
+                AppendProbeField(parts, root, "message");
+                AppendProbeField(parts, root, "filename");
+                AppendProbeField(parts, root, "lineno");
+                AppendProbeField(parts, root, "colno");
+                AppendProbeField(parts, root, "tag");
+                AppendProbeField(parts, root, "target");
+                AppendProbeField(parts, root, "errorName");
+                AppendProbeField(parts, root, "stack");
+
+                var detail = string.Join(";", parts);
                 TraceWebViewFocus("js-" + evt, detail);
             }
             catch (Exception ex)
             {
                 TraceWebViewFocus("js-probe-parse-failed", ex.Message);
+            }
+        }
+
+        private static void AppendProbeField(List<string> parts, JsonObject root, string name)
+        {
+            var value = JsonFieldForLog(root, name);
+            if (!string.IsNullOrEmpty(value))
+                parts.Add(name + "=" + value);
+        }
+
+        private static string JsonFieldForLog(JsonObject root, string name)
+        {
+            try
+            {
+                var node = root[name];
+                if (node == null)
+                    return "";
+
+                string value;
+                try { value = node.GetValue<string>(); }
+                catch { value = node.ToJsonString(); }
+
+                value = value.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+                return value.Length <= 500 ? value : value.Substring(0, 500);
+            }
+            catch
+            {
+                return "";
             }
         }
 
@@ -1098,6 +1239,7 @@ namespace Rook.UI.Web
             }
             catch (Exception ex)
             {
+                TraceWebViewFocus("resource-resolver-failed", $"{uri.AbsolutePath};error={ex.Message}");
                 Log($"Rook: TryResolveVirtualResource threw for '{uri}': {ex.Message}");
                 // Fall through to embedded-resource path; a surface-level
                 // exception must not deny the caller a response.
@@ -1105,6 +1247,11 @@ namespace Rook.UI.Web
 
             if (virtResource != null)
             {
+                if (virtResource.StatusCode >= 400)
+                {
+                    TraceWebViewFocus("resource-virtual-error",
+                        $"{uri.AbsolutePath};status={virtResource.StatusCode};type={virtResource.ContentType}");
+                }
                 if (coreWv2 != null)
                 {
                     var virtHeaders = $"Content-Type: {virtResource.ContentType}";
@@ -1131,6 +1278,7 @@ namespace Rook.UI.Web
             var stream = assembly.GetManifestResourceStream(resourceName);
             if (stream == null)
             {
+                TraceWebViewFocus("resource-missing", $"{uri.AbsolutePath};resource={resourceName}");
                 // Return an explicit 404 so missing resources surface as clear
                 // errors in the browser console rather than silent network failures.
                 if (coreWv2 != null)
@@ -1204,6 +1352,10 @@ namespace Rook.UI.Web
                 try { _coreWebView2.WebMessageReceived -= OnWebMessageReceived; }
                 catch { }
                 try { _coreWebView2.ProcessFailed -= OnWebViewProcessFailed; }
+                catch { }
+                try { _coreWebView2.NavigationStarting -= OnNavigationStarting; }
+                catch { }
+                try { _coreWebView2.NavigationCompleted -= OnNavigationCompleted; }
                 catch { }
                 _coreWebView2 = null;
             }
