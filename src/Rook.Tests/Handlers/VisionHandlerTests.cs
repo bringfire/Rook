@@ -905,6 +905,61 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void GetSettingsOverview_IncludesProviderCredentialsForGeminiAndFal()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-secret");
+            var handler = NewHandlerWithSecrets(store);
+
+            var response = handler.GetSettingsOverview(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            var credentials = Assert.IsAssignableFrom<IEnumerable<object>>(data["provider_credentials"]);
+            var serialized = JsonSerializer.Serialize(credentials);
+            Assert.Contains("\"provider_name\":\"gemini\"", serialized);
+            Assert.Contains("\"provider_name\":\"fal\"", serialized);
+            Assert.Contains("\"availability\":\"available_but_unverified\"", serialized);
+            Assert.Contains("\"availability\":\"missing_required_secret\"", serialized);
+        }
+
+        [Fact]
+        public void GetSettingsOverview_PreservesLegacyAvailableModelsAlias()
+        {
+            var handler = NewHandlerWithSecrets(new InMemoryGenerationSecretStore());
+
+            var response = handler.GetSettingsOverview(new Dictionary<string, JsonElement>());
+
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.True(data.ContainsKey("available_models"));
+            Assert.True(data.ContainsKey("has_api_key"));
+            Assert.True(data.ContainsKey("api_key_preview"));
+        }
+
+        [Fact]
+        public void GetSettingsOverview_WithLegacyVisionSecretStore_DoesNotThrow()
+        {
+            var root = CreateTempRoot("rook-vision-settings-legacy-provider-summary");
+            var settingsPath = Path.Combine(root, "RookSettings.json");
+            var secrets = new VisionSecretStore(new RookSettingsStore(settingsPath));
+            secrets.SetGeminiApiKey("gemini-legacy-secret");
+            var handler = new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-vision-settings-legacy-artifacts")),
+                secrets,
+                new PromptEnhancer(),
+                new ViewportHandler());
+
+            var response = handler.GetSettingsOverview(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var serialized = JsonSerializer.Serialize(response.Data);
+            Assert.Contains("\"provider_name\":\"gemini\"", serialized);
+            Assert.Contains("\"provider_name\":\"fal\"", serialized);
+            Assert.Contains("\"presence\":\"present\"", serialized);
+            Assert.Contains("\"missing_required_secret\"", serialized);
+        }
+
+        [Fact]
         public void BuildRevealFileStartInfo_SelectsCanonicalFilePath()
         {
             var path = Path.Combine(Path.GetTempPath(), "rook vision image.png");

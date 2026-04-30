@@ -1713,6 +1713,7 @@ namespace Rook.Handlers
                 // models are deliberately absent — API keys can't use
                 // them, so listing them would generate only 429s.
                 ["available_models"] = GeminiImageCapabilities.AvailableModels,
+                ["provider_credentials"] = BuildProviderCredentialSummaries(),
                 ["allowed_resolutions"] = CommonResolutions,
                 ["default_model_supported_resolutions"] =
                     SupportedResolutionsForModel(GeminiImageCapabilities.DefaultModel),
@@ -1740,6 +1741,123 @@ namespace Rook.Handlers
             }
 
             return Ok(overview);
+        }
+
+        private List<Dictionary<string, object?>> BuildProviderCredentialSummaries()
+        {
+            var summaries = new List<Dictionary<string, object?>>();
+            foreach (var provider in _credentialMetadata.EnumerateProviders())
+            {
+                var status = ProviderCredentialStatusBuilder.Build(
+                    provider.ProviderName,
+                    provider.SecretRequirements,
+                    CredentialStatusSecretStore);
+
+                summaries.Add(ProviderCredentialStatusToObj(status));
+            }
+
+            return summaries;
+        }
+
+        private IGenerationSecretStore CredentialStatusSecretStore
+            => _generationSecrets ?? new LegacyGeminiGenerationSecretStatusStore(_secrets);
+
+        private static Dictionary<string, object?> ProviderCredentialStatusToObj(
+            ProviderCredentialStatus status)
+        {
+            var secrets = new List<Dictionary<string, object?>>(status.Secrets.Count);
+            foreach (var secret in status.Secrets)
+                secrets.Add(ProviderSecretStatusToObj(secret));
+
+            return new Dictionary<string, object?>
+            {
+                ["provider_name"] = status.ProviderName,
+                ["availability"] = CredentialAvailabilityToString(status.Availability),
+                ["message"] = status.Message,
+                ["secrets"] = secrets,
+            };
+        }
+
+        private static Dictionary<string, object?> ProviderSecretStatusToObj(
+            ProviderSecretStatus status)
+            => new()
+            {
+                ["key"] = status.Requirement.Key,
+                ["display_name"] = status.Requirement.DisplayName,
+                ["is_required"] = status.Requirement.IsRequired,
+                ["is_sensitive"] = status.Requirement.IsSensitive,
+                ["presence"] = status.Presence == ProviderSecretPresence.Present
+                    ? "present"
+                    : "missing",
+                ["validation_state"] = SecretValidationStateToString(status.ValidationState),
+                ["preview"] = status.Preview,
+                ["message"] = status.Message,
+            };
+
+        private static string CredentialAvailabilityToString(
+            ProviderCredentialAvailability availability)
+            => availability switch
+            {
+                ProviderCredentialAvailability.MissingRequiredSecret => "missing_required_secret",
+                ProviderCredentialAvailability.InvalidCredential => "invalid_credential",
+                ProviderCredentialAvailability.Available => "available",
+                ProviderCredentialAvailability.AvailableButUnverified => "available_but_unverified",
+                ProviderCredentialAvailability.AvailableWithInconclusiveValidation =>
+                    "available_with_inconclusive_validation",
+                _ => availability.ToString().ToLowerInvariant(),
+            };
+
+        private static string SecretValidationStateToString(
+            ProviderSecretValidationState state)
+            => state switch
+            {
+                ProviderSecretValidationState.NotAttempted => "not_attempted",
+                ProviderSecretValidationState.Valid => "valid",
+                ProviderSecretValidationState.Invalid => "invalid",
+                ProviderSecretValidationState.Inconclusive => "inconclusive",
+                _ => state.ToString().ToLowerInvariant(),
+            };
+
+        private sealed class LegacyGeminiGenerationSecretStatusStore
+            : IGenerationSecretStore
+        {
+            private readonly VisionSecretStore _legacy;
+
+            public LegacyGeminiGenerationSecretStatusStore(VisionSecretStore legacy)
+            {
+                _legacy = legacy ?? throw new ArgumentNullException(nameof(legacy));
+            }
+
+            public string? GetSecret(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    ? _legacy.GetGeminiApiKey()
+                    : null;
+
+            public void SetSecret(string secretKey, string value)
+                => throw new NotSupportedException(
+                    "Legacy credential status adapter is read-only.");
+
+            public void RemoveSecret(string secretKey)
+                => throw new NotSupportedException(
+                    "Legacy credential status adapter is read-only.");
+
+            public bool HasSecret(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    && _legacy.HasGeminiApiKey();
+
+            public string? GetPreview(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    ? _legacy.GetApiKeyPreview()
+                    : null;
         }
 
         internal ApiResponse ListImageModels(Dictionary<string, JsonElement> args)
