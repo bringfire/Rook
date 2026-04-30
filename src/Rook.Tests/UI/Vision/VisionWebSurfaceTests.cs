@@ -467,6 +467,15 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void IndexHtml_Settings_UsesProviderCredentialsContainer()
+        {
+            var html = ReadVisionResource("index.html");
+
+            Assert.Contains("id=\"provider-credentials\"", html);
+            Assert.DoesNotContain("id=\"save-api-key\"", html);
+        }
+
+        [Fact]
         public void IndexHtml_ApproveButtons_ExplainDownstreamUse()
         {
             var html = ReadVisionResource("index.html");
@@ -535,6 +544,29 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("el.overviewCapturedViewportCount.textContent = formatCount(artifactCounts.captured_viewport);", js);
             Assert.Contains("el.overviewEnhancedPromptCount.textContent = formatCount(artifactCounts.enhanced_prompt);", js);
             Assert.Contains("el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);", js);
+        }
+
+        [Fact]
+        public void AppJs_RendersProviderCredentialCardsAndUsesProviderOps()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function renderProviderCredentials", js);
+            Assert.Contains("bridgeCall(\"set_provider_secret\"", js);
+            Assert.Contains("bridgeCall(\"test_provider_secret\"", js);
+            Assert.Contains("bridgeCall(\"clear_provider_secret\"", js);
+            Assert.Contains("sessionValidationBySecret", js);
+        }
+
+        [Fact]
+        public void AppJs_RemovesOrGuardsLegacyApiKeyControls()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("if (el.providerCredentials)", js);
+            Assert.Contains("if (el.toggleKeyBtn && el.apiKey)", js);
+            Assert.Contains("if (el.saveApiKeyBtn && el.apiKey)", js);
+            Assert.Contains("if (el.testApiKeyBtn && el.apiKey)", js);
         }
 
         [Fact]

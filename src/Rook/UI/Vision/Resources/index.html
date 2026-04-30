@@ -691,26 +691,10 @@
                                     <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
                                 </svg>
                             </div>
-                            <h3>API Configuration</h3>
+                            <h3>Credentials</h3>
                         </div>
                         <div class="card-body">
-                            <div class="input-field">
-                                <label for="api-key">Google AI API Key</label>
-                                <div class="input-group">
-                                    <input type="password" id="api-key" placeholder="Enter your API key">
-                                    <button id="toggle-key" class="btn btn-icon-inline" title="Show key">
-                                        <svg viewBox="0 0 24 24" fill="none">
-                                            <path d="M1 12C1 12 5 4 12 4C19 4 23 12 23 12C23 12 19 20 12 20C5 20 1 12 1 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                                <span class="input-hint">Get your key from Google AI Studio — <code>aistudio.google.com</code>. Stored encrypted under your Windows profile. Copy the URL into a browser; the Vision tab does not navigate externally.</span>
-                            </div>
-                            <div class="settings-actions">
-                                <button id="test-api-key" class="btn btn-secondary">Test</button>
-                                <button id="save-api-key" class="btn btn-primary">Save Key</button>
-                            </div>
+                            <div id="provider-credentials" class="provider-credentials"></div>
                             <div id="api-key-status" class="status-indicator"></div>
                         </div>
                     </div>

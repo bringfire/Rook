@@ -78,6 +78,7 @@ let galleryItems = [];                // cached list for modal lookup
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
+const sessionValidationBySecret = new Map();
 
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
@@ -897,7 +898,8 @@ async function loadSettingsOverview() {
         el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);
         el.overviewArtifactCount.textContent = formatCount(data.artifact_count);
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
-        if (data.has_api_key) {
+        renderProviderCredentials(data.provider_credentials);
+        if (el.apiKey && el.apiKeyStatus && data.has_api_key) {
             // Show the truncated preview in the input placeholder so
             // it's visibly clear the key persists across sessions —
             // matches SA_Banana's "AIza…xyz1" affordance. The input
@@ -906,7 +908,7 @@ async function loadSettingsOverview() {
             el.apiKey.placeholder = preview;
             el.apiKeyStatus.textContent = `API key configured (${preview}).`;
             el.apiKeyStatus.className = "status-indicator success";
-        } else {
+        } else if (el.apiKey && el.apiKeyStatus) {
             el.apiKey.placeholder = "Enter your API key";
             el.apiKeyStatus.textContent = "No API key configured.";
             el.apiKeyStatus.className = "status-indicator error";
@@ -953,12 +955,15 @@ async function loadSettingsOverview() {
             populateResolutionSelect(el.studioResolutionSelect, allowed);
         }
     } catch (e) {
-        el.apiKeyStatus.textContent = e.message;
-        el.apiKeyStatus.className = "status-indicator error";
+        if (el.apiKeyStatus) {
+            el.apiKeyStatus.textContent = e.message;
+            el.apiKeyStatus.className = "status-indicator error";
+        }
     }
 }
 
 async function saveApiKey() {
+    if (!el.apiKey || !el.apiKeyStatus || !el.saveApiKeyBtn) return;
     const key = el.apiKey.value.trim();
     if (!key) {
         el.apiKeyStatus.textContent = "Enter a key first.";
@@ -984,6 +989,7 @@ async function saveApiKey() {
 }
 
 async function testApiKey() {
+    if (!el.apiKey || !el.apiKeyStatus || !el.testApiKeyBtn) return;
     const inline = el.apiKey.value.trim();
     el.testApiKeyBtn.disabled = true;
     el.apiKeyStatus.textContent = "Testing...";
@@ -999,6 +1005,209 @@ async function testApiKey() {
         el.apiKeyStatus.className = "status-indicator error";
     } finally {
         el.testApiKeyBtn.disabled = false;
+    }
+}
+
+function secretOverlayKey(providerName, secretKey) {
+    return `${providerName}::${secretKey}`;
+}
+
+function clearSecretOverlay(providerName, secretKey) {
+    sessionValidationBySecret.delete(secretOverlayKey(providerName, secretKey));
+}
+
+function providerDisplayName(name) {
+    if (name === "gemini") return "Google AI";
+    if (name === "fal") return "fal.ai";
+    return name || "Provider";
+}
+
+function providerHelpText(name) {
+    if (name === "gemini") {
+        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile.";
+    }
+    if (name === "fal") {
+        return "Get your key from fal.ai. Settings tests avoid generation work by default.";
+    }
+    return "Stored encrypted under your Windows profile.";
+}
+
+function credentialStatusClass(validation) {
+    if (validation === "valid") return "success";
+    if (validation === "invalid") return "error";
+    if (validation === "inconclusive") return "warning";
+    return "";
+}
+
+function credentialStatusText(secret, validation) {
+    if (validation === "valid") return "Credential test passed.";
+    if (validation === "invalid") return secret.message || "Credential test failed.";
+    if (validation === "inconclusive") return secret.message || "Credential test was inconclusive.";
+    if (secret.presence === "present") {
+        return secret.preview ? `Configured (${secret.preview}).` : "Configured.";
+    }
+    return "Not configured.";
+}
+
+function renderProviderCredentials(providers) {
+    if (!el.providerCredentials) return;
+    const list = Array.isArray(providers) ? providers : [];
+    if (list.length === 0) {
+        el.providerCredentials.innerHTML = `<p class="provider-credential-empty">No provider credentials are configured for this build.</p>`;
+        return;
+    }
+
+    el.providerCredentials.innerHTML = list.map(provider => {
+        const providerName = provider.provider_name || "";
+        const providerAvailability = provider.availability || "";
+        const secrets = Array.isArray(provider.secrets) ? provider.secrets : [];
+        const fields = secrets.map(secret => {
+            const key = secret.key || "";
+            const overlay = sessionValidationBySecret.get(secretOverlayKey(providerName, key));
+            const validation = overlay || secret.validation_state || "not_attempted";
+            const preview = secret.preview || "";
+            const placeholder = preview || `Enter ${secret.display_name || "credential"}`;
+            return `
+                <div class="provider-secret" data-provider="${escapeAttr(providerName)}" data-secret-key="${escapeAttr(key)}">
+                    <label>${escapeHtml(secret.display_name || key)}</label>
+                    <div class="input-group">
+                        <input type="password" class="provider-secret-input" placeholder="${escapeAttr(placeholder)}">
+                    </div>
+                    <span class="input-hint">${escapeHtml(providerHelpText(providerName))}</span>
+                    <div class="settings-actions">
+                        <button class="btn btn-secondary provider-secret-test" type="button">Test</button>
+                        <button class="btn btn-primary provider-secret-save" type="button">Save Key</button>
+                        <button class="btn btn-secondary provider-secret-clear" type="button">Clear</button>
+                    </div>
+                    <div class="status-indicator provider-secret-status ${credentialStatusClass(validation)}">${escapeHtml(credentialStatusText(secret, validation))}</div>
+                </div>`;
+        }).join("");
+        return `
+            <section class="provider-credential-card" data-provider="${escapeAttr(providerName)}">
+                <div class="provider-credential-header">
+                    <h4>${escapeHtml(providerDisplayName(providerName))}</h4>
+                    <span>${escapeHtml(providerAvailability.replace(/_/g, " "))}</span>
+                </div>
+                ${fields}
+            </section>`;
+    }).join("");
+}
+
+function providerSecretContext(target) {
+    const row = target.closest(".provider-secret");
+    if (!row) return null;
+    return {
+        row,
+        providerName: row.dataset.provider || "",
+        secretKey: row.dataset.secretKey || "",
+        input: row.querySelector(".provider-secret-input"),
+        status: row.querySelector(".status-indicator"),
+    };
+}
+
+function handleProviderCredentialInput(e) {
+    if (!e.target.classList.contains("provider-secret-input")) return;
+    const ctx = providerSecretContext(e.target);
+    if (!ctx) return;
+    clearSecretOverlay(ctx.providerName, ctx.secretKey);
+    if (ctx.input.value.length > 0) {
+        setProviderSecretStatus(ctx, "Unsaved edits.", "warning");
+    }
+}
+
+function handleProviderCredentialClick(e) {
+    const button = e.target.closest("button");
+    if (!button) return;
+    const ctx = providerSecretContext(button);
+    if (!ctx) return;
+
+    if (button.classList.contains("provider-secret-save")) {
+        saveProviderSecret(ctx);
+    } else if (button.classList.contains("provider-secret-test")) {
+        testProviderSecret(ctx);
+    } else if (button.classList.contains("provider-secret-clear")) {
+        clearProviderSecret(ctx);
+    }
+}
+
+function setProviderSecretStatus(ctx, message, type) {
+    if (!ctx || !ctx.status) return;
+    ctx.status.textContent = message;
+    ctx.status.className = `status-indicator provider-secret-status ${type || ""}`.trim();
+}
+
+async function saveProviderSecret(ctx) {
+    if (!ctx || !ctx.input) return;
+    const value = ctx.input.value.trim();
+    if (!value) {
+        setProviderSecretStatus(ctx, "Enter a key first.", "error");
+        return;
+    }
+    const saveBtn = ctx.row.querySelector(".provider-secret-save");
+    if (saveBtn) saveBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Saving...", "");
+    try {
+        await bridgeCall("set_provider_secret", {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+            value,
+        });
+        clearSecretOverlay(ctx.providerName, ctx.secretKey);
+        ctx.input.value = "";
+        setProviderSecretStatus(ctx, "Saved.", "success");
+        loadSettingsOverview();
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+}
+
+async function testProviderSecret(ctx) {
+    if (!ctx || !ctx.input) return;
+    const testBtn = ctx.row.querySelector(".provider-secret-test");
+    if (testBtn) testBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Testing...", "");
+    try {
+        const args = {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+        };
+        const rawValue = ctx.input.value;
+        const value = rawValue.trim();
+        if (rawValue.length > 0) args.candidate_value = value;
+        const data = await bridgeCall("test_provider_secret", args);
+        const validation = data.validation_state || "inconclusive";
+        sessionValidationBySecret.set(secretOverlayKey(ctx.providerName, ctx.secretKey), validation);
+        setProviderSecretStatus(
+            ctx,
+            data.message || credentialStatusText({ presence: "present" }, validation),
+            credentialStatusClass(validation));
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (testBtn) testBtn.disabled = false;
+    }
+}
+
+async function clearProviderSecret(ctx) {
+    if (!ctx) return;
+    const clearBtn = ctx.row.querySelector(".provider-secret-clear");
+    if (clearBtn) clearBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Clearing...", "");
+    try {
+        await bridgeCall("clear_provider_secret", {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+        });
+        clearSecretOverlay(ctx.providerName, ctx.secretKey);
+        if (ctx.input) ctx.input.value = "";
+        setProviderSecretStatus(ctx, "Cleared.", "success");
+        loadSettingsOverview();
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (clearBtn) clearBtn.disabled = false;
     }
 }
 
@@ -1120,6 +1329,7 @@ function init() {
     el.saveApiKeyBtn = $("save-api-key");
     el.testApiKeyBtn = $("test-api-key");
     el.apiKeyStatus = $("api-key-status");
+    el.providerCredentials = $("provider-credentials");
     el.overviewDefaultModel = $("overview-default-model");
     el.overviewGeneratedImageCount = $("overview-generated-image-count");
     el.overviewCapturedViewportCount = $("overview-captured-viewport-count");
@@ -1220,12 +1430,19 @@ function init() {
     el.refreshGalleryBtn.addEventListener("click", loadGallery);
     el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
 
-    el.toggleKeyBtn.addEventListener("click", () => {
-        const isPassword = el.apiKey.type === "password";
-        el.apiKey.type = isPassword ? "text" : "password";
-    });
-    el.saveApiKeyBtn.addEventListener("click", saveApiKey);
-    el.testApiKeyBtn.addEventListener("click", testApiKey);
+    if (el.providerCredentials) {
+        el.providerCredentials.addEventListener("click", handleProviderCredentialClick);
+        el.providerCredentials.addEventListener("input", handleProviderCredentialInput);
+    }
+
+    if (el.toggleKeyBtn && el.apiKey) {
+        el.toggleKeyBtn.addEventListener("click", () => {
+            const isPassword = el.apiKey.type === "password";
+            el.apiKey.type = isPassword ? "text" : "password";
+        });
+    }
+    if (el.saveApiKeyBtn && el.apiKey) el.saveApiKeyBtn.addEventListener("click", saveApiKey);
+    if (el.testApiKeyBtn && el.apiKey) el.testApiKeyBtn.addEventListener("click", testApiKey);
 
     el.modalClose.addEventListener("click", closeModal);
     el.modal.addEventListener("click", (e) => {
