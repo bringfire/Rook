@@ -54,11 +54,14 @@ namespace Rook.Services.Vision.Video
             // provider on its next op.
             var veoProvider = new VeoProvider(
                 () => generationSecrets.GetSecret(GenerationSecretKeys.GeminiApiKey));
+            var falVideoProvider = new Fal.FalVideoProvider(
+                () => generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey));
 
             var registry = new DefaultVideoProviderRegistry(
                 new IVideoProviderRegistration[]
                 {
                     new VeoProviderRegistration(veoProvider),
+                    new Fal.FalVideoProviderRegistration(falVideoProvider),
                 });
 
             var mediaResolver = new ArtifactOnlyVideoMediaResolver(artifactStore);
