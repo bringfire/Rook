@@ -30,10 +30,13 @@ namespace Rook.Services.Vision.Replicate
 
         public Task<ReplicateHttpResponse> CreatePredictionAsync(
             string apiToken,
-            string relativeCreatePath,
+            ReplicatePredictionEndpoint endpoint,
             string bodyJson,
-            CancellationToken ct) =>
-            PostJsonAsync(apiToken, BuildApiUri(relativeCreatePath), bodyJson, ct);
+            CancellationToken ct)
+        {
+            if (endpoint is null) throw new ArgumentNullException(nameof(endpoint));
+            return PostJsonAsync(apiToken, BuildApiUri(endpoint.CreatePredictionPath), bodyJson, ct);
+        }
 
         public Task<ReplicateHttpResponse> GetPredictionAsync(
             string apiToken,

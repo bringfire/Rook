@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +15,7 @@ namespace Rook.Tests.Services.Vision.Replicate
     public class ReplicateApiClientTests
     {
         [Fact]
-        public async Task CreatePredictionAsync_sends_bearer_auth_and_json_body_to_default_api_host()
+        public async Task CreatePredictionAsync_uses_official_model_endpoint_descriptor()
         {
             string? body = null;
             var handler = new TestHttpMessageHandler
@@ -32,7 +33,7 @@ namespace Rook.Tests.Services.Vision.Replicate
 
             var response = await client.CreatePredictionAsync(
                 "r8_token",
-                "v1/models/black-forest-labs/flux-schnell/predictions",
+                ReplicatePredictionEndpoint.OfficialModel("black-forest-labs", "flux-schnell"),
                 "{\"input\":{\"prompt\":\"red cube\"}}",
                 CancellationToken.None);
 
@@ -47,6 +48,36 @@ namespace Rook.Tests.Services.Vision.Replicate
             Assert.Equal("r8_token", request.Headers.Authorization.Parameter);
             Assert.Equal("application/json", request.Content!.Headers.ContentType!.MediaType);
             Assert.Equal("{\"input\":{\"prompt\":\"red cube\"}}", body);
+        }
+
+        [Fact]
+        public async Task CreatePredictionAsync_requires_endpoint_descriptor()
+        {
+            var handler = new TestHttpMessageHandler();
+            var client = new ReplicateApiClient(new HttpClient(handler));
+
+            await Assert.ThrowsAsync<ArgumentNullException>(() =>
+                client.CreatePredictionAsync(
+                    "r8_token",
+                    endpoint: null!,
+                    "{\"input\":{\"prompt\":\"red cube\"}}",
+                    CancellationToken.None));
+
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public void CreatePredictionAsync_does_not_expose_raw_relative_path_overload()
+        {
+            var createMethods = typeof(ReplicateApiClient).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public)
+                .Where(method => method.Name == nameof(ReplicateApiClient.CreatePredictionAsync))
+                .ToArray();
+
+            var create = Assert.Single(createMethods);
+            var parameters = create.GetParameters();
+            Assert.Equal(typeof(ReplicatePredictionEndpoint), parameters[1].ParameterType);
+            Assert.Equal("endpoint", parameters[1].Name);
         }
 
         [Fact]
