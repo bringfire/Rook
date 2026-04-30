@@ -230,7 +230,7 @@ namespace Rook.Services.Vision.Video.Fal
             {
                 response = await _client.SendAsync(
                     apiKey!,
-                    HttpMethod.Put,
+                    new HttpMethod(handle.CancelHttpMethod.Trim()),
                     handle.CancelUrl,
                     bodyJson: null,
                     ct).ConfigureAwait(false);

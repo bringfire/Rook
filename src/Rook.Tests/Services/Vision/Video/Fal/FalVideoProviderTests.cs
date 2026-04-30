@@ -347,7 +347,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
-        public async Task Cancel_uses_put_even_when_handle_method_is_stale()
+        public async Task Cancel_uses_persisted_handle_method()
         {
             var handler = new TestHttpMessageHandler
             {
@@ -361,7 +361,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             await provider.CancelAsync(handle, CancellationToken.None);
 
-            Assert.Equal(HttpMethod.Put, Assert.Single(handler.Requests).Method);
+            Assert.Equal(HttpMethod.Post, Assert.Single(handler.Requests).Method);
         }
 
         private static FalVideoProvider Provider(TestHttpMessageHandler handler) =>
