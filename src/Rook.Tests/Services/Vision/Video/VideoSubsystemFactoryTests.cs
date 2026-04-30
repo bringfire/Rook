@@ -5,6 +5,7 @@ using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Fal;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
@@ -84,6 +85,7 @@ namespace Rook.Tests.Services.Vision.Video
             try
             {
                 var expected = VeoCapabilities.Models.Keys
+                    .Concat(new[] { FalVideoCapabilities.WanT2v })
                     .OrderBy(k => k, StringComparer.Ordinal)
                     .ToArray();
                 var actual = bundle.Registry.EnumerateAllModels()
@@ -92,6 +94,42 @@ namespace Rook.Tests.Services.Vision.Video
                     .ToArray();
 
                 Assert.Equal(expected, actual);
+            }
+            finally { bundle.Manager.Dispose(); }
+        }
+
+        [Fact]
+        public void Build_registers_fal_wan_t2v_model()
+        {
+            var (secrets, artifacts) = FreshDeps();
+
+            var bundle = VideoSubsystemFactory.Build(secrets, artifacts);
+            try
+            {
+                var fal = Assert.Single(
+                    bundle.Registry.EnumerateAllModels(),
+                    m => m.ModelId == FalVideoCapabilities.WanT2v);
+                Assert.Equal(FalVideoCapabilities.ProviderName, fal.ProviderName);
+                Assert.Equal(PricingKind.PerSecond, fal.PricingKind);
+                Assert.Equal(new[] { VideoMode.T2V }, fal.Capability.Modes);
+                Assert.False(fal.Capability.SupportsReferenceImages);
+                Assert.Equal(0, fal.Capability.MaxReferenceImages);
+                Assert.Empty(fal.Capability.Must8sWith);
+            }
+            finally { bundle.Manager.Dispose(); }
+        }
+
+        [Fact]
+        public void Build_does_not_register_fal_i2v_model()
+        {
+            var (secrets, artifacts) = FreshDeps();
+
+            var bundle = VideoSubsystemFactory.Build(secrets, artifacts);
+            try
+            {
+                Assert.DoesNotContain(
+                    bundle.Registry.EnumerateAllModels(),
+                    m => m.ModelId == "fal-ai/wan/v2.7/image-to-video");
             }
             finally { bundle.Manager.Dispose(); }
         }

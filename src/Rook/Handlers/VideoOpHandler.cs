@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rhino;
@@ -471,12 +472,19 @@ namespace Rook.Handlers
             return true;
         }
 
-        private static (VideoGenerationRequest? Request, VideoJobError? Error)
+        private (VideoGenerationRequest? Request, VideoJobError? Error)
             ParseGenerationRequest(Dictionary<string, JsonElement> args)
         {
             var model = GetStringArg(args, "model");
             if (string.IsNullOrEmpty(model))
                 return (null, BadField("model", "Missing required 'model' field."));
+
+            if (!_registry.TryResolve(model!, out var resolvedModel))
+            {
+                return (null, BadField(
+                    "model",
+                    $"Unknown model: '{model}'."));
+            }
 
             var modeStr = GetStringArg(args, "mode") ?? string.Empty;
             if (!TryParseMode(modeStr, out var mode))
@@ -533,18 +541,22 @@ namespace Rook.Handlers
             int? seed = null;
             if (TryGetInt(args, "seed", out var seedVal)) seed = seedVal;
 
-            // Options is required and provider-specific. V2 wires Veo as
-            // the only provider; the typed VeoOptions is the only shape
-            // accepted today. Future providers extend by adding a parser
-            // arm here keyed on the resolved provider.
+            // Options is required and provider-specific. Resolve the
+            // model before decoding so the registry-owned codec is the
+            // single authority for the provider's JSON shape.
             var (optionsEl, optionsObjErr) = GetOptionalObject(args, "options");
             if (optionsObjErr is not null) return (null, optionsObjErr);
             if (optionsEl is null)
                 return (null, BadField("options",
                     "Missing required 'options' field (typed provider options)."));
 
-            var (options, optErr) = ParseVeoOptions(optionsEl.Value);
-            if (optErr is not null) return (null, optErr);
+            var optionsJson = JsonNode.Parse(optionsEl.Value.GetRawText()) as JsonObject;
+            if (optionsJson is null)
+                return (null, BadField("options", "'options' must be a JSON object."));
+
+            var decodedOptions = resolvedModel.OptionsCodec.Deserialize(optionsJson);
+            if (!decodedOptions.Success)
+                return (null, VideoProviderOutcomeAdapters.ToVideoJobError(decodedOptions.Error!));
 
             int numberOfVideos = 1;
             if (TryGetInt(args, "number_of_videos", out var nVids))
@@ -561,7 +573,7 @@ namespace Rook.Handlers
                 EndFrame: endFrame,
                 ReferenceFrames: referenceFrames,
                 Seed: seed,
-                Options: options!,
+                Options: decodedOptions.Options!,
                 NumberOfVideos: numberOfVideos);
 
             return (request, null);
@@ -647,34 +659,6 @@ namespace Rook.Handlers
             {
                 return (null, BadField($"{fieldPath}.role", ex.Message));
             }
-        }
-
-        private static (ProviderOptions? Options, VideoJobError? Error) ParseVeoOptions(
-            JsonElement el)
-        {
-            if (el.ValueKind != JsonValueKind.Object)
-                return (null, BadField("options", "'options' must be a JSON object."));
-
-            string? raw = null;
-            if (el.TryGetProperty("person_generation", out var pgEl)
-                && pgEl.ValueKind == JsonValueKind.String)
-            {
-                raw = pgEl.GetString();
-            }
-
-            if (string.IsNullOrEmpty(raw))
-                return (null, BadField("options.person_generation",
-                    "'options.person_generation' is required and must be a string."));
-
-            return raw!.ToLowerInvariant() switch
-            {
-                "dont_allow" => (new VeoOptions(PersonGenerationPolicy.DontAllow), null),
-                "allow_adult" => (new VeoOptions(PersonGenerationPolicy.AllowAdult), null),
-                "allow_all" => (new VeoOptions(PersonGenerationPolicy.AllowAll), null),
-                _ => (null, BadField("options.person_generation",
-                        $"'options.person_generation' must be one of " +
-                        $"dont_allow|allow_adult|allow_all, got '{raw}'.")),
-            };
         }
 
         private static bool TryParseMode(string s, out VideoMode mode)

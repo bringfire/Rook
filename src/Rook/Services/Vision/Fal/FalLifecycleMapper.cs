@@ -127,7 +127,15 @@ namespace Rook.Services.Vision.Fal
         private static Uri? OptionalUri(JsonObject root, string name)
         {
             var value = OptionalString(root, name);
-            return string.IsNullOrWhiteSpace(value) ? null : new Uri(value!);
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+                throw new ArgumentException(
+                    $"fal submit response field '{name}' was not a valid absolute URL.",
+                    name);
+
+            return uri;
         }
     }
 }

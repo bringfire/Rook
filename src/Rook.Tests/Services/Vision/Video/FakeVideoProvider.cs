@@ -123,6 +123,21 @@ namespace Rook.Tests.Services.Vision.Video
                     },
                     EmptyMetadata));
 
+        public static ProviderResultOutcome ResultRemote(
+            string url,
+            string? mimeType = null) =>
+            new SuccessResultOutcome(
+                new ProviderResultEnvelope(
+                    new[]
+                    {
+                        new ResultArtifact(
+                            Role: VideoMediaRoles.Video,
+                            Body: new RemoteArtifactBody(new Uri(url)),
+                            DeclaredMimeType: mimeType,
+                            ProviderMetadata: EmptyMetadata),
+                    },
+                    EmptyMetadata));
+
         public static ProviderResultOutcome ResultFailed(VideoJobError error) =>
             new FailedResultOutcome(
                 VideoProviderOutcomeAdapters.ToGenerationError(error));

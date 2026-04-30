@@ -1,0 +1,471 @@
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using Rook.Services.Vision.Fal;
+using Rook.Services.Vision.Generation;
+
+namespace Rook.Services.Vision.Video.Fal
+{
+    public sealed class FalVideoProvider : IVideoProvider
+    {
+        private static readonly Uri Endpoint =
+            new("https://queue.fal.run/fal-ai/wan/v2.7/text-to-video");
+        private const string CancelHttpMethod = "PUT";
+
+        private readonly Func<string?> _apiKeyProvider;
+        private readonly FalApiClient _client;
+
+        public FalVideoProvider(Func<string?> apiKeyProvider, FalApiClient? client = null)
+        {
+            _apiKeyProvider = apiKeyProvider
+                ?? throw new ArgumentNullException(nameof(apiKeyProvider));
+            _client = client ?? new FalApiClient();
+        }
+
+        public string ProviderName => FalVideoCapabilities.ProviderName;
+
+        public async Task<ProviderSubmitOutcome> SubmitAsync(
+            VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+            CancellationToken ct)
+        {
+            if (request is null)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "Request is null.",
+                    nameof(request));
+
+            if (request.Options is not FalVideoOptions)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    $"fal video provider requires {nameof(FalVideoOptions)}; got " +
+                    $"{request.Options?.GetType().Name ?? "null"}.",
+                    nameof(VideoGenerationRequest.Options));
+
+            if (!string.Equals(request.Model, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    $"fal video provider only supports {FalVideoCapabilities.WanT2v}.",
+                    nameof(VideoGenerationRequest.Model));
+
+            if (request.Mode != VideoMode.T2V)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal video provider only supports text-to-video mode in PR-8.",
+                    nameof(VideoGenerationRequest.Mode));
+
+            if (request.StartFrame is not null
+                || request.EndFrame is not null
+                || (request.ReferenceFrames is { Count: > 0 }))
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal text-to-video does not accept input media in PR-8.",
+                    nameof(VideoGenerationRequest.ReferenceFrames));
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Prompt))
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal text-to-video requires prompt.",
+                    nameof(VideoGenerationRequest.Prompt));
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.PostJsonAsync(
+                    apiKey!,
+                    Endpoint,
+                    BuildRequestJson(request),
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(response));
+
+            try
+            {
+                var root = JsonNode.Parse(response.Body);
+                if (root is null)
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response was empty.");
+
+                return new QueuedSubmitOutcome(
+                    FalLifecycleMapper.ParseSubmitHandle(root, CancelHttpMethod));
+            }
+            catch (JsonException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal submit response was not valid JSON.");
+            }
+            catch (ArgumentException ex)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    ex.Message);
+            }
+        }
+
+        public async Task<ProviderStatusOutcome> GetStatusAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+                return FailedStatus(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle));
+
+            if (handle.StatusUrl is null)
+                return FailedStatus(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal status URL is missing.");
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedStatus(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.GetAsync(
+                    apiKey!,
+                    handle.StatusUrl,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedStatus(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal status request timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedStatus(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal status request failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedStatusOutcome(FalErrorMapper.MapHttpFailure(response));
+
+            try
+            {
+                var root = JsonNode.Parse(response.Body);
+                return root is null
+                    ? FailedStatus(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal status response was empty.")
+                    : FalLifecycleMapper.MapStatus(handle, root);
+            }
+            catch (JsonException)
+            {
+                return FailedStatus(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal status response was not valid JSON.");
+            }
+        }
+
+        public async Task<ProviderCancelOutcome> CancelAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+                return FailedCancel(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle));
+
+            if (handle.CancelUrl is null || string.IsNullOrWhiteSpace(handle.CancelHttpMethod))
+                return FailedCancel(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal cancel URL or method is missing.");
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedCancel(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.SendAsync(
+                    apiKey!,
+                    new HttpMethod(handle.CancelHttpMethod.Trim()),
+                    handle.CancelUrl,
+                    bodyJson: null,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedCancel(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal cancel request timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedCancel(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal cancel request failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (response.StatusCode == 202 || response.IsSuccessStatusCode)
+                return new CanceledOutcome();
+
+            if (response.StatusCode == 400)
+                return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
+
+            return new FailedCancelOutcome(FalErrorMapper.MapHttpFailure(response));
+        }
+
+        public async Task<ProviderResultOutcome> FetchResultAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+                return FailedResult(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle));
+
+            if (handle.ResponseUrl is null)
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal response URL is missing.");
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.GetAsync(
+                    apiKey!,
+                    handle.ResponseUrl,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal result fetch timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal result fetch failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(response));
+
+            return ParseFetchResult(response.Body);
+        }
+
+        private static string BuildRequestJson(VideoGenerationRequest request)
+        {
+            var body = new JsonObject
+            {
+                ["prompt"] = request.Prompt,
+                ["aspect_ratio"] = request.AspectRatio,
+                ["resolution"] = request.Resolution,
+                ["duration"] = request.DurationSeconds,
+                ["enable_safety_checker"] = true,
+                ["enable_prompt_expansion"] = true,
+            };
+
+            if (request.Seed is int seed)
+                body["seed"] = seed;
+
+            return body.ToJsonString();
+        }
+
+        private static ProviderResultOutcome ParseFetchResult(string body)
+        {
+            JsonObject root;
+            try
+            {
+                root = JsonNode.Parse(body) as JsonObject
+                    ?? throw new JsonException();
+            }
+            catch (JsonException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal result response was not valid JSON.");
+            }
+
+            if (root["video"] is not JsonObject video)
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal result response did not contain video object.",
+                    "video");
+
+            if (!TryGetString(video, "url", out var urlText)
+                || !Uri.TryCreate(urlText, UriKind.Absolute, out var url)
+                || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
+            {
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal video URL was missing or invalid.",
+                    "video.url");
+            }
+
+            var artifactMetadata = CloneObject(video);
+            if (!artifactMetadata.ContainsKey("url"))
+                artifactMetadata["url"] = JsonValue.Create(urlText!)!;
+
+            var envelopeMetadata = new Dictionary<string, JsonNode>();
+            AddMetadata(root, envelopeMetadata, "actual_prompt");
+            AddMetadata(root, envelopeMetadata, "seed");
+
+            var artifact = new ResultArtifact(
+                Role: VideoMediaRoles.Video,
+                Body: new RemoteArtifactBody(url),
+                DeclaredMimeType: TryGetString(video, "content_type", out var mime)
+                    ? mime
+                    : null,
+                ProviderMetadata: artifactMetadata);
+
+            return new SuccessResultOutcome(
+                new ProviderResultEnvelope(
+                    new[] { artifact },
+                    envelopeMetadata));
+        }
+
+        private static ProviderSubmitOutcome FailedSubmit(
+            GenerationErrorCode code,
+            string message,
+            string? field = null,
+            bool retryable = false) =>
+            new FailedSubmitOutcome(new GenerationError(
+                Code: code,
+                Message: message,
+                Retryable: retryable,
+                Field: field));
+
+        private static ProviderStatusOutcome FailedStatus(
+            GenerationErrorCode code,
+            string message,
+            string? field = null,
+            bool retryable = false) =>
+            new FailedStatusOutcome(new GenerationError(
+                Code: code,
+                Message: message,
+                Retryable: retryable,
+                Field: field));
+
+        private static ProviderCancelOutcome FailedCancel(
+            GenerationErrorCode code,
+            string message,
+            string? field = null,
+            bool retryable = false) =>
+            new FailedCancelOutcome(new GenerationError(
+                Code: code,
+                Message: message,
+                Retryable: retryable,
+                Field: field));
+
+        private static ProviderResultOutcome FailedResult(
+            GenerationErrorCode code,
+            string message,
+            string? field = null,
+            bool retryable = false) =>
+            new FailedResultOutcome(new GenerationError(
+                Code: code,
+                Message: message,
+                Retryable: retryable,
+                Field: field));
+
+        private static bool TryGetString(JsonObject obj, string key, out string? value)
+        {
+            value = null;
+            try
+            {
+                value = obj[key]?.GetValue<string>();
+                return !string.IsNullOrWhiteSpace(value);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static Dictionary<string, JsonNode> CloneObject(JsonObject obj)
+        {
+            var copy = new Dictionary<string, JsonNode>();
+            foreach (var kvp in obj)
+            {
+                if (kvp.Value is not null)
+                    copy[kvp.Key] = kvp.Value.DeepClone();
+            }
+
+            return copy;
+        }
+
+        private static void AddMetadata(
+            JsonObject source,
+            IDictionary<string, JsonNode> metadata,
+            string key)
+        {
+            var node = source[key]?.DeepClone();
+            if (node is not null)
+                metadata[key] = node;
+        }
+    }
+}
