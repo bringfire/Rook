@@ -96,6 +96,15 @@ namespace Rook.Tests.Services.Vision.Video
               or VideoJobState.Cancelled
               or VideoJobState.Interrupted;
 
+        private static async Task WaitForSignalAsync(Task signal, string timeoutMessage)
+        {
+            var timeout = Task.Delay(TimeSpan.FromSeconds(2));
+            if (await Task.WhenAny(signal, timeout) != signal)
+                throw new TimeoutException(timeoutMessage);
+
+            await signal.ConfigureAwait(false);
+        }
+
         // ─── Submit happy path ────────────────────────────────────────
 
         [Fact]
@@ -982,10 +991,13 @@ namespace Rook.Tests.Services.Vision.Video
 
             var hangGate = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+            var submitStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
 
             // Provider's SubmitAsync blocks → BG task stays in flight.
             _provider.OnSubmit = (_, _) =>
             {
+                submitStarted.TrySetResult(true);
                 hangGate.Task.GetAwaiter().GetResult();
                 return FakeVideoProvider.SubmitQueued("op-never-needed");
             };
@@ -1009,6 +1021,9 @@ namespace Rook.Tests.Services.Vision.Video
                 // _runningJobs before returning, so a single check
                 // suffices.
                 Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+                await WaitForSignalAsync(
+                    submitStarted.Task,
+                    "Background job did not enter provider submit.");
 
                 // Simulate the race: BG task transitioned through Polling
                 // (persisting provider_job_id) and on to Complete in the
@@ -1022,7 +1037,8 @@ namespace Rook.Tests.Services.Vision.Video
                 // ensures the terminal record CARRIES that handle, so the
                 // test would observe a provider call (and report the wrong
                 // outcome) if the protection regressed.
-                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var initial = _ledger.AllRecords.Last(r => r.JobId == jobId);
+                Assert.Equal(VideoJobState.Submitting, initial.State);
                 var polling = VideoJobRecordFactory.WithState(
                     initial, VideoJobState.Polling, _clock.UtcNow(),
                     providerJobId: "operations/race-complete-target");
@@ -1070,9 +1086,12 @@ namespace Rook.Tests.Services.Vision.Video
 
             var hangGate = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+            var submitStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
 
             _provider.OnSubmit = (_, _) =>
             {
+                submitStarted.TrySetResult(true);
                 hangGate.Task.GetAwaiter().GetResult();
                 return FakeVideoProvider.SubmitQueued("op-x");
             };
@@ -1089,11 +1108,15 @@ namespace Rook.Tests.Services.Vision.Video
             {
                 await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
                 Assert.Contains(_ledger.AllRecords, r => r.JobId == jobId);
+                await WaitForSignalAsync(
+                    submitStarted.Task,
+                    "Background job did not enter provider submit.");
 
                 // Same persisted-ProviderJobId discipline as the Complete
                 // variant — terminal record carries the handle the bug
                 // would have used.
-                var initial = _ledger.AllRecords.First(r => r.JobId == jobId);
+                var initial = _ledger.AllRecords.Last(r => r.JobId == jobId);
+                Assert.Equal(VideoJobState.Submitting, initial.State);
                 var polling = VideoJobRecordFactory.WithState(
                     initial, VideoJobState.Polling, _clock.UtcNow(),
                     providerJobId: "operations/race-error-target");
