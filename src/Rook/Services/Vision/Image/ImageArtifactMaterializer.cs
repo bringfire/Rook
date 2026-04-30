@@ -8,6 +8,32 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Image
 {
+    internal delegate ImageArtifactFetchRequest ImageArtifactRequestFactory(ResultArtifact artifact);
+
+    internal sealed class ImageArtifactFetchRequest
+    {
+        private ImageArtifactFetchRequest(HttpRequestMessage? request, GenerationError? error)
+        {
+            Request = request;
+            Error = error;
+        }
+
+        public HttpRequestMessage? Request { get; }
+        public GenerationError? Error { get; }
+
+        public static ImageArtifactFetchRequest Created(HttpRequestMessage request)
+        {
+            if (request is null) throw new ArgumentNullException(nameof(request));
+            return new ImageArtifactFetchRequest(request, error: null);
+        }
+
+        public static ImageArtifactFetchRequest Failed(GenerationError error)
+        {
+            if (error is null) throw new ArgumentNullException(nameof(error));
+            return new ImageArtifactFetchRequest(request: null, error);
+        }
+    }
+
     internal sealed class ImageArtifactMaterializer
     {
         internal const long MaxGeneratedImageBytes = 25L * 1024 * 1024;
@@ -26,9 +52,15 @@ namespace Rook.Services.Vision.Image
             _httpClient = new HttpClient(handler);
         }
 
+        public Task<ImageArtifactMaterializationResult> MaterializeAsync(
+            ResultArtifact artifact,
+            CancellationToken cancellationToken) =>
+            MaterializeAsync(artifact, cancellationToken, requestFactory: null);
+
         public async Task<ImageArtifactMaterializationResult> MaterializeAsync(
             ResultArtifact artifact,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            ImageArtifactRequestFactory? requestFactory)
         {
             if (artifact is null) throw new ArgumentNullException(nameof(artifact));
 
@@ -51,7 +83,15 @@ namespace Rook.Services.Vision.Image
 
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, remote.Url);
+                var fetchRequest = CreateRequest(artifact, remote, requestFactory);
+                if (fetchRequest.Error is not null)
+                    return ImageArtifactMaterializationResult.Fail(fetchRequest.Error);
+
+                if (fetchRequest.Request is null)
+                    return ImageArtifactMaterializationResult.Fail(ExecutionFailed(
+                        "Image artifact request factory did not return a request."));
+
+                using var request = fetchRequest.Request;
                 using var response = await _httpClient.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
@@ -145,6 +185,20 @@ namespace Rook.Services.Vision.Image
                         "Remote image artifact fetch failed while reading the response stream.",
                         Retryable: true));
             }
+        }
+
+        private static ImageArtifactFetchRequest CreateRequest(
+            ResultArtifact artifact,
+            RemoteArtifactBody remote,
+            ImageArtifactRequestFactory? requestFactory)
+        {
+            if (requestFactory is null)
+                return ImageArtifactFetchRequest.Created(
+                    new HttpRequestMessage(HttpMethod.Get, remote.Url));
+
+            return requestFactory(artifact)
+                ?? ImageArtifactFetchRequest.Failed(ExecutionFailed(
+                    "Image artifact request factory did not return a request."));
         }
 
         private static string ResolveMimeType(
