@@ -78,6 +78,8 @@ let galleryItems = [];                // cached list for modal lookup
 let modalArtifact = null;             // currently-open gallery item
 let modalDisplayRole = null;          // blob role currently rendered in the modal image
 let modelCatalog = [];                 // [{ short_name, supported_resolutions, ... }]
+const sessionValidationBySecret = new Map();
+const providerSecretKeyByProvider = new Map();
 
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
@@ -352,6 +354,11 @@ async function generateImage() {
         showStatus("Capture a viewport first.", "error");
         return;
     }
+    const modelError = validateImageModelForSubmit(el.modelSelect);
+    if (modelError) {
+        showStatus(modelError, "error");
+        return;
+    }
 
     setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
     showStatus("Generating image...", "info");
@@ -379,6 +386,10 @@ async function generateImage() {
             showStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
+        const model = selectedImageModel(el.modelSelect);
+        if (model && isCredentialFailureMessage(e.message)) {
+            markProviderCredentialInvalid(model.provider_name);
+        }
         showStatus(e.message, "error");
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
@@ -476,7 +487,7 @@ function refreshPreviewFraming() {
 
 function supportedResolutionsForSelectedModel(selectEl) {
     const selected = selectEl && selectEl.value;
-    const entry = modelCatalog.find(m => m.short_name === selected);
+    const entry = modelCatalog.find(m => imageModelOptionValue(m) === selected);
     if (entry && Array.isArray(entry.supported_resolutions) && entry.supported_resolutions.length > 0) {
         return entry.supported_resolutions;
     }
@@ -499,6 +510,161 @@ function syncResolutionOptions() {
     populateResolutionSelect(
         el.studioResolutionSelect,
         supportedResolutionsForSelectedModel(el.studioModelSelect));
+}
+
+function imageModelOptionValue(model) {
+    return model && (model.short_name || model.model_id) || "";
+}
+
+function selectedImageModel(selectEl) {
+    const selected = selectEl && selectEl.value;
+    if (!selected) return null;
+    return modelCatalog.find(m => imageModelOptionValue(m) === selected) || null;
+}
+
+function normalizeImageModelDescriptor(m) {
+    const cap = m.capability || {};
+    return {
+        model_id: m.model_id || "",
+        short_name: m.short_name || m.model_id || "",
+        label: cap.name || m.label || m.model_id || "",
+        provider_name: m.provider_name || "",
+        pricing_source: m.pricing_source || "",
+        pricing_kind: m.pricing_kind || null,
+        credential_availability: m.credential_availability || "available_but_unverified",
+        credential_message: m.credential_message || "",
+        credential_secret_key: m.credential_secret_key || "",
+        supported_resolutions: cap.resolutions || m.supported_resolutions || [],
+        aspect_ratios: cap.aspect_ratios || [],
+        supports_image_to_image: cap.supports_image_to_image !== false,
+        supports_text_to_image: cap.supports_text_to_image !== false,
+        max_reference_images: Number(cap.max_reference_images || m.max_reference_images || 0),
+    };
+}
+
+function normalizeLegacyAvailableModel(m) {
+    return {
+        model_id: m.model_id || m.short_name || "",
+        short_name: m.short_name || m.model_id || "",
+        label: m.label || m.short_name || m.model_id || "",
+        provider_name: m.provider_name || "gemini",
+        pricing_source: m.pricing_source || "",
+        pricing_kind: m.pricing_kind || null,
+        credential_availability: m.credential_availability || "available_but_unverified",
+        credential_message: m.credential_message || "",
+        credential_secret_key: m.credential_secret_key || "",
+        supported_resolutions: m.supported_resolutions || [],
+        aspect_ratios: m.aspect_ratios || [],
+        supports_image_to_image: m.supports_image_to_image !== false,
+        supports_text_to_image: m.supports_text_to_image !== false,
+        max_reference_images: Number(m.max_reference_images || 0),
+    };
+}
+
+function rememberProviderSecretKeys(providers) {
+    providerSecretKeyByProvider.clear();
+    const list = Array.isArray(providers) ? providers : [];
+    list.forEach(provider => {
+        const providerName = provider.provider_name || "";
+        const secrets = Array.isArray(provider.secrets) ? provider.secrets : [];
+        const primary = secrets.find(s => s && s.is_required !== false) || secrets[0];
+        if (providerName && primary && primary.key) {
+            providerSecretKeyByProvider.set(providerName, primary.key);
+        }
+    });
+}
+
+function effectiveCredentialAvailability(model) {
+    const base = model.credential_availability || "available_but_unverified";
+    if (base === "missing_required_secret") return base;
+
+    const providerName = model.provider_name || "";
+    const secretKey = model.credential_secret_key || providerSecretKeyByProvider.get(providerName);
+    if (!providerName || !secretKey) return base;
+
+    const overlay = sessionValidationBySecret.get(secretOverlayKey(providerName, secretKey));
+    if (overlay === "invalid") return "invalid_credential";
+    if (overlay === "valid") return "available";
+    if (overlay === "inconclusive" && base !== "missing_required_secret") {
+        return "available_with_inconclusive_validation";
+    }
+    return base;
+}
+
+function markProviderCredentialInvalid(providerName) {
+    const secretKey = providerSecretKeyByProvider.get(providerName || "");
+    if (!providerName || !secretKey) return;
+    sessionValidationBySecret.set(secretOverlayKey(providerName, secretKey), "invalid");
+    populateImageModelDropdowns(modelCatalog);
+}
+
+function isCredentialFailureMessage(message) {
+    const text = String(message || "").toLowerCase();
+    return text.includes("api key")
+        || text.includes("credential")
+        || text.includes("auth")
+        || text.includes("unauthorized")
+        || text.includes("forbidden")
+        || text.includes("permission denied");
+}
+
+function validateImageModelForSubmit(selectEl) {
+    const model = selectedImageModel(selectEl);
+    if (!model) return null;
+    const availability = effectiveCredentialAvailability(model);
+    if (availability === "missing_required_secret") {
+        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+    }
+    if (model.supports_image_to_image === false) {
+        return "Selected model is incompatible with the current image input workflow.";
+    }
+    return null;
+}
+
+function restoreSelectValueIfSelectable(selectEl, value) {
+    if (!selectEl || !value) return;
+    for (const option of selectEl.options) {
+        if (option.value === value && !option.disabled) {
+            selectEl.value = value;
+            return;
+        }
+    }
+}
+
+function populateImageModelDropdowns(models) {
+    const generateModelValue = el.modelSelect && el.modelSelect.value;
+    const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;
+    const options = models.map(m => {
+        const availability = effectiveCredentialAvailability(m);
+        const missingCredential = availability === "missing_required_secret";
+        const capabilityMismatch = m.supports_image_to_image === false;
+        const disabled = missingCredential || capabilityMismatch;
+        const provider = m.provider_name ? ` · ${providerDisplayName(m.provider_name)}` : "";
+        const warning = availability === "invalid_credential" ? " · credential warning" : "";
+        const blocker = missingCredential
+            ? " · configure key"
+            : capabilityMismatch ? " · incompatible" : "";
+        return `<option value="${escapeAttr(imageModelOptionValue(m))}"${disabled ? " disabled" : ""}>${escapeHtml(m.label || m.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
+    }).join("");
+    if (el.modelSelect) el.modelSelect.innerHTML = options;
+    if (el.studioModelSelect) el.studioModelSelect.innerHTML = options;
+    restoreSelectValueIfSelectable(el.modelSelect, generateModelValue);
+    restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);
+    syncResolutionOptions();
+}
+
+async function loadImageModels() {
+    try {
+        const data = await bridgeCall("list_image_models");
+        if (Array.isArray(data.models) && data.models.length > 0) {
+            modelCatalog = data.models.map(normalizeImageModelDescriptor);
+            populateImageModelDropdowns(modelCatalog);
+            return true;
+        }
+    } catch (e) {
+        // Legacy fallback remains below via get_settings_overview.available_models.
+    }
+    return false;
 }
 
 // ─── Studio View ──────────────────────────────────────────────────
@@ -628,6 +794,11 @@ async function studioGenerate() {
         showStudioStatus("Load a source image first.", "error");
         return;
     }
+    const modelError = validateImageModelForSubmit(el.studioModelSelect);
+    if (modelError) {
+        showStudioStatus(modelError, "error");
+        return;
+    }
     setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, true);
     showStudioStatus("Generating image...", "info");
 
@@ -654,6 +825,10 @@ async function studioGenerate() {
             showStudioStatus("Generation returned no artifact.", "error");
         }
     } catch (e) {
+        const model = selectedImageModel(el.studioModelSelect);
+        if (model && isCredentialFailureMessage(e.message)) {
+            markProviderCredentialInvalid(model.provider_name);
+        }
         showStudioStatus(e.message, "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
@@ -897,7 +1072,9 @@ async function loadSettingsOverview() {
         el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);
         el.overviewArtifactCount.textContent = formatCount(data.artifact_count);
         el.overviewKeyStatus.textContent = data.has_api_key ? "Configured" : "Not configured";
-        if (data.has_api_key) {
+        rememberProviderSecretKeys(data.provider_credentials);
+        renderProviderCredentials(data.provider_credentials);
+        if (el.apiKey && el.apiKeyStatus && data.has_api_key) {
             // Show the truncated preview in the input placeholder so
             // it's visibly clear the key persists across sessions —
             // matches SA_Banana's "AIza…xyz1" affordance. The input
@@ -906,45 +1083,45 @@ async function loadSettingsOverview() {
             el.apiKey.placeholder = preview;
             el.apiKeyStatus.textContent = `API key configured (${preview}).`;
             el.apiKeyStatus.className = "status-indicator success";
-        } else {
+        } else if (el.apiKey && el.apiKeyStatus) {
             el.apiKey.placeholder = "Enter your API key";
             el.apiKeyStatus.textContent = "No API key configured.";
             el.apiKeyStatus.className = "status-indicator error";
         }
 
-        // Populate model dropdowns from the server-side catalog when
-        // provided. If `available_models` is absent (e.g. an older
-        // companion), leave the HTML-embedded defaults in place rather
-        // than wiping them — that mistake was PR-7b's original "only
-        // one option" bug.
-        if (Array.isArray(data.available_models) && data.available_models.length > 0) {
-            modelCatalog = data.available_models;
-            const modelOptions = data.available_models.map(m => {
-                const shortName = m.short_name || "";
-                const label = m.label || shortName;
-                const selected = shortName === data.default_model ? " selected" : "";
-                const title = m.description ? ` title="${escapeAttr(m.description)}"` : "";
-                return `<option value="${escapeAttr(shortName)}"${selected}${title}>${escapeHtml(label)}</option>`;
-            }).join("");
-            if (el.modelSelect) el.modelSelect.innerHTML = modelOptions;
-            if (el.studioModelSelect) el.studioModelSelect.innerHTML = modelOptions;
-            syncResolutionOptions();
-        } else if (data.default_model) {
-            // Server returned no catalog but did give a default — select
-            // that option in the existing dropdown if it's there, else
-            // leave the HTML defaults alone.
-            const pickDefault = (sel) => {
-                if (!sel) return;
-                for (const opt of sel.options) {
-                    if (opt.value === data.default_model) {
-                        sel.value = data.default_model;
-                        break;
-                    }
+        const loadedImageModels = await loadImageModels();
+        if (!loadedImageModels) {
+            // Populate model dropdowns from the legacy server-side alias
+            // when the canonical image catalog op is absent or fails. If
+            // `available_models` is absent (e.g. an older companion),
+            // leave the HTML-embedded defaults in place rather than
+            // wiping them — that mistake was PR-7b's original "only one
+            // option" bug.
+            if (Array.isArray(data.available_models) && data.available_models.length > 0) {
+                modelCatalog = data.available_models.map(normalizeLegacyAvailableModel);
+                populateImageModelDropdowns(modelCatalog);
+                if (data.default_model) {
+                    if (el.modelSelect) el.modelSelect.value = data.default_model;
+                    if (el.studioModelSelect) el.studioModelSelect.value = data.default_model;
+                    syncResolutionOptions();
                 }
-            };
-            pickDefault(el.modelSelect);
-            pickDefault(el.studioModelSelect);
-            syncResolutionOptions();
+            } else if (data.default_model) {
+                // Server returned no catalog but did give a default —
+                // select that option in the existing dropdown if it's
+                // there, else leave the HTML defaults alone.
+                const pickDefault = (sel) => {
+                    if (!sel) return;
+                    for (const opt of sel.options) {
+                        if (opt.value === data.default_model) {
+                            sel.value = data.default_model;
+                            break;
+                        }
+                    }
+                };
+                pickDefault(el.modelSelect);
+                pickDefault(el.studioModelSelect);
+                syncResolutionOptions();
+            }
         }
 
         if (modelCatalog.length === 0) {
@@ -953,12 +1130,15 @@ async function loadSettingsOverview() {
             populateResolutionSelect(el.studioResolutionSelect, allowed);
         }
     } catch (e) {
-        el.apiKeyStatus.textContent = e.message;
-        el.apiKeyStatus.className = "status-indicator error";
+        if (el.apiKeyStatus) {
+            el.apiKeyStatus.textContent = e.message;
+            el.apiKeyStatus.className = "status-indicator error";
+        }
     }
 }
 
 async function saveApiKey() {
+    if (!el.apiKey || !el.apiKeyStatus || !el.saveApiKeyBtn) return;
     const key = el.apiKey.value.trim();
     if (!key) {
         el.apiKeyStatus.textContent = "Enter a key first.";
@@ -984,6 +1164,7 @@ async function saveApiKey() {
 }
 
 async function testApiKey() {
+    if (!el.apiKey || !el.apiKeyStatus || !el.testApiKeyBtn) return;
     const inline = el.apiKey.value.trim();
     el.testApiKeyBtn.disabled = true;
     el.apiKeyStatus.textContent = "Testing...";
@@ -999,6 +1180,211 @@ async function testApiKey() {
         el.apiKeyStatus.className = "status-indicator error";
     } finally {
         el.testApiKeyBtn.disabled = false;
+    }
+}
+
+function secretOverlayKey(providerName, secretKey) {
+    return `${providerName}::${secretKey}`;
+}
+
+function clearSecretOverlay(providerName, secretKey) {
+    sessionValidationBySecret.delete(secretOverlayKey(providerName, secretKey));
+}
+
+function providerDisplayName(name) {
+    if (name === "gemini") return "Google AI";
+    if (name === "fal") return "fal.ai";
+    return name || "Provider";
+}
+
+function providerHelpText(name) {
+    if (name === "gemini") {
+        return "Get your key from Google AI Studio. Stored encrypted under your Windows profile.";
+    }
+    if (name === "fal") {
+        return "Get your key from fal.ai. Settings tests avoid generation work by default.";
+    }
+    return "Stored encrypted under your Windows profile.";
+}
+
+function credentialStatusClass(validation) {
+    if (validation === "valid") return "success";
+    if (validation === "invalid") return "error";
+    if (validation === "inconclusive") return "warning";
+    return "";
+}
+
+function credentialStatusText(secret, validation) {
+    if (validation === "valid") return "Credential test passed.";
+    if (validation === "invalid") return secret.message || "Credential test failed.";
+    if (validation === "inconclusive") return secret.message || "Credential test was inconclusive.";
+    if (secret.presence === "present") {
+        return secret.preview ? `Configured (${secret.preview}).` : "Configured.";
+    }
+    return "Not configured.";
+}
+
+function renderProviderCredentials(providers) {
+    if (!el.providerCredentials) return;
+    const list = Array.isArray(providers) ? providers : [];
+    if (list.length === 0) {
+        el.providerCredentials.innerHTML = `<p class="provider-credential-empty">No provider credentials are configured for this build.</p>`;
+        return;
+    }
+
+    el.providerCredentials.innerHTML = list.map(provider => {
+        const providerName = provider.provider_name || "";
+        const providerAvailability = provider.availability || "";
+        const secrets = Array.isArray(provider.secrets) ? provider.secrets : [];
+        const fields = secrets.map(secret => {
+            const key = secret.key || "";
+            const overlay = sessionValidationBySecret.get(secretOverlayKey(providerName, key));
+            const validation = overlay || secret.validation_state || "not_attempted";
+            const preview = secret.preview || "";
+            const placeholder = preview || `Enter ${secret.display_name || "credential"}`;
+            return `
+                <div class="provider-secret" data-provider="${escapeAttr(providerName)}" data-secret-key="${escapeAttr(key)}">
+                    <label>${escapeHtml(secret.display_name || key)}</label>
+                    <div class="input-group">
+                        <input type="password" class="provider-secret-input" placeholder="${escapeAttr(placeholder)}">
+                    </div>
+                    <span class="input-hint">${escapeHtml(providerHelpText(providerName))}</span>
+                    <div class="settings-actions">
+                        <button class="btn btn-secondary provider-secret-test" type="button">Test</button>
+                        <button class="btn btn-primary provider-secret-save" type="button">Save Key</button>
+                        <button class="btn btn-secondary provider-secret-clear" type="button">Clear</button>
+                    </div>
+                    <div class="status-indicator provider-secret-status ${credentialStatusClass(validation)}">${escapeHtml(credentialStatusText(secret, validation))}</div>
+                </div>`;
+        }).join("");
+        return `
+            <section class="provider-credential-card" data-provider="${escapeAttr(providerName)}">
+                <div class="provider-credential-header">
+                    <h4>${escapeHtml(providerDisplayName(providerName))}</h4>
+                    <span>${escapeHtml(providerAvailability.replace(/_/g, " "))}</span>
+                </div>
+                ${fields}
+            </section>`;
+    }).join("");
+}
+
+function providerSecretContext(target) {
+    const row = target.closest(".provider-secret");
+    if (!row) return null;
+    return {
+        row,
+        providerName: row.dataset.provider || "",
+        secretKey: row.dataset.secretKey || "",
+        input: row.querySelector(".provider-secret-input"),
+        status: row.querySelector(".status-indicator"),
+    };
+}
+
+function handleProviderCredentialInput(e) {
+    if (!e.target.classList.contains("provider-secret-input")) return;
+    const ctx = providerSecretContext(e.target);
+    if (!ctx) return;
+    clearSecretOverlay(ctx.providerName, ctx.secretKey);
+    populateImageModelDropdowns(modelCatalog);
+    if (ctx.input.value.length > 0) {
+        setProviderSecretStatus(ctx, "Unsaved edits.", "warning");
+    }
+}
+
+function handleProviderCredentialClick(e) {
+    const button = e.target.closest("button");
+    if (!button) return;
+    const ctx = providerSecretContext(button);
+    if (!ctx) return;
+
+    if (button.classList.contains("provider-secret-save")) {
+        saveProviderSecret(ctx);
+    } else if (button.classList.contains("provider-secret-test")) {
+        testProviderSecret(ctx);
+    } else if (button.classList.contains("provider-secret-clear")) {
+        clearProviderSecret(ctx);
+    }
+}
+
+function setProviderSecretStatus(ctx, message, type) {
+    if (!ctx || !ctx.status) return;
+    ctx.status.textContent = message;
+    ctx.status.className = `status-indicator provider-secret-status ${type || ""}`.trim();
+}
+
+async function saveProviderSecret(ctx) {
+    if (!ctx || !ctx.input) return;
+    const value = ctx.input.value.trim();
+    if (!value) {
+        setProviderSecretStatus(ctx, "Enter a key first.", "error");
+        return;
+    }
+    const saveBtn = ctx.row.querySelector(".provider-secret-save");
+    if (saveBtn) saveBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Saving...", "");
+    try {
+        await bridgeCall("set_provider_secret", {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+            value,
+        });
+        clearSecretOverlay(ctx.providerName, ctx.secretKey);
+        ctx.input.value = "";
+        setProviderSecretStatus(ctx, "Saved.", "success");
+        loadSettingsOverview();
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+}
+
+async function testProviderSecret(ctx) {
+    if (!ctx || !ctx.input) return;
+    const testBtn = ctx.row.querySelector(".provider-secret-test");
+    if (testBtn) testBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Testing...", "");
+    try {
+        const args = {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+        };
+        const rawValue = ctx.input.value;
+        const value = rawValue.trim();
+        if (rawValue.length > 0) args.candidate_value = value;
+        const data = await bridgeCall("test_provider_secret", args);
+        const validation = data.validation_state || "inconclusive";
+        sessionValidationBySecret.set(secretOverlayKey(ctx.providerName, ctx.secretKey), validation);
+        populateImageModelDropdowns(modelCatalog);
+        setProviderSecretStatus(
+            ctx,
+            data.message || credentialStatusText({ presence: "present" }, validation),
+            credentialStatusClass(validation));
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (testBtn) testBtn.disabled = false;
+    }
+}
+
+async function clearProviderSecret(ctx) {
+    if (!ctx) return;
+    const clearBtn = ctx.row.querySelector(".provider-secret-clear");
+    if (clearBtn) clearBtn.disabled = true;
+    setProviderSecretStatus(ctx, "Clearing...", "");
+    try {
+        await bridgeCall("clear_provider_secret", {
+            provider_name: ctx.providerName,
+            secret_key: ctx.secretKey,
+        });
+        clearSecretOverlay(ctx.providerName, ctx.secretKey);
+        if (ctx.input) ctx.input.value = "";
+        setProviderSecretStatus(ctx, "Cleared.", "success");
+        loadSettingsOverview();
+    } catch (e) {
+        setProviderSecretStatus(ctx, e.message, "error");
+    } finally {
+        if (clearBtn) clearBtn.disabled = false;
     }
 }
 
@@ -1120,6 +1506,7 @@ function init() {
     el.saveApiKeyBtn = $("save-api-key");
     el.testApiKeyBtn = $("test-api-key");
     el.apiKeyStatus = $("api-key-status");
+    el.providerCredentials = $("provider-credentials");
     el.overviewDefaultModel = $("overview-default-model");
     el.overviewGeneratedImageCount = $("overview-generated-image-count");
     el.overviewCapturedViewportCount = $("overview-captured-viewport-count");
@@ -1220,12 +1607,19 @@ function init() {
     el.refreshGalleryBtn.addEventListener("click", loadGallery);
     el.openArtifactsFolderBtn.addEventListener("click", openArtifactsFolder);
 
-    el.toggleKeyBtn.addEventListener("click", () => {
-        const isPassword = el.apiKey.type === "password";
-        el.apiKey.type = isPassword ? "text" : "password";
-    });
-    el.saveApiKeyBtn.addEventListener("click", saveApiKey);
-    el.testApiKeyBtn.addEventListener("click", testApiKey);
+    if (el.providerCredentials) {
+        el.providerCredentials.addEventListener("click", handleProviderCredentialClick);
+        el.providerCredentials.addEventListener("input", handleProviderCredentialInput);
+    }
+
+    if (el.toggleKeyBtn && el.apiKey) {
+        el.toggleKeyBtn.addEventListener("click", () => {
+            const isPassword = el.apiKey.type === "password";
+            el.apiKey.type = isPassword ? "text" : "password";
+        });
+    }
+    if (el.saveApiKeyBtn && el.apiKey) el.saveApiKeyBtn.addEventListener("click", saveApiKey);
+    if (el.testApiKeyBtn && el.apiKey) el.testApiKeyBtn.addEventListener("click", testApiKey);
 
     el.modalClose.addEventListener("click", closeModal);
     el.modal.addEventListener("click", (e) => {

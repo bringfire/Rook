@@ -1275,6 +1275,10 @@ body {
     color: var(--accent-red);
 }
 
+.status-indicator.warning {
+    color: var(--accent-amber);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    RESULT PANEL
    ═══════════════════════════════════════════════════════════════ */
@@ -1615,6 +1619,74 @@ body {
 
 .card-body {
     padding: var(--space-4) var(--space-5);
+}
+
+.provider-credentials {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.provider-credential-empty {
+    margin: 0;
+    font-family: var(--type-mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+}
+
+.provider-credential-card {
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    padding: var(--space-3);
+}
+
+.provider-credential-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--rule);
+}
+
+.provider-credential-header h4 {
+    font-family: var(--type-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.provider-credential-header span {
+    font-family: var(--type-mono);
+    font-size: 10px;
+    color: var(--ink-soft);
+    text-align: right;
+}
+
+.provider-secret + .provider-secret {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px dashed rgba(10, 10, 12, 0.2);
+}
+
+.provider-secret label {
+    display: block;
+    margin-bottom: var(--space-1);
+    font-family: var(--type-display);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.provider-secret .input-group {
+    margin-bottom: var(--space-1);
+}
+
+.provider-secret-status {
+    min-height: 16px;
 }
 
 .settings-actions {

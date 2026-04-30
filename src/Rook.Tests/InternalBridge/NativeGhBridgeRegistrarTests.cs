@@ -131,6 +131,16 @@ namespace Rook.Tests.InternalBridge
             Assert.Equal(15, NativeGhBridgeRegistrar.ExpectedVisionOps.Count);
         }
 
+        [Theory]
+        [InlineData("set_provider_secret")]
+        [InlineData("test_provider_secret")]
+        [InlineData("clear_provider_secret")]
+        [InlineData("list_image_models")]
+        public void ExpectedVisionOps_DoesNotExposeProviderSettingsOps(string op)
+        {
+            Assert.DoesNotContain(op, NativeGhBridgeRegistrar.ExpectedVisionOps);
+        }
+
         // ─── BuildUnknownOpMessage ───────────────────────────────────────
 
         [Fact]

@@ -237,6 +237,8 @@ namespace Rook.Tests.UI.Vision
                 "list_artifacts", "get_artifact", "approve_artifact",
                 "delete_artifact", "consume_approved",
                 "set_api_key", "get_settings_overview",
+                "set_provider_secret", "test_provider_secret",
+                "clear_provider_secret", "list_image_models",
                 "open_artifacts_folder", "reveal_artifact_file",
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
@@ -262,6 +264,7 @@ namespace Rook.Tests.UI.Vision
         [InlineData("generate", "Async")]
         [InlineData("enhance_prompt", "Async")]
         [InlineData("test_api_key", "Async")]
+        [InlineData("test_provider_secret", "Async")]
         [InlineData("capture_depth", "Ui")]
         [InlineData("capture_viewport", "Ui")]
         [InlineData("preview_viewport", "Ui")]
@@ -274,6 +277,9 @@ namespace Rook.Tests.UI.Vision
         [InlineData("consume_approved", "OffUi")]
         [InlineData("set_api_key", "OffUi")]
         [InlineData("get_settings_overview", "OffUi")]
+        [InlineData("set_provider_secret", "OffUi")]
+        [InlineData("clear_provider_secret", "OffUi")]
+        [InlineData("list_image_models", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
         [InlineData("reveal_artifact_file", "OffUi")]
         // V2 video ops — submit/cancel are async (provider HTTP via
@@ -461,6 +467,15 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void IndexHtml_Settings_UsesProviderCredentialsContainer()
+        {
+            var html = ReadVisionResource("index.html");
+
+            Assert.Contains("id=\"provider-credentials\"", html);
+            Assert.DoesNotContain("id=\"save-api-key\"", html);
+        }
+
+        [Fact]
         public void IndexHtml_ApproveButtons_ExplainDownstreamUse()
         {
             var html = ReadVisionResource("index.html");
@@ -529,6 +544,98 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("el.overviewCapturedViewportCount.textContent = formatCount(artifactCounts.captured_viewport);", js);
             Assert.Contains("el.overviewEnhancedPromptCount.textContent = formatCount(artifactCounts.enhanced_prompt);", js);
             Assert.Contains("el.overviewDepthMapCount.textContent = formatCount(artifactCounts.depth_map);", js);
+        }
+
+        [Fact]
+        public void AppJs_RendersProviderCredentialCardsAndUsesProviderOps()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function renderProviderCredentials", js);
+            Assert.Contains("bridgeCall(\"set_provider_secret\"", js);
+            Assert.Contains("bridgeCall(\"test_provider_secret\"", js);
+            Assert.Contains("bridgeCall(\"clear_provider_secret\"", js);
+            Assert.Contains("sessionValidationBySecret", js);
+        }
+
+        [Fact]
+        public void AppJs_RemovesOrGuardsLegacyApiKeyControls()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("if (el.providerCredentials)", js);
+            Assert.Contains("if (el.toggleKeyBtn && el.apiKey)", js);
+            Assert.Contains("if (el.saveApiKeyBtn && el.apiKey)", js);
+            Assert.Contains("if (el.testApiKeyBtn && el.apiKey)", js);
+        }
+
+        [Fact]
+        public void AppJs_ImageCatalog_PrefersListImageModelsWithAvailableModelsFallback()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("bridgeCall(\"list_image_models\"", js);
+            Assert.Contains("function normalizeImageModelDescriptor", js);
+            Assert.Contains("data.available_models", js);
+        }
+
+        [Fact]
+        public void AppJs_InvalidCredentialWarningDoesNotDisableSubmit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function effectiveCredentialAvailability", js);
+            Assert.Contains("function markProviderCredentialInvalid", js);
+            Assert.Contains("sessionValidationBySecret.get", js);
+            Assert.Contains("invalid_credential", js);
+            Assert.DoesNotContain("availability === \"invalid_credential\" && option.disabled", js);
+        }
+
+        [Fact]
+        public void AppJs_MissingRequiredSecretWinsOverSessionValidationOverlay()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var missingCheck = js.IndexOf(
+                "if (base === \"missing_required_secret\") return base;",
+                StringComparison.Ordinal);
+            var overlayRead = js.IndexOf(
+                "const overlay = sessionValidationBySecret.get",
+                StringComparison.Ordinal);
+
+            Assert.True(missingCheck >= 0, "Missing required secrets must remain deterministic blockers.");
+            Assert.True(overlayRead >= 0, "Session validation overlay should still be read for non-missing secrets.");
+            Assert.True(missingCheck < overlayRead, "Missing persisted credentials must not be overridden by candidate validation overlays.");
+        }
+
+        [Fact]
+        public void AppJs_CredentialInputClearsOverlayAndRefreshesPickerLabels()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var handlerStart = js.IndexOf("function handleProviderCredentialInput", StringComparison.Ordinal);
+            var handlerEnd = js.IndexOf("function handleProviderCredentialClick", handlerStart, StringComparison.Ordinal);
+            var handlerBody = handlerEnd > handlerStart
+                ? js.Substring(handlerStart, handlerEnd - handlerStart)
+                : string.Empty;
+            var clearOverlay = handlerBody.IndexOf("clearSecretOverlay(ctx.providerName, ctx.secretKey);", StringComparison.Ordinal);
+            var refreshPicker = handlerBody.IndexOf("populateImageModelDropdowns(modelCatalog);", StringComparison.Ordinal);
+
+            Assert.True(handlerStart >= 0, "Credential input handler must exist.");
+            Assert.True(clearOverlay >= 0, "Editing a credential must clear its session overlay.");
+            Assert.True(refreshPicker > clearOverlay, "Editing a credential must refresh picker warning labels after clearing overlay state.");
+        }
+
+        [Fact]
+        public void AppJs_PopulateImageModelsPreservesCurrentSelectableValues()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function restoreSelectValueIfSelectable", js);
+            Assert.Contains("const generateModelValue = el.modelSelect && el.modelSelect.value;", js);
+            Assert.Contains("const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;", js);
+            Assert.Contains("restoreSelectValueIfSelectable(el.modelSelect, generateModelValue);", js);
+            Assert.Contains("restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);", js);
         }
 
         [Fact]

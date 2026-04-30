@@ -135,6 +135,10 @@ namespace Rook.Handlers
         private readonly ViewportHandler _viewportHandler;
         private readonly IImageProviderRegistry _imageProviderRegistry;
         private readonly ImageArtifactMaterializer _imageArtifactMaterializer;
+        private readonly ProviderCredentialMetadataCatalog _credentialMetadata;
+
+        internal Func<string, CancellationToken, Task<ProviderSecretValidationResult>>
+            FalCredentialProbeAsync { get; set; } = DefaultFalCredentialProbeAsync;
 
         public VisionHandler()
             : this(new ArtifactStore(), new DpapiGenerationSecretStore(),
@@ -183,7 +187,8 @@ namespace Rook.Handlers
             PromptEnhancer enhancer,
             ViewportHandler viewportHandler,
             IImageProviderRegistry? imageProviderRegistry,
-            ImageArtifactMaterializer? imageArtifactMaterializer)
+            ImageArtifactMaterializer? imageArtifactMaterializer,
+            ProviderCredentialMetadataCatalog? credentialMetadata = null)
         {
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
@@ -191,14 +196,13 @@ namespace Rook.Handlers
             _enhancer = enhancer ?? throw new ArgumentNullException(nameof(enhancer));
             _viewportHandler = viewportHandler ?? throw new ArgumentNullException(nameof(viewportHandler));
             _imageArtifactMaterializer = imageArtifactMaterializer ?? new ImageArtifactMaterializer();
+            _credentialMetadata = credentialMetadata
+                ?? VisionProviderRegistrations.CreateCredentialMetadata();
             _imageProviderRegistry = imageProviderRegistry
-                ?? new DefaultImageProviderRegistry(new IImageProviderRegistration[]
-                {
-                    new GeminiImageProviderRegistration(
-                        new GeminiImageProvider(GetGeminiApiKey)),
-                    new FalImageProviderRegistration(
-                        new FalImageProvider(GetFalApiKey)),
-                });
+                ?? new DefaultImageProviderRegistry(
+                    VisionProviderRegistrations.CreateImageRegistrations(
+                        GetGeminiApiKey,
+                        GetFalApiKey));
         }
 
         private string? GetGeminiApiKey()
@@ -250,11 +254,14 @@ namespace Rook.Handlers
                     "preview_viewport" => PreviewViewport(args),
                     "list_views" => ListViews(args),
                     "open_image_picker" => OpenImagePicker(args),
-                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
+                    "generate" or "enhance_prompt" or "test_api_key"
+                        or "test_provider_secret" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the sync dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
+                        or "set_provider_secret" or "clear_provider_secret"
+                        or "list_image_models"
                         or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the sync UI-thread dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
@@ -318,13 +325,17 @@ namespace Rook.Handlers
                     "delete_artifact" => DeleteArtifact(args),
                     "consume_approved" => ConsumeApproved(args),
                     "set_api_key" => SetApiKey(args),
+                    "set_provider_secret" => SetProviderSecret(args),
+                    "clear_provider_secret" => ClearProviderSecret(args),
                     "get_settings_overview" => GetSettingsOverview(args),
+                    "list_image_models" => ListImageModels(args),
                     "open_artifacts_folder" => OpenArtifactsFolder(args),
                     "reveal_artifact_file" => RevealArtifactFile(args),
                     "capture_depth" or "capture_viewport" or "preview_viewport"
                         or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync UI-thread dispatcher, not the off-UI dispatcher."),
-                    "generate" or "enhance_prompt" or "test_api_key" => Fail(
+                    "generate" or "enhance_prompt" or "test_api_key"
+                        or "test_provider_secret" => Fail(
                         $"op '{op}' must be routed through the async dispatcher, not the off-UI dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
                 };
@@ -392,12 +403,15 @@ namespace Rook.Handlers
                     "generate" => await GenerateAsync(args, cancellationToken).ConfigureAwait(false),
                     "enhance_prompt" => await EnhancePromptAsync(args, cancellationToken).ConfigureAwait(false),
                     "test_api_key" => await TestApiKeyAsync(args, cancellationToken).ConfigureAwait(false),
+                    "test_provider_secret" => await TestProviderSecretAsync(args, cancellationToken).ConfigureAwait(false),
                     "capture_depth" or "capture_viewport" or "preview_viewport"
                         or "list_views" or "open_image_picker" => Fail(
                         $"op '{op}' must be routed through the sync dispatcher, not the async dispatcher."),
                     "list_artifacts" or "get_artifact" or "approve_artifact"
                         or "delete_artifact" or "consume_approved"
                         or "set_api_key" or "get_settings_overview"
+                        or "set_provider_secret" or "clear_provider_secret"
+                        or "list_image_models"
                         or "open_artifacts_folder" or "reveal_artifact_file" => Fail(
                         $"op '{op}' must be routed through the off-UI dispatcher, not the async dispatcher."),
                     _ => Fail($"Unknown vision op '{op}'."),
@@ -734,15 +748,142 @@ namespace Rook.Handlers
                 }
             }
 
-            var probe = await _enhancer.EnhancePromptAsync(
-                apiKey!, "ping", null, cancellationToken).ConfigureAwait(false);
-
-            if (probe.Success)
+            var result = await TestGeminiProviderSecretAsync(
+                apiKey!, cancellationToken).ConfigureAwait(false);
+            if (string.Equals(result.ValidationState, "valid", StringComparison.Ordinal))
             {
                 return Ok(new Dictionary<string, object?> { ["ok"] = true });
             }
-            return Fail(GenericizeProviderError(probe.Error));
+            return Fail(result.Message ?? "API key test failed.");
         }
+
+        internal async Task<ApiResponse> TestProviderSecretAsync(
+            Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
+        {
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+
+            var hasCandidate = args.ContainsKey("candidate_value");
+            string? value;
+            if (hasCandidate)
+            {
+                value = GetStringArg(args, "candidate_value");
+            }
+            else
+            {
+                if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                    return Fail(storeError);
+                value = secretStore!.GetSecret(requirement!.Key);
+            }
+
+            if (hasCandidate && string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
+            if (!hasCandidate && string.IsNullOrEmpty(value))
+            {
+                return Fail(
+                    $"No stored credential for provider '{metadata!.ProviderName}' key '{requirement!.Key}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
+            if (string.Equals(metadata!.ProviderName, "gemini", StringComparison.Ordinal)
+                && string.Equals(requirement!.Key, GenerationSecretKeys.GeminiApiKey, StringComparison.Ordinal))
+            {
+                var result = await TestGeminiProviderSecretAsync(
+                    value!, cancellationToken).ConfigureAwait(false);
+                return Ok(ProviderSecretTestEnvelope(
+                    "gemini",
+                    GenerationSecretKeys.GeminiApiKey,
+                    result.ValidationState,
+                    result.Message));
+            }
+
+            if (string.Equals(metadata.ProviderName, "fal", StringComparison.Ordinal)
+                && string.Equals(requirement!.Key, GenerationSecretKeys.FalApiKey, StringComparison.Ordinal))
+            {
+                return await TestFalProviderSecretAsync(value!, cancellationToken).ConfigureAwait(false);
+            }
+
+            return Ok(ProviderSecretTestEnvelope(
+                metadata.ProviderName,
+                requirement!.Key,
+                "inconclusive",
+                "No provider-specific validation probe is available."));
+        }
+
+        private async Task<ProviderSecretValidationResult> TestGeminiProviderSecretAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            var probe = await _enhancer.EnhancePromptAsync(
+                apiKey, "ping", null, cancellationToken).ConfigureAwait(false);
+
+            if (probe.Success)
+                return ProviderSecretValidationResult.Valid();
+
+            return ProviderSecretValidationResult.Invalid(GenericizeProviderError(probe.Error));
+        }
+
+        private async Task<ApiResponse> TestFalProviderSecretAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            var result = await FalCredentialProbeAsync(
+                apiKey, cancellationToken).ConfigureAwait(false);
+            return Ok(ProviderSecretTestEnvelope(
+                "fal",
+                GenerationSecretKeys.FalApiKey,
+                result.ValidationState,
+                result.Message));
+        }
+
+        private static Task<ProviderSecretValidationResult> DefaultFalCredentialProbeAsync(
+            string apiKey,
+            CancellationToken cancellationToken)
+        {
+            _ = apiKey;
+            _ = cancellationToken;
+            return Task.FromResult(ProviderSecretValidationResult.Inconclusive(
+                "fal credential could not be proven without running generation work."));
+        }
+
+        internal readonly struct ProviderSecretValidationResult
+        {
+            private ProviderSecretValidationResult(
+                string validationState,
+                string? message)
+            {
+                ValidationState = validationState;
+                Message = message;
+            }
+
+            public string ValidationState { get; }
+            public string? Message { get; }
+
+            public static ProviderSecretValidationResult Valid(string? message = null)
+                => new("valid", message);
+
+            public static ProviderSecretValidationResult Invalid(string? message = null)
+                => new("invalid", message);
+
+            public static ProviderSecretValidationResult Inconclusive(string? message = null)
+                => new("inconclusive", message);
+        }
+
+        private static Dictionary<string, object?> ProviderSecretTestEnvelope(
+            string providerName,
+            string secretKey,
+            string validationState,
+            string? message)
+            => new()
+            {
+                ["provider_name"] = providerName,
+                ["secret_key"] = secretKey,
+                ["validation_state"] = validationState,
+                ["message"] = string.IsNullOrEmpty(message) ? null : message,
+            };
 
         // ─── op: capture_depth (sync — UI thread) ───────────────────────
 
@@ -1450,6 +1591,97 @@ namespace Rook.Handlers
             });
         }
 
+        // ─── op: set_provider_secret / clear_provider_secret (off-UI) ───
+
+        internal ApiResponse SetProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+            if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                return Fail(storeError);
+
+            var value = RequireString(args, "value", 4096);
+            if (string.IsNullOrWhiteSpace(value))
+                return Fail("Credential value must be non-empty.");
+
+            try
+            {
+                secretStore!.SetSecret(requirement!.Key, value);
+            }
+            catch (ArgumentException ex)
+            {
+                return Fail(ex.Message);
+            }
+
+            return Ok(ProviderSecretMutationEnvelope(
+                secretStore,
+                metadata!.ProviderName,
+                requirement.Key));
+        }
+
+        internal ApiResponse ClearProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var (metadata, requirement, error) = ResolveProviderSecret(args);
+            if (error is not null) return Fail(error);
+            if (!TryGetProviderSecretStore(out var secretStore, out var storeError))
+                return Fail(storeError);
+
+            secretStore!.RemoveSecret(requirement!.Key);
+            return Ok(ProviderSecretMutationEnvelope(
+                secretStore,
+                metadata!.ProviderName,
+                requirement.Key));
+        }
+
+        private bool TryGetProviderSecretStore(
+            out IGenerationSecretStore? secretStore,
+            out string error)
+        {
+            if (_generationSecrets is not null)
+            {
+                secretStore = _generationSecrets;
+                error = "";
+                return true;
+            }
+
+            secretStore = null;
+            error = "Provider secret operations require the generation secret store.";
+            return false;
+        }
+
+        private (ProviderCredentialMetadata? Metadata, ProviderSecretRequirement? Requirement, string? Error)
+            ResolveProviderSecret(Dictionary<string, JsonElement> args)
+        {
+            var providerName = RequireString(args, "provider_name", 128);
+            var secretKey = RequireString(args, "secret_key", 256);
+
+            if (!_credentialMetadata.TryGetProvider(providerName, out var metadata))
+                return (null, null, $"Unknown provider '{providerName}'.");
+
+            foreach (var requirement in metadata!.SecretRequirements)
+            {
+                if (string.Equals(requirement.Key, secretKey, StringComparison.Ordinal))
+                    return (metadata, requirement, null);
+            }
+
+            return (
+                metadata,
+                null,
+                $"Secret key '{secretKey}' is not declared by provider '{providerName}'.");
+        }
+
+        private static Dictionary<string, object?> ProviderSecretMutationEnvelope(
+            IGenerationSecretStore secretStore,
+            string providerName,
+            string secretKey)
+            => new()
+            {
+                ["provider_name"] = providerName,
+                ["secret_key"] = secretKey,
+                ["has_secret"] = secretStore.HasSecret(secretKey),
+                ["preview"] = secretStore.GetPreview(secretKey),
+            };
+
         // ─── op: get_settings_overview (off-UI) ─────────────────────────
 
         /// <summary>
@@ -1484,6 +1716,7 @@ namespace Rook.Handlers
                 // models are deliberately absent — API keys can't use
                 // them, so listing them would generate only 429s.
                 ["available_models"] = GeminiImageCapabilities.AvailableModels,
+                ["provider_credentials"] = BuildProviderCredentialSummaries(),
                 ["allowed_resolutions"] = CommonResolutions,
                 ["default_model_supported_resolutions"] =
                     SupportedResolutionsForModel(GeminiImageCapabilities.DefaultModel),
@@ -1512,6 +1745,188 @@ namespace Rook.Handlers
 
             return Ok(overview);
         }
+
+        private List<Dictionary<string, object?>> BuildProviderCredentialSummaries()
+        {
+            var summaries = new List<Dictionary<string, object?>>();
+            foreach (var provider in _credentialMetadata.EnumerateProviders())
+            {
+                var status = ProviderCredentialStatusBuilder.Build(
+                    provider.ProviderName,
+                    provider.SecretRequirements,
+                    CredentialStatusSecretStore);
+
+                summaries.Add(ProviderCredentialStatusToObj(status));
+            }
+
+            return summaries;
+        }
+
+        private IGenerationSecretStore CredentialStatusSecretStore
+            => _generationSecrets ?? new LegacyGeminiGenerationSecretStatusStore(_secrets);
+
+        private static Dictionary<string, object?> ProviderCredentialStatusToObj(
+            ProviderCredentialStatus status)
+        {
+            var secrets = new List<Dictionary<string, object?>>(status.Secrets.Count);
+            foreach (var secret in status.Secrets)
+                secrets.Add(ProviderSecretStatusToObj(secret));
+
+            return new Dictionary<string, object?>
+            {
+                ["provider_name"] = status.ProviderName,
+                ["availability"] = CredentialAvailabilityToString(status.Availability),
+                ["message"] = status.Message,
+                ["secrets"] = secrets,
+            };
+        }
+
+        private static Dictionary<string, object?> ProviderSecretStatusToObj(
+            ProviderSecretStatus status)
+            => new()
+            {
+                ["key"] = status.Requirement.Key,
+                ["display_name"] = status.Requirement.DisplayName,
+                ["is_required"] = status.Requirement.IsRequired,
+                ["is_sensitive"] = status.Requirement.IsSensitive,
+                ["presence"] = status.Presence == ProviderSecretPresence.Present
+                    ? "present"
+                    : "missing",
+                ["validation_state"] = SecretValidationStateToString(status.ValidationState),
+                ["preview"] = status.Preview,
+                ["message"] = status.Message,
+            };
+
+        private static string CredentialAvailabilityToString(
+            ProviderCredentialAvailability availability)
+            => availability switch
+            {
+                ProviderCredentialAvailability.MissingRequiredSecret => "missing_required_secret",
+                ProviderCredentialAvailability.InvalidCredential => "invalid_credential",
+                ProviderCredentialAvailability.Available => "available",
+                ProviderCredentialAvailability.AvailableButUnverified => "available_but_unverified",
+                ProviderCredentialAvailability.AvailableWithInconclusiveValidation =>
+                    "available_with_inconclusive_validation",
+                _ => availability.ToString().ToLowerInvariant(),
+            };
+
+        private static string SecretValidationStateToString(
+            ProviderSecretValidationState state)
+            => state switch
+            {
+                ProviderSecretValidationState.NotAttempted => "not_attempted",
+                ProviderSecretValidationState.Valid => "valid",
+                ProviderSecretValidationState.Invalid => "invalid",
+                ProviderSecretValidationState.Inconclusive => "inconclusive",
+                _ => state.ToString().ToLowerInvariant(),
+            };
+
+        private sealed class LegacyGeminiGenerationSecretStatusStore
+            : IGenerationSecretStore
+        {
+            private readonly VisionSecretStore _legacy;
+
+            public LegacyGeminiGenerationSecretStatusStore(VisionSecretStore legacy)
+            {
+                _legacy = legacy ?? throw new ArgumentNullException(nameof(legacy));
+            }
+
+            public string? GetSecret(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    ? _legacy.GetGeminiApiKey()
+                    : null;
+
+            public void SetSecret(string secretKey, string value)
+                => throw new NotSupportedException(
+                    "Legacy credential status adapter is read-only.");
+
+            public void RemoveSecret(string secretKey)
+                => throw new NotSupportedException(
+                    "Legacy credential status adapter is read-only.");
+
+            public bool HasSecret(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    && _legacy.HasGeminiApiKey();
+
+            public string? GetPreview(string secretKey)
+                => string.Equals(
+                    secretKey,
+                    GenerationSecretKeys.GeminiApiKey,
+                    StringComparison.Ordinal)
+                    ? _legacy.GetApiKeyPreview()
+                    : null;
+        }
+
+        internal ApiResponse ListImageModels(Dictionary<string, JsonElement> args)
+        {
+            _ = args;
+            var descriptors = _imageProviderRegistry.EnumerateAllModels();
+            var models = new List<Dictionary<string, object?>>(descriptors.Count);
+            foreach (var descriptor in descriptors)
+                models.Add(ImageModelDescriptorToObj(descriptor));
+
+            return Ok(new Dictionary<string, object?>
+            {
+                ["models"] = models,
+            });
+        }
+
+        private Dictionary<string, object?> ImageModelDescriptorToObj(
+            ImageModelDescriptor descriptor)
+        {
+            var credentialStatus = BuildCredentialStatusForProvider(
+                descriptor.ProviderName);
+            return new Dictionary<string, object?>
+            {
+                ["model_id"] = descriptor.ModelId,
+                ["provider_name"] = descriptor.ProviderName,
+                ["pricing_source"] = descriptor.PricingSource,
+                ["credential_availability"] =
+                    CredentialAvailabilityToString(credentialStatus.Availability),
+                ["credential_message"] = credentialStatus.Message,
+                ["capability"] = ImageCapabilityToObj(descriptor.Capability),
+            };
+        }
+
+        private ProviderCredentialStatus BuildCredentialStatusForProvider(
+            string providerName)
+        {
+            if (!_credentialMetadata.TryGetProvider(providerName, out var metadata))
+            {
+                return new ProviderCredentialStatus(
+                    providerName,
+                    ProviderCredentialAvailability.AvailableButUnverified,
+                    Array.Empty<ProviderSecretStatus>(),
+                    null);
+            }
+
+            return ProviderCredentialStatusBuilder.Build(
+                metadata!.ProviderName,
+                metadata.SecretRequirements,
+                CredentialStatusSecretStore);
+        }
+
+        private static Dictionary<string, object?> ImageCapabilityToObj(
+            ImageCapability capability)
+            => new()
+            {
+                ["id"] = capability.Id,
+                ["name"] = capability.Name,
+                ["status"] = capability.Status,
+                ["modality"] = capability.Modality,
+                ["sub_capabilities"] = capability.SubCapabilities,
+                ["resolutions"] = capability.Resolutions,
+                ["aspect_ratios"] = capability.AspectRatios,
+                ["max_reference_images"] = capability.MaxReferenceImages,
+                ["supports_image_to_image"] = capability.SupportsImageToImage,
+                ["supports_text_to_image"] = capability.SupportsTextToImage,
+            };
 
         internal static Dictionary<string, int> BuildArtifactCountsByKind(
             IEnumerable<Artifact> artifacts)

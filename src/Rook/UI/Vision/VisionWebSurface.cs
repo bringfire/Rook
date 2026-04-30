@@ -159,6 +159,7 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["generate"] = VisionOpRoute.Async,
                 ["enhance_prompt"] = VisionOpRoute.Async,
                 ["test_api_key"] = VisionOpRoute.Async,
+                ["test_provider_secret"] = VisionOpRoute.Async,
 
                 ["capture_depth"] = VisionOpRoute.Ui,
                 ["capture_viewport"] = VisionOpRoute.Ui,
@@ -172,7 +173,10 @@ p { margin: 8px 0; line-height: 1.4; }
                 ["delete_artifact"] = VisionOpRoute.OffUi,
                 ["consume_approved"] = VisionOpRoute.OffUi,
                 ["set_api_key"] = VisionOpRoute.OffUi,
+                ["set_provider_secret"] = VisionOpRoute.OffUi,
+                ["clear_provider_secret"] = VisionOpRoute.OffUi,
                 ["get_settings_overview"] = VisionOpRoute.OffUi,
+                ["list_image_models"] = VisionOpRoute.OffUi,
                 ["open_artifacts_folder"] = VisionOpRoute.OffUi,
                 ["reveal_artifact_file"] = VisionOpRoute.OffUi,
 
