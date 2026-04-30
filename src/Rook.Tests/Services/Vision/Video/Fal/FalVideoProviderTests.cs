@@ -188,6 +188,31 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Submit_malformed_queue_url_returns_typed_failure()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{
+                  ""request_id"": ""wan-123"",
+                  ""status_url"": ""not a url"",
+                  ""response_url"": ""https://queue.fal.run/fal-ai/wan/requests/wan-123"",
+                  ""cancel_url"": ""https://queue.fal.run/fal-ai/wan/requests/wan-123/cancel""
+                }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.SubmitAsync(
+                Request(),
+                new Dictionary<MediaRef, ResolvedMedia>(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("status_url", failed.Error.Message);
+        }
+
+        [Fact]
         public async Task Status_completed_returns_provider_complete_without_fetch_success()
         {
             var handler = new TestHttpMessageHandler

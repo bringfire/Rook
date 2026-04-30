@@ -68,6 +68,21 @@ namespace Rook.Tests.Services.Vision.Fal
         }
 
         [Fact]
+        public void ParseSubmitHandle_rejects_malformed_queue_url_as_argument_error()
+        {
+            var json = new JsonObject
+            {
+                ["request_id"] = "abc123",
+                ["status_url"] = "not a url",
+            };
+
+            var ex = Assert.Throws<ArgumentException>(
+                () => FalLifecycleMapper.ParseSubmitHandle(json, "PUT"));
+
+            Assert.Equal("status_url", ex.ParamName);
+        }
+
+        [Fact]
         public void ParseSubmitHandle_clones_status_and_queue_position_metadata()
         {
             var status = new JsonObject { ["state"] = "IN_QUEUE" };
