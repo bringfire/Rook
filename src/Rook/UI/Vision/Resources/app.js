@@ -576,6 +576,8 @@ function rememberProviderSecretKeys(providers) {
 
 function effectiveCredentialAvailability(model) {
     const base = model.credential_availability || "available_but_unverified";
+    if (base === "missing_required_secret") return base;
+
     const providerName = model.provider_name || "";
     const secretKey = model.credential_secret_key || providerSecretKeyByProvider.get(providerName);
     if (!providerName || !secretKey) return base;
@@ -1269,6 +1271,7 @@ function handleProviderCredentialInput(e) {
     const ctx = providerSecretContext(e.target);
     if (!ctx) return;
     clearSecretOverlay(ctx.providerName, ctx.secretKey);
+    populateImageModelDropdowns(modelCatalog);
     if (ctx.input.value.length > 0) {
         setProviderSecretStatus(ctx, "Unsaved edits.", "warning");
     }

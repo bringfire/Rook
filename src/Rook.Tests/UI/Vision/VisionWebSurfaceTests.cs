@@ -592,6 +592,41 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_MissingRequiredSecretWinsOverSessionValidationOverlay()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var missingCheck = js.IndexOf(
+                "if (base === \"missing_required_secret\") return base;",
+                StringComparison.Ordinal);
+            var overlayRead = js.IndexOf(
+                "const overlay = sessionValidationBySecret.get",
+                StringComparison.Ordinal);
+
+            Assert.True(missingCheck >= 0, "Missing required secrets must remain deterministic blockers.");
+            Assert.True(overlayRead >= 0, "Session validation overlay should still be read for non-missing secrets.");
+            Assert.True(missingCheck < overlayRead, "Missing persisted credentials must not be overridden by candidate validation overlays.");
+        }
+
+        [Fact]
+        public void AppJs_CredentialInputClearsOverlayAndRefreshesPickerLabels()
+        {
+            var js = ReadVisionResource("app.js");
+
+            var handlerStart = js.IndexOf("function handleProviderCredentialInput", StringComparison.Ordinal);
+            var handlerEnd = js.IndexOf("function handleProviderCredentialClick", handlerStart, StringComparison.Ordinal);
+            var handlerBody = handlerEnd > handlerStart
+                ? js.Substring(handlerStart, handlerEnd - handlerStart)
+                : string.Empty;
+            var clearOverlay = handlerBody.IndexOf("clearSecretOverlay(ctx.providerName, ctx.secretKey);", StringComparison.Ordinal);
+            var refreshPicker = handlerBody.IndexOf("populateImageModelDropdowns(modelCatalog);", StringComparison.Ordinal);
+
+            Assert.True(handlerStart >= 0, "Credential input handler must exist.");
+            Assert.True(clearOverlay >= 0, "Editing a credential must clear its session overlay.");
+            Assert.True(refreshPicker > clearOverlay, "Editing a credential must refresh picker warning labels after clearing overlay state.");
+        }
+
+        [Fact]
         public void AppJs_GalleryToolbar_OpensArtifactsFolder()
         {
             var js = ReadVisionResource("app.js");
