@@ -1,5 +1,7 @@
 # Work Queue
 
+**Last triaged:** 2026-04-30 (**PR-10 Replicate substrate shipped as PR #133 and local `main` is synced to the squash merge.** `origin/main` is at `da06d56 PR-10 Replicate substrate`, the squash merge of the PR-10 design/spec, implementation plan, and managed-only Replicate substrate. PR #133 proves the second-aggregator contract without exposing Replicate in Settings, picker metadata, native routes, or default model registrations. Shipped scope: `ReplicateApiClient` with Bearer auth and API-host restriction to `api.replicate.com`; official-model-only `ReplicatePredictionEndpoint` with owner/name segment validation; create/get/cancel prediction calls; lifecycle mapping for `starting` -> Pending, `processing` -> Running, `succeeded` -> complete with updated handle, and distinct failed/canceled outcomes; error and retry classification including non-retryable `data_removed: true` retention expiry as `DependencyUnavailable`; approximate pricing helpers over provider timing metadata; output-cardinality preservation in provider metadata while omitting logs by default; authenticated output-fetch proof seam for exact `replicate.delivery` or suffix `.replicate.delivery` hosts; and credential-boundary tests proving Replicate remains absent from `VisionProviderRegistrations.CreateCredentialMetadata()`. **Guardrail preserved:** `GenerationSecretKeys.ReplicateApiToken` is a known secret key for substrate tests, but Replicate is not a credential-owner provider in the default metadata catalog; default `set_provider_secret` behavior rejects `provider_name: "replicate"` because metadata does not expose it. **Verification:** managed suite passed at 1559/1559 on the PR branch, `git diff main...HEAD --check` was clean, boundary scans found no Replicate exposure in UI/native/internal bridge/default registrations, PR #133 was marked ready, reviewed with no blocking findings, squash-merged, remote branch deleted, local worktree removed, and local duplicate pre-squash commits were replaced by the merge state. **Carried-forward pre-PR-10 context:** PR #130 shipped fal video provider support; PR #131 shipped provider Settings/picker UX with provider-aware canonical bridge ops; PR #132 gated the risky WebView repaint workaround behind `ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND=1` and left diagnostics behind `ROOK_ENABLE_WEBVIEW_FOCUS_DIAGNOSTICS=1`. Future agents must not reintroduce unconditional `CoreWebView2Controller.IsVisible` toggles in Chat/Vision/KG/Claude panels. **Promoted to Now:** post-PR-10 next-slice decision checkpoint. **Promoted to Next:** opt-in Rhino live smoke for PR-9 Settings/picker UX unless user direction promotes Replicate async-image/materialization design first.)
+
 **Last triaged:** 2026-04-26 (**PR-V3 manual smoke + smoke-unblockers — VisionTab UI for video shipped on `fix/rook-vision-v3-ui` (PR #115).** 968/968 tests passing including 55 new V3 tests; net7.0 `Rook.rhp` deployed and live-verified. **Manual-smoke run surfaced two real bugs that got fixed in-line and bundled into the same PR:** (1) **WebView focus-blackout** — the long-running substrate bug where Vision/Chat/KG panels go solid-dark when the host loses focus or the user switches Eto tabs, deferred 3+ times across 2026-04-23/24/26 triages. Root cause: `RookWebSurface` never wired focus events; the WebView2 swap chain landed in a state that kept rendering the `DefaultBackgroundColor` instead of re-presenting. Fix: `_webView.GotFocus`/`Shown` handlers call into a new `TryForceWebViewRepaint` that pulls `CoreWebView2Controller` via reflection, toggles `IsVisible` false→true, and calls `NotifyParentWindowPositionChanged` — both are documented WebView2 workarounds. **Memory entry created** at `project_webview_focus_blackout.md` so future Vision/Chat/KG/Claude-panel work doesn't re-derive this; indexed in `MEMORY.md`. (2) **Frame-slot mode-gating** — the `hidden` HTML attribute was being overridden by CSS specificity (`.video-frame-slot { display: flex }` beats UA `[hidden] { display: none }`), so T2V mode left the start/end frame slots visually present and clickable. User picked a start frame in T2V and hit a provider rejection. Fix: switched to a `.disabled` class with `opacity: 0.4 + pointer-events: none + user-select: none`, `:after` pseudo-element appends "— not used in this mode" to the slot label, all picker buttons explicitly disabled, defensive guard `isSlotAllowedNow(slot)` rejects programmatic picker opens for disallowed slots. The codebase already had a `.hidden { display: none !important }` class at `styles.css:1203` — V3 used the wrong pattern; lesson captured. **PR shape:** V3 main commit + 2 smoke-unblocker commits on top, will squash on merge. **Surfaced follow-up:** **video thumbnail extraction** for Gallery — currently relies on poster blobs that aren't being written. Tiered scope (Tier 1 ~30 min: copy start_frame bytes as poster on I2V/Interp at "Saving" stage; Tier 2 ~1–2 h: JS-side first-frame canvas extraction for T2V; Tier 3 ~half day: Windows Media Foundation server-side extraction). See `Next` deferred candidates for full breakdown. Recommended: Tier 1 as fast-follow with V3 or V4. **Promoted to Now:** PR #115 ready to merge. **Promoted to Next:** PR-V4 unchanged (MCP tools for video). **Substrate-observation hold window** continues passively through 2026-04-28; V3 close-out did not consume hold capacity (architectural-feature lane).)
 
 **Last triaged:** 2026-04-25 (**Video track V1+V2 closeout — full transport stack now on `main`.** Six RookVision PRs shipped 2026-04-25 closing V1 polish (#106 per-image Show in Folder; #107 vendored Archivo + JetBrains Mono `.woff2`) and the entire video transport layer (V1a/V1b/V1c/V2 → #108/#109/#110/#111). PR #111 (`555e196`) lands the five `/vision/video/*` native HTTP routes + `RookSubsystemRoot` composition + `VideoOpHandler` + `VisionWebSurface` two-handler injection + `RookPlugin` reconcile/dispose lifecycle, all going through one shared `VideoJobManager` per `RookSubsystemRoot.Video` lazy. ABI v14 unchanged; V1c JSONL byte-identity fixtures still green; 913/913 managed tests passing. **Rhino-runtime smoke verified** all 5 routes via curl against the deployed companion — including the C++ `body["job_id"]` injection traversal that Codex flagged as the native unit-test gap. **Deploy gotcha caught + captured to memory:** `Rook.rhp` MUST be the `net7.0` build, not `net48` — `RookWebSurface`'s entire WebView2 init is gated under `#if NET7_0_OR_GREATER`; the net48 build silently falls back to `MinimalFallbackHtml` with NO diagnostic log, breaking both Vision AND Knowledge Graph panels. Captured in `reference_deploy_paths.md`. **Three follow-up GitHub issues filed:** (1) Codex hardening — remove unsafe net48 fallback paths in `install.ps1` + `scripts/register-companion.ps1`; (2) native helper test gap for `DispatchVisionOpWithPathId` (closed indirectly by runtime smoke); (3) plugin lifecycle integration test for `RookPlugin.OnLoad`/`OnShutdown` try/catch wrappers (static review only today). **Promoted to Now:** PR-V3 — VisionTab UI for video, consuming the bridge ops V2 already wired into `VisionWebSurface.OpRoutes`. Same Pattern A bridge image side uses; same `VideoJobManager` instance native HTTP routes hit. PR-V4 (MCP tools `rhino_render_video` etc. + tool-catalog wiring) queued as Next. **Substrate-observation hold window** (through 2026-04-28) continues passively in parallel as before — V3 is architectural-feature lane, doesn't consume hold capacity.)
@@ -134,56 +136,64 @@ Each item carries:
 
 ## Now
 
-**Active item: PR-V3 — VisionTab UI for video.**
+**Active item: post-PR-10 next-slice decision checkpoint.**
 
-- **Type:** feature (UI)
-- **Risk:** M (new UI surface area; consumes a contract that's been runtime-verified end-to-end via curl smoke but no UI/JS yet)
-- **Why_now:** V2 (#111, `555e196`) shipped 2026-04-25 with the full video transport layer on `main`. The five bridge ops (`submit_video_job`, `cancel_video_job`, `get_video_job`, `get_video_job_result`, `estimate_video_job`) are already wired into `VisionWebSurface.OpRoutes` and dispatched by `VideoOpHandler` via `RookSubsystemRoot.Video`. V3 closes the user-facing loop.
-- **Source_doc:** `rook_docs/2026-04-22-v3-video-decisions.md` §"Next steps — implementation roadmap" PR-V3; project memory `project_rookvision_video_track.md`
+- **Type:** planning / substrate
+- **Risk:** Low (documentation and queue selection only; no implementation branch should start until the next slice is explicitly chosen)
+- **Why_now:** PR #133 closed the managed-only Replicate substrate without user-visible models. The queue now needs one deliberate next-slice choice instead of letting Replicate image UX, authenticated artifact materialization, credential UI exposure, or PR-9 live smoke blur together.
+- **Source_doc:** `docs/superpowers/specs/2026-04-30-pr-10-replicate-substrate-design.md`; `docs/superpowers/plans/2026-04-30-pr-10-replicate-substrate-implementation.md`; PR #133 review notes.
 
-**Scope per v3.1 D1 + D3:**
-- Generation form (model dropdown, mode T2V/I2V/Interp, duration/resolution/aspect_ratio, prompt, optional start/end/reference frame artifact pickers, options.person_generation)
-- Cost-confirmation modal consuming the `estimate_video_job` op for live pricing as the user adjusts inputs
-- Queue panel with active + recent jobs
-- 1–2 s status polling timer per active job (Pattern A polling per v3.1 D1; no push-from-C#-to-JS in v1)
-- Gallery integration — completed video artifacts surface alongside images (`generated_video` artifact kind already shipped via V1b)
-- Cancel button on in-flight jobs
+**Decision candidates:**
+- **Opt-in PR-9 Settings/picker Rhino smoke** — validates the already-shipped Gemini + fal.ai provider cards and picker behavior in the real host. Keep live provider validation/generation behind explicit network/spend consent.
+- **Replicate async image UX design** — decide whether image jobs become async like video jobs before making any Replicate model user-visible. Current `VisionHandler.generate` still rejects async image providers.
+- **Authenticated artifact materialization design** — decide where provider-authenticated remote output fetch belongs before wiring Replicate outputs into `ImageArtifactMaterializer`; do not persist secrets in artifact metadata or ledgers.
+- **Replicate visible-model PR** — only after async image and authenticated materialization questions are answered, and only then decide whether Replicate becomes visible in credential metadata / Settings.
 
-**Pattern preserved:** all communication via `window.rookBridge.invoke("vision", {op: "submit_video_job", ...})` — same JS-to-C# bridge image side uses. C# routing fork by `VisionWebSurface.VideoOps` membership already in place; UI just emits the right op names. Same `VideoJobManager` instance the native HTTP routes (and a future GH NLE) reach.
-
-**Out of scope (PR-V4):** MCP tools (`rhino_render_video`, `rhino_video_jobs`, `rhino_video_status`, `rhino_video_cancel`) + tool-catalog wiring per the parity rule. PR-V4 is the agent-facing twin of V3's user-facing UI.
-
-**Lane separation:** substrate-observation hold (below) continues passively in parallel — V3 is architectural-feature lane, does not consume hold capacity. Same posture as the image-track closeout (2026-04-23), the Vision fix-it session (2026-04-24), and the V1+V2 video closeout (2026-04-25).
+**Guardrails from PR-10 that remain binding:** Replicate stays managed-only; no native route exposure; no default Settings card or picker model; `replicate` remains absent from `VisionProviderRegistrations.CreateCredentialMetadata()`; provider-aware credential ops stay canonical; legacy Gemini ops remain shims only.
 
 ---
 
-**Parallel passive lane: substrate-observation accumulation.** `substrate_observations.jsonl` started capturing 2026-04-21 with PR #88's merge (`fb970a7`). Accumulating data through ~2026-04-28 before selecting the first substrate-promotion campaign PR. Per user direction: let hotspot signal emerge from real agent sessions rather than speculating.
+**Parallel diagnostic lane: WebView panel focus/blackout observation.**
 
-**Hold-window work:** none required. Substrate capture is passive — normal agent + MCP usage produces the corpus. No interventions needed before re-triage. Vision UI work above does not displace this lane.
+`RookWebSurface` is shared by Chat, Vision, Knowledge Graph, and Claude-like panels. PR #132 made the dangerous repaint toggle opt-in because it caused an intermittent focus feedback loop and Rhino freeze during Vision testing. Future agents should use these rules:
 
-The first exotic-capability promotion (`/block/distribute-along-curve`, PR #89) shipped in parallel on 2026-04-22 without consuming the hold window — it was a user-authored-script promotion lane, not a substrate-observation-driven campaign. See Recently shipped for details and `project_exotic_capability_promotion.md` for the doctrine.
+- Default runtime: `ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND` unset; `RequestWebViewRepaint` is effectively a no-op.
+- Diagnostics only: set `ROOK_ENABLE_WEBVIEW_FOCUS_DIAGNOSTICS=1` to enable the JS focus probe and `%TEMP%\rook\webview-focus.log`.
+- Risky workaround testing only: set `ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND=1` after explicitly accepting the flicker/freeze risk.
+- Do not reintroduce unconditional `CoreWebView2Controller.IsVisible` toggles in Chat/Vision/KG panel code.
+
+---
+
+**Parallel passive lane: substrate-observation accumulation.** `substrate_observations.jsonl` started capturing 2026-04-21 with PR #88's merge (`fb970a7`) and still exists locally as an untracked file. It is not part of the WebView hotfix or multi-provider PRs. Re-triage only after reviewing actual hotspot signal.
 
 ---
 
 ## Next
 
-**Queued: PR-V4 — MCP tools for video.**
+**Queued: opt-in live Rhino smoke for PR-9 Settings/picker UX.**
 
-- `rhino_render_video`, `rhino_video_jobs`, `rhino_video_status`, `rhino_video_cancel` + tool-catalog wiring per the parity rule (every visible UI op also exposed as an MCP tool).
-- **Type:** feature (MCP)
-- **Risk:** Low (mirrors V3's wire shape — same `VideoOpHandler` server-side; new MCP tools just provide the agent-facing surface)
-- **Source_doc:** `rook_docs/2026-04-22-v3-video-decisions.md` §"Next steps" PR-V4; project memory `project_rookvision_video_track.md`
-- **Why next not now:** one active implementation branch at a time per the operating model; V3 is the user-visible side, V4 mirrors it for agents. Could promote in parallel after V3 if the operating-model rule is relaxed and V3 patterns are stable enough to clone.
+- **Type:** validation / release-polish
+- **Risk:** Low-M (manual UI path in Rhino; live provider calls only if explicitly approved)
+- **Source_doc:** PR #131; PR-9 design/spec and implementation plan listed in `docs/superpowers`.
+- **Why next not now:** PR #131 already has unit coverage and local manual testing looked good, but the only way to fully exercise provider cards + picker state in the real host is the RookVision panel. This should stay opt-in because live key tests and generation can involve network/spend.
 
-**First substrate-promotion PR** still scheduled for re-triage on/after 2026-04-28 from `substrate_observations.jsonl` hotspot data. Promotion-eligible after V3+V4 if no overriding user direction.
+**Smoke checklist when promoted:**
+- Open Rhino 8 with the locally deployed plugin pair from `C:\Users\aryan\AppData\Roaming\McNeel\Rhinoceros\8.0\Plug-ins\RookNative`.
+- Show RookVision and confirm Settings renders provider cards for Gemini and fal.ai.
+- With fal key missing, confirm fal models remain visible but are not submittable and show configure-key messaging.
+- Test invalid/recoverable credential state without persisting validation state. For fal, do not run generation-based validation; accept `inconclusive` from non-generation probe behavior.
+- Confirm image picker selection is preserved across credential edits/tests and that `InvalidCredential` is warning-only.
+- Any live Gemini/fal generation requires explicit user consent for spend/network before running.
 
 **Deferred candidates** (unchanged — any can promote if analysis or user direction surfaces a reason to pivot):
 
+- **Replicate follow-ups after PR #133:** async image UX design; authenticated artifact materialization; first visible Replicate image model; optional Replicate credential UI exposure only with a visible model or a dedicated credential-enablement PR.
+- **PR-V4 — MCP tools for video:** `rhino_render_video`, `rhino_video_jobs`, `rhino_video_status`, `rhino_video_cancel` + tool-catalog wiring per the parity rule. Still valuable, but multi-provider work is currently the active product lane.
 - **Bigger strategic moves** (each needs design-first framing before any PR):
   - WebUI substrate Phase 1 — nonce auth + virtual host + CDN asset migration; unblocks Knowledge Graph / 2D-to-3D / Scene Graph / NLE dashboard modules (design in `project_webui_substrate_architecture.md`). **Note:** RookVision module already ships on an equivalent Pattern A substrate (`connect-src 'none'` + virtual-host origin + embedded-resource serving) via PR #99, so parts of this work may collapse into generalizing what VisionWebSurface proved rather than green-field design.
   - HAWPv3 / image-to-CAD spike resume — foundation substrate (artifact store, DPAPI-wrapped secrets, Pattern A JS bridge, virtual `/blob/{id}/{role}` resolver) now fully shipped via the image track; HAWPv3 can consume these directly rather than waiting on primitives. Branch state uncertain — check `feature/image-to-cad-spike`.
   - Security audit rollout — CORS + nonce auth path; first audit completed, rollout deferred pre-public-release flip
-  - **RookVision v1 follow-ups** (small, post-merge polish candidates; none scoped as PRs yet): ~~focus-flash on panel blur~~ **CLOSED 2026-04-26** — fixed in PR #115 substrate via `CoreWebView2Controller.IsVisible` toggle on `GotFocus`/`Shown` (see [`project_webview_focus_blackout.md`](../Rook/.claude/projects/c--Users-aryan-source-repos-Rook/memory/project_webview_focus_blackout.md) memory). Affects Vision/Chat/KG/Claude panels — substrate fix benefits all four. Configurable Gallery folder (plumbing 80% present via `ArtifactStore(overrideRoot)`; settle per-project-vs-global question first); multi-viewport capture in quad layouts; **CI ABI-matched-binary check** so clean-user installs never hit the same freeze PR-7b integration smoke hit — note that PR #102's `install.ps1` fix addresses WRONG-TARGET selection (net48 vs net7.0) but NOT ABI drift between companion + native, which is the hazard that actually froze Rhino; the ABI-check item is narrower now but still open.
+  - **RookVision v1 follow-ups** (small, post-merge polish candidates; none scoped as PRs yet): panel focus blackout is **not closed by an unconditional repaint workaround**. PR #132 makes the risky repaint workaround opt-in and keeps diagnostics available; revisit only with fresh reproduction/log evidence. Configurable Gallery folder (plumbing 80% present via `ArtifactStore(overrideRoot)`; settle per-project-vs-global question first); multi-viewport capture in quad layouts; **CI ABI-matched-binary check** so clean-user installs never hit the same freeze PR-7b integration smoke hit — note that PR #102's `install.ps1` fix addresses WRONG-TARGET selection (net48 vs net7.0) but NOT ABI drift between companion + native, which is the hazard that actually froze Rhino; the ABI-check item is narrower now but still open.
 
   - **RookVision video thumbnails** (NEW 2026-04-26 from V3 manual smoke; tiered scope, pick the one that matches available time):
     - **Tier 1 (~30 min)**: For I2V/Interp jobs, copy the start-frame artifact's bytes as a `poster` blob on the new `generated_video` artifact at the manager's "Saving" stage. Free thumbnail, 0 new deps, fixes ~50% of cases (architects often start from a viewport capture or earlier render). Gallery already prefers `role: "poster"` when present so JS impact is zero.
