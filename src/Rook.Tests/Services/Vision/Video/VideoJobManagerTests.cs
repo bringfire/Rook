@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,7 +51,8 @@ namespace Rook.Tests.Services.Vision.Video
 
         private VideoJobManager Manager(
             TimeSpan? pollInterval = null,
-            IVideoCostEstimator? estimator = null) =>
+            IVideoCostEstimator? estimator = null,
+            VideoArtifactMaterializer? materializer = null) =>
             new(
                 registry: _registry,
                 mediaResolver: _resolver,
@@ -58,7 +61,9 @@ namespace Rook.Tests.Services.Vision.Video
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGen,
-                pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5));
+                pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5),
+                maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
+                materializer: materializer);
 
         private VideoGenerationRequest T2vRequest() =>
             TestVideoFixtures.DefaultT2vRequest();
@@ -202,6 +207,136 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("generated_video", artifact!.Kind);
             Assert.Single(artifact.Files);
             Assert.Equal("video", artifact.Files[0].Role);
+        }
+
+        [Fact]
+        public async Task Remote_mp4_result_materializes_to_generated_video_artifact()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-remote");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/remote");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultRemote("https://cdn.example.test/out.mp4", "video/mp4");
+            var materializer = new VideoArtifactMaterializer(
+                new StaticVideoResponseHandler(
+                    HttpStatusCode.OK,
+                    new byte[] { 9, 8, 7, 6 },
+                    "video/mp4"),
+                maxGeneratedVideoBytes: 1024);
+
+            var mgr = Manager(materializer: materializer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            var artifact = _artifactStore.Get(final.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            Assert.Equal("generated_video", artifact!.Kind);
+            Assert.Single(artifact.Files);
+            Assert.Equal("video", artifact.Files[0].Role);
+            Assert.Equal("video.mp4", artifact.Files[0].Path);
+            var blobPath = _artifactStore.GetBlobAbsolutePath(artifact.Id, "video");
+            Assert.Equal(new byte[] { 9, 8, 7, 6 }, File.ReadAllBytes(blobPath));
+        }
+
+        [Fact]
+        public async Task Remote_materialization_failure_writes_durable_Error_not_Complete()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-remote-fail");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/remote");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultRemote("https://cdn.example.test/out.mp4", "video/mp4");
+            var materializer = new VideoArtifactMaterializer(
+                new StaticVideoResponseHandler(HttpStatusCode.ServiceUnavailable),
+                maxGeneratedVideoBytes: 1024);
+
+            var mgr = Manager(materializer: materializer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.DependencyUnavailable, final.Error!.Code);
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Error, latest.State);
+            Assert.Null(latest.ResultArtifactId);
+            Assert.DoesNotContain(
+                _ledger.AllRecords,
+                r => r.JobId == jobId && r.State == VideoJobState.Complete);
+        }
+
+        [Fact]
+        public async Task Materialization_failure_preserves_provider_handle_metadata()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            var queuedHandle = new ProviderJobHandle(
+                providerJobId: "queue/123",
+                statusUrl: new Uri("https://queue.example.test/status/123"),
+                responseUrl: new Uri("https://queue.example.test/response/123"),
+                cancelUrl: new Uri("https://queue.example.test/cancel/123"),
+                cancelHttpMethod: "PUT",
+                providerMetadata: new Dictionary<string, JsonNode>
+                {
+                    ["queue_position"] = JsonValue.Create(2)!,
+                });
+            var completeHandle = queuedHandle.WithResultToken("https://queue.example.test/result/123");
+            _provider.OnSubmit = (_, _) => new QueuedSubmitOutcome(queuedHandle);
+            _provider.OnGetStatus = _ => new ProviderCompleteStatusOutcome(completeHandle);
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultRemote("https://cdn.example.test/out.mp4", "video/mp4");
+            var materializer = new VideoArtifactMaterializer(
+                new StaticVideoResponseHandler(HttpStatusCode.ServiceUnavailable),
+                maxGeneratedVideoBytes: 1024);
+
+            var mgr = Manager(materializer: materializer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await WaitForTerminalAsync(mgr, jobId);
+
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Error, latest.State);
+            Assert.Equal("queue/123", latest.ProviderJobId);
+            Assert.Equal("https://queue.example.test/result/123", latest.ProviderResultToken);
+            Assert.NotNull(latest.Extensions);
+            var handle = latest.ProviderHandle;
+            Assert.NotNull(handle);
+            Assert.Equal(new Uri("https://queue.example.test/status/123"), handle!.StatusUrl);
+            Assert.Equal(new Uri("https://queue.example.test/response/123"), handle.ResponseUrl);
+            Assert.Equal(new Uri("https://queue.example.test/cancel/123"), handle.CancelUrl);
+            Assert.Equal("PUT", handle.CancelHttpMethod);
+            Assert.NotNull(handle.ProviderMetadata);
+            Assert.Equal(2, handle.ProviderMetadata!["queue_position"].GetValue<int>());
+        }
+
+        [Fact]
+        public async Task Inline_video_over_materializer_cap_transitions_to_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-inline-cap");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/inline");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultOk(new byte[] { 1, 2, 3, 4 }, "video/mp4");
+            var materializer = new VideoArtifactMaterializer(maxGeneratedVideoBytes: 3);
+
+            var mgr = Manager(materializer: materializer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Equal(VideoErrorCode.ExecutionFailed, final.Error!.Code);
+            Assert.Contains("exceeded the maximum allowed size", final.Error.Message);
+            Assert.DoesNotContain(
+                _ledger.AllRecords,
+                r => r.JobId == jobId && r.State == VideoJobState.Complete);
         }
 
         // ─── Validation / estimator / resolver failures ──────────────
@@ -546,6 +681,36 @@ namespace Rook.Tests.Services.Vision.Video
             var final = _ledger.AllRecords.Last(r => r.JobId == jobId);
             Assert.Equal(VideoJobState.Cancelled, final.State);
             // Background task's catch path persists the Cancelled error.
+            Assert.NotNull(final.Error);
+            Assert.Equal(GenErrorCode.Cancelled, final.Error!.Code);
+        }
+
+        [Fact]
+        public async Task Cancel_during_remote_materialization_persists_Cancelled_not_Error()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) => FakeVideoProvider.SubmitQueued("op-remote-cancel");
+            _provider.OnGetStatus = handle =>
+                FakeVideoProvider.StatusComplete(handle, "https://veo/result/x");
+            _provider.OnFetchResult = _ =>
+                FakeVideoProvider.ResultRemote("https://cdn.example.test/out.mp4", "video/mp4");
+            _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
+
+            var blockingHandler = new BlockingVideoResponseHandler();
+            var mgr = Manager(
+                materializer: new VideoArtifactMaterializer(
+                    blockingHandler,
+                    maxGeneratedVideoBytes: 1024));
+
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await blockingHandler.WaitForRequestAsync();
+
+            await mgr.CancelAsync(jobId, CancellationToken.None);
+            await WaitForTerminalAsync(mgr, jobId);
+
+            var final = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(VideoJobState.Cancelled, final.State);
             Assert.NotNull(final.Error);
             Assert.Equal(GenErrorCode.Cancelled, final.Error!.Code);
         }
@@ -1220,5 +1385,56 @@ namespace Rook.Tests.Services.Vision.Video
             ResolvedVideoModel model,
             VideoGenerationRequest request) =>
             VideoCostEstimateResult.Fail(_error);
+    }
+
+    internal sealed class StaticVideoResponseHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _statusCode;
+        private readonly byte[] _bytes;
+        private readonly string? _mimeType;
+
+        public StaticVideoResponseHandler(
+            HttpStatusCode statusCode,
+            byte[]? bytes = null,
+            string? mimeType = null)
+        {
+            _statusCode = statusCode;
+            _bytes = bytes ?? Array.Empty<byte>();
+            _mimeType = mimeType;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(_statusCode);
+            if (_statusCode == HttpStatusCode.OK)
+            {
+                response.Content = new ByteArrayContent(_bytes);
+                if (!string.IsNullOrWhiteSpace(_mimeType))
+                    response.Content.Headers.ContentType =
+                        new System.Net.Http.Headers.MediaTypeHeaderValue(_mimeType);
+            }
+
+            return Task.FromResult(response);
+        }
+    }
+
+    internal sealed class BlockingVideoResponseHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource<bool> _requestStarted =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitForRequestAsync() => _requestStarted.Task;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            _requestStarted.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                .ConfigureAwait(false);
+            throw new InvalidOperationException("Blocking handler should only exit by cancellation.");
+        }
     }
 }

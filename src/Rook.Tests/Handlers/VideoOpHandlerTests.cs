@@ -10,6 +10,7 @@ using Rook.Handlers;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Fal;
 using Rook.Tests.Services.Vision.Video;
 using Xunit;
 
@@ -511,6 +512,99 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task Submit_FalModel_EmptyOptionsObject_UsesResolvedFalCodec()
+        {
+            VideoGenerationRequest? captured = null;
+            var stub = new StubManager
+            {
+                SubmitImpl = (req, _) =>
+                {
+                    captured = req;
+                    return JobSubmitResult.Ok(SampleJobId, VideoJobState.Queued);
+                },
+            };
+            var handler = NewHandler(
+                manager: stub,
+                registry: RegistryWithVeoAndFal());
+
+            var resp = await handler.DispatchAsync("""
+                {
+                  "op": "submit_video_job",
+                  "model": "fal-ai/wan/v2.7/text-to-video",
+                  "mode": "t2v",
+                  "duration_seconds": 2,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "x",
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertOk(resp, expectedHttp: 200);
+            Assert.NotNull(captured);
+            Assert.IsType<FalVideoOptions>(captured!.Options);
+        }
+
+        [Fact]
+        public async Task Submit_FalModel_VeoOptionsShape_FailsViaFalCodec()
+        {
+            var stub = new StubManager
+            {
+                SubmitImpl = (_, _) => JobSubmitResult.Ok(SampleJobId, VideoJobState.Queued),
+            };
+            var handler = NewHandler(
+                manager: stub,
+                registry: RegistryWithVeoAndFal());
+
+            var resp = await handler.DispatchAsync("""
+                {
+                  "op": "submit_video_job",
+                  "model": "fal-ai/wan/v2.7/text-to-video",
+                  "mode": "t2v",
+                  "duration_seconds": 2,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "x",
+                  "options": { "person_generation": "allow_all" },
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, "person_generation");
+            Assert.Equal(0, stub.SubmitCallCount);
+        }
+
+        [Fact]
+        public async Task Submit_UnknownModel_FailsBeforeOptionsParsing()
+        {
+            var stub = new StubManager
+            {
+                SubmitImpl = (_, _) => JobSubmitResult.Ok(SampleJobId, VideoJobState.Queued),
+            };
+            var handler = NewHandler(stub);
+
+            var resp = await handler.DispatchAsync("""
+                {
+                  "op": "submit_video_job",
+                  "model": "veo-imaginary",
+                  "mode": "t2v",
+                  "duration_seconds": 8,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, "model");
+            AssertMessageContains(resp, "Unknown model");
+            Assert.Equal(0, stub.SubmitCallCount);
+        }
+
+        [Fact]
         public async Task Submit_ManagerReturnsUnsupportedMedia_Maps415()
         {
             var stub = new StubManager
@@ -842,7 +936,7 @@ namespace Rook.Tests.Handlers
             var resp = handler.DispatchOffUi(body);
 
             AssertFail(resp, VideoErrorCode.InvalidRequest, expectedHttp: 400);
-            AssertFieldEquals(resp, "Model");
+            AssertFieldEquals(resp, "model");
         }
 
         // ─── MapStatusFromCode pinning ───────────────────────────────────
@@ -1206,7 +1300,8 @@ namespace Rook.Tests.Handlers
 
         private static VideoOpHandler NewHandler(
             IVideoJobManager? manager = null,
-            IVideoCostEstimator? estimator = null)
+            IVideoCostEstimator? estimator = null,
+            IVideoProviderRegistry? registry = null)
         {
             // Real registry/estimator — only the manager is faked. The
             // estimator path tests can substitute, but for ops that
@@ -1214,9 +1309,16 @@ namespace Rook.Tests.Handlers
             // harmless.
             return new VideoOpHandler(
                 manager: manager ?? new StubManager(),
-                registry: TestVideoFixtures.RegistryWithVeo(),
+                registry: registry ?? TestVideoFixtures.RegistryWithVeo(),
                 estimator: estimator ?? new VideoCostEstimator());
         }
+
+        private static IVideoProviderRegistry RegistryWithVeoAndFal() =>
+            new DefaultVideoProviderRegistry(new IVideoProviderRegistration[]
+            {
+                new VeoProviderRegistration(new FakeVideoProvider()),
+                new FalVideoProviderRegistration(new FakeVideoProvider()),
+            });
 
         private static string BuildSubmitBody() => $$"""
             {

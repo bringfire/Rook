@@ -45,6 +45,7 @@ namespace Rook.Services.Vision.Video
         private readonly IVideoJobLedger _ledger;
         private readonly IVideoCostEstimator _estimator;
         private readonly ArtifactStore _artifactStore;
+        private readonly VideoArtifactMaterializer _materializer;
         private readonly IVideoJobClock _clock;
         private readonly IVideoJobIdGenerator _idGenerator;
         private readonly TimeSpan _pollInterval;
@@ -63,12 +64,38 @@ namespace Rook.Services.Vision.Video
             IVideoJobIdGenerator? idGenerator = null,
             TimeSpan? pollInterval = null,
             int maxConcurrentJobs = DefaultMaxConcurrentJobs)
+            : this(
+                registry,
+                mediaResolver,
+                ledger,
+                estimator,
+                artifactStore,
+                clock,
+                idGenerator,
+                pollInterval,
+                maxConcurrentJobs,
+                materializer: null)
+        {
+        }
+
+        internal VideoJobManager(
+            IVideoProviderRegistry registry,
+            IMediaResolver mediaResolver,
+            IVideoJobLedger ledger,
+            IVideoCostEstimator estimator,
+            ArtifactStore artifactStore,
+            IVideoJobClock? clock,
+            IVideoJobIdGenerator? idGenerator,
+            TimeSpan? pollInterval,
+            int maxConcurrentJobs,
+            VideoArtifactMaterializer? materializer)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
             _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
+            _materializer = materializer ?? new VideoArtifactMaterializer();
             _clock = clock ?? new SystemVideoJobClock();
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
             _pollInterval = pollInterval ?? DefaultPollInterval;
@@ -812,10 +839,7 @@ namespace Rook.Services.Vision.Video
                         return;
                     }
 
-                    if (!TryExtractInlineVideoArtifact(
-                        successFetch.Envelope,
-                        out var videoBytes,
-                        out var videoMimeType))
+                    if (!TryFindVideoArtifact(successFetch.Envelope, out var videoArtifact))
                     {
                         current = AppendTransition(
                             current,
@@ -829,10 +853,26 @@ namespace Rook.Services.Vision.Video
                     current = AppendTransition(current, VideoJobState.Saving);
                     running.LatestRecord = current;
 
-                    var ext = ExtensionFromMime(videoMimeType);
+                    var materialized = await _materializer.MaterializeAsync(
+                        videoArtifact,
+                        ct).ConfigureAwait(false);
+                    if (!materialized.Success)
+                    {
+                        if (IsCancellationMaterializationFailure(materialized, ct))
+                            ct.ThrowIfCancellationRequested();
+
+                        current = AppendTransition(
+                            current,
+                            VideoJobState.Error,
+                            error: materialized.Error);
+                        running.LatestRecord = current;
+                        return;
+                    }
+
+                    var ext = ExtensionFromMime(materialized.MimeType!);
                     var artifact = _artifactStore.Create(
                         kind: "generated_video",
-                        blobs: new[] { new BlobInput("video", videoBytes, ext) },
+                        blobs: new[] { new BlobInput("video", materialized.Bytes!, ext) },
                         parentIds: CollectMediaParents(request));
 
                     // Complete (artifact-first per v3.1 D4 ordering;
@@ -932,10 +972,7 @@ namespace Rook.Services.Vision.Video
                 return;
             }
 
-            if (!TryExtractInlineVideoArtifact(
-                success.Envelope,
-                out var videoBytes,
-                out var videoMimeType))
+            if (!TryFindVideoArtifact(success.Envelope, out var videoArtifact))
             {
                 var errored = AppendTransition(
                     current,
@@ -949,10 +986,26 @@ namespace Rook.Services.Vision.Video
             running.LatestRecord = current;
 
             ct.ThrowIfCancellationRequested();
-            var ext = ExtensionFromMime(videoMimeType);
+            var materialized = await _materializer.MaterializeAsync(
+                videoArtifact,
+                ct).ConfigureAwait(false);
+            if (!materialized.Success)
+            {
+                if (IsCancellationMaterializationFailure(materialized, ct))
+                    ct.ThrowIfCancellationRequested();
+
+                var errored = AppendTransition(
+                    current,
+                    VideoJobState.Error,
+                    error: materialized.Error);
+                running.LatestRecord = errored;
+                return;
+            }
+
+            var ext = ExtensionFromMime(materialized.MimeType!);
             var artifact = _artifactStore.Create(
                 kind: "generated_video",
-                blobs: new[] { new BlobInput("video", videoBytes, ext) },
+                blobs: new[] { new BlobInput("video", materialized.Bytes!, ext) },
                 parentIds: CollectMediaParents(request));
 
             current = AppendTransition(
@@ -962,25 +1015,31 @@ namespace Rook.Services.Vision.Video
             running.LatestRecord = current;
         }
 
-        private static bool TryExtractInlineVideoArtifact(
+        private static bool IsCancellationMaterializationFailure(
+            VideoArtifactMaterializationResult materialized,
+            CancellationToken ct)
+        {
+            if (!ct.IsCancellationRequested || materialized.Error is null)
+                return false;
+
+            return materialized.Error.Code == GenerationErrorCode.Cancelled
+                || materialized.Error.Code == GenerationErrorCode.Interrupted;
+        }
+
+        private static bool TryFindVideoArtifact(
             ProviderResultEnvelope envelope,
-            out byte[] bytes,
-            out string mimeType)
+            out ResultArtifact videoArtifact)
         {
             foreach (var artifact in envelope.Artifacts)
             {
-                if (artifact.Role == VideoMediaRoles.Video
-                    && artifact.Body is InlineArtifactBody inline
-                    && !string.IsNullOrWhiteSpace(artifact.DeclaredMimeType))
+                if (artifact.Role == VideoMediaRoles.Video)
                 {
-                    bytes = inline.Bytes;
-                    mimeType = artifact.DeclaredMimeType!;
+                    videoArtifact = artifact;
                     return true;
                 }
             }
 
-            bytes = Array.Empty<byte>();
-            mimeType = string.Empty;
+            videoArtifact = null!;
             return false;
         }
 
