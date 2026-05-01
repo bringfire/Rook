@@ -171,7 +171,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     latest = LatestRecord(jobId, latest);
                     if (IsTerminal(latest.State))
                         return ImageJobCancelResult.Ok(latest.State);
-                    if (remote.AlreadyTerminal)
+                    if (remote.AlreadyTerminal
+                        && latest.State != ImageJobState.Materializing)
                         return ImageJobCancelResult.Ok(latest.State);
                 }
 
@@ -517,6 +518,13 @@ namespace Rook.Services.Vision.Image.Jobs
 
             ct.ThrowIfCancellationRequested();
 
+            var latestBeforeCreate = LatestRecord(current.JobId, current);
+            if (IsTerminal(latestBeforeCreate.State))
+            {
+                running.LatestRecord = latestBeforeCreate;
+                return;
+            }
+
             var mimeType = materialized.MimeType ?? "image/png";
             var artifact = _artifactStore.Create(
                 kind: VisionHandler.ArtifactKindGeneratedImage,
@@ -544,7 +552,29 @@ namespace Rook.Services.Vision.Image.Jobs
                 current,
                 ImageJobState.Complete,
                 resultArtifactId: artifact.Id);
+            if (complete.State != ImageJobState.Complete
+                || complete.ResultArtifactId != artifact.Id)
+            {
+                await DeleteArtifactQuietlyAsync(artifact.Id).ConfigureAwait(false);
+            }
+
             running.LatestRecord = complete;
+        }
+
+        private async Task DeleteArtifactQuietlyAsync(Guid artifactId)
+        {
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    if (_artifactStore.Delete(artifactId))
+                        return;
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+
+                await Task.Delay(10).ConfigureAwait(false);
+            }
         }
 
         private ImageArtifactRequestFactory? ResolveRequestFactory(

@@ -358,6 +358,38 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task CancelAsync_DuringMaterialization_WhenProviderAlreadyTerminal_CancelsLocalFetch()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-materializing-terminal");
+            _provider.OnGetStatus = handle => FakeImageProvider.Complete(handle);
+            _provider.OnFetchResult = _ =>
+                FakeImageProvider.RemoteImageResult(
+                    "https://cdn.example.test/out.png",
+                    declaredMime: "image/png");
+            var cancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                cancelCalls++;
+                return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
+            };
+            var handler = new BlockingImageResponseHandler();
+            using var manager = Manager(
+                materializer: new ImageArtifactMaterializer(handler));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForSignalAsync(
+                handler.WaitForRequestAsync(),
+                "Image materialization request did not start.");
+            var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId.Value);
+
+            Assert.Equal(ImageJobState.Cancelled, cancel.State);
+            Assert.Equal(ImageJobState.Cancelled, status.State);
+            Assert.Equal(1, cancelCalls);
+            await WaitForArtifactCountAsync(0);
+        }
+
+        [Fact]
         public async Task CompleteTransition_WhenCancelledRecordWinsFinalRace_DoesNotOverwriteCancelled()
         {
             using var manager = Manager();
@@ -368,7 +400,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                     ImageJobState.Cancelled,
                     GeminiImageCapabilities.DefaultModel,
                     GeminiImageCapabilities.ProviderName,
-                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.MaxValue,
                     error: new GenerationError(
                         GenerationErrorCode.Cancelled,
                         "Image job cancelled.",
@@ -380,6 +412,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
 
             Assert.Equal(ImageJobState.Cancelled, status.State);
             Assert.Null(status.ResultArtifactId);
+            await WaitForArtifactCountAsync(0);
         }
 
         [Fact]
@@ -521,6 +554,20 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 throw new TimeoutException(timeoutMessage);
 
             await signal.ConfigureAwait(false);
+        }
+
+        private async Task WaitForArtifactCountAsync(int expected)
+        {
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (_artifactStore.List().Count == expected)
+                    return;
+
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(expected, _artifactStore.List().Count);
         }
 
         private ImageJobRecord TerminalRecord(
