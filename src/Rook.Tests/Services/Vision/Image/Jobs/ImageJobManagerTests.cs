@@ -252,7 +252,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
 
             Assert.Equal(ImageJobState.Error, fetch.State);
             Assert.NotNull(fetch.Error);
-            Assert.Equal(GenerationErrorCode.InvalidRequest, fetch.Error!.Code);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, fetch.Error!.Code);
         }
 
         [Fact]

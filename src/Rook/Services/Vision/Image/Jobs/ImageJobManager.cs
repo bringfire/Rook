@@ -245,9 +245,11 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 return Task.FromResult(ImageJobFetchResult.Failed(
                     ImageJobState.Error,
-                    InvalidRequest(
+                    new GenerationError(
+                        GenerationErrorCode.DependencyUnavailable,
                         $"Image job result artifact is unavailable: {artifactId:D}.",
-                        "result_artifact_id")));
+                        Retryable: false,
+                        Field: "result_artifact_id")));
             }
 
             return Task.FromResult(ImageJobFetchResult.Complete(
