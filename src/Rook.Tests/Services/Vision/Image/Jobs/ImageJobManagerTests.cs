@@ -358,6 +358,31 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task CompleteTransition_WhenCancelledRecordWinsFinalRace_DoesNotOverwriteCancelled()
+        {
+            using var manager = Manager();
+            manager.BeforeCompleteTransitionForTests = id =>
+            {
+                SetRecord(manager, new ImageJobRecord(
+                    id,
+                    ImageJobState.Cancelled,
+                    GeminiImageCapabilities.DefaultModel,
+                    GeminiImageCapabilities.ProviderName,
+                    DateTimeOffset.UtcNow,
+                    error: new GenerationError(
+                        GenerationErrorCode.Cancelled,
+                        "Image job cancelled.",
+                        Retryable: false)));
+            };
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Cancelled, status.State);
+            Assert.Null(status.ResultArtifactId);
+        }
+
+        [Fact]
         public async Task FetchResultAsync_CompleteStateVerifiesArtifactStillExists()
         {
             using var manager = Manager();

@@ -36,6 +36,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly ConcurrentDictionary<Guid, ImageJobRecord> _records = new();
 
         internal Action<Guid>? BeforeLocalCancelTryUpdateForTests { get; set; }
+        internal Action<Guid>? BeforeCompleteTransitionForTests { get; set; }
 
         public ImageJobManager(
             IImageProviderRegistry registry,
@@ -537,6 +538,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ["mime_type"] = mimeType,
                 });
 
+            BeforeCompleteTransitionForTests?.Invoke(current.JobId);
+
             var complete = Transition(
                 current,
                 ImageJobState.Complete,
@@ -582,14 +585,34 @@ namespace Rook.Services.Vision.Image.Jobs
             Guid? resultArtifactId = null,
             GenerationError? error = null)
         {
-            var next = BuildTransition(
-                prior,
-                state,
-                providerHandle,
-                resultArtifactId,
-                error);
-            _records[prior.JobId] = next;
-            return next;
+            while (true)
+            {
+                var latest = LatestRecord(prior.JobId, prior);
+                if (IsTerminal(latest.State))
+                    return latest;
+
+                var next = BuildTransition(
+                    latest,
+                    state,
+                    providerHandle,
+                    resultArtifactId,
+                    error);
+
+                if (_records.TryUpdate(latest.JobId, next, latest))
+                    return next;
+
+                if (!_records.TryGetValue(latest.JobId, out var observed))
+                {
+                    if (_records.TryAdd(latest.JobId, next))
+                        return next;
+                    continue;
+                }
+
+                if (IsTerminal(observed.State))
+                    return observed;
+
+                prior = Freshest(observed, latest);
+            }
         }
 
         private ImageJobRecord TryTransitionToLocalCancelled(
