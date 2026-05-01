@@ -35,7 +35,7 @@ PR-13 consumes those foundations by adding the first real Replicate image provid
 - No provider-specific user knobs in Replicate image options.
 - No dynamic Replicate catalog discovery.
 - No additional Replicate models.
-- No generic `/v1/predictions` endpoint support.
+- No generic model-agnostic create-prediction endpoint support.
 - No live Replicate calls or spend/network tests without explicit approval.
 
 ## Architecture
