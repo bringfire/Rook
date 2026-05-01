@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision
@@ -72,6 +73,24 @@ namespace Rook.Tests.Services.Vision
             Assert.DoesNotContain("ReplicateImageProviderRegistration", methodBody);
             Assert.DoesNotContain("ReplicateImageProvider", methodBody);
             Assert.DoesNotContain("ReplicateApiToken", methodBody);
+        }
+
+        [Fact]
+        public void CreateImageRegistrations_default_registry_omits_replicate()
+        {
+            var registrations = VisionProviderRegistrations.CreateImageRegistrations(
+                () => null,
+                () => null);
+            var registry = new DefaultImageProviderRegistry(registrations);
+
+            var descriptors = registry.EnumerateAllModels();
+
+            Assert.DoesNotContain(descriptors, d => d.ProviderName == "replicate");
+            Assert.DoesNotContain(
+                descriptors,
+                d => d.ModelId == "black-forest-labs/flux-schnell");
+            Assert.False(registry.TryResolveProviderByName("replicate", out _));
+            Assert.False(registry.TryResolve("black-forest-labs/flux-schnell", out _));
         }
 
         private static string FindSourceFile()
