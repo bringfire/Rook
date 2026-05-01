@@ -91,6 +91,23 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task SubmitAsync_UsesExplicitResolvedModelForUnregisteredModel()
+        {
+            var provider = new FakeImageProvider();
+            var model = "gemini-future-image-preview";
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(
+                Start(model, SyntheticResolvedModel(provider, model)),
+                CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Contains("Submit", provider.Calls);
+            Assert.DoesNotContain("Submit", _provider.Calls);
+        }
+
+        [Fact]
         public async Task ProviderCompleteIsNotJobCompleteUntilMaterializationSucceeds()
         {
             _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-remote-fail");
@@ -402,10 +419,12 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 materializer: materializer,
                 requestFactorySelector: selector);
 
-        private static ImageJobStartRequest Start() =>
+        private static ImageJobStartRequest Start(
+            string model = GeminiImageCapabilities.DefaultModel,
+            ResolvedImageModel? resolvedModel = null) =>
             new(
                 new ImageGenerationRequest(
-                    Model: GeminiImageCapabilities.DefaultModel,
+                    Model: model,
                     Prompt: "red cube",
                     Resolution: "1K",
                     AspectRatio: "",
@@ -413,7 +432,27 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                     ReferenceImages: null,
                     Options: new GeminiImageOptions()),
                 new Dictionary<MediaRef, ResolvedMedia>(),
-                Array.Empty<Guid>());
+                Array.Empty<Guid>(),
+                resolvedModel);
+
+        private static ResolvedImageModel SyntheticResolvedModel(
+            IImageProvider provider,
+            string model) =>
+            new(
+                ModelId: model,
+                ProviderName: GeminiImageCapabilities.ProviderName,
+                Provider: provider,
+                Capability: new ImageCapability(
+                    Id: model,
+                    Name: model,
+                    Status: "preview",
+                    Resolutions: new[] { "1K" },
+                    AspectRatios: new[] { "1:1" },
+                    MaxReferenceImages: 0,
+                    SupportsImageToImage: true,
+                    SupportsTextToImage: true),
+                PricingModel: new GeminiImagePricingModel(),
+                OptionsCodec: new GeminiImageOptionsCodec());
 
         private async Task<ImageJobStatusResult> WaitForTerminalAsync(
             ImageJobManager manager,

@@ -91,7 +91,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     nameof(start))));
 
             var request = start.Request;
-            if (!_registry.TryResolve(request.Model, out var model))
+            var model = start.ResolvedModel;
+            if (model is null && !_registry.TryResolve(request.Model, out model))
                 return Task.FromResult(ImageJobSubmitResult.Fail(InvalidRequest(
                     $"Unknown image model: '{request.Model ?? "<null>"}'.",
                     nameof(request.Model))));
