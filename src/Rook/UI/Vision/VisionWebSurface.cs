@@ -195,6 +195,14 @@ p { margin: 8px 0; line-height: 1.4; }
                 // HTTP surface in V3; PR-V4 lands native + MCP-tool parity.
                 [VideoOpHandler.OpListJobs] = VisionOpRoute.OffUi,
                 [VideoOpHandler.OpListModels] = VisionOpRoute.OffUi,
+
+                // Hidden image job ops — bridge-only; native HTTP and MCP
+                // exposure are intentionally out of scope for Task 7.
+                [ImageJobOpHandler.OpStart] = VisionOpRoute.Async,
+                [ImageJobOpHandler.OpCancel] = VisionOpRoute.Async,
+                [ImageJobOpHandler.OpStatus] = VisionOpRoute.OffUi,
+                [ImageJobOpHandler.OpResult] = VisionOpRoute.OffUi,
+                [ImageJobOpHandler.OpList] = VisionOpRoute.OffUi,
             };
 
         /// <summary>
@@ -216,6 +224,16 @@ p { margin: 8px 0; line-height: 1.4; }
                 VideoOpHandler.OpListModels,
             };
 
+        private static readonly HashSet<string> ImageJobOps =
+            new(StringComparer.Ordinal)
+            {
+                ImageJobOpHandler.OpStart,
+                ImageJobOpHandler.OpCancel,
+                ImageJobOpHandler.OpStatus,
+                ImageJobOpHandler.OpResult,
+                ImageJobOpHandler.OpList,
+            };
+
         // ─── Timeouts ─────────────────────────────────────────────────
 
         /// <summary>
@@ -233,6 +251,7 @@ p { margin: 8px 0; line-height: 1.4; }
 
         private readonly VisionHandler _handler;
         private readonly VideoOpHandler? _videoHandler;
+        private readonly ImageJobOpHandler? _imageJobHandler;
         private readonly ArtifactStore _artifactStore;
 
         /// <summary>
@@ -263,6 +282,7 @@ p { margin: 8px 0; line-height: 1.4; }
         public VisionWebSurface() : this(
             BuildSharedVisionHandler(),
             BuildSharedVideoHandler(),
+            BuildSharedImageJobHandler(),
             RookSubsystemRoot.Instance.SharedArtifactStore)
         { }
 
@@ -275,15 +295,17 @@ p { margin: 8px 0; line-height: 1.4; }
         /// arg ctor with an explicit (possibly stub) video handler.
         /// </summary>
         internal VisionWebSurface(VisionHandler handler, ArtifactStore artifactStore)
-            : this(handler, videoHandler: null, artifactStore) { }
+            : this(handler, videoHandler: null, imageJobHandler: null, artifactStore) { }
 
         internal VisionWebSurface(
             VisionHandler handler,
             VideoOpHandler? videoHandler,
+            ImageJobOpHandler? imageJobHandler,
             ArtifactStore artifactStore)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _videoHandler = videoHandler;
+            _imageJobHandler = imageJobHandler;
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
 
             // Register the single op-discriminated bridge method. Must
@@ -297,6 +319,13 @@ p { margin: 8px 0; line-height: 1.4; }
         {
             var bundle = RookSubsystemRoot.Instance.Video;
             return new VideoOpHandler(bundle.Manager, bundle.Registry, bundle.Estimator);
+        }
+
+        private static ImageJobOpHandler BuildSharedImageJobHandler()
+        {
+            var handler = BuildSharedVisionHandler();
+            var bundle = RookSubsystemRoot.Instance.ImageJobs;
+            return new ImageJobOpHandler(bundle.Manager, handler);
         }
 
         private static VisionHandler BuildSharedVisionHandler()
@@ -339,6 +368,7 @@ p { margin: 8px 0; line-height: 1.4; }
             // kind (Async / OffUi) still comes from OpRoutes; the
             // handler choice is the per-op fork. UI-only ops never
             // belong to VideoOps (video has no Rhino-touching ops in V2).
+            var isImageJobOp = ImageJobOps.Contains(op!);
             var isVideoOp = VideoOps.Contains(op!);
 
             if (isVideoOp && _videoHandler is null)
@@ -349,6 +379,10 @@ p { margin: 8px 0; line-height: 1.4; }
                 return BuildFailure(
                     "Video subsystem unavailable in this surface (no VideoOpHandler injected).");
             }
+            if (isImageJobOp && _imageJobHandler is null)
+            {
+                return BuildFailure("Image job subsystem unavailable in this surface.");
+            }
 
             ApiResponse response;
             try
@@ -358,6 +392,8 @@ p { margin: 8px 0; line-height: 1.4; }
                     case VisionOpRoute.Async:
                         response = isVideoOp
                             ? await DispatchVideoAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
+                            : isImageJobOp
+                                ? await DispatchImageJobAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
                             : await DispatchAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false);
                         break;
                     case VisionOpRoute.Ui:
@@ -384,6 +420,9 @@ p { margin: 8px 0; line-height: 1.4; }
                         response = isVideoOp
                             ? await Task.Run(
                                 () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                            : isImageJobOp
+                                ? await Task.Run(
+                                    () => _imageJobHandler!.DispatchOffUi(body)).ConfigureAwait(false)
                             : await Task.Run(
                                 () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
                         break;
@@ -412,6 +451,12 @@ p { margin: 8px 0; line-height: 1.4; }
                 op,
                 AsyncOpTimeout,
                 token => _videoHandler!.DispatchAsync(body, token));
+
+        private Task<ApiResponse> DispatchImageJobAsyncWithTimeoutAsync(string op, string? body)
+            => DispatchWithTimeoutAsync(
+                op,
+                AsyncOpTimeout,
+                token => _imageJobHandler!.DispatchAsync(body, token));
 
         /// <summary>
         /// Instance entry point: dispatch an async op through

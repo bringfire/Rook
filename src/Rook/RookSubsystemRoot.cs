@@ -3,6 +3,8 @@ using System.Threading;
 using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Jobs;
 using Rook.Services.Vision.Video;
 
 namespace Rook
@@ -44,6 +46,7 @@ namespace Rook
         public VisionSecretStore SharedSecretStore { get; }
 
         private readonly Lazy<VideoSubsystemBundle> _video;
+        private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
 
         /// <summary>
         /// Resolves the lazy video subsystem. Throws
@@ -64,6 +67,18 @@ namespace Rook
                         nameof(RookSubsystemRoot),
                         "Video subsystem accessed after shutdown.");
                 return _video.Value;
+            }
+        }
+
+        public ImageJobSubsystemBundle ImageJobs
+        {
+            get
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                    throw new ObjectDisposedException(
+                        nameof(RookSubsystemRoot),
+                        "Image job subsystem accessed after shutdown.");
+                return _imageJobs.Value;
             }
         }
 
@@ -92,6 +107,21 @@ namespace Rook
             _video = new Lazy<VideoSubsystemBundle>(
                 () => VideoSubsystemFactory.Build(
                     SharedGenerationSecretStore, SharedArtifactStore, ledger),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            _imageJobs = new Lazy<ImageJobSubsystemBundle>(
+                () =>
+                {
+                    var registry = new DefaultImageProviderRegistry(
+                        VisionProviderRegistrations.CreateImageRegistrations(
+                            () => SharedGenerationSecretStore.GetSecret(
+                                GenerationSecretKeys.GeminiApiKey),
+                            () => SharedGenerationSecretStore.GetSecret(
+                                GenerationSecretKeys.FalApiKey)));
+                    var manager = new ImageJobManager(
+                        registry,
+                        SharedArtifactStore);
+                    return new ImageJobSubsystemBundle(manager, registry);
+                },
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
@@ -158,6 +188,12 @@ namespace Rook
         {
             if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
                 return;
+
+            if (_imageJobs.IsValueCreated
+                && _imageJobs.Value.Manager is IDisposable imageJobManager)
+            {
+                imageJobManager.Dispose();
+            }
 
             if (_video.IsValueCreated)
             {

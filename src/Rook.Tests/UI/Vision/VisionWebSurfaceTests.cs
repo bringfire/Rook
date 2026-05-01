@@ -240,6 +240,9 @@ namespace Rook.Tests.UI.Vision
                 "set_provider_secret", "test_provider_secret",
                 "clear_provider_secret", "list_image_models",
                 "open_artifacts_folder", "reveal_artifact_file",
+                // Hidden image job ops — bridge-only, not native HTTP.
+                "image_generate_start", "image_job_cancel",
+                "image_job_status", "image_job_result", "image_jobs",
                 // V2 video — bridge mirrors of the native HTTP routes.
                 "submit_video_job", "cancel_video_job",
                 "get_video_job", "get_video_job_result",
@@ -282,6 +285,12 @@ namespace Rook.Tests.UI.Vision
         [InlineData("list_image_models", "OffUi")]
         [InlineData("open_artifacts_folder", "OffUi")]
         [InlineData("reveal_artifact_file", "OffUi")]
+        // Hidden image jobs — start/cancel can call providers; reads are off-UI.
+        [InlineData("image_generate_start", "Async")]
+        [InlineData("image_job_cancel", "Async")]
+        [InlineData("image_job_status", "OffUi")]
+        [InlineData("image_job_result", "OffUi")]
+        [InlineData("image_jobs", "OffUi")]
         // V2 video ops — submit/cancel are async (provider HTTP via
         // manager); status/result/estimate are off-UI sync.
         [InlineData("submit_video_job", "Async")]
@@ -333,6 +342,17 @@ namespace Rook.Tests.UI.Vision
         public void VideoOps_Set_DoesNotContainImageOps(string op)
         {
             // Negative pin — image ops MUST NOT route to VideoOpHandler.
+            Assert.DoesNotContain(op, VisionWebSurface.VideoOps);
+        }
+
+        [Theory]
+        [InlineData("image_generate_start")]
+        [InlineData("image_job_cancel")]
+        [InlineData("image_job_status")]
+        [InlineData("image_job_result")]
+        [InlineData("image_jobs")]
+        public void ImageJobOps_AreNotVideoOps(string op)
+        {
             Assert.DoesNotContain(op, VisionWebSurface.VideoOps);
         }
 
