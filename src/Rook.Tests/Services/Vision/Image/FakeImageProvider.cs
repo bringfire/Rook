@@ -16,6 +16,7 @@ namespace Rook.Tests.Services.Vision.Image
         public Func<ProviderJobHandle, ProviderResultOutcome>? OnFetchResult { get; set; }
 
         public List<string> Calls { get; } = new();
+        public List<(string Method, object? Payload)> RecordedCalls { get; } = new();
 
         public string ProviderName => "fake-image";
 
@@ -25,6 +26,7 @@ namespace Rook.Tests.Services.Vision.Image
             CancellationToken ct)
         {
             Calls.Add("Submit");
+            RecordedCalls.Add(("Submit", new { request, resolvedMedia }));
             var result = OnSubmit?.Invoke(request, resolvedMedia) ?? SyncPng();
             return Task.FromResult(result);
         }
@@ -34,6 +36,7 @@ namespace Rook.Tests.Services.Vision.Image
             CancellationToken ct)
         {
             Calls.Add("GetStatus");
+            RecordedCalls.Add(("GetStatus", handle.ProviderJobId));
             var result = OnGetStatus?.Invoke(handle) ?? Complete(handle);
             return Task.FromResult(result);
         }
@@ -43,6 +46,7 @@ namespace Rook.Tests.Services.Vision.Image
             CancellationToken ct)
         {
             Calls.Add("Cancel");
+            RecordedCalls.Add(("Cancel", handle.ProviderJobId));
             var result = OnCancel?.Invoke(handle) ?? new CanceledOutcome();
             return Task.FromResult(result);
         }
@@ -52,6 +56,11 @@ namespace Rook.Tests.Services.Vision.Image
             CancellationToken ct)
         {
             Calls.Add("FetchResult");
+            RecordedCalls.Add(("FetchResult", new
+            {
+                providerJobId = handle.ProviderJobId,
+                providerResultToken = handle.ProviderResultToken,
+            }));
             var result = OnFetchResult?.Invoke(handle) ?? ImageResult(new byte[] { 4, 5, 6 });
             return Task.FromResult(result);
         }
