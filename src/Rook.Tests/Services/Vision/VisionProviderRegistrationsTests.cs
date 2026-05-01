@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision
@@ -53,12 +54,43 @@ namespace Rook.Tests.Services.Vision
         public void CreateCredentialMetadata_does_not_construct_provider_registrations()
         {
             var source = File.ReadAllText(FindSourceFile());
-            var methodBody = ExtractCreateCredentialMetadataBody(source);
+            var methodBody = ExtractMethodBody(source, "CreateCredentialMetadata");
 
             Assert.DoesNotContain("CreateImageRegistrations", methodBody);
             Assert.DoesNotContain("CreateVideoRegistrations", methodBody);
             Assert.DoesNotContain("new VeoProvider", methodBody);
             Assert.DoesNotContain("new FalVideoProvider", methodBody);
+            Assert.DoesNotContain("ReplicateImageProviderRegistration", methodBody);
+            Assert.DoesNotContain("ReplicateImageProvider", methodBody);
+        }
+
+        [Fact]
+        public void CreateImageRegistrations_default_composition_does_not_reference_replicate()
+        {
+            var source = File.ReadAllText(FindSourceFile());
+            var methodBody = ExtractMethodBody(source, "CreateImageRegistrations");
+
+            Assert.DoesNotContain("ReplicateImageProviderRegistration", methodBody);
+            Assert.DoesNotContain("ReplicateImageProvider", methodBody);
+            Assert.DoesNotContain("ReplicateApiToken", methodBody);
+        }
+
+        [Fact]
+        public void CreateImageRegistrations_default_registry_omits_replicate()
+        {
+            var registrations = VisionProviderRegistrations.CreateImageRegistrations(
+                () => null,
+                () => null);
+            var registry = new DefaultImageProviderRegistry(registrations);
+
+            var descriptors = registry.EnumerateAllModels();
+
+            Assert.DoesNotContain(descriptors, d => d.ProviderName == "replicate");
+            Assert.DoesNotContain(
+                descriptors,
+                d => d.ModelId == "black-forest-labs/flux-schnell");
+            Assert.False(registry.TryResolveProviderByName("replicate", out _));
+            Assert.False(registry.TryResolve("black-forest-labs/flux-schnell", out _));
         }
 
         private static string FindSourceFile()
@@ -79,16 +111,15 @@ namespace Rook.Tests.Services.Vision
                 "Could not locate src/Rook/Services/Vision/VisionProviderRegistrations.cs.");
         }
 
-        private static string ExtractCreateCredentialMetadataBody(string source)
+        private static string ExtractMethodBody(string source, string methodName)
         {
-            const string signature = "CreateCredentialMetadata";
-            var signatureIndex = source.IndexOf(signature, StringComparison.Ordinal);
+            var signatureIndex = source.IndexOf(methodName, StringComparison.Ordinal);
             if (signatureIndex < 0)
-                throw new InvalidOperationException("CreateCredentialMetadata was not found.");
+                throw new InvalidOperationException($"{methodName} was not found.");
 
             var openBrace = source.IndexOf('{', signatureIndex);
             if (openBrace < 0)
-                throw new InvalidOperationException("CreateCredentialMetadata body was not found.");
+                throw new InvalidOperationException($"{methodName} body was not found.");
 
             var depth = 0;
             for (var i = openBrace; i < source.Length; i++)
@@ -99,7 +130,7 @@ namespace Rook.Tests.Services.Vision
                     return source.Substring(openBrace, i - openBrace + 1);
             }
 
-            throw new InvalidOperationException("CreateCredentialMetadata body was not closed.");
+            throw new InvalidOperationException($"{methodName} body was not closed.");
         }
     }
 }

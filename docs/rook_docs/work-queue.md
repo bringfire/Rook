@@ -140,22 +140,22 @@ Each item carries:
 
 ## Now
 
-**Active item: PR-13 hidden Replicate image provider registration tests.**
+**Active item: PR-14 Replicate Settings and visible image model.**
 
-- **Type:** substrate / provider
+- **Type:** feature / provider UX
 - **Stage:** plan
-- **Risk:** M (wires Replicate prediction semantics into the image job substrate, but keeps all exposure hidden/test-owned)
-- **Why_now:** PR #134 shipped the design contract and hidden image job substrate. The next bottleneck is proving the production Replicate image provider path against fake HTTP without exposing Replicate in Settings, picker metadata, native routes, or MCP.
-- **Source_doc:** `docs/superpowers/specs/2026-04-30-pr-11-replicate-async-image-design.md`; `docs/superpowers/plans/2026-04-30-pr-12-hidden-image-job-substrate.md`; PR #134 review notes.
+- **Risk:** M (first user-visible Replicate image path and first async image UI workflow)
+- **Why_now:** PR #135 proves the hidden production Replicate image provider path, authenticated output copy, lifecycle mapping, and default no-exposure boundary through fake HTTP. The next bottleneck is exposing the single conservative Replicate model without losing the hidden-provider safety invariants.
+- **Source_doc:** `docs/superpowers/specs/2026-04-30-pr-11-replicate-async-image-design.md`; `docs/superpowers/specs/2026-05-01-pr-13-hidden-replicate-image-provider-design.md`; `docs/superpowers/plans/2026-05-01-pr-13-hidden-replicate-image-provider.md`; PR #135 review notes.
 
 **Scope target:**
-- Add Replicate image provider/registration behind injected or test-only registries.
-- Map an official FLUX-schnell-style prediction input/output into the image job flow.
-- Use the authenticated materialization request-factory path for Replicate-owned remote outputs.
-- Preserve output cardinality in provider metadata and map retention-expired output to the documented non-retryable dependency error.
-- Keep normal tests fake-HTTP only; no live provider calls.
+- Expose Replicate as a Settings credential owner.
+- Add Replicate card and provider-aware credential operations.
+- Register one conservative Replicate image model (`black-forest-labs/flux-schnell`) in default image composition.
+- Wire UI model selection to image job ops for async models.
+- Optionally run an approved live smoke with a real key.
 
-**Guardrails:** Replicate stays hidden; no default Settings card, picker model, native route, MCP tool, or credential-owner metadata in this slice. Existing `generate` behavior remains unchanged; async Replicate image work goes through image job substrate only.
+**Guardrails:** Keep the PR-13 provider contract intact: text-to-image only, no reference images, no image-to-image media mapping, no additional Replicate-specific knobs, no native route or MCP exposure unless explicitly scoped. Missing Replicate token keeps the model visible but not submittable; present token allows job start; completed Replicate outputs are copied into local artifacts; no provider URL or secret leaks into durable metadata.
 
 ---
 
@@ -176,22 +176,21 @@ Each item carries:
 
 ## Next
 
-**Queued: PR-14 Replicate Settings and visible image model.**
+**Queued: PR-15 image job durability and restart recovery.**
 
-- **Type:** feature / provider UX
-- **Stage:** plan
-- **Risk:** M (first user-visible Replicate image path and first async image UI workflow)
-- **Source_doc:** `docs/superpowers/specs/2026-04-30-pr-11-replicate-async-image-design.md`; future PR-13 implementation/review notes.
-- **Why next not now:** PR-14 should wait until PR-13 proves the hidden Replicate image provider path, authenticated output copy, and retention/error mapping through fake HTTP.
+- **Type:** substrate / reliability
+- **Stage:** brainstorm
+- **Risk:** M (moves the hidden/in-memory image job substrate toward durable user-visible async workflows)
+- **Source_doc:** PR #134 and PR #135 implementation/review notes; future PR-14 visible workflow notes.
+- **Why next not now:** PR-14 should first prove the visible Replicate workflow and UI ergonomics. Once users can start async image jobs, the next reliability bottleneck is durable image job ledgers/restart recovery.
 
 **Expected scope:**
-- Expose Replicate as a Settings credential owner.
-- Add Replicate card and provider-aware credential operations.
-- Register one conservative Replicate image model.
-- Wire UI model selection to image job ops for async models.
-- Optionally run an approved live smoke with a real key.
+- Add a durable image job ledger or restart-recovery path for non-terminal image jobs.
+- Reconcile interrupted image jobs on companion/plugin startup using existing provider lifecycle semantics where safe.
+- Preserve artifact-store and no-secret metadata invariants from PR-12/PR-13.
+- Keep native/MCP/public HTTP parity and broader Replicate model coverage deferred unless PR-14 exposes a concrete need.
 
-**Acceptance direction:** missing Replicate token keeps the model visible but not submittable; present token allows job start; completed Replicate outputs are copied into local artifacts; no provider URL or secret leaks into durable metadata.
+**Acceptance direction:** in-memory jobs interrupted by process/plugin shutdown are represented durably enough for user-facing recovery/error reporting; no provider token or signed/authenticated output request data is persisted; existing fake-provider and fake-HTTP coverage proves recovery without live provider calls.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
@@ -256,6 +255,7 @@ has a documented re-entry condition.
 
 | PR | Item | Merged |
 |----|------|--------|
+| #135 | **PR-13 hidden Replicate image provider.** Merged by squash on 2026-05-01. Adds a hidden production `ReplicateImageProvider` slice for `black-forest-labs/flux-schnell`, with registration/capabilities/options/pricing/provider code under `src/Rook/Services/Vision/Image/Replicate`. Reuses the existing Replicate prediction substrate for submit/status/cancel/error mapping and authenticated output request construction, but keeps default composition hidden: no Settings card, picker model, native route, MCP tool, or credential-owner metadata. Fake-HTTP coverage proves exact create body, lifecycle mapping (`starting`/`processing`/`succeeded`/`failed`/`canceled`/`data_removed`), single safe `replicate.delivery` output extraction, authenticated materialization through the image-job selector, missing-token/unsafe-URL no-fetch failures, and default registry no-exposure. Verification on PR branch: 1669/1669 managed tests, focused Replicate/image-job/catalog suites, clean diff check, and hidden boundary scans. | 2026-05-01 |
 | #134 | **PR-11/PR-12 stacked — Replicate async-image design + hidden image job substrate.** Merged `26ab841`, docs/spec + managed/test substrate. Adds root-owned `ImageJobManager`, managed-bridge-only image job ops, fake-provider sync/async coverage, authenticated materialization request-factory selection, cancellation/materialization race coverage, and result artifact availability checks. Keeps existing `generate` behavior unchanged and preserves the hidden boundary: no Replicate Settings card, picker model, native route, MCP tool, or credential-owner metadata. Verification on PR branch: 1611/1611 managed tests, clean diff check, and hidden boundary scans. | 2026-05-01 |
 | #111 | **PR-V2 — video HTTP routes + `RookSubsystemRoot` composition.** Merged `555e196`, 15 files, +3485/-54. Lands the five `/vision/video/*` native HTTP routes (submit/status/cancel/result/estimate) per v3.1 D3 + the matching bridge ops for the Vision tab — both transports go through one shared `VideoJobManager` via the new neutral `RookSubsystemRoot`. ABI v14 unchanged; `JsonlVideoJobLedger` format untouched (V1c byte-identity fixtures still green). HTTP submit/estimate accept `artifact_id` media refs only — `kind:"path"` rejected at `VideoOpHandler.ParseMediaRef` with `field:"kind"` per scope v3 §4 (conservative subset of v3.1 D2.1). Per-error HTTP status mapping by `VideoErrorCode` (InvalidRequest=400, UnsupportedMedia=415, DependencyUnavailable=503, ExecutionFailed=500, Cancelled/Interrupted=200) via additive `ApiResponse.HttpStatus`. Composition root threads same `ArtifactStore` + `VisionSecretStore` through `VisionHandler` AND `VideoOpHandler` on both native trampoline and Vision tab; reflection pins on both sides guard against shared-store drift. `RookPlugin.OnLoad` calls `RookSubsystemRoot.Instance.ReconcileVideoJobsOnce()` (Interlocked-guarded; flag-resets-on-throw); `OnShutdown` disposes video subsystem with each teardown step in its own try/catch. **Scope-pass arc:** v1→v2→v3 in chat (Codex caught path resolver gap, HTTP status plumbing, shared-store violation, dispose-before-build race, schema mismatch on `value`/`artifact_id`); 7 PR-time review rounds across the 8 implementation steps. **Net new tests: ~95** across factory, lifecycle, handler unit + integration, registrar trampoline, web surface, shared-singleton pins. **Rhino-runtime smoke:** all 5 routes verified via curl against the deployed companion — including the C++ `body["job_id"]` injection traversal Codex flagged as the native unit-test gap. **Deploy gotcha caught + captured to memory:** `Rook.rhp` MUST be the `net7.0` build, not `net48` — `RookWebSurface`'s WebView2 init is gated under `#if NET7_0_OR_GREATER`; net48 silently breaks both Vision and KG panels with no diagnostic log. Three follow-up issues filed (net48 fallback hardening, native helper test gap, plugin lifecycle integration test). | 2026-04-25 |
 | #110 | **PR-V1c — video registry + codec + per-model pricing.** Merged `d254412`. Refactor closing V1: `IVideoProviderRegistry` resolves model id → `ResolvedVideoModel` with provider/capability/pricing/codec; `DefaultVideoProviderRegistry` enforces build-time invariants (no duplicate model ids, cap.Id matches dictionary key); per-model `IPricingModel` (single concrete `PerSecondPricingModel`) bound at the resolved-model edge for single-pass audit invariant. Provider-specific `ProviderOptions` + `VeoOptions` typed record + `IProviderOptionsCodec` round-trip the persisted `{"person_generation":"..."}` blob. `VeoProvider.SubmitAsync` casts `request.Options as VeoOptions` and returns typed `Fail(InvalidRequest)` on mismatch. Cancel-correctness invariants 6+7 close the BG-task-just-finished race in both directions. Bit-identity fixtures preserve V1b's JSONL byte-identical to V1a/V1b output. | 2026-04-25 |
