@@ -35,6 +35,8 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly ConcurrentDictionary<Guid, RunningJob> _runningJobs = new();
         private readonly ConcurrentDictionary<Guid, ImageJobRecord> _records = new();
 
+        internal Action<Guid>? BeforeLocalCancelTryUpdateForTests { get; set; }
+
         public ImageJobManager(
             IImageProviderRegistry registry,
             ArtifactStore artifactStore,
@@ -175,13 +177,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (IsTerminal(latest.State))
                     return ImageJobCancelResult.Ok(latest.State);
 
-                try { running.Cts.Cancel(); } catch { }
-                var cancelled = Transition(
-                    latest,
-                    ImageJobState.Cancelled,
-                    error: CancelledError());
-                running.LatestRecord = cancelled;
-                return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
+                var cancelled = TryTransitionToLocalCancelled(latest, running);
+                if (cancelled.State == ImageJobState.Cancelled)
+                    try { running.Cts.Cancel(); } catch { }
+                return ImageJobCancelResult.Ok(cancelled.State);
             }
 
             if (!_records.TryGetValue(jobId, out var record))
@@ -213,10 +212,7 @@ namespace Rook.Services.Vision.Image.Jobs
             if (IsTerminal(record.State))
                 return ImageJobCancelResult.Ok(record.State);
 
-            var localCancelled = Transition(
-                record,
-                ImageJobState.Cancelled,
-                error: CancelledError());
+            var localCancelled = TryTransitionToLocalCancelled(record, running: null);
             return ImageJobCancelResult.Ok(localCancelled.State);
         }
 
@@ -585,7 +581,59 @@ namespace Rook.Services.Vision.Image.Jobs
             Guid? resultArtifactId = null,
             GenerationError? error = null)
         {
-            var next = new ImageJobRecord(
+            var next = BuildTransition(
+                prior,
+                state,
+                providerHandle,
+                resultArtifactId,
+                error);
+            _records[prior.JobId] = next;
+            return next;
+        }
+
+        private ImageJobRecord TryTransitionToLocalCancelled(
+            ImageJobRecord prior,
+            RunningJob? running)
+        {
+            while (true)
+            {
+                var latest = LatestRecord(prior.JobId, prior);
+                if (IsTerminal(latest.State))
+                    return latest;
+
+                var cancelled = BuildTransition(
+                    latest,
+                    ImageJobState.Cancelled,
+                    providerHandle: null,
+                    resultArtifactId: null,
+                    error: CancelledError());
+
+                BeforeLocalCancelTryUpdateForTests?.Invoke(latest.JobId);
+
+                if (_records.TryUpdate(latest.JobId, cancelled, latest))
+                {
+                    if (running is not null)
+                        running.LatestRecord = cancelled;
+                    return cancelled;
+                }
+
+                if (!_records.TryGetValue(latest.JobId, out var observed))
+                    return latest;
+
+                if (IsTerminal(observed.State))
+                    return observed;
+
+                prior = Freshest(observed, latest);
+            }
+        }
+
+        private ImageJobRecord BuildTransition(
+            ImageJobRecord prior,
+            ImageJobState state,
+            ProviderJobHandle? providerHandle = null,
+            Guid? resultArtifactId = null,
+            GenerationError? error = null) =>
+            new(
                 prior.JobId,
                 state,
                 prior.Model,
@@ -594,9 +642,6 @@ namespace Rook.Services.Vision.Image.Jobs
                 providerHandle ?? prior.ProviderHandle,
                 resultArtifactId ?? prior.ResultArtifactId,
                 error);
-            _records[prior.JobId] = next;
-            return next;
-        }
 
         private async Task<RemoteCancelResult> TryRemoteCancelAsync(
             IImageProvider provider,
@@ -608,6 +653,13 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 outcome = await provider.CancelAsync(handle, ct)
                     .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                return RemoteCancelResult.Failed(new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    $"Provider cancel failed: {ex.Message}",
+                    Retryable: true));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {

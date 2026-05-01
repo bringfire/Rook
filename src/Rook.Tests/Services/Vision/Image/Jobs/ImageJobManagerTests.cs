@@ -242,6 +242,31 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task CancelAsync_WhenTerminalRecordLandsDuringFinalLocalCancel_DoesNotOverwriteTerminal()
+        {
+            using var manager = Manager();
+            var jobId = Guid.Parse("bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+            var polling = new ImageJobRecord(
+                jobId,
+                ImageJobState.Polling,
+                GeminiImageCapabilities.DefaultModel,
+                GeminiImageCapabilities.ProviderName,
+                DateTimeOffset.UtcNow);
+            SetRecord(manager, polling);
+            manager.BeforeLocalCancelTryUpdateForTests = id =>
+            {
+                var handle = new ProviderJobHandle("job-final-window");
+                SetRecord(manager, TerminalRecord(id, ImageJobState.Complete, handle));
+            };
+
+            var cancel = await manager.CancelAsync(jobId, CancellationToken.None);
+            var status = await manager.GetStatusAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Complete, cancel.State);
+            Assert.Equal(ImageJobState.Complete, status.State);
+        }
+
+        [Fact]
         public async Task CancelAsync_WhenProviderCancelThrows_ReturnsFailureAndPreservesLocalState()
         {
             _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-throws");
@@ -260,6 +285,27 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(GenerationErrorCode.DependencyUnavailable, cancel.Error!.Code);
             Assert.True(cancel.Error.Retryable);
             Assert.Contains("cancel transport down", cancel.Error.Message);
+            Assert.Equal(ImageJobState.Polling, status.State);
+        }
+
+        [Fact]
+        public async Task CancelAsync_WhenProviderCancelTimesOutWithoutCallerCancellation_ReturnsFailureAndPreservesLocalState()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-timeout");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            _provider.OnCancel = _ => throw new TaskCanceledException("provider timeout");
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForStateAsync(manager, submit.JobId!.Value, ImageJobState.Polling);
+            var cancel = await manager.CancelAsync(submit.JobId.Value, CancellationToken.None);
+            var status = await manager.GetStatusAsync(submit.JobId.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, cancel.State);
+            Assert.NotNull(cancel.Error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, cancel.Error!.Code);
+            Assert.True(cancel.Error.Retryable);
+            Assert.Contains("provider timeout", cancel.Error.Message);
             Assert.Equal(ImageJobState.Polling, status.State);
         }
 
