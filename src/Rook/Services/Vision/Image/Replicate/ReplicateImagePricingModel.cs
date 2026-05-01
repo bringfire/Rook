@@ -16,6 +16,13 @@ namespace Rook.Services.Vision.Image.Replicate
 
         public PricingResult Estimate(ImageGenerationRequest request, ImageCapability capability)
         {
+            if (request is null)
+                return PricingResult.Fail(new GenerationError(
+                    Code: GenerationErrorCode.InvalidRequest,
+                    Message: "Image generation request is null.",
+                    Retryable: false,
+                    Field: "request"));
+
             return PricingResult.Ok(
                 new JobPricing(
                     Currency: "USD",
