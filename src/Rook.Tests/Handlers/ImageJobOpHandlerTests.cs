@@ -80,6 +80,10 @@ namespace Rook.Tests.Handlers
             var data = AssertDataDict(response);
             Assert.Equal(SampleJobId.ToString("D"), data["job_id"]);
             Assert.Equal("materializing", data["state"]);
+            var progress = Assert.IsType<Dictionary<string, object?>>(data["progress"]);
+            Assert.Equal(75.0, progress["pct"]);
+            Assert.Equal("saving", progress["message"]);
+            Assert.False(progress.ContainsKey("percent_complete"));
             Assert.Null(data["result_artifact_id"]);
             Assert.Null(data["error"]);
         }
@@ -173,7 +177,8 @@ namespace Rook.Tests.Handlers
             Assert.Equal(SampleJobId.ToString("D"), job["job_id"]);
             Assert.Equal("polling", job["state"]);
             Assert.Equal("nano-banana-2", job["model"]);
-            Assert.Equal("gemini", job["provider"]);
+            Assert.Equal("gemini", job["provider_name"]);
+            Assert.False(job.ContainsKey("provider"));
             Assert.Null(job["result_artifact_id"]);
         }
 

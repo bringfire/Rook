@@ -251,7 +251,7 @@ namespace Rook.Handlers
                 ["job_id"] = job.JobId.ToString("D"),
                 ["state"] = StateToString(job.State),
                 ["model"] = job.Model,
-                ["provider"] = job.Provider,
+                ["provider_name"] = job.Provider,
                 ["updated_at"] = job.UpdatedAt.ToString(
                     "o",
                     CultureInfo.InvariantCulture),
@@ -285,7 +285,7 @@ namespace Rook.Handlers
             GenerationProgress progress) =>
             new()
             {
-                ["percent_complete"] = progress.PercentComplete,
+                ["pct"] = progress.PercentComplete,
                 ["queue_position"] = progress.QueuePosition,
                 ["message"] = progress.Message,
             };
