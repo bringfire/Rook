@@ -211,6 +211,22 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task CancelAsync_ImmediatelyAfterSubmit_CleansRunningJob()
+        {
+            _provider.OnSubmit = (_, _) =>
+                throw new InvalidOperationException("submit should observe cancellation");
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId.Value);
+
+            Assert.Equal(ImageJobState.Cancelled, cancel.State);
+            Assert.Equal(ImageJobState.Cancelled, status.State);
+            await WaitForRunningJobCountAsync(manager, 0);
+        }
+
+        [Fact]
         public async Task CancelAsync_WhenProviderAlreadyTerminal_DoesNotStampLocalCancelled()
         {
             _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-already-terminal");
@@ -570,6 +586,22 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(expected, _artifactStore.List().Count);
         }
 
+        private static async Task WaitForRunningJobCountAsync(
+            ImageJobManager manager,
+            int expected)
+        {
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (RunningJobCount(manager) == expected)
+                    return;
+
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(expected, RunningJobCount(manager));
+        }
+
         private ImageJobRecord TerminalRecord(
             Guid jobId,
             ImageJobState state,
@@ -616,6 +648,16 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             var records = Assert.IsType<ConcurrentDictionary<Guid, ImageJobRecord>>(
                 field!.GetValue(manager));
             records[record.JobId] = record;
+        }
+
+        private static int RunningJobCount(ImageJobManager manager)
+        {
+            var field = typeof(ImageJobManager).GetField(
+                "_runningJobs",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var running = field!.GetValue(manager)!;
+            var count = running.GetType().GetProperty("Count");
+            return Assert.IsType<int>(count!.GetValue(running));
         }
 
         private static bool IsTerminal(ImageJobState state) =>

@@ -122,7 +122,7 @@ namespace Rook.Services.Vision.Image.Jobs
             var running = new RunningJob(initial, jobCts, model, start);
             _runningJobs[jobId] = running;
 
-            _ = Task.Run(() => RunJobAsync(jobId, running), jobCts.Token);
+            _ = Task.Run(() => RunJobAsync(jobId, running));
 
             return Task.FromResult(ImageJobSubmitResult.Ok(jobId, ImageJobState.Queued));
         }
