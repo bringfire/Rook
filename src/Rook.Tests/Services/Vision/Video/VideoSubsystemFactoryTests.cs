@@ -297,6 +297,22 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public void ImageJobs_ReturnsSameInstance_OnRepeatedAccess()
+        {
+            var root = FreshRoot();
+            try
+            {
+                var first = root.ImageJobs;
+                var second = root.ImageJobs;
+
+                Assert.Same(first, second);
+                Assert.Same(first.Manager, second.Manager);
+                Assert.Same(first.Registry, second.Registry);
+            }
+            finally { root.DisposeVideoSubsystemIfCreated(); }
+        }
+
+        [Fact]
         public void Video_AfterDispose_ThrowsObjectDisposed()
         {
             // Codex important #1: dispose must close the root. A late
@@ -308,6 +324,15 @@ namespace Rook.Tests.Services.Vision.Video
 
             var ex = Assert.Throws<ObjectDisposedException>(() => _ = root.Video);
             Assert.Contains(nameof(RookSubsystemRoot), ex.Message);
+        }
+
+        [Fact]
+        public void ImageJobs_AfterDispose_ThrowsObjectDisposed()
+        {
+            var root = FreshRoot();
+            root.DisposeVideoSubsystemIfCreated();
+
+            Assert.Throws<ObjectDisposedException>(() => _ = root.ImageJobs);
         }
 
         [Fact]

@@ -18,6 +18,7 @@ using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
 using Xunit;
+using JobFakeImageProvider = Rook.Tests.Services.Vision.Image.FakeImageProvider;
 
 namespace Rook.Tests.Handlers
 {
@@ -517,10 +518,63 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Fact]
+        public async Task GenerateAsync_AsyncImageProviderStillFailsWithCompatibilityMessage()
+        {
+            var root = CreateTempRoot("rook-vision-generate-async-provider");
+            try
+            {
+                var inputPath = Path.Combine(root, "input.png");
+                File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
+
+                var provider = new JobFakeImageProvider
+                {
+                    OnSubmit = (_, _) => JobFakeImageProvider.Queued("pred-1"),
+                };
+                var handler = NewHandlerWithImageProvider(provider);
+
+                var response = await handler.GenerateAsync(
+                    GenerateArgs(inputPath, GeminiImageCapabilities.DefaultModel),
+                    CancellationToken.None);
+
+                Assert.False(response.Success);
+                var message = Assert.IsType<string>(response.Data);
+                Assert.Contains("Provider returned an async job", message);
+            }
+            finally
+            {
+                try { Directory.Delete(root, recursive: true); } catch { }
+            }
+        }
+
         // ─── Reveal artifact file ───────────────────────────────────────
 
         private static Dictionary<string, JsonElement> ParseArgs(string json)
             => VisionHandler.ParseObjectBody(json);
+
+        private static VisionHandler NewHandlerWithImageProvider(IImageProvider provider)
+            => new VisionHandler(
+                new ArtifactStore(CreateTempRoot("rook-vision-image-provider")),
+                new InMemoryGenerationSecretStore(),
+                new PromptEnhancer(),
+                new ViewportHandler(),
+                new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new TestImageProviderRegistration(provider),
+                }));
+
+        private static Dictionary<string, JsonElement> GenerateArgs(
+            string inputPath,
+            string model)
+            => ParseArgs($$"""
+                {
+                  "prompt": "make this rendering warmer",
+                  "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
+                  "model": "{{JsonEncodedText.Encode(model)}}",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
 
         private sealed class FakeImageProvider : IImageProvider
         {
@@ -613,6 +667,28 @@ namespace Rook.Tests.Handlers
                 = new FakeImageOptionsCodec();
             public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models
                 => _models;
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
+                = Array.Empty<ProviderSecretRequirement>();
+        }
+
+        private sealed class TestImageProviderRegistration : IImageProviderRegistration
+        {
+            public TestImageProviderRegistration(IImageProvider provider)
+            {
+                Provider = provider;
+            }
+
+            public string ProviderName => GeminiImageCapabilities.ProviderName;
+            public IImageProvider Provider { get; }
+            public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
+                = new GeminiImageOptionsCodec();
+            public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models { get; }
+                = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
+                {
+                    [GeminiImageCapabilities.DefaultModel] = (
+                        GeminiImageCapabilities.Models[GeminiImageCapabilities.DefaultModel],
+                        new GeminiImagePricingModel()),
+                };
             public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
                 = Array.Empty<ProviderSecretRequirement>();
         }

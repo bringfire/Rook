@@ -247,6 +247,79 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public async Task MaterializeAsync_UsesAuthenticatedRequestFactoryForRemoteArtifact()
+        {
+            var responseBytes = new byte[] { 8, 9, 10 };
+            var handler = new CapturingHttpMessageHandler(_ =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(responseBytes),
+                });
+            var materializer = new ImageArtifactMaterializer(handler);
+            var artifact = RemoteArtifact("https://api.example.test/files/output.png");
+
+            var result = await materializer.MaterializeAsync(
+                artifact,
+                CancellationToken.None,
+                requestedArtifact =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        ((RemoteArtifactBody)requestedArtifact.Body).Url);
+                    request.Headers.Authorization =
+                        new AuthenticationHeaderValue("Bearer", "r8_token");
+                    return ImageArtifactFetchRequest.Created(request);
+                });
+
+            Assert.True(result.Success);
+            Assert.Equal(responseBytes, result.Bytes);
+            Assert.Equal("Bearer", handler.Authorization!.Scheme);
+            Assert.Equal("r8_token", handler.Authorization.Parameter);
+        }
+
+        [Fact]
+        public async Task MaterializeAsync_RequestFactoryFailureDoesNotSendNetworkRequest()
+        {
+            var handler = new ThrowingHttpMessageHandler();
+            var materializer = new ImageArtifactMaterializer(handler);
+
+            var result = await materializer.MaterializeAsync(
+                RemoteArtifact("https://api.example.test/files/output.png"),
+                CancellationToken.None,
+                _ => ImageArtifactFetchRequest.Failed(
+                    new GenerationError(
+                        GenerationErrorCode.DependencyUnavailable,
+                        "Replicate API token is not configured.",
+                        Retryable: false)));
+
+            Assert.False(result.Success);
+            Assert.Null(result.Bytes);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, result.Error!.Code);
+            Assert.Equal("Replicate API token is not configured.", result.Error.Message);
+            Assert.False(result.Error.Retryable);
+            Assert.Equal(0, handler.SendCount);
+        }
+
+        [Fact]
+        public async Task MaterializeAsync_DefaultPathStillUsesUnauthenticatedGet()
+        {
+            var handler = new CapturingHttpMessageHandler(_ =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(new byte[] { 1 }),
+                });
+            var materializer = new ImageArtifactMaterializer(handler);
+
+            var result = await materializer.MaterializeAsync(
+                RemoteArtifact("https://fal.media/files/output.png"),
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.Equal(HttpMethod.Get, handler.Method);
+            Assert.Null(handler.Authorization);
+        }
+
+        [Fact]
         public async Task Remote_artifact_handler_seam_does_not_send_authorization_header()
         {
             var handler = new CapturingHttpMessageHandler(req =>
