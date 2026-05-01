@@ -213,9 +213,9 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         [Fact]
         public async Task CancelAsync_ImmediatelyAfterSubmit_CleansRunningJob()
         {
-            _provider.OnSubmit = (_, _) =>
-                throw new InvalidOperationException("submit should observe cancellation");
-            using var manager = Manager();
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-queued");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
 
             var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
             var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
