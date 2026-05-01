@@ -148,15 +148,9 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Fail(
                     InvalidRequest("JobId must be non-empty.", nameof(jobId)));
 
-            if (!_records.TryGetValue(jobId, out var record))
-                return ImageJobCancelResult.Fail(UnknownJob(jobId));
-
-            if (IsTerminal(record.State))
-                return ImageJobCancelResult.Ok(record.State);
-
             if (_runningJobs.TryGetValue(jobId, out var running))
             {
-                var latest = Freshest(record, running.LatestRecord);
+                var latest = LatestRecord(jobId, running.LatestRecord);
                 if (IsTerminal(latest.State))
                     return ImageJobCancelResult.Ok(latest.State);
 
@@ -169,9 +163,17 @@ namespace Rook.Services.Vision.Image.Jobs
                         .ConfigureAwait(false);
                     if (remote.Error is not null)
                         return ImageJobCancelResult.Fail(remote.Error);
+
+                    latest = LatestRecord(jobId, latest);
+                    if (IsTerminal(latest.State))
+                        return ImageJobCancelResult.Ok(latest.State);
                     if (remote.AlreadyTerminal)
                         return ImageJobCancelResult.Ok(latest.State);
                 }
+
+                latest = LatestRecord(jobId, latest);
+                if (IsTerminal(latest.State))
+                    return ImageJobCancelResult.Ok(latest.State);
 
                 try { running.Cts.Cancel(); } catch { }
                 var cancelled = Transition(
@@ -181,6 +183,12 @@ namespace Rook.Services.Vision.Image.Jobs
                 running.LatestRecord = cancelled;
                 return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
             }
+
+            if (!_records.TryGetValue(jobId, out var record))
+                return ImageJobCancelResult.Fail(UnknownJob(jobId));
+
+            if (IsTerminal(record.State))
+                return ImageJobCancelResult.Ok(record.State);
 
             if (record.ProviderHandle is { } providerHandle)
             {
@@ -193,9 +201,17 @@ namespace Rook.Services.Vision.Image.Jobs
                     .ConfigureAwait(false);
                 if (remote.Error is not null)
                     return ImageJobCancelResult.Fail(remote.Error);
+
+                record = LatestRecord(jobId, record);
+                if (IsTerminal(record.State))
+                    return ImageJobCancelResult.Ok(record.State);
                 if (remote.AlreadyTerminal)
                     return ImageJobCancelResult.Ok(record.State);
             }
+
+            record = LatestRecord(jobId, record);
+            if (IsTerminal(record.State))
+                return ImageJobCancelResult.Ok(record.State);
 
             var localCancelled = Transition(
                 record,
@@ -587,8 +603,20 @@ namespace Rook.Services.Vision.Image.Jobs
             ProviderJobHandle handle,
             CancellationToken ct)
         {
-            var outcome = await provider.CancelAsync(handle, ct)
-                .ConfigureAwait(false);
+            ProviderCancelOutcome outcome;
+            try
+            {
+                outcome = await provider.CancelAsync(handle, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                return RemoteCancelResult.Failed(new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    $"Provider cancel failed: {ex.Message}",
+                    Retryable: true));
+            }
+
             switch (outcome)
             {
                 case FailedCancelOutcome failed:
@@ -636,6 +664,13 @@ namespace Rook.Services.Vision.Image.Jobs
               or ImageJobState.Error
               or ImageJobState.Cancelled
               or ImageJobState.Interrupted;
+
+        private ImageJobRecord LatestRecord(
+            Guid jobId,
+            ImageJobRecord fallback) =>
+            _records.TryGetValue(jobId, out var record)
+                ? Freshest(record, fallback)
+                : fallback;
 
         private static ImageJobRecord Freshest(
             ImageJobRecord record,

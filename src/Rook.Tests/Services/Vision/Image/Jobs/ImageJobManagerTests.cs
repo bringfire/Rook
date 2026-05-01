@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -209,6 +211,58 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(ImageJobState.Polling, status.State);
         }
 
+        [Theory]
+        [InlineData(ImageJobState.Complete)]
+        [InlineData(ImageJobState.Error)]
+        public async Task CancelAsync_WhenRemoteCancelRacesWithTerminalRecord_DoesNotOverwriteTerminal(
+            ImageJobState terminalState)
+        {
+            using var manager = Manager();
+            var jobId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+            var handle = new ProviderJobHandle("job-race-terminal");
+            var polling = new ImageJobRecord(
+                jobId,
+                ImageJobState.Polling,
+                GeminiImageCapabilities.DefaultModel,
+                GeminiImageCapabilities.ProviderName,
+                DateTimeOffset.UtcNow,
+                providerHandle: handle);
+            SetRecord(manager, polling);
+            _provider.OnCancel = _ =>
+            {
+                SetRecord(manager, TerminalRecord(jobId, terminalState, handle));
+                return new CanceledOutcome();
+            };
+
+            var cancel = await manager.CancelAsync(jobId, CancellationToken.None);
+            var status = await manager.GetStatusAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(terminalState, cancel.State);
+            Assert.Equal(terminalState, status.State);
+        }
+
+        [Fact]
+        public async Task CancelAsync_WhenProviderCancelThrows_ReturnsFailureAndPreservesLocalState()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-throws");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            _provider.OnCancel = _ =>
+                throw new InvalidOperationException("cancel transport down");
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForStateAsync(manager, submit.JobId!.Value, ImageJobState.Polling);
+            var cancel = await manager.CancelAsync(submit.JobId.Value, CancellationToken.None);
+            var status = await manager.GetStatusAsync(submit.JobId.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, cancel.State);
+            Assert.NotNull(cancel.Error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, cancel.Error!.Code);
+            Assert.True(cancel.Error.Retryable);
+            Assert.Contains("cancel transport down", cancel.Error.Message);
+            Assert.Equal(ImageJobState.Polling, status.State);
+        }
+
         [Fact]
         public async Task CancelAsync_DuringMaterialization_CancelsLocalFetchAndAttemptsProviderCancel()
         {
@@ -229,7 +283,9 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 materializer: new ImageArtifactMaterializer(handler));
 
             var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
-            await handler.WaitForRequestAsync();
+            await WaitForSignalAsync(
+                handler.WaitForRequestAsync(),
+                "Image materialization request did not start.");
             var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
             var status = await WaitForTerminalAsync(manager, submit.JobId.Value);
 
@@ -344,6 +400,65 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             }
 
             throw new TimeoutException($"Job did not reach state {expected}.");
+        }
+
+        private static async Task WaitForSignalAsync(
+            Task signal,
+            string timeoutMessage)
+        {
+            var timeout = Task.Delay(TimeSpan.FromSeconds(2));
+            if (await Task.WhenAny(signal, timeout) != signal)
+                throw new TimeoutException(timeoutMessage);
+
+            await signal.ConfigureAwait(false);
+        }
+
+        private ImageJobRecord TerminalRecord(
+            Guid jobId,
+            ImageJobState state,
+            ProviderJobHandle handle)
+        {
+            if (state == ImageJobState.Complete)
+            {
+                var artifact = _artifactStore.Create(
+                    VisionHandler.ArtifactKindGeneratedImage,
+                    new[]
+                    {
+                        new BlobInput(ImageMediaRoles.Image, new byte[] { 1 }, "png"),
+                    });
+                return new ImageJobRecord(
+                    jobId,
+                    ImageJobState.Complete,
+                    GeminiImageCapabilities.DefaultModel,
+                    GeminiImageCapabilities.ProviderName,
+                    DateTimeOffset.UtcNow.AddMilliseconds(1),
+                    providerHandle: handle,
+                    resultArtifactId: artifact.Id);
+            }
+
+            return new ImageJobRecord(
+                jobId,
+                ImageJobState.Error,
+                GeminiImageCapabilities.DefaultModel,
+                GeminiImageCapabilities.ProviderName,
+                DateTimeOffset.UtcNow.AddMilliseconds(1),
+                providerHandle: handle,
+                error: new GenerationError(
+                    GenerationErrorCode.ExecutionFailed,
+                    "terminal provider error",
+                    Retryable: false));
+        }
+
+        private static void SetRecord(
+            ImageJobManager manager,
+            ImageJobRecord record)
+        {
+            var field = typeof(ImageJobManager).GetField(
+                "_records",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var records = Assert.IsType<ConcurrentDictionary<Guid, ImageJobRecord>>(
+                field!.GetValue(manager));
+            records[record.JobId] = record;
         }
 
         private static bool IsTerminal(ImageJobState state) =>
