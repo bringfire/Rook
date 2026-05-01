@@ -11,9 +11,9 @@ namespace Rook.Services.Vision.Image.Jobs
             string? model,
             string? provider,
             DateTimeOffset updatedAt,
-            ProviderJobHandle? providerHandle,
-            Guid? resultArtifactId,
-            GenerationError? error)
+            ProviderJobHandle? providerHandle = null,
+            Guid? resultArtifactId = null,
+            GenerationError? error = null)
         {
             if (jobId == Guid.Empty)
                 throw new ArgumentException(

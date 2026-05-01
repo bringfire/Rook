@@ -48,5 +48,28 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                     Guid.NewGuid(),
                     Array.Empty<ImageJobResultFile>()));
         }
+
+        [Fact]
+        public void Record_constructor_allows_optional_job_details()
+        {
+            var jobId = Guid.NewGuid();
+            var updatedAt = DateTimeOffset.UtcNow;
+
+            var record = new ImageJobRecord(
+                jobId,
+                ImageJobState.Queued,
+                "model",
+                "provider",
+                updatedAt);
+
+            Assert.Equal(jobId, record.JobId);
+            Assert.Equal(ImageJobState.Queued, record.State);
+            Assert.Equal("model", record.Model);
+            Assert.Equal("provider", record.Provider);
+            Assert.Equal(updatedAt, record.UpdatedAt);
+            Assert.Null(record.ProviderHandle);
+            Assert.Null(record.ResultArtifactId);
+            Assert.Null(record.Error);
+        }
     }
 }
