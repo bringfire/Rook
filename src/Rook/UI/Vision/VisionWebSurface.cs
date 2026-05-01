@@ -390,10 +390,10 @@ p { margin: 8px 0; line-height: 1.4; }
                 switch (route)
                 {
                     case VisionOpRoute.Async:
-                        response = isVideoOp
-                            ? await DispatchVideoAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
-                            : isImageJobOp
-                                ? await DispatchImageJobAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
+                        response = isImageJobOp
+                            ? await DispatchImageJobAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
+                            : isVideoOp
+                                ? await DispatchVideoAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false)
                             : await DispatchAsyncWithTimeoutAsync(op!, body).ConfigureAwait(false);
                         break;
                     case VisionOpRoute.Ui:
@@ -417,12 +417,12 @@ p { margin: 8px 0; line-height: 1.4; }
                         // trampoline wraps these in a 30 s wait at the
                         // transport layer. JS bridge relies on bounded
                         // disk I/O (v1 artifact store has no indexing).
-                        response = isVideoOp
+                        response = isImageJobOp
                             ? await Task.Run(
-                                () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)
-                            : isImageJobOp
+                                () => _imageJobHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                            : isVideoOp
                                 ? await Task.Run(
-                                    () => _imageJobHandler!.DispatchOffUi(body)).ConfigureAwait(false)
+                                    () => _videoHandler!.DispatchOffUi(body)).ConfigureAwait(false)
                             : await Task.Run(
                                 () => _handler.DispatchOffUi(body)).ConfigureAwait(false);
                         break;

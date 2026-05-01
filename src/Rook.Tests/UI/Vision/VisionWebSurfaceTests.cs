@@ -357,6 +357,26 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public async Task ImageJobOp_WithNullImageJobHandler_ReturnsStructuredFailure()
+        {
+            var surface = NewSurface();
+            var response = await InvokeVisionBridgeAsync(
+                surface,
+                new JsonObject
+                {
+                    ["op"] = "image_job_status",
+                    ["job_id"] = Guid.NewGuid().ToString("D"),
+                });
+
+            Assert.NotNull(response);
+            Assert.False(response!["success"]!.GetValue<bool>());
+            var message = response["data"]!.GetValue<string>();
+            Assert.Contains(
+                "Image job subsystem unavailable in this surface.",
+                message);
+        }
+
+        [Fact]
         public void BuildSharedVisionHandler_UsesSharedArtifactStore()
         {
             // Codex review of step 6 caught that the production ctor
@@ -426,6 +446,19 @@ namespace Rook.Tests.UI.Vision
             var result = method!.Invoke(null, Array.Empty<object?>());
             Assert.NotNull(result);
             return (VisionHandler)result!;
+        }
+
+        private static async Task<JsonNode?> InvokeVisionBridgeAsync(
+            VisionWebSurface surface,
+            JsonNode? args)
+        {
+            var method = typeof(VisionWebSurface).GetMethod(
+                "HandleVisionBridgeCallAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            var result = method!.Invoke(surface, new object?[] { args });
+            var task = Assert.IsAssignableFrom<Task<JsonNode?>>(result);
+            return await task.ConfigureAwait(false);
         }
 
         [Fact]
