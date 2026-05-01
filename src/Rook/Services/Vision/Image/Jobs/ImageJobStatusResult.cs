@@ -25,7 +25,7 @@ namespace Rook.Services.Vision.Image.Jobs
         public static ImageJobStatusResult InFlight(
             ImageJobState state, GenerationProgress? progress)
         {
-            if (IsTerminal(state))
+            if (!IsInFlight(state))
                 throw new ArgumentException(
                     $"InFlight requires a non-terminal state; got {state}.",
                     nameof(state));
@@ -65,11 +65,11 @@ namespace Rook.Services.Vision.Image.Jobs
                 error);
         }
 
-        private static bool IsTerminal(ImageJobState state) =>
-            state is ImageJobState.Complete
-              or ImageJobState.Error
-              or ImageJobState.Cancelled
-              or ImageJobState.Interrupted;
+        private static bool IsInFlight(ImageJobState state) =>
+            state is ImageJobState.Queued
+              or ImageJobState.Submitting
+              or ImageJobState.Polling
+              or ImageJobState.Materializing;
 
         private static bool IsTerminalFailure(ImageJobState state) =>
             state is ImageJobState.Error

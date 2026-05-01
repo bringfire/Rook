@@ -22,6 +22,13 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public void StatusInFlight_rejects_undefined_state()
+        {
+            Assert.Throws<ArgumentException>(() =>
+                ImageJobStatusResult.InFlight((ImageJobState)999, null));
+        }
+
+        [Fact]
         public void StatusFailed_requires_terminal_failure_state()
         {
             var error = new GenerationError(
