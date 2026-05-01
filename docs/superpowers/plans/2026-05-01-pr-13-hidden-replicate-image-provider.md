@@ -641,6 +641,23 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_wrong_model_fails_before_http_call()
+        {
+            var (provider, handler) = MakeProvider(_ => Json(HttpStatusCode.OK, "{}"));
+
+            var outcome = await provider.SubmitAsync(
+                Request() with { Model = "replicate/other-model" },
+                ResolvedMedia(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("model", failed.Error.Field);
+            Assert.Contains("Unknown Replicate image model", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task SubmitAsync_posts_official_model_endpoint_and_exact_body()
         {
             string? body = null;
@@ -664,7 +681,11 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal("r8-test-token", request.Headers.Authorization.Parameter);
 
             var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal(new[] { "input" }, json.Select(kvp => kvp.Key).ToArray());
             var input = json["input"]!.AsObject();
+            Assert.Equal(
+                new[] { "prompt", "aspect_ratio", "num_outputs", "output_format" },
+                input.Select(kvp => kvp.Key).ToArray());
             Assert.Equal("sunlit massing study", input["prompt"]!.GetValue<string>());
             Assert.Equal("1:1", input["aspect_ratio"]!.GetValue<string>());
             Assert.Equal(1, input["num_outputs"]!.GetValue<int>());
@@ -678,8 +699,28 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Null(queued.Handle.ResponseUrl);
         }
 
+        [Theory]
+        [InlineData("starting", GenerationLifecycleState.Pending)]
+        [InlineData("processing", GenerationLifecycleState.Running)]
+        public async Task GetStatusAsync_maps_inflight_states_through_replicate_lifecycle_mapper(
+            string providerStatus,
+            GenerationLifecycleState expectedState)
+        {
+            var (provider, _) = MakeProvider(req =>
+                req.Method == HttpMethod.Get
+                    ? Json(HttpStatusCode.OK, Prediction("pred-1", providerStatus))
+                    : Json(HttpStatusCode.Created, Prediction("pred-1", "starting")));
+            var submit = Assert.IsType<QueuedSubmitOutcome>(
+                await provider.SubmitAsync(Request(), ResolvedMedia(), CancellationToken.None));
+
+            var status = await provider.GetStatusAsync(submit.Handle, CancellationToken.None);
+
+            var inFlight = Assert.IsType<InFlightStatusOutcome>(status);
+            Assert.Equal(expectedState, inFlight.State);
+        }
+
         [Fact]
-        public async Task GetStatusAsync_maps_processing_and_succeeded_through_replicate_lifecycle_mapper()
+        public async Task GetStatusAsync_maps_succeeded_through_replicate_lifecycle_mapper()
         {
             var (provider, handler) = MakeProvider(req =>
                 req.Method == HttpMethod.Get
@@ -698,6 +739,50 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Contains(handler.Requests, r =>
                 r.Method == HttpMethod.Get &&
                 r.RequestUri!.ToString() == "https://api.replicate.com/v1/predictions/pred-1");
+        }
+
+        [Fact]
+        public async Task GetStatusAsync_maps_failed_prediction_to_failed_status()
+        {
+            var (provider, _) = MakeProvider(req =>
+                req.Method == HttpMethod.Get
+                    ? Json(HttpStatusCode.OK, Prediction(
+                        "pred-1",
+                        "failed",
+                        outputJson: "null",
+                        extraFields: @"""error"": ""model execution failed"""))
+                    : Json(HttpStatusCode.Created, Prediction("pred-1", "starting")));
+            var submit = Assert.IsType<QueuedSubmitOutcome>(
+                await provider.SubmitAsync(Request(), ResolvedMedia(), CancellationToken.None));
+
+            var status = await provider.GetStatusAsync(submit.Handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(status);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Equal("failed", failed.Error.ProviderErrorCode);
+        }
+
+        [Fact]
+        public async Task GetStatusAsync_maps_canceled_prediction_to_cancelled_status()
+        {
+            var (provider, _) = MakeProvider(req =>
+                req.Method == HttpMethod.Get
+                    ? Json(HttpStatusCode.OK, Prediction(
+                        "pred-1",
+                        "canceled",
+                        outputJson: "null",
+                        extraFields: @"""error"": ""user canceled"""))
+                    : Json(HttpStatusCode.Created, Prediction("pred-1", "starting")));
+            var submit = Assert.IsType<QueuedSubmitOutcome>(
+                await provider.SubmitAsync(Request(), ResolvedMedia(), CancellationToken.None));
+
+            var status = await provider.GetStatusAsync(submit.Handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedStatusOutcome>(status);
+            Assert.Equal(GenerationErrorCode.Cancelled, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Equal("canceled", failed.Error.ProviderErrorCode);
         }
 
         [Fact]
@@ -774,7 +859,8 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         private static string Prediction(
             string id,
             string status,
-            string outputJson = "null") =>
+            string outputJson = "null",
+            string? extraFields = null) =>
             $$"""
             {
               "id": "{{id}}",
@@ -786,7 +872,8 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
               "urls": {
                 "get": "https://api.replicate.com/v1/predictions/{{id}}",
                 "cancel": "https://api.replicate.com/v1/predictions/{{id}}/cancel"
-              }
+              }{{(extraFields is null ? "" : ",")}}
+              {{extraFields ?? ""}}
             }
             """;
     }
@@ -1033,6 +1120,16 @@ namespace Rook.Services.Vision.Image.Replicate
         {
             if (request is null)
                 return InvalidRequest("Request is null.", "request");
+            if (!string.Equals(
+                    request.Model,
+                    ReplicateImageCapabilities.FluxSchnell,
+                    StringComparison.Ordinal))
+            {
+                return InvalidRequest(
+                    $"Unknown Replicate image model: '{request.Model ?? "<null>"}'.",
+                    "model");
+            }
+
             var capability = ReplicateImageCapabilities.Models[ReplicateImageCapabilities.FluxSchnell];
             var result = _codec.Validate(request, request.Options, capability);
             return result.Success
