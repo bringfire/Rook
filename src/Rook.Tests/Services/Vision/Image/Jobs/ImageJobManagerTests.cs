@@ -1,0 +1,455 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using Rook.Artifacts;
+using Rook.Handlers;
+using Rook.Services.Vision;
+using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
+using Rook.Services.Vision.Image.Gemini;
+using Rook.Services.Vision.Image.Jobs;
+using Rook.Tests.Services.Vision.Image;
+using Xunit;
+
+namespace Rook.Tests.Services.Vision.Image.Jobs
+{
+    public class ImageJobManagerTests : IDisposable
+    {
+        private readonly string _root;
+        private readonly ArtifactStore _artifactStore;
+        private readonly FakeImageJobClock _clock = new();
+        private readonly FakeImageJobIdGenerator _idGenerator = new();
+        private readonly FakeImageProvider _provider = new();
+        private readonly IImageProviderRegistry _registry;
+
+        public ImageJobManagerTests()
+        {
+            _root = Path.Combine(
+                Path.GetTempPath(),
+                $"rook-image-job-manager-{Guid.NewGuid():N}");
+            _artifactStore = new ArtifactStore(Path.Combine(_root, "artifacts"));
+            _registry = Registry(_provider);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_SyncProvider_CompletesAndWritesArtifact()
+        {
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Queued, submit.State);
+            Assert.Equal(ImageJobState.Complete, status.State);
+            var artifact = _artifactStore.Get(status.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            Assert.Equal(VisionHandler.ArtifactKindGeneratedImage, artifact!.Kind);
+            Assert.Equal("image", Assert.Single(artifact.Files).Role);
+            Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(
+                _artifactStore.GetBlobAbsolutePath(artifact.Id, ImageMediaRoles.Image)));
+        }
+
+        [Fact]
+        public async Task SubmitAsync_AsyncProvider_PollsFetchesThenMaterializes()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-123");
+            var statusCalls = 0;
+            _provider.OnGetStatus = handle =>
+                ++statusCalls == 1
+                    ? FakeImageProvider.Running()
+                    : FakeImageProvider.Complete(handle);
+            _provider.OnFetchResult = _ =>
+                FakeImageProvider.ImageResult(new byte[] { 4, 5, 6 });
+            using var manager = Manager(pollInterval: TimeSpan.FromMilliseconds(1));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Contains("Submit", _provider.Calls);
+            Assert.Contains("GetStatus", _provider.Calls);
+            Assert.Contains("FetchResult", _provider.Calls);
+            Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(
+                _artifactStore.GetBlobAbsolutePath(
+                    status.ResultArtifactId!.Value,
+                    ImageMediaRoles.Image)));
+        }
+
+        [Fact]
+        public async Task ProviderCompleteIsNotJobCompleteUntilMaterializationSucceeds()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-remote-fail");
+            _provider.OnGetStatus = handle => FakeImageProvider.Complete(handle);
+            _provider.OnFetchResult = _ =>
+                FakeImageProvider.RemoteImageResult(
+                    "https://cdn.example.test/out.png",
+                    declaredMime: "image/png");
+            var materializer = new ImageArtifactMaterializer(
+                new StaticImageResponseHandler(HttpStatusCode.ServiceUnavailable));
+            using var manager = Manager(materializer: materializer);
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Error, status.State);
+            Assert.Null(status.ResultArtifactId);
+            Assert.Empty(_artifactStore.List());
+        }
+
+        [Fact]
+        public async Task RemoteProviderOwnedArtifactUsesAuthenticatedRequestFactory()
+        {
+            _provider.OnSubmit = (_, _) => new SyncSubmitOutcome(
+                FakeImageProvider.RemoteImageResult(
+                    "https://api.example.test/files/out.png",
+                    declaredMime: "image/png",
+                    requiresAuthenticatedFetch: true));
+            var handler = new CapturingImageResponseHandler();
+            var selectorCalls = 0;
+            using var manager = Manager(
+                materializer: new ImageArtifactMaterializer(handler),
+                selector: (_, artifact) =>
+                {
+                    selectorCalls++;
+                    return requestedArtifact =>
+                    {
+                        var request = new HttpRequestMessage(
+                            HttpMethod.Get,
+                            ((RemoteArtifactBody)requestedArtifact.Body).Url);
+                        request.Headers.Authorization =
+                            new AuthenticationHeaderValue("Bearer", "r8-token");
+                        return ImageArtifactFetchRequest.Created(request);
+                    };
+                });
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Equal(1, selectorCalls);
+            Assert.Equal("Bearer", handler.Authorization!.Scheme);
+            Assert.Equal("r8-token", handler.Authorization.Parameter);
+        }
+
+        [Fact]
+        public async Task PublicFalStyleArtifactDoesNotUseAuthenticatedRequestFactory()
+        {
+            _provider.OnSubmit = (_, _) => new SyncSubmitOutcome(
+                FakeImageProvider.RemoteImageResult(
+                    "https://fal.media/files/out.png",
+                    declaredMime: "image/png"));
+            var handler = new CapturingImageResponseHandler();
+            var selectorCalls = 0;
+            using var manager = Manager(
+                materializer: new ImageArtifactMaterializer(handler),
+                selector: (_, __) =>
+                {
+                    selectorCalls++;
+                    return _ => throw new InvalidOperationException(
+                        "Public artifacts must not use authenticated fetch.");
+                });
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Equal(0, selectorCalls);
+            Assert.Null(handler.Authorization);
+        }
+
+        [Fact]
+        public async Task CancelAsync_WithProviderHandle_CallsProviderCancel()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            var cancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                cancelCalls++;
+                return new CanceledOutcome();
+            };
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForStateAsync(manager, submit.JobId!.Value, ImageJobState.Polling);
+            var cancel = await manager.CancelAsync(submit.JobId.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Cancelled, cancel.State);
+            Assert.Equal(1, cancelCalls);
+        }
+
+        [Fact]
+        public async Task CancelAsync_WhenProviderAlreadyTerminal_DoesNotStampLocalCancelled()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-already-terminal");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            _provider.OnCancel = _ =>
+                new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForStateAsync(manager, submit.JobId!.Value, ImageJobState.Polling);
+            var cancel = await manager.CancelAsync(submit.JobId.Value, CancellationToken.None);
+            var status = await manager.GetStatusAsync(submit.JobId.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Polling, cancel.State);
+            Assert.Equal(ImageJobState.Polling, status.State);
+        }
+
+        [Fact]
+        public async Task CancelAsync_DuringMaterialization_CancelsLocalFetchAndAttemptsProviderCancel()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-materializing");
+            _provider.OnGetStatus = handle => FakeImageProvider.Complete(handle);
+            _provider.OnFetchResult = _ =>
+                FakeImageProvider.RemoteImageResult(
+                    "https://cdn.example.test/out.png",
+                    declaredMime: "image/png");
+            var cancelCalls = 0;
+            _provider.OnCancel = _ =>
+            {
+                cancelCalls++;
+                return new CanceledOutcome();
+            };
+            var handler = new BlockingImageResponseHandler();
+            using var manager = Manager(
+                materializer: new ImageArtifactMaterializer(handler));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await handler.WaitForRequestAsync();
+            var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId.Value);
+
+            Assert.Equal(ImageJobState.Cancelled, cancel.State);
+            Assert.Equal(ImageJobState.Cancelled, status.State);
+            Assert.Equal(1, cancelCalls);
+        }
+
+        [Fact]
+        public async Task FetchResultAsync_CompleteStateVerifiesArtifactStillExists()
+        {
+            using var manager = Manager();
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var complete = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+            Assert.True(_artifactStore.Delete(complete.ResultArtifactId!.Value));
+
+            var fetch = await manager.FetchResultAsync(
+                submit.JobId.Value,
+                CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, fetch.State);
+            Assert.NotNull(fetch.Error);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, fetch.Error!.Code);
+        }
+
+        [Fact]
+        public async Task GeneratePathStillRejectsAsyncProviderOutsideJobManager()
+        {
+            var inputPath = Path.Combine(_root, "input.png");
+            Directory.CreateDirectory(_root);
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-outside-manager");
+            var handler = new VisionHandler(
+                _artifactStore,
+                new EmptyGenerationSecretStore(),
+                new PromptEnhancer(),
+                new ViewportHandler(),
+                _registry);
+            var args = VisionHandler.ParseObjectBody($$"""
+                {
+                  "prompt": "red cube",
+                  "input_image_path": {{JsonValue.Create(inputPath)!.ToJsonString()}},
+                  "model": "{{GeminiImageCapabilities.DefaultModel}}",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+            Assert.False(response.Success);
+            Assert.Equal(
+                "Image generation failed. Provider returned an async job.",
+                Assert.IsType<string>(response.Data));
+        }
+
+        private ImageJobManager Manager(
+            TimeSpan? pollInterval = null,
+            ImageArtifactMaterializer? materializer = null,
+            ImageArtifactRequestFactorySelector? selector = null) =>
+            new(
+                registry: _registry,
+                artifactStore: _artifactStore,
+                clock: _clock,
+                idGenerator: _idGenerator,
+                pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(1),
+                maxConcurrentJobs: ImageJobManager.DefaultMaxConcurrentJobs,
+                materializer: materializer,
+                requestFactorySelector: selector);
+
+        private static ImageJobStartRequest Start() =>
+            new(
+                new ImageGenerationRequest(
+                    Model: GeminiImageCapabilities.DefaultModel,
+                    Prompt: "red cube",
+                    Resolution: "1K",
+                    AspectRatio: "",
+                    NumberOfImages: 1,
+                    ReferenceImages: null,
+                    Options: new GeminiImageOptions()),
+                new Dictionary<MediaRef, ResolvedMedia>(),
+                Array.Empty<Guid>());
+
+        private async Task<ImageJobStatusResult> WaitForTerminalAsync(
+            ImageJobManager manager,
+            Guid jobId)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            ImageJobStatusResult? last = null;
+            while (DateTime.UtcNow < deadline)
+            {
+                last = await manager.GetStatusAsync(jobId, CancellationToken.None);
+                if (IsTerminal(last.State)) return last;
+                await Task.Delay(10);
+            }
+
+            throw new TimeoutException(
+                $"Job did not reach terminal state. Last state: {last?.State}.");
+        }
+
+        private static async Task WaitForStateAsync(
+            ImageJobManager manager,
+            Guid jobId,
+            ImageJobState expected)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                var status = await manager.GetStatusAsync(jobId, CancellationToken.None);
+                if (status.State == expected) return;
+                await Task.Delay(10);
+            }
+
+            throw new TimeoutException($"Job did not reach state {expected}.");
+        }
+
+        private static bool IsTerminal(ImageJobState state) =>
+            state is ImageJobState.Complete
+              or ImageJobState.Error
+              or ImageJobState.Cancelled
+              or ImageJobState.Interrupted;
+
+        private static IImageProviderRegistry Registry(IImageProvider provider) =>
+            new DefaultImageProviderRegistry(new[]
+            {
+                new TestImageProviderRegistration(provider),
+            });
+
+        private sealed class TestImageProviderRegistration : IImageProviderRegistration
+        {
+            public TestImageProviderRegistration(IImageProvider provider)
+            {
+                Provider = provider;
+            }
+
+            public string ProviderName => GeminiImageCapabilities.ProviderName;
+            public IImageProvider Provider { get; }
+            public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
+                = new GeminiImageOptionsCodec();
+            public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models { get; }
+                = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
+                {
+                    [GeminiImageCapabilities.DefaultModel] = (
+                        GeminiImageCapabilities.Models[GeminiImageCapabilities.DefaultModel],
+                        new GeminiImagePricingModel()),
+                };
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
+                = Array.Empty<ProviderSecretRequirement>();
+        }
+
+        private sealed class EmptyGenerationSecretStore : IGenerationSecretStore
+        {
+            public string? GetSecret(string secretKey) => null;
+            public void SetSecret(string secretKey, string value) { }
+            public void RemoveSecret(string secretKey) { }
+            public bool HasSecret(string secretKey) => false;
+            public string? GetPreview(string secretKey) => null;
+        }
+
+        private sealed class StaticImageResponseHandler : HttpMessageHandler
+        {
+            private readonly HttpStatusCode _statusCode;
+
+            public StaticImageResponseHandler(HttpStatusCode statusCode)
+            {
+                _statusCode = statusCode;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                var response = new HttpResponseMessage(_statusCode);
+                if (_statusCode == HttpStatusCode.OK)
+                {
+                    response.Content = new ByteArrayContent(new byte[] { 9, 8, 7 });
+                    response.Content.Headers.ContentType =
+                        new MediaTypeHeaderValue("image/png");
+                }
+
+                return Task.FromResult(response);
+            }
+        }
+
+        private sealed class CapturingImageResponseHandler : HttpMessageHandler
+        {
+            public AuthenticationHeaderValue? Authorization { get; private set; }
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                Authorization = request.Headers.Authorization;
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(new byte[] { 9, 8, 7 }),
+                };
+                response.Content.Headers.ContentType =
+                    new MediaTypeHeaderValue("image/png");
+                return Task.FromResult(response);
+            }
+        }
+
+        private sealed class BlockingImageResponseHandler : HttpMessageHandler
+        {
+            private readonly TaskCompletionSource<bool> _requestStarted =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task WaitForRequestAsync() => _requestStarted.Task;
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                _requestStarted.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                    .ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    "Blocking handler should exit only through cancellation.");
+            }
+        }
+    }
+}
