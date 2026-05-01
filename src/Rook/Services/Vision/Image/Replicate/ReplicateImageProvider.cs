@@ -364,7 +364,7 @@ namespace Rook.Services.Vision.Image.Replicate
 
             if (!Uri.TryCreate(text, UriKind.Absolute, out var uri))
                 return false;
-            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            if (!IsReplicateDeliveryOutputUri(uri))
                 return false;
 
             url = uri;
@@ -387,12 +387,19 @@ namespace Rook.Services.Vision.Image.Replicate
                 return false;
             }
 
-            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            if (!IsReplicateDeliveryOutputUri(uri))
                 return false;
 
             outputUrl = uri;
             return true;
         }
+
+        private static bool IsReplicateDeliveryOutputUri(Uri uri) =>
+            uri.Scheme == Uri.UriSchemeHttps && IsReplicateDeliveryHost(uri.Host);
+
+        private static bool IsReplicateDeliveryHost(string host) =>
+            string.Equals(host, "replicate.delivery", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".replicate.delivery", StringComparison.OrdinalIgnoreCase);
 
         private static IReadOnlyDictionary<string, JsonNode> CopyMetadata(
             IReadOnlyDictionary<string, JsonNode>? metadata)

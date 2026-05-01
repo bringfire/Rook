@@ -366,6 +366,44 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task FetchResultAsync_accepts_replicate_delivery_subdomain_output_url()
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = new ProviderJobHandle(
+                "pred-1",
+                providerResultToken: "https://v3b.replicate.delivery/pbxt/out.png",
+                providerMetadata: Metadata("""{ "output": "https://v3b.replicate.delivery/pbxt/out.png" }"""));
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            var body = Assert.IsType<RemoteArtifactBody>(artifact.Body);
+            Assert.Equal("https://v3b.replicate.delivery/pbxt/out.png", body.Url.ToString());
+        }
+
+        [Theory]
+        [InlineData("http://replicate.delivery/pbxt/out.png")]
+        [InlineData("https://replicate.delivery.evil.test/out.png")]
+        [InlineData("https://example.test/out.png")]
+        public async Task FetchResultAsync_rejects_output_urls_outside_authenticated_replicate_delivery(
+            string outputUrl)
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = new ProviderJobHandle(
+                "pred-1",
+                providerResultToken: outputUrl,
+                providerMetadata: Metadata($$"""{ "output": "{{outputUrl}}" }"""));
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("exactly one image URL", failed.Error.Message);
+        }
+
+        [Fact]
         public async Task FetchResultAsync_missing_output_metadata_returns_execution_failed()
         {
             var provider = Provider("r8-test-token", new TestHttpMessageHandler());
