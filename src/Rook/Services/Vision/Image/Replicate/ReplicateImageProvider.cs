@@ -269,10 +269,14 @@ namespace Rook.Services.Vision.Image.Replicate
                         "handle"));
             }
 
-            if (!TrySelectMaterializableOutputUrl(handle, out var outputUrl)
-                || handle.ProviderMetadata is null
+            if (handle.ProviderMetadata is null
                 || !handle.ProviderMetadata.TryGetValue("output", out var output)
-                || output is null)
+                || !TrySelectOutputMetadataUrl(output, out var outputUrl)
+                || !TrySelectMaterializableOutputUrl(handle, out var tokenUrl)
+                || !string.Equals(
+                    outputUrl.AbsoluteUri,
+                    tokenUrl.AbsoluteUri,
+                    StringComparison.Ordinal))
             {
                 return Task.FromResult<ProviderResultOutcome>(
                     FailedResult(
@@ -323,6 +327,48 @@ namespace Rook.Services.Vision.Image.Replicate
             if (node is null)
                 throw new JsonException("Replicate response JSON was empty.");
             return node;
+        }
+
+        private static bool TrySelectOutputMetadataUrl(
+            JsonNode? output,
+            out Uri outputUrl)
+        {
+            outputUrl = null!;
+
+            if (TryUrl(output, out var direct))
+            {
+                outputUrl = direct;
+                return true;
+            }
+
+            if (output is JsonArray array
+                && array.Count == 1
+                && TryUrl(array[0], out var only))
+            {
+                outputUrl = only;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryUrl(JsonNode? node, out Uri url)
+        {
+            url = null!;
+            if (node is not JsonValue value
+                || !value.TryGetValue<string>(out var text)
+                || string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(text, UriKind.Absolute, out var uri))
+                return false;
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            url = uri;
+            return true;
         }
 
         private static bool TrySelectMaterializableOutputUrl(

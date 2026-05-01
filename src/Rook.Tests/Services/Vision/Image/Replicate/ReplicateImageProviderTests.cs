@@ -337,7 +337,25 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var provider = Provider("r8-test-token", new TestHttpMessageHandler());
             var handle = new ProviderJobHandle(
                 "pred-1",
+                providerResultToken: "https://replicate.delivery/pbxt/out.png",
                 providerMetadata: Metadata(metadataJson));
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("exactly one image URL", failed.Error.Message);
+        }
+
+        [Fact]
+        public async Task FetchResultAsync_output_metadata_url_must_match_result_token()
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = new ProviderJobHandle(
+                "pred-1",
+                providerResultToken: "https://replicate.delivery/pbxt/token.png",
+                providerMetadata: Metadata("""{ "output": "https://replicate.delivery/pbxt/output.png" }"""));
 
             var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
 
@@ -353,6 +371,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             var provider = Provider("r8-test-token", new TestHttpMessageHandler());
             var handle = new ProviderJobHandle(
                 "pred-1",
+                providerResultToken: "https://replicate.delivery/pbxt/out.png",
                 providerMetadata: Metadata("""{ "metrics": { "predict_time": 0.507 } }"""));
 
             var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
