@@ -258,12 +258,46 @@ namespace Rook.Services.Vision.Image.Replicate
 
         public Task<ProviderResultOutcome> FetchResultAsync(
             ProviderJobHandle handle,
-            CancellationToken ct) =>
-            Task.FromResult<ProviderResultOutcome>(
-                new FailedResultOutcome(new GenerationError(
-                    GenerationErrorCode.ExecutionFailed,
-                    "Replicate image result extraction is not implemented.",
-                    Retryable: false)));
+            CancellationToken ct)
+        {
+            if (handle is null)
+            {
+                return Task.FromResult<ProviderResultOutcome>(
+                    FailedResult(
+                        GenerationErrorCode.InvalidRequest,
+                        "ProviderJobHandle is required.",
+                        "handle"));
+            }
+
+            if (!TrySelectMaterializableOutputUrl(handle, out var outputUrl)
+                || handle.ProviderMetadata is null
+                || !handle.ProviderMetadata.TryGetValue("output", out var output)
+                || output is null)
+            {
+                return Task.FromResult<ProviderResultOutcome>(
+                    FailedResult(
+                        GenerationErrorCode.ExecutionFailed,
+                        "Replicate image result must contain exactly one image URL."));
+            }
+
+            var artifactMetadata = new Dictionary<string, JsonNode>
+            {
+                ["url"] = outputUrl.ToString(),
+                ["requires_authenticated_fetch"] = true,
+            };
+
+            var artifact = new ResultArtifact(
+                Role: ImageMediaRoles.Image,
+                Body: new RemoteArtifactBody(outputUrl),
+                DeclaredMimeType: null,
+                ProviderMetadata: artifactMetadata);
+
+            return Task.FromResult<ProviderResultOutcome>(
+                new SuccessResultOutcome(
+                    new ProviderResultEnvelope(
+                        new[] { artifact },
+                        CopyMetadata(handle.ProviderMetadata))));
+        }
 
         private static string BuildRequestJson(ImageGenerationRequest request)
         {
@@ -291,6 +325,44 @@ namespace Rook.Services.Vision.Image.Replicate
             return node;
         }
 
+        private static bool TrySelectMaterializableOutputUrl(
+            ProviderJobHandle handle,
+            out Uri outputUrl)
+        {
+            outputUrl = null!;
+            if (string.IsNullOrWhiteSpace(handle.ProviderResultToken))
+                return false;
+
+            if (!Uri.TryCreate(
+                    handle.ProviderResultToken,
+                    UriKind.Absolute,
+                    out var uri))
+            {
+                return false;
+            }
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            outputUrl = uri;
+            return true;
+        }
+
+        private static IReadOnlyDictionary<string, JsonNode> CopyMetadata(
+            IReadOnlyDictionary<string, JsonNode>? metadata)
+        {
+            var copy = new Dictionary<string, JsonNode>();
+            if (metadata is null)
+                return copy;
+
+            foreach (var kvp in metadata)
+            {
+                copy[kvp.Key] = kvp.Value.DeepClone();
+            }
+
+            return copy;
+        }
+
         private static FailedSubmitOutcome FailedSubmit(
             GenerationErrorCode code,
             string message,
@@ -314,6 +386,17 @@ namespace Rook.Services.Vision.Image.Replicate
                 Field: field));
 
         private static FailedCancelOutcome FailedCancel(
+            GenerationErrorCode code,
+            string message,
+            string? field = null,
+            bool retryable = false) =>
+            new(new GenerationError(
+                Code: code,
+                Message: message,
+                Retryable: retryable,
+                Field: field));
+
+        private static FailedResultOutcome FailedResult(
             GenerationErrorCode code,
             string message,
             string? field = null,

@@ -268,6 +268,101 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 request.RequestUri!.ToString());
         }
 
+        [Theory]
+        [InlineData("""
+            {
+              "id": "pred-1",
+              "status": "succeeded",
+              "output": "https://replicate.delivery/pbxt/out.png",
+              "metrics": { "predict_time": 0.507 },
+              "model": "black-forest-labs/flux-schnell",
+              "version": "abc123",
+              "urls": {
+                "get": "https://api.replicate.com/v1/predictions/pred-1",
+                "cancel": "https://api.replicate.com/v1/predictions/pred-1/cancel"
+              }
+            }
+            """)]
+        [InlineData("""
+            {
+              "id": "pred-1",
+              "status": "succeeded",
+              "output": [ "https://replicate.delivery/pbxt/out.png" ],
+              "metrics": { "predict_time": 0.507 },
+              "model": "black-forest-labs/flux-schnell",
+              "version": "abc123",
+              "urls": {
+                "get": "https://api.replicate.com/v1/predictions/pred-1",
+                "cancel": "https://api.replicate.com/v1/predictions/pred-1/cancel"
+              }
+            }
+            """)]
+        public async Task FetchResultAsync_accepts_single_url_output_shapes(string statusJson)
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = CompleteHandle(statusJson);
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            Assert.Equal(ImageMediaRoles.Image, artifact.Role);
+            var body = Assert.IsType<RemoteArtifactBody>(artifact.Body);
+            Assert.Equal("https://replicate.delivery/pbxt/out.png", body.Url.ToString());
+            Assert.Null(artifact.DeclaredMimeType);
+            Assert.Equal("https://replicate.delivery/pbxt/out.png", artifact.ProviderMetadata["url"]!.GetValue<string>());
+            Assert.True(artifact.ProviderMetadata["requires_authenticated_fetch"]!.GetValue<bool>());
+
+            Assert.True(success.Envelope.EnvelopeMetadata.ContainsKey("output"));
+            Assert.Equal(0.507, success.Envelope.EnvelopeMetadata["metrics"]!["predict_time"]!.GetValue<double>());
+            Assert.Equal("black-forest-labs/flux-schnell", success.Envelope.EnvelopeMetadata["model"]!.GetValue<string>());
+            Assert.Equal("abc123", success.Envelope.EnvelopeMetadata["version"]!.GetValue<string>());
+            Assert.Equal(
+                "https://api.replicate.com/v1/predictions/pred-1",
+                success.Envelope.EnvelopeMetadata["urls"]!["get"]!.GetValue<string>());
+
+            ((JsonObject)handle.ProviderMetadata!["metrics"]!)["predict_time"] = 9.9;
+            Assert.Equal(0.507, success.Envelope.EnvelopeMetadata["metrics"]!["predict_time"]!.GetValue<double>());
+        }
+
+        [Theory]
+        [InlineData("""{ "output": [] }""")]
+        [InlineData("""{ "output": [ "https://replicate.delivery/pbxt/a.png", "https://replicate.delivery/pbxt/b.png" ] }""")]
+        [InlineData("""{ "output": { "url": "https://replicate.delivery/pbxt/out.png" } }""")]
+        [InlineData("""{ "output": null }""")]
+        [InlineData("""{ "output": 42 }""")]
+        [InlineData("""{ "output": "not-a-url" }""")]
+        public async Task FetchResultAsync_rejects_unsupported_output_shapes(string metadataJson)
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = new ProviderJobHandle(
+                "pred-1",
+                providerMetadata: Metadata(metadataJson));
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("exactly one image URL", failed.Error.Message);
+        }
+
+        [Fact]
+        public async Task FetchResultAsync_missing_output_metadata_returns_execution_failed()
+        {
+            var provider = Provider("r8-test-token", new TestHttpMessageHandler());
+            var handle = new ProviderJobHandle(
+                "pred-1",
+                providerMetadata: Metadata("""{ "metrics": { "predict_time": 0.507 } }"""));
+
+            var outcome = await provider.FetchResultAsync(handle, CancellationToken.None);
+
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.False(failed.Error.Retryable);
+            Assert.Contains("exactly one image URL", failed.Error.Message);
+        }
+
         private static ReplicateImageProvider Provider(
             string? token,
             TestHttpMessageHandler handler) =>
@@ -305,5 +400,25 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
             };
+
+        private static ProviderJobHandle CompleteHandle(string statusJson)
+        {
+            var outcome = ReplicateLifecycleMapper.MapStatus(
+                new ProviderJobHandle("pred-1"),
+                JsonNode.Parse(statusJson)!);
+            return Assert.IsType<ProviderCompleteStatusOutcome>(outcome).UpdatedHandle;
+        }
+
+        private static System.Collections.Generic.IReadOnlyDictionary<string, JsonNode> Metadata(string json)
+        {
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(json));
+            var metadata = new System.Collections.Generic.Dictionary<string, JsonNode>();
+            foreach (var kvp in root)
+            {
+                metadata[kvp.Key] = kvp.Value?.DeepClone()!;
+            }
+
+            return metadata;
+        }
     }
 }
