@@ -20,6 +20,47 @@ using Rook.Services.Vision.Image.Gemini;
 
 namespace Rook.Handlers
 {
+    internal sealed class ImageGenerationWorkItemResult
+    {
+        private ImageGenerationWorkItemResult(
+            ImageGenerationWorkItem? workItem,
+            ApiResponse? failure)
+        {
+            WorkItem = workItem;
+            Failure = failure;
+        }
+
+        public ImageGenerationWorkItem? WorkItem { get; }
+        public ApiResponse? Failure { get; }
+        public bool Success => WorkItem is not null;
+
+        public static ImageGenerationWorkItemResult Ok(ImageGenerationWorkItem workItem)
+            => new(workItem, null);
+
+        public static ImageGenerationWorkItemResult Fail(ApiResponse failure)
+            => new(null, failure);
+    }
+
+    internal sealed class ImageGenerationWorkItem
+    {
+        public ImageGenerationWorkItem(
+            ImageGenerationRequest request,
+            ResolvedImageModel resolvedModel,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+            IReadOnlyList<Guid> parentArtifactIds)
+        {
+            Request = request;
+            ResolvedModel = resolvedModel;
+            ResolvedMedia = resolvedMedia;
+            ParentArtifactIds = parentArtifactIds;
+        }
+
+        public ImageGenerationRequest Request { get; }
+        public ResolvedImageModel ResolvedModel { get; }
+        public IReadOnlyDictionary<MediaRef, ResolvedMedia> ResolvedMedia { get; }
+        public IReadOnlyList<Guid> ParentArtifactIds { get; }
+    }
+
     /// <summary>
     /// Single validation boundary for the /vision/* routes. Dispatched
     /// through the <c>vision_dispatch</c> bridge callback (ABI v14). Native
@@ -438,6 +479,98 @@ namespace Rook.Handlers
         internal async Task<ApiResponse> GenerateAsync(
             Dictionary<string, JsonElement> args, CancellationToken cancellationToken)
         {
+            var workResult = BuildImageGenerationWorkItem(args);
+            if (!workResult.Success)
+                return workResult.Failure!;
+            var work = workResult.WorkItem!;
+
+            var submit = await work.ResolvedModel.Provider.SubmitAsync(
+                work.Request, work.ResolvedMedia, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (submit is FailedSubmitOutcome failedSubmit)
+            {
+                if (IsGeminiMissingApiKey(failedSubmit.Error)
+                    || IsFalMissingApiKey(failedSubmit.Error))
+                    return Fail(failedSubmit.Error.Message);
+
+                return Fail(
+                    "Image generation failed. " +
+                    GenericizeProviderError(failedSubmit.Error.Message));
+            }
+
+            if (submit is not SyncSubmitOutcome sync)
+            {
+                return Fail("Image generation failed. Provider returned an async job.");
+            }
+
+            if (sync.Result is FailedResultOutcome failedResult)
+            {
+                return Fail(
+                    "Image generation failed. " +
+                    GenericizeProviderError(failedResult.Error.Message));
+            }
+
+            if (sync.Result is not SuccessResultOutcome success)
+            {
+                return Fail("Image generation failed. Provider returned an unknown result shape.");
+            }
+
+            var providerArtifact = success.Envelope.Artifacts
+                .FirstOrDefault(a => string.Equals(
+                    a.Role,
+                    ImageMediaRoles.Image,
+                    StringComparison.Ordinal))
+                ?? success.Envelope.Artifacts.FirstOrDefault();
+            if (providerArtifact is null)
+            {
+                return Fail("Image generation failed. Provider result did not contain an image artifact.");
+            }
+
+            var materialized = await _imageArtifactMaterializer
+                .MaterializeAsync(providerArtifact, cancellationToken)
+                .ConfigureAwait(false);
+            if (!materialized.Success || materialized.Bytes is null)
+            {
+                return Fail(
+                    "Image generation failed. " +
+                    GenericizeProviderError(materialized.Error?.Message
+                        ?? "Image artifact could not be materialized."));
+            }
+
+            var imageBytes = materialized.Bytes;
+            var mimeType = materialized.MimeType ?? "image/png";
+            var extension = ExtensionForMime(mimeType);
+            var generatedAt = DateTime.Now;
+            var providerModel = MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
+                ?? MetadataString(providerArtifact.ProviderMetadata, "model")
+                ?? work.ResolvedModel.ModelId;
+
+            var metadata = new Dictionary<string, JsonNode?>
+            {
+                ["prompt"] = work.Request.Prompt,
+                ["model"] = providerModel,
+                ["resolution"] = work.Request.Resolution,
+                ["aspect_ratio"] = string.IsNullOrEmpty(work.Request.AspectRatio)
+                    ? "auto"
+                    : work.Request.AspectRatio,
+                ["mime_type"] = mimeType,
+                ["generated_at"] = generatedAt.ToString("o"),
+                ["reference_count"] = work.Request.ReferenceImages?.Count ?? 0,
+            };
+
+            var blob = new BlobInput("image", imageBytes, extension);
+            var artifact = _artifactStore.Create(
+                kind: ArtifactKindGeneratedImage,
+                blobs: new[] { blob },
+                metadata: metadata);
+
+            return Ok(ArtifactEnvelope(artifact));
+        }
+
+        internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
+            Dictionary<string, JsonElement> args)
+        {
             var prompt = RequireString(args, "prompt", MaxPromptLength);
             var inputImagePath = RequireString(args, "input_image_path", 2048);
 
@@ -520,7 +653,8 @@ namespace Rook.Handlers
                     if (!_imageProviderRegistry.TryResolveProviderByName(
                             GeminiImageCapabilities.ProviderName, out var geminiProvider))
                     {
-                        return Fail($"Unknown image model '{model}'.");
+                        return ImageGenerationWorkItemResult.Fail(
+                            Fail($"Unknown image model '{model}'."));
                     }
 
                     resolvedModel = new ResolvedImageModel(
@@ -544,8 +678,9 @@ namespace Rook.Handlers
             var optionsResult = resolvedModel.OptionsCodec.Deserialize(new JsonObject());
             if (!optionsResult.Success || optionsResult.Options is null)
             {
-                return Fail(optionsResult.Error?.Message
-                    ?? "Image provider options could not be decoded.");
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail(optionsResult.Error?.Message
+                        ?? "Image provider options could not be decoded."));
             }
 
             var inputBytes = File.ReadAllBytes(inputImagePath);
@@ -564,89 +699,16 @@ namespace Rook.Handlers
                 imageRequest, imageRequest.Options, resolvedModel.Capability);
             if (!validation.Success)
             {
-                return Fail(validation.Message ?? "Image provider request is invalid.");
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail(validation.Message ?? "Image provider request is invalid."));
             }
 
-            var submit = await resolvedModel.Provider.SubmitAsync(
-                imageRequest, resolvedMedia, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (submit is FailedSubmitOutcome failedSubmit)
-            {
-                if (IsGeminiMissingApiKey(failedSubmit.Error)
-                    || IsFalMissingApiKey(failedSubmit.Error))
-                    return Fail(failedSubmit.Error.Message);
-
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(failedSubmit.Error.Message));
-            }
-
-            if (submit is not SyncSubmitOutcome sync)
-            {
-                return Fail("Image generation failed. Provider returned an async job.");
-            }
-
-            if (sync.Result is FailedResultOutcome failedResult)
-            {
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(failedResult.Error.Message));
-            }
-
-            if (sync.Result is not SuccessResultOutcome success)
-            {
-                return Fail("Image generation failed. Provider returned an unknown result shape.");
-            }
-
-            var providerArtifact = success.Envelope.Artifacts
-                .FirstOrDefault(a => string.Equals(
-                    a.Role,
-                    ImageMediaRoles.Image,
-                    StringComparison.Ordinal))
-                ?? success.Envelope.Artifacts.FirstOrDefault();
-            if (providerArtifact is null)
-            {
-                return Fail("Image generation failed. Provider result did not contain an image artifact.");
-            }
-
-            var materialized = await _imageArtifactMaterializer
-                .MaterializeAsync(providerArtifact, cancellationToken)
-                .ConfigureAwait(false);
-            if (!materialized.Success || materialized.Bytes is null)
-            {
-                return Fail(
-                    "Image generation failed. " +
-                    GenericizeProviderError(materialized.Error?.Message
-                        ?? "Image artifact could not be materialized."));
-            }
-
-            var imageBytes = materialized.Bytes;
-            var mimeType = materialized.MimeType ?? "image/png";
-            var extension = ExtensionForMime(mimeType);
-            var generatedAt = DateTime.Now;
-            var providerModel = MetadataString(success.Envelope.EnvelopeMetadata, "modelVersion")
-                ?? MetadataString(providerArtifact.ProviderMetadata, "model")
-                ?? resolvedModel.ModelId;
-
-            var metadata = new Dictionary<string, JsonNode?>
-            {
-                ["prompt"] = prompt,
-                ["model"] = providerModel,
-                ["resolution"] = resolution,
-                ["aspect_ratio"] = aspectRatio ?? "auto",
-                ["mime_type"] = mimeType,
-                ["generated_at"] = generatedAt.ToString("o"),
-                ["reference_count"] = referenceRefs?.Count ?? 0,
-            };
-
-            var blob = new BlobInput("image", imageBytes, extension);
-            var artifact = _artifactStore.Create(
-                kind: ArtifactKindGeneratedImage,
-                blobs: new[] { blob },
-                metadata: metadata);
-
-            return Ok(ArtifactEnvelope(artifact));
+            return ImageGenerationWorkItemResult.Ok(
+                new ImageGenerationWorkItem(
+                    imageRequest,
+                    resolvedModel,
+                    resolvedMedia,
+                    Array.Empty<Guid>()));
         }
 
         // ─── op: enhance_prompt (async) ─────────────────────────────────
