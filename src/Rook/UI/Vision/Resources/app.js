@@ -84,6 +84,7 @@ const providerSecretKeyByProvider = new Map();
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
 let capturedViewport = null;          // { artifact_id, file_path, ... } | null
+let isCapturingViewport = false;
 let viewportOptionsByValue = new Map(); // select value -> { width, height }
 
 // ─── DOM ──────────────────────────────────────────────────────────
@@ -174,8 +175,12 @@ async function captureViewport() {
     if (isPromptOnlyAsyncImageModel(selectedImageModel(el.modelSelect))) {
         return;
     }
+    if (isCapturingViewport) {
+        return;
+    }
 
     const selectedKey = el.viewportSelect.value || "";
+    isCapturingViewport = true;
     showStatus("Capturing viewport...", "info");
     el.captureBtn.disabled = true;
     // Hide stale dims caption — the `load` handler re-shows it with
@@ -205,7 +210,7 @@ async function captureViewport() {
     } catch (e) {
         showStatus(e.message, "error");
     } finally {
-        el.captureBtn.disabled = false;
+        isCapturingViewport = false;
         updateGenerateInputMode();
     }
 }
@@ -371,6 +376,10 @@ async function generateImage() {
 
 async function generateSyncImage(prompt, model) {
     const sourcePath = capturedViewport && capturedViewport.file_path;
+    if (!sourcePath) {
+        showStatus("Capture a viewport first.", "error");
+        return;
+    }
     setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
     showStatus("Generating image...", "info");
     try {
@@ -422,10 +431,16 @@ async function generateImageJob(prompt, model) {
         if (el.modelSelect.value) args.model = el.modelSelect.value;
 
         const start = await bridgeCall("image_generate_start", args);
+        if (!start || typeof start.job_id !== "string" || start.job_id.length === 0) {
+            throw new Error("Image job did not return a job id.");
+        }
         const jobId = start.job_id;
         let terminal = null;
         for (let attempt = 0; attempt < 180; attempt++) {
             const status = await bridgeCall("image_job_status", { job_id: jobId });
+            if (!status || typeof status.state !== "string" || status.state.length === 0) {
+                throw new Error("Image job returned an invalid status.");
+            }
             showImageJobStatus(status);
             if (["complete", "error", "cancelled", "interrupted"].includes(status.state)) {
                 terminal = status;
@@ -439,6 +454,9 @@ async function generateImageJob(prompt, model) {
             throw new Error(err || `Image job ended with state ${terminal.state}.`);
         }
         const result = await bridgeCall("image_job_result", { job_id: jobId });
+        if (!result || !result.result_artifact_id) {
+            throw new Error("Image job completed without an artifact.");
+        }
         renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
     } catch (e) {
         if (model && isCredentialFailureMessage(e.message)) {
@@ -697,7 +715,7 @@ function validateGenerateModelForSubmit(selectEl) {
     if (availability === "missing_required_secret") {
         return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
     }
-    if (!isPromptOnlyAsyncImageModel(model) && !capturedViewport) {
+    if (!isPromptOnlyAsyncImageModel(model) && !(capturedViewport && capturedViewport.file_path)) {
         return "Capture a viewport first.";
     }
     return null;
@@ -764,15 +782,15 @@ function updateGenerateInputMode() {
         generateView.classList.toggle("generate-input-disabled", promptOnlyAsync);
     }
 
-    if (el.captureBtn) el.captureBtn.disabled = promptOnlyAsync;
-    if (el.viewportSelect) el.viewportSelect.disabled = promptOnlyAsync;
+    const disableCaptureControls = promptOnlyAsync || isCapturingViewport;
+    if (el.captureBtn) el.captureBtn.disabled = disableCaptureControls;
+    if (el.viewportSelect) el.viewportSelect.disabled = disableCaptureControls;
     if (el.addReferenceBtn) el.addReferenceBtn.disabled = promptOnlyAsync;
     if (el.clearReferencesBtn) el.clearReferencesBtn.disabled = promptOnlyAsync;
 
     if (promptOnlyAsync) {
         generateReferences = [];
         renderReferencePreview(generateReferences, el.referencePreview);
-        showStatus("Selected model uses prompt-only generation.", "info");
     }
 }
 

@@ -651,6 +651,9 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("bridgeCall(\"image_generate_start\"", js);
             Assert.Contains("bridgeCall(\"image_job_status\"", js);
             Assert.Contains("bridgeCall(\"image_job_result\"", js);
+            Assert.Contains("Image job did not return a job id.", js);
+            Assert.Contains("Image job returned an invalid status.", js);
+            Assert.Contains("Image job completed without an artifact.", js);
             Assert.Contains("state === \"materializing\"", js);
             Assert.DoesNotContain("provider_name === \"replicate\"", js);
         }
@@ -662,9 +665,21 @@ namespace Rook.Tests.UI.Vision
 
             Assert.Contains("function updateGenerateInputMode", js);
             Assert.Contains("generate-input-disabled", js);
-            Assert.Contains("el.captureBtn.disabled = promptOnlyAsync", js);
+            Assert.Contains("let isCapturingViewport = false;", js);
+            Assert.Contains("promptOnlyAsync || isCapturingViewport", js);
+            Assert.Contains("el.captureBtn.disabled = disableCaptureControls", js);
             Assert.Contains("el.addReferenceBtn.disabled = promptOnlyAsync", js);
             Assert.Contains("generateReferences = [];", js);
+        }
+
+        [Fact]
+        public void AppJs_GenerateSyncRequiresCapturedViewportFilePath()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("capturedViewport && capturedViewport.file_path", js);
+            Assert.Contains("if (!sourcePath) {", js);
+            Assert.Contains("input_image_path: sourcePath", js);
         }
 
         [Fact]
