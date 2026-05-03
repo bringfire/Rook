@@ -1427,7 +1427,10 @@ Add:
 function updateGenerateInputMode() {
     const model = selectedImageModel(el.modelSelect);
     const promptOnlyAsync = isPromptOnlyAsyncImageModel(model);
-    document.body.classList.toggle("generate-input-disabled", promptOnlyAsync);
+    const generateView = document.getElementById("generate-view");
+    if (generateView) {
+        generateView.classList.toggle("generate-input-disabled", promptOnlyAsync);
+    }
 
     if (el.captureBtn) el.captureBtn.disabled = promptOnlyAsync;
     if (el.viewportSelect) el.viewportSelect.disabled = promptOnlyAsync;
@@ -1462,6 +1465,15 @@ Guard `captureViewport`:
 ```javascript
 if (isPromptOnlyAsyncImageModel(selectedImageModel(el.modelSelect))) {
     return;
+}
+```
+
+In `captureViewport`, call `updateGenerateInputMode()` in the `finally` block after the existing button/spinner cleanup. This prevents an in-flight capture from re-enabling source controls if the user switches to a prompt-only async model before capture completes:
+
+```javascript
+finally {
+    setGenerating(el.captureBtn, el.captureText, el.captureSpinner, false);
+    updateGenerateInputMode();
 }
 ```
 
@@ -1614,7 +1626,32 @@ with:
 const modelError = validateStudioModelForSubmit(el.studioModelSelect);
 ```
 
-In `populateImageModelDropdowns`, keep Generate options enabled for prompt-only async T2I when credentials are present, then keep T2I-only options disabled in Studio with this post-population pass:
+In `populateImageModelDropdowns`, do not use one shared `supports_image_to_image === false` disabled rule for both pickers. Generate must disable only missing-credential models; Studio must disable missing-credential models and T2I-only models. Build or patch options with this split:
+
+```javascript
+function shouldDisableGenerateModel(model) {
+    return effectiveCredentialAvailability(model) === "missing_required_secret";
+}
+
+function shouldDisableStudioModel(model) {
+    return shouldDisableGenerateModel(model)
+        || model.supports_image_to_image === false;
+}
+```
+
+When creating Generate option elements:
+
+```javascript
+option.disabled = shouldDisableGenerateModel(model);
+```
+
+When creating Studio option elements:
+
+```javascript
+option.disabled = shouldDisableStudioModel(model);
+```
+
+Keep T2I-only options visibly incompatible in Studio with this post-population pass:
 
 ```javascript
 function applyStudioModelCompatibility() {
@@ -1633,28 +1670,30 @@ function applyStudioModelCompatibility() {
 
 Call `applyStudioModelCompatibility()` after populating selects.
 
-- [ ] **Step 9: Add disabled CSS**
+- [ ] **Step 9: Add Generate-scoped disabled CSS**
 
 In `styles.css`, add near reference/source styles:
 
 ```css
-.generate-input-disabled .preview-panel,
-.generate-input-disabled .reference-section {
+#generate-view.generate-input-disabled .preview-panel,
+#generate-view.generate-input-disabled .reference-section {
     opacity: 0.45;
 }
 
-.generate-input-disabled .preview-panel button,
-.generate-input-disabled .preview-panel select,
-.generate-input-disabled .reference-section button {
+#generate-view.generate-input-disabled .preview-panel button,
+#generate-view.generate-input-disabled .preview-panel select,
+#generate-view.generate-input-disabled .reference-section button {
     pointer-events: none;
 }
 
-.reference-upload:disabled,
-.btn-text:disabled {
+#generate-view .reference-upload:disabled,
+#generate-view .btn-text:disabled {
     cursor: not-allowed;
     opacity: 0.45;
 }
 ```
+
+The class must be scoped to the Generate view or Generate layout, not `document.body`; Studio also uses `.reference-section` and must not be dimmed or disabled by the Generate prompt-only state.
 
 - [ ] **Step 10: Run resource tests and focused UI test suite**
 
