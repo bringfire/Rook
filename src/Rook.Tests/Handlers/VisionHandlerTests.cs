@@ -17,6 +17,7 @@ using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Fal;
 using Rook.Services.Vision.Image.Gemini;
+using Rook.Services.Vision.Image.Replicate;
 using Xunit;
 using JobFakeImageProvider = Rook.Tests.Services.Vision.Image.FakeImageProvider;
 
@@ -934,23 +935,22 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void SetProviderSecret_RejectsReplicateBecauseItIsNotCredentialOwner()
+        public void SetProviderSecret_AcceptsReplicateCredentialOwner()
         {
             var store = new InMemoryGenerationSecretStore();
-            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-key-value");
-            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-key-value");
             var handler = NewHandlerWithSecrets(store);
             var args = VisionHandler.ParseObjectBody(
                 "{\"provider_name\":\"replicate\",\"secret_key\":\"replicate.api_token\",\"value\":\"replicate-token\"}");
 
             var response = handler.SetProviderSecret(args);
 
-            Assert.False(response.Success);
-            Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
-            Assert.Equal("fal-key-value", store.GetSecret(GenerationSecretKeys.FalApiKey));
-            Assert.Null(store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
-            var message = Assert.IsType<string>(response.Data);
-            Assert.Contains("replicate", message);
+            Assert.True(response.Success);
+            Assert.Equal("replicate-token", store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("replicate", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.ReplicateApiToken, data["secret_key"]);
+            Assert.Equal(true, data["has_secret"]);
+            Assert.NotNull(data["preview"]);
         }
 
         [Fact]
@@ -978,11 +978,9 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void ClearProviderSecret_RejectsReplicateAndPreservesStoredSecrets()
+        public void ClearProviderSecret_RemovesDeclaredReplicateKey()
         {
             var store = new InMemoryGenerationSecretStore();
-            store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-key-value");
-            store.SetSecret(GenerationSecretKeys.FalApiKey, "fal-key-value");
             store.SetSecret(GenerationSecretKeys.ReplicateApiToken, "replicate-token");
             var handler = NewHandlerWithSecrets(store);
             var args = VisionHandler.ParseObjectBody(
@@ -990,12 +988,13 @@ namespace Rook.Tests.Handlers
 
             var response = handler.ClearProviderSecret(args);
 
-            Assert.False(response.Success);
-            Assert.Equal("gemini-key-value", store.GetSecret(GenerationSecretKeys.GeminiApiKey));
-            Assert.Equal("fal-key-value", store.GetSecret(GenerationSecretKeys.FalApiKey));
-            Assert.Equal("replicate-token", store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
-            var message = Assert.IsType<string>(response.Data);
-            Assert.Contains("replicate", message);
+            Assert.True(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("replicate", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.ReplicateApiToken, data["secret_key"]);
+            Assert.Equal(false, data["has_secret"]);
+            Assert.Null(data["preview"]);
         }
 
         [Fact]
@@ -1100,7 +1099,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void GetSettingsOverview_IncludesProviderCredentialsForGeminiAndFal()
+        public void GetSettingsOverview_IncludesProviderCredentialsForGeminiFalAndReplicate()
         {
             var store = new InMemoryGenerationSecretStore();
             store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-secret");
@@ -1123,8 +1122,12 @@ namespace Rook.Tests.Handlers
                 "missing_required_secret",
                 GenerationSecretKeys.FalApiKey,
                 "missing");
-            Assert.DoesNotContain(credentials, c => ProviderName(c) == "replicate");
-            AssertNoReplicateCredentialRequirements(credentials);
+            AssertProviderCredential(
+                credentials,
+                "replicate",
+                "missing_required_secret",
+                GenerationSecretKeys.ReplicateApiToken,
+                "missing");
         }
 
         [Fact]
@@ -1170,8 +1173,12 @@ namespace Rook.Tests.Handlers
                 "missing_required_secret",
                 GenerationSecretKeys.FalApiKey,
                 "missing");
-            Assert.DoesNotContain(credentials, c => ProviderName(c) == "replicate");
-            AssertNoReplicateCredentialRequirements(credentials);
+            AssertProviderCredential(
+                credentials,
+                "replicate",
+                "missing_required_secret",
+                GenerationSecretKeys.ReplicateApiToken,
+                "missing");
         }
 
         [Fact]
@@ -1196,7 +1203,11 @@ namespace Rook.Tests.Handlers
                 FalImageCapabilities.FluxSchnell,
                 "fal",
                 "missing_required_secret");
-            Assert.DoesNotContain(models, m => ProviderName(m) == "replicate");
+            AssertImageModel(
+                models,
+                ReplicateImageCapabilities.FluxSchnell,
+                "replicate",
+                "missing_required_secret");
         }
 
         [Fact]
@@ -1240,7 +1251,11 @@ namespace Rook.Tests.Handlers
                 FalImageCapabilities.FluxSchnell,
                 "fal",
                 "missing_required_secret");
-            Assert.DoesNotContain(models, m => ProviderName(m) == "replicate");
+            AssertImageModel(
+                models,
+                ReplicateImageCapabilities.FluxSchnell,
+                "replicate",
+                "missing_required_secret");
         }
 
         [Fact]

@@ -116,7 +116,9 @@ namespace Rook
                             () => SharedGenerationSecretStore.GetSecret(
                                 GenerationSecretKeys.GeminiApiKey),
                             () => SharedGenerationSecretStore.GetSecret(
-                                GenerationSecretKeys.FalApiKey)));
+                                GenerationSecretKeys.FalApiKey),
+                            () => SharedGenerationSecretStore.GetSecret(
+                                GenerationSecretKeys.ReplicateApiToken)));
                     var manager = new ImageJobManager(
                         registry,
                         SharedArtifactStore);

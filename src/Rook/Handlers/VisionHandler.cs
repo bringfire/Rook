@@ -243,7 +243,8 @@ namespace Rook.Handlers
                 ?? new DefaultImageProviderRegistry(
                     VisionProviderRegistrations.CreateImageRegistrations(
                         GetGeminiApiKey,
-                        GetFalApiKey));
+                        GetFalApiKey,
+                        GetReplicateApiToken));
         }
 
         private string? GetGeminiApiKey()
@@ -257,6 +258,13 @@ namespace Rook.Handlers
         {
             if (_generationSecrets is not null)
                 return _generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey);
+            return null;
+        }
+
+        private string? GetReplicateApiToken()
+        {
+            if (_generationSecrets is not null)
+                return _generationSecrets.GetSecret(GenerationSecretKeys.ReplicateApiToken);
             return null;
         }
 
