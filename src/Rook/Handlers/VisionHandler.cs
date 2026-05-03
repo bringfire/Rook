@@ -1972,7 +1972,10 @@ namespace Rook.Handlers
             {
                 ImageSubmissionMode.Sync => "sync",
                 ImageSubmissionMode.AsyncImageJob => "async_image_job",
-                _ => mode.ToString().ToLowerInvariant(),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(mode),
+                    mode,
+                    "Unsupported image submission mode."),
             };
 
         private ProviderCredentialStatus BuildCredentialStatusForProvider(

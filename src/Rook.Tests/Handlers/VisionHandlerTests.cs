@@ -1092,6 +1092,7 @@ namespace Rook.Tests.Handlers
         public async Task TestProviderSecret_Replicate_ReturnsInconclusiveWithoutPersistingCandidate()
         {
             var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.ReplicateApiToken, "replicate-stored-token");
             var handler = NewHandlerWithSecrets(store);
             var args = VisionHandler.ParseObjectBody(
                 "{\"provider_name\":\"replicate\",\"secret_key\":\"replicate.api_token\",\"candidate_value\":\"replicate-candidate\"}");
@@ -1099,7 +1100,9 @@ namespace Rook.Tests.Handlers
             var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
 
             Assert.True(response.Success);
-            Assert.Null(store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            Assert.Equal(
+                "replicate-stored-token",
+                store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
             var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
             Assert.Equal("replicate", data["provider_name"]);
             Assert.Equal(GenerationSecretKeys.ReplicateApiToken, data["secret_key"]);
@@ -1207,7 +1210,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public void ListImageModels_ReturnsGeminiAndFalDescriptorsWithCredentialPresence()
+        public void ListImageModels_ReturnsProviderDescriptorsWithCredentialPresenceAndSubmissionMode()
         {
             var store = new InMemoryGenerationSecretStore();
             store.SetSecret(GenerationSecretKeys.GeminiApiKey, "gemini-secret");
