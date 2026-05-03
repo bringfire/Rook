@@ -698,6 +698,23 @@ body {
     border-bottom: 1px solid var(--rule);
 }
 
+#generate-view.generate-input-disabled .preview-panel,
+#generate-view.generate-input-disabled .reference-section {
+    opacity: 0.45;
+}
+
+#generate-view.generate-input-disabled .preview-panel button,
+#generate-view.generate-input-disabled .preview-panel select,
+#generate-view.generate-input-disabled .reference-section button {
+    pointer-events: none;
+}
+
+#generate-view .reference-upload:disabled,
+#generate-view .btn-text:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .reference-header {
     display: flex;
     justify-content: space-between;

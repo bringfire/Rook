@@ -633,6 +633,50 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_ConsumesSubmissionModeFromImageCatalog()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("submission_mode", js);
+            Assert.Contains("function isAsyncImageJobModel", js);
+            Assert.Contains("m.submission_mode || \"sync\"", js);
+        }
+
+        [Fact]
+        public void AppJs_GenerateRoutesAsyncModelsThroughImageJobOps()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("async function generateImageJob", js);
+            Assert.Contains("bridgeCall(\"image_generate_start\"", js);
+            Assert.Contains("bridgeCall(\"image_job_status\"", js);
+            Assert.Contains("bridgeCall(\"image_job_result\"", js);
+            Assert.Contains("state === \"materializing\"", js);
+            Assert.DoesNotContain("provider_name === \"replicate\"", js);
+        }
+
+        [Fact]
+        public void AppJs_DisablesGenerateSourceControlsForTextToImageOnlyAsyncModels()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function updateGenerateInputMode", js);
+            Assert.Contains("generate-input-disabled", js);
+            Assert.Contains("el.captureBtn.disabled = promptOnlyAsync", js);
+            Assert.Contains("el.addReferenceBtn.disabled = promptOnlyAsync", js);
+            Assert.Contains("generateReferences = [];", js);
+        }
+
+        [Fact]
+        public void AppJs_StudioKeepsTextToImageOnlyModelsIncompatible()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function validateStudioModelForSubmit", js);
+            Assert.Contains("Selected model is incompatible with Studio", js);
+        }
+
+        [Fact]
         public void AppJs_InvalidCredentialWarningDoesNotDisableSubmit()
         {
             var js = ReadVisionResource("app.js");
