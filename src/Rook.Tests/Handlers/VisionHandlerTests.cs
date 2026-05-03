@@ -45,6 +45,8 @@ namespace Rook.Tests.Handlers
     /// </summary>
     public class VisionHandlerTests
     {
+        private const string FalImageToImageModel = "fal-ai/flux/dev/image-to-image";
+
         // ─── Artifact kind constants ────────────────────────────────────
 
         [Fact]
@@ -305,7 +307,7 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
-        public async Task GenerateAsync_default_registry_resolves_fal_without_gemini_key()
+        public async Task GenerateAsync_resolves_fal_image_to_image_without_gemini_key()
         {
             var root = CreateTempRoot("rook-vision-generate-default-fal");
             try
@@ -313,16 +315,27 @@ namespace Rook.Tests.Handlers
                 var inputPath = Path.Combine(root, "input.png");
                 File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
 
+                var provider = new MissingFalKeyImageProvider();
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: FalImageCapabilities.ProviderName,
+                        modelId: FalImageToImageModel,
+                        resolutions: new[] { "1K" },
+                        aspectRatios: new[] { "1:1" }),
+                });
                 var handler = new VisionHandler(
                     new ArtifactStore(Path.Combine(root, "artifacts")),
                     new InMemoryGenerationSecretStore(),
                     new PromptEnhancer(),
-                    new ViewportHandler());
+                    new ViewportHandler(),
+                    registry);
                 var args = ParseArgs($$"""
                     {
                       "prompt": "draw a quiet courtyard",
                       "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
-                      "model": "fal-ai/flux/schnell",
+                      "model": "{{FalImageToImageModel}}",
                       "resolution": "1K",
                       "aspect_ratio": "1:1"
                     }
@@ -351,16 +364,27 @@ namespace Rook.Tests.Handlers
                 var inputPath = Path.Combine(root, "input.png");
                 File.WriteAllBytes(inputPath, new byte[] { 9, 8, 7 });
 
+                var provider = new MissingFalKeyImageProvider();
+                var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+                {
+                    new FakeImageProviderRegistration(
+                        provider,
+                        providerName: FalImageCapabilities.ProviderName,
+                        modelId: FalImageToImageModel,
+                        resolutions: new[] { "1K" },
+                        aspectRatios: new[] { "4:3" }),
+                });
                 var handler = new VisionHandler(
                     new ArtifactStore(Path.Combine(root, "artifacts")),
                     new InMemoryGenerationSecretStore(),
                     new PromptEnhancer(),
-                    new ViewportHandler());
+                    new ViewportHandler(),
+                    registry);
                 var args = ParseArgs($$"""
                     {
                       "prompt": "draw a quiet courtyard",
                       "input_image_path": "{{JsonEncodedText.Encode(inputPath)}}",
-                      "model": "fal-ai/flux/schnell",
+                      "model": "{{FalImageToImageModel}}",
                       "resolution": "1K",
                       "aspect_ratio": "4:3"
                     }
@@ -373,6 +397,8 @@ namespace Rook.Tests.Handlers
                 Assert.Contains("fal API key is not configured", message);
                 Assert.DoesNotContain("Gemini", message);
                 Assert.DoesNotContain("Unknown image model", message);
+                Assert.NotNull(provider.CapturedRequest);
+                Assert.Equal(FalImageToImageModel, provider.CapturedRequest!.Model);
             }
             finally
             {
@@ -638,6 +664,38 @@ namespace Rook.Tests.Handlers
                             new ProviderResultEnvelope(
                                 new[] { artifact },
                                 envelopeMetadata))));
+            }
+
+            public Task<ProviderStatusOutcome> GetStatusAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderCancelOutcome> CancelAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderResultOutcome> FetchResultAsync(
+                ProviderJobHandle handle, CancellationToken ct) =>
+                throw new InvalidOperationException();
+        }
+
+        private sealed class MissingFalKeyImageProvider : IImageProvider
+        {
+            public string ProviderName => FalImageCapabilities.ProviderName;
+            public ImageGenerationRequest? CapturedRequest { get; private set; }
+
+            public Task<ProviderSubmitOutcome> SubmitAsync(
+                ImageGenerationRequest request,
+                IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+                CancellationToken ct)
+            {
+                CapturedRequest = request;
+                return Task.FromResult<ProviderSubmitOutcome>(
+                    new FailedSubmitOutcome(new GenerationError(
+                        GenerationErrorCode.DependencyUnavailable,
+                        "fal API key is not configured. Set it via the Vision settings " +
+                        "before calling /vision/generate.",
+                        Retryable: false)));
             }
 
             public Task<ProviderStatusOutcome> GetStatusAsync(
