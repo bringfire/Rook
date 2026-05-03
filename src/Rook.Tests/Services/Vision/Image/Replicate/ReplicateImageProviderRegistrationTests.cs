@@ -43,6 +43,15 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public void Registration_declares_async_image_job_submission_mode()
+        {
+            var registration = new ReplicateImageProviderRegistration(
+                new FakeImageProvider());
+
+            Assert.Equal(ImageSubmissionMode.AsyncImageJob, registration.SubmissionMode);
+        }
+
+        [Fact]
         public void Injected_registry_resolves_only_replicate_flux_schnell()
         {
             var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]

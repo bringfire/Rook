@@ -662,6 +662,7 @@ namespace Rook.Tests.Handlers
             }
 
             public string ProviderName { get; }
+            public ImageSubmissionMode SubmissionMode { get; } = ImageSubmissionMode.Sync;
             public IImageProvider Provider { get; }
             public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
                 = new FakeImageOptionsCodec();
@@ -679,6 +680,7 @@ namespace Rook.Tests.Handlers
             }
 
             public string ProviderName => GeminiImageCapabilities.ProviderName;
+            public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.Sync;
             public IImageProvider Provider { get; }
             public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
                 = new GeminiImageOptionsCodec();

@@ -660,6 +660,7 @@ namespace Rook.Handlers
                     resolvedModel = new ResolvedImageModel(
                         ModelId: model,
                         ProviderName: GeminiImageCapabilities.ProviderName,
+                        SubmissionMode: ImageSubmissionMode.Sync,
                         Provider: geminiProvider,
                         Capability: new ImageCapability(
                             Id: model,

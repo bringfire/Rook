@@ -515,6 +515,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             new(
                 ModelId: model,
                 ProviderName: GeminiImageCapabilities.ProviderName,
+                SubmissionMode: ImageSubmissionMode.Sync,
                 Provider: provider,
                 Capability: new ImageCapability(
                     Id: model,
@@ -680,6 +681,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             }
 
             public string ProviderName => GeminiImageCapabilities.ProviderName;
+            public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.Sync;
             public IImageProvider Provider { get; }
             public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
                 = new GeminiImageOptionsCodec();

@@ -12,6 +12,7 @@ namespace Rook.Services.Vision.Image.Replicate
         }
 
         public string ProviderName => ReplicateImageCapabilities.ProviderName;
+        public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.AsyncImageJob;
         public IImageProvider Provider { get; }
         public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
             = new ReplicateImageOptionsCodec();

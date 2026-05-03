@@ -51,6 +51,20 @@ namespace Rook.Tests.Services.Vision.Image
         }
 
         [Fact]
+        public void Resolved_and_described_gemini_models_are_sync_submission_mode()
+        {
+            var registry = RegistryWithGemini();
+
+            Assert.True(registry.TryResolve(GeminiImageCapabilities.NanoBanana2, out var resolved));
+            Assert.Equal(ImageSubmissionMode.Sync, resolved.SubmissionMode);
+
+            var descriptor = Assert.Single(
+                registry.EnumerateAllModels(),
+                m => m.ModelId == GeminiImageCapabilities.NanoBanana2);
+            Assert.Equal(ImageSubmissionMode.Sync, descriptor.SubmissionMode);
+        }
+
+        [Fact]
         public void Gemini_registration_declares_gemini_secret_requirement()
         {
             var registration = new GeminiImageProviderRegistration(
