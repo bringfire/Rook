@@ -60,6 +60,22 @@ namespace Rook.Services.Vision.Image.Jobs
         internal ImageJobManager(
             IImageProviderRegistry registry,
             ArtifactStore artifactStore,
+            ImageArtifactRequestFactorySelector? requestFactorySelector)
+            : this(
+                registry,
+                artifactStore,
+                clock: null,
+                idGenerator: null,
+                pollInterval: null,
+                maxConcurrentJobs: DefaultMaxConcurrentJobs,
+                materializer: null,
+                requestFactorySelector: requestFactorySelector)
+        {
+        }
+
+        internal ImageJobManager(
+            IImageProviderRegistry registry,
+            ArtifactStore artifactStore,
             IImageJobClock? clock,
             IImageJobIdGenerator? idGenerator,
             TimeSpan? pollInterval,

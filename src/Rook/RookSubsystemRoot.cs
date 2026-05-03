@@ -5,6 +5,7 @@ using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Jobs;
+using Rook.Services.Vision.Image.Replicate;
 using Rook.Services.Vision.Video;
 
 namespace Rook
@@ -119,9 +120,13 @@ namespace Rook
                                 GenerationSecretKeys.FalApiKey),
                             () => SharedGenerationSecretStore.GetSecret(
                                 GenerationSecretKeys.ReplicateApiToken)));
+                    var selector = new ReplicateImageArtifactRequestFactorySelector(
+                        () => SharedGenerationSecretStore.GetSecret(
+                            GenerationSecretKeys.ReplicateApiToken));
                     var manager = new ImageJobManager(
                         registry,
-                        SharedArtifactStore);
+                        SharedArtifactStore,
+                        requestFactorySelector: selector.Select);
                     return new ImageJobSubsystemBundle(manager, registry);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);
