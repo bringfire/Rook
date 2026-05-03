@@ -140,6 +140,60 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task DispatchAsync_Start_RejectsNonStringSourceFieldForTextToImageOnlyAsyncModel()
+        {
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "input_image_path": 123,
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsWhitespaceSourceFieldForTextToImageOnlyAsyncModel()
+        {
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "input_image_path": "   ",
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
         public async Task DispatchAsync_Start_RejectsReferencesForTextToImageOnlyAsyncModel()
         {
             using var temp = TempDir.Create();
@@ -160,6 +214,60 @@ namespace Rook.Tests.Handlers
                   "op": "image_generate_start",
                   "prompt": "sunlit massing study",
                   "reference_image_paths": [ "{{Escape(referencePath)}}" ],
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsNonArrayReferencesForTextToImageOnlyAsyncModel()
+        {
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "reference_image_paths": 123,
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsEmptyReferencesForTextToImageOnlyAsyncModel()
+        {
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "reference_image_paths": [],
                   "model": "black-forest-labs/flux-schnell",
                   "resolution": "1K",
                   "aspect_ratio": "1:1"

@@ -648,12 +648,19 @@ namespace Rook.Handlers
                 }
             }
 
-            var hasInputImage = args.TryGetValue("input_image_path", out var inputImageEl)
+            var hasInputImageField = args.TryGetValue("input_image_path", out var inputImageEl);
+            var hasInputImage = hasInputImageField
                 && inputImageEl.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(inputImageEl.GetString());
             var allowPromptOnly = options.AllowPromptOnlyAsyncTextToImage
                 && resolvedModel.SubmissionMode == ImageSubmissionMode.AsyncImageJob
                 && resolvedModel.Capability.SupportsTextToImage;
+
+            if (hasInputImageField && !hasInputImage)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Missing or non-string field 'input_image_path'."));
+            }
 
             if (!hasInputImage && !allowPromptOnly)
             {
@@ -668,7 +675,6 @@ namespace Rook.Handlers
             }
 
             if (args.TryGetValue("reference_image_paths", out var refsEl)
-                && refsEl.ValueKind == JsonValueKind.Array
                 && resolvedModel.Capability.MaxReferenceImages == 0)
             {
                 return ImageGenerationWorkItemResult.Fail(
