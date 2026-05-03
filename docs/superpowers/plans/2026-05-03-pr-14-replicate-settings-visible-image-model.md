@@ -35,6 +35,12 @@ Do not:
 
 ---
 
+## Baseline Test Observation
+
+Before PR-14 implementation changes, `dotnet test src\Rook.Tests\Rook.Tests.csproj` failed once on `Rook.Tests.Services.Vision.Image.Jobs.ImageJobManagerTests.CompleteTransition_WhenCancelledRecordWinsFinalRace_DoesNotOverwriteCancelled` with `System.IO.InvalidDataException: Finalized artifact directory '...\artifacts\2026-05-03\f9f8bef6-5f3d-4ec2-99db-da4a38cba9a6' is missing 'manifest.json'.` The same test passed on rerun at commit `39907bdb7e7401bcd86a8e2a0328803516aad8b4` with `dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FullyQualifiedName=Rook.Tests.Services.Vision.Image.Jobs.ImageJobManagerTests.CompleteTransition_WhenCancelledRecordWinsFinalRace_DoesNotOverwriteCancelled"`. Treat this as a baseline/timing-dependent risk unless it reproduces after implementation. If it recurs, capture the full stack and consider a separate test-reliability follow-up.
+
+---
+
 ## File Structure
 
 Create:
