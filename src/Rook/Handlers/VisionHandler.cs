@@ -101,6 +101,21 @@ namespace Rook.Handlers
     /// </summary>
     public class VisionHandler
     {
+        internal sealed class ImageGenerationWorkItemOptions
+        {
+            public static readonly ImageGenerationWorkItemOptions SyncGenerate = new(
+                allowPromptOnlyAsyncTextToImage: false);
+            public static readonly ImageGenerationWorkItemOptions AsyncImageJob = new(
+                allowPromptOnlyAsyncTextToImage: true);
+
+            private ImageGenerationWorkItemOptions(bool allowPromptOnlyAsyncTextToImage)
+            {
+                AllowPromptOnlyAsyncTextToImage = allowPromptOnlyAsyncTextToImage;
+            }
+
+            public bool AllowPromptOnlyAsyncTextToImage { get; }
+        }
+
         public const string ArtifactKindGeneratedImage = "generated_image";
         public const string ArtifactKindEnhancedPrompt = "enhanced_prompt";
         public const string ArtifactKindDepthMap = "depth_map";
@@ -578,68 +593,17 @@ namespace Rook.Handlers
 
         internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
             Dictionary<string, JsonElement> args)
+            => BuildImageGenerationWorkItem(
+                args,
+                ImageGenerationWorkItemOptions.SyncGenerate);
+
+        internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
+            Dictionary<string, JsonElement> args,
+            ImageGenerationWorkItemOptions options)
         {
+            if (options is null) throw new ArgumentNullException(nameof(options));
+
             var prompt = RequireString(args, "prompt", MaxPromptLength);
-            var inputImagePath = RequireString(args, "input_image_path", 2048);
-
-            if (!File.Exists(inputImagePath))
-            {
-                throw new ArgumentException(
-                    $"input_image_path does not exist: '{inputImagePath}'.");
-            }
-            var info = new FileInfo(inputImagePath);
-            if (info.Length > MaxInputImageBytes)
-            {
-                throw new ArgumentException(
-                    $"input_image_path exceeds size limit of {MaxInputImageBytes} bytes " +
-                    $"({info.Length} bytes).");
-            }
-
-            // Track aggregate raw bytes across primary + all references
-            // to enforce MaxAggregateImageBytes. Base64 expansion happens
-            // downstream — we cap BEFORE encoding to avoid exceeding
-            // Gemini's practical inline-payload limit.
-            long aggregateBytes = info.Length;
-
-            var resolvedMedia = new Dictionary<MediaRef, ResolvedMedia>();
-            var inputRef = MediaRef.ForPath(inputImagePath, ImageMediaRoles.InputImage);
-            IReadOnlyList<MediaRef>? referenceRefs = null;
-            if (args.TryGetValue("reference_image_paths", out var refsEl)
-                && refsEl.ValueKind == JsonValueKind.Array)
-            {
-                if (refsEl.GetArrayLength() > MaxReferenceImages)
-                {
-                    throw new ArgumentException(
-                        $"reference_image_paths exceeds the limit of {MaxReferenceImages}.");
-                }
-                var list = new List<MediaRef>();
-                foreach (var el in refsEl.EnumerateArray())
-                {
-                    if (el.ValueKind != JsonValueKind.String)
-                        throw new ArgumentException("reference_image_paths entries must be strings.");
-                    var path = el.GetString()!;
-                    if (!File.Exists(path))
-                        throw new ArgumentException($"reference_image_paths entry not found: '{path}'.");
-                    var refInfo = new FileInfo(path);
-                    if (refInfo.Length > MaxInputImageBytes)
-                        throw new ArgumentException($"reference image exceeds size limit: '{path}'.");
-                    aggregateBytes += refInfo.Length;
-                    if (aggregateBytes > MaxAggregateImageBytes)
-                    {
-                        throw new ArgumentException(
-                            $"Aggregate image payload exceeds {MaxAggregateImageBytes} bytes " +
-                            $"({aggregateBytes} bytes so far). Reduce the number or size of " +
-                            "reference images.");
-                    }
-                    var mediaRef = MediaRef.ForPath(path, ImageMediaRoles.ReferenceImage);
-                    list.Add(mediaRef);
-                    resolvedMedia[mediaRef] = new ResolvedMedia(
-                        File.ReadAllBytes(path),
-                        "image/png");
-                }
-                referenceRefs = list;
-            }
-
             var modelInput = GetStringArg(args, "model");
             var model = string.IsNullOrWhiteSpace(modelInput)
                 ? GeminiImageCapabilities.ResolveShortName(modelInput)
@@ -684,6 +648,97 @@ namespace Rook.Handlers
                 }
             }
 
+            var hasInputImage = args.TryGetValue("input_image_path", out var inputImageEl)
+                && inputImageEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(inputImageEl.GetString());
+            var allowPromptOnly = options.AllowPromptOnlyAsyncTextToImage
+                && resolvedModel.SubmissionMode == ImageSubmissionMode.AsyncImageJob
+                && resolvedModel.Capability.SupportsTextToImage;
+
+            if (!hasInputImage && !allowPromptOnly)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Missing or non-string field 'input_image_path'."));
+            }
+
+            if (hasInputImage && !resolvedModel.Capability.SupportsImageToImage)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Selected image model does not support source image input."));
+            }
+
+            if (args.TryGetValue("reference_image_paths", out var refsEl)
+                && refsEl.ValueKind == JsonValueKind.Array
+                && resolvedModel.Capability.MaxReferenceImages == 0)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Selected image model does not support reference_image_paths."));
+            }
+
+            // Track aggregate raw bytes across primary + all references
+            // to enforce MaxAggregateImageBytes. Base64 expansion happens
+            // downstream — we cap BEFORE encoding to avoid exceeding
+            // Gemini's practical inline-payload limit.
+            long aggregateBytes = 0;
+            var resolvedMedia = new Dictionary<MediaRef, ResolvedMedia>();
+            string? inputImagePath = null;
+            MediaRef? inputRef = null;
+            if (hasInputImage)
+            {
+                inputImagePath = inputImageEl.GetString()!;
+                if (!File.Exists(inputImagePath))
+                {
+                    throw new ArgumentException(
+                        $"input_image_path does not exist: '{inputImagePath}'.");
+                }
+                var info = new FileInfo(inputImagePath);
+                if (info.Length > MaxInputImageBytes)
+                {
+                    throw new ArgumentException(
+                        $"input_image_path exceeds size limit of {MaxInputImageBytes} bytes " +
+                        $"({info.Length} bytes).");
+                }
+                aggregateBytes = info.Length;
+                inputRef = MediaRef.ForPath(inputImagePath, ImageMediaRoles.InputImage);
+            }
+
+            IReadOnlyList<MediaRef>? referenceRefs = null;
+            if (args.TryGetValue("reference_image_paths", out refsEl)
+                && refsEl.ValueKind == JsonValueKind.Array)
+            {
+                if (refsEl.GetArrayLength() > MaxReferenceImages)
+                {
+                    throw new ArgumentException(
+                        $"reference_image_paths exceeds the limit of {MaxReferenceImages}.");
+                }
+                var list = new List<MediaRef>();
+                foreach (var el in refsEl.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.String)
+                        throw new ArgumentException("reference_image_paths entries must be strings.");
+                    var path = el.GetString()!;
+                    if (!File.Exists(path))
+                        throw new ArgumentException($"reference_image_paths entry not found: '{path}'.");
+                    var refInfo = new FileInfo(path);
+                    if (refInfo.Length > MaxInputImageBytes)
+                        throw new ArgumentException($"reference image exceeds size limit: '{path}'.");
+                    aggregateBytes += refInfo.Length;
+                    if (aggregateBytes > MaxAggregateImageBytes)
+                    {
+                        throw new ArgumentException(
+                            $"Aggregate image payload exceeds {MaxAggregateImageBytes} bytes " +
+                            $"({aggregateBytes} bytes so far). Reduce the number or size of " +
+                            "reference images.");
+                    }
+                    var mediaRef = MediaRef.ForPath(path, ImageMediaRoles.ReferenceImage);
+                    list.Add(mediaRef);
+                    resolvedMedia[mediaRef] = new ResolvedMedia(
+                        File.ReadAllBytes(path),
+                        "image/png");
+                }
+                referenceRefs = list;
+            }
+
             var optionsResult = resolvedModel.OptionsCodec.Deserialize(new JsonObject());
             if (!optionsResult.Success || optionsResult.Options is null)
             {
@@ -692,8 +747,11 @@ namespace Rook.Handlers
                         ?? "Image provider options could not be decoded."));
             }
 
-            var inputBytes = File.ReadAllBytes(inputImagePath);
-            resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
+            if (inputImagePath is not null && inputRef is not null)
+            {
+                var inputBytes = File.ReadAllBytes(inputImagePath);
+                resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
+            }
 
             var imageRequest = new ImageGenerationRequest(
                 Model: resolvedModel.ModelId,

@@ -548,6 +548,26 @@ namespace Rook.Tests.Handlers
             }
         }
 
+        [Fact]
+        public async Task GenerateAsync_StillRequiresInputImagePath()
+        {
+            var handler = NewHandlerWithSecrets(new InMemoryGenerationSecretStore());
+            var args = ParseArgs("""
+                {
+                  "prompt": "prompt-only should not use sync generate",
+                  "model": "nano-banana-2",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            var response = await handler.GenerateAsync(args, CancellationToken.None);
+
+            Assert.False(response.Success);
+            var message = Assert.IsType<string>(response.Data);
+            Assert.Contains("input_image_path", message);
+        }
+
         // ─── Reveal artifact file ───────────────────────────────────────
 
         private static Dictionary<string, JsonElement> ParseArgs(string json)

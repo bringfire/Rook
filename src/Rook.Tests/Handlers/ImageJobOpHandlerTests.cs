@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook;
+using Rook.Artifacts;
 using Rook.Handlers;
+using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image;
 using Rook.Services.Vision.Image.Gemini;
 using Rook.Services.Vision.Image.Jobs;
 using Xunit;
@@ -61,6 +66,107 @@ namespace Rook.Tests.Handlers
             Assert.Equal(GeminiImageCapabilities.NanoBanana2, captured!.Request.Model);
             Assert.NotNull(captured.ResolvedModel);
             Assert.NotEmpty(captured.ResolvedMedia);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_AllowsPromptOnlyForAsyncTextToImageModel()
+        {
+            ImageJobStartRequest? captured = null;
+            var manager = new StubImageJobManager
+            {
+                SubmitImpl = (request, _) =>
+                {
+                    captured = request;
+                    return ImageJobSubmitResult.Ok(SampleJobId, ImageJobState.Queued);
+                },
+            };
+            var provider = new FakeAsyncTextToImageProvider();
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    provider,
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertOk(response);
+            Assert.NotNull(captured);
+            Assert.Equal("black-forest-labs/flux-schnell", captured!.Request.Model);
+            Assert.Empty(captured.ResolvedMedia);
+            Assert.Null(captured.Request.ReferenceImages);
+            Assert.Equal(ImageSubmissionMode.AsyncImageJob, captured.ResolvedModel!.SubmissionMode);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsSourceMediaForTextToImageOnlyAsyncModel()
+        {
+            using var temp = TempDir.Create();
+            var inputPath = Path.Combine(temp.Path, "input.png");
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "input_image_path": "{{Escape(inputPath)}}",
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsReferencesForTextToImageOnlyAsyncModel()
+        {
+            using var temp = TempDir.Create();
+            var referencePath = Path.Combine(temp.Path, "ref.png");
+            File.WriteAllBytes(referencePath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            var handler = new ImageJobOpHandler(
+                new StubImageJobManager(),
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-schnell",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: false,
+                    supportsTextToImage: true));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "sunlit massing study",
+                  "reference_image_paths": [ "{{Escape(referencePath)}}" ],
+                  "model": "black-forest-labs/flux-schnell",
+                  "resolution": "1K",
+                  "aspect_ratio": "1:1"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
         }
 
         [Fact]
@@ -207,6 +313,36 @@ namespace Rook.Tests.Handlers
 
         private static VisionHandler NewVisionHandler() => new();
 
+        private static VisionHandler NewVisionHandlerWithImageProvider(
+            IImageProvider provider,
+            string providerName,
+            string modelId,
+            ImageSubmissionMode submissionMode,
+            bool supportsImageToImage,
+            bool supportsTextToImage)
+        {
+            var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
+            {
+                new SingleImageProviderRegistration(
+                    provider,
+                    providerName,
+                    modelId,
+                    submissionMode,
+                    supportsImageToImage,
+                    supportsTextToImage),
+            });
+            var artifactRoot = Path.Combine(
+                Path.GetTempPath(),
+                "rook-image-job-op-artifacts-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(artifactRoot);
+            return new VisionHandler(
+                new ArtifactStore(artifactRoot),
+                new InMemoryGenerationSecretStore(),
+                new PromptEnhancer(),
+                new ViewportHandler(),
+                registry);
+        }
+
         private static string StatusBody() =>
             $$"""{"op":"image_job_status","job_id":"{{SampleJobId:D}}"}""";
 
@@ -262,6 +398,134 @@ namespace Rook.Tests.Handlers
             GenerationErrorCode.ContentPolicy => "content_policy",
             _ => code.ToString().ToLowerInvariant(),
         };
+
+        private sealed class InMemoryGenerationSecretStore : IGenerationSecretStore
+        {
+            private readonly Dictionary<string, string> _secrets = new(StringComparer.Ordinal);
+
+            public string? GetSecret(string secretKey) =>
+                _secrets.TryGetValue(secretKey, out var value) ? value : null;
+
+            public void SetSecret(string secretKey, string value) =>
+                _secrets[secretKey] = value;
+
+            public void RemoveSecret(string secretKey) =>
+                _secrets.Remove(secretKey);
+
+            public bool HasSecret(string secretKey) =>
+                _secrets.ContainsKey(secretKey);
+
+            public string? GetPreview(string secretKey) =>
+                HasSecret(secretKey) ? "test-preview" : null;
+        }
+
+        private sealed class FakeAsyncTextToImageProvider : IImageProvider
+        {
+            public string ProviderName => "replicate";
+
+            public Task<ProviderSubmitOutcome> SubmitAsync(
+                ImageGenerationRequest request,
+                IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+                CancellationToken ct) =>
+                Task.FromResult<ProviderSubmitOutcome>(
+                    new QueuedSubmitOutcome(new ProviderJobHandle(
+                        providerJobId: "pred-1",
+                        statusUrl: null,
+                        responseUrl: null,
+                        cancelUrl: null,
+                        cancelHttpMethod: null,
+                        providerResultToken: null,
+                        providerMetadata: null)));
+
+            public Task<ProviderStatusOutcome> GetStatusAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderCancelOutcome> CancelAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException();
+
+            public Task<ProviderResultOutcome> FetchResultAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException();
+        }
+
+        private sealed record FakeImageOptions : ProviderOptions;
+
+        private sealed class FakeImageOptionsCodec
+            : IProviderOptionsCodec<ImageGenerationRequest, ImageCapability>
+        {
+            public ValidationResult Validate(
+                ImageGenerationRequest request,
+                ProviderOptions options,
+                ImageCapability capability) => ValidationResult.Ok();
+
+            public JsonObject Serialize(ProviderOptions options) => new JsonObject();
+
+            public ProviderOptionsDecodeResult Deserialize(JsonObject json) =>
+                ProviderOptionsDecodeResult.Ok(new FakeImageOptions());
+        }
+
+        private sealed class FakeImagePricingModel
+            : IPricingModel<ImageGenerationRequest, ImageCapability>
+        {
+            public string PricingSource => "test";
+            public PricingMetadataLocation MetadataLocation => PricingMetadataLocation.NotApplicable;
+
+            public PricingResult Estimate(
+                ImageGenerationRequest request,
+                ImageCapability capability) =>
+                PricingResult.Ok(
+                    new JobPricing("USD", 0m, "call", 1m, 0m, "test"),
+                    new CostEstimate(0m, 0m, false, "test-stub"));
+
+            public JobPricing? ExtractActualSpend(
+                IReadOnlyDictionary<string, IReadOnlyList<string>> responseHeaders,
+                JsonNode? responseBody) => null;
+        }
+
+        private sealed class SingleImageProviderRegistration : IImageProviderRegistration
+        {
+            private readonly IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> _models;
+
+            public SingleImageProviderRegistration(
+                IImageProvider provider,
+                string providerName,
+                string modelId,
+                ImageSubmissionMode submissionMode,
+                bool supportsImageToImage,
+                bool supportsTextToImage)
+            {
+                Provider = provider;
+                ProviderName = providerName;
+                SubmissionMode = submissionMode;
+                _models = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
+                {
+                    [modelId] = (
+                        new ImageCapability(
+                            Id: modelId,
+                            Name: modelId,
+                            Status: "preview",
+                            Resolutions: new[] { "1K" },
+                            AspectRatios: new[] { "1:1" },
+                            MaxReferenceImages: supportsImageToImage ? 1 : 0,
+                            SupportsImageToImage: supportsImageToImage,
+                            SupportsTextToImage: supportsTextToImage),
+                        new FakeImagePricingModel()),
+                };
+            }
+
+            public string ProviderName { get; }
+            public ImageSubmissionMode SubmissionMode { get; }
+            public IImageProvider Provider { get; }
+            public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; } =
+                new FakeImageOptionsCodec();
+            public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models => _models;
+            public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; } = Array.Empty<ProviderSecretRequirement>();
+        }
 
         private sealed class StubImageJobManager : IImageJobManager
         {
