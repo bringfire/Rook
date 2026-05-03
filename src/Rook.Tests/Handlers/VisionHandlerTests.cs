@@ -792,7 +792,8 @@ namespace Rook.Tests.Handlers
             IReadOnlyList<Dictionary<string, object?>> models,
             string modelId,
             string providerName,
-            string credentialAvailability)
+            string credentialAvailability,
+            string? submissionMode = null)
         {
             var model = Assert.Single(
                 models,
@@ -802,6 +803,10 @@ namespace Rook.Tests.Handlers
             Assert.Equal(
                 credentialAvailability,
                 Assert.IsType<string>(model["credential_availability"]));
+            if (submissionMode is not null)
+                Assert.Equal(
+                    submissionMode,
+                    Assert.IsType<string>(model["submission_mode"]));
         }
 
         private static ResultArtifact InlineImageArtifact(
@@ -1084,6 +1089,26 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task TestProviderSecret_Replicate_ReturnsInconclusiveWithoutPersistingCandidate()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            var handler = NewHandlerWithSecrets(store);
+            var args = VisionHandler.ParseObjectBody(
+                "{\"provider_name\":\"replicate\",\"secret_key\":\"replicate.api_token\",\"candidate_value\":\"replicate-candidate\"}");
+
+            var response = await handler.TestProviderSecretAsync(args, CancellationToken.None);
+
+            Assert.True(response.Success);
+            Assert.Null(store.GetSecret(GenerationSecretKeys.ReplicateApiToken));
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            Assert.Equal("replicate", data["provider_name"]);
+            Assert.Equal(GenerationSecretKeys.ReplicateApiToken, data["secret_key"]);
+            Assert.Equal("inconclusive", data["validation_state"]);
+            Assert.DoesNotContain("replicate-candidate", JsonSerializer.Serialize(response.Data));
+            Assert.Contains("No provider-specific validation probe", data["message"]?.ToString());
+        }
+
+        [Fact]
         public async Task LegacyTestApiKey_CannotTestFalSecret()
         {
             var store = new InMemoryGenerationSecretStore();
@@ -1197,17 +1222,40 @@ namespace Rook.Tests.Handlers
                 models,
                 GeminiImageCapabilities.NanoBanana2,
                 "gemini",
-                "available_but_unverified");
+                "available_but_unverified",
+                "sync");
             AssertImageModel(
                 models,
                 FalImageCapabilities.FluxSchnell,
                 "fal",
-                "missing_required_secret");
+                "missing_required_secret",
+                "sync");
             AssertImageModel(
                 models,
                 ReplicateImageCapabilities.FluxSchnell,
                 "replicate",
-                "missing_required_secret");
+                "missing_required_secret",
+                "async_image_job");
+        }
+
+        [Fact]
+        public void ListImageModels_ReplicatePresentTokenIsAvailableButUnverified()
+        {
+            var store = new InMemoryGenerationSecretStore();
+            store.SetSecret(GenerationSecretKeys.ReplicateApiToken, "replicate-token");
+            var handler = NewHandlerWithSecrets(store);
+
+            var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var data = Assert.IsType<Dictionary<string, object?>>(response.Data);
+            var models = AssertObjectList(data["models"]);
+            AssertImageModel(
+                models,
+                ReplicateImageCapabilities.FluxSchnell,
+                "replicate",
+                "available_but_unverified",
+                "async_image_job");
         }
 
         [Fact]
@@ -1245,17 +1293,20 @@ namespace Rook.Tests.Handlers
                 models,
                 GeminiImageCapabilities.NanoBanana2,
                 "gemini",
-                "available_but_unverified");
+                "available_but_unverified",
+                "sync");
             AssertImageModel(
                 models,
                 FalImageCapabilities.FluxSchnell,
                 "fal",
-                "missing_required_secret");
+                "missing_required_secret",
+                "sync");
             AssertImageModel(
                 models,
                 ReplicateImageCapabilities.FluxSchnell,
                 "replicate",
-                "missing_required_secret");
+                "missing_required_secret",
+                "async_image_job");
         }
 
         [Fact]

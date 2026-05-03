@@ -1958,12 +1958,22 @@ namespace Rook.Handlers
                 ["model_id"] = descriptor.ModelId,
                 ["provider_name"] = descriptor.ProviderName,
                 ["pricing_source"] = descriptor.PricingSource,
+                ["submission_mode"] =
+                    ImageSubmissionModeToString(descriptor.SubmissionMode),
                 ["credential_availability"] =
                     CredentialAvailabilityToString(credentialStatus.Availability),
                 ["credential_message"] = credentialStatus.Message,
                 ["capability"] = ImageCapabilityToObj(descriptor.Capability),
             };
         }
+
+        private static string ImageSubmissionModeToString(ImageSubmissionMode mode)
+            => mode switch
+            {
+                ImageSubmissionMode.Sync => "sync",
+                ImageSubmissionMode.AsyncImageJob => "async_image_job",
+                _ => mode.ToString().ToLowerInvariant(),
+            };
 
         private ProviderCredentialStatus BuildCredentialStatusForProvider(
             string providerName)
