@@ -11,30 +11,28 @@ namespace Rook.Tests.Services.Vision
     public class VisionProviderRegistrationsTests
     {
         [Fact]
-        public void CreateCredentialMetadata_merges_gemini_owner_and_fal_from_image_and_video()
+        public void CreateCredentialMetadata_merges_gemini_fal_and_replicate()
         {
             var metadata = VisionProviderRegistrations.CreateCredentialMetadata();
 
             var providers = metadata.EnumerateProviders().ToArray();
 
-            Assert.Equal(new[] { "gemini", "fal" }, providers.Select(p => p.ProviderName));
-            var gemini = Assert.Single(providers, p => p.ProviderName == "gemini");
+            Assert.Equal(new[] { "gemini", "fal", "replicate" }, providers.Select(p => p.ProviderName));
             Assert.Contains(
-                gemini.SecretRequirements,
+                Assert.Single(providers, p => p.ProviderName == "gemini").SecretRequirements,
                 r => r.Key == GenerationSecretKeys.GeminiApiKey);
-
-            var fal = Assert.Single(providers, p => p.ProviderName == "fal");
             Assert.Contains(
-                fal.SecretRequirements,
+                Assert.Single(providers, p => p.ProviderName == "fal").SecretRequirements,
                 r => r.Key == GenerationSecretKeys.FalApiKey);
 
+            var replicate = Assert.Single(providers, p => p.ProviderName == "replicate");
+            var requirement = Assert.Single(replicate.SecretRequirements);
+            Assert.Equal(GenerationSecretKeys.ReplicateApiToken, requirement.Key);
+            Assert.Equal("Replicate API token", requirement.DisplayName);
+            Assert.True(requirement.IsRequired);
+            Assert.True(requirement.IsSensitive);
+
             Assert.DoesNotContain(providers, p => p.ProviderName == "veo");
-            Assert.DoesNotContain(providers, p => p.ProviderName == "replicate");
-            Assert.All(
-                providers,
-                p => Assert.DoesNotContain(
-                    p.SecretRequirements,
-                    r => r.Key == GenerationSecretKeys.ReplicateApiToken));
         }
 
         [Fact]
@@ -60,37 +58,41 @@ namespace Rook.Tests.Services.Vision
             Assert.DoesNotContain("CreateVideoRegistrations", methodBody);
             Assert.DoesNotContain("new VeoProvider", methodBody);
             Assert.DoesNotContain("new FalVideoProvider", methodBody);
-            Assert.DoesNotContain("ReplicateImageProviderRegistration", methodBody);
-            Assert.DoesNotContain("ReplicateImageProvider", methodBody);
+            Assert.DoesNotContain("new ReplicateImageProvider", methodBody);
         }
 
         [Fact]
-        public void CreateImageRegistrations_default_composition_does_not_reference_replicate()
-        {
-            var source = File.ReadAllText(FindSourceFile());
-            var methodBody = ExtractMethodBody(source, "CreateImageRegistrations");
-
-            Assert.DoesNotContain("ReplicateImageProviderRegistration", methodBody);
-            Assert.DoesNotContain("ReplicateImageProvider", methodBody);
-            Assert.DoesNotContain("ReplicateApiToken", methodBody);
-        }
-
-        [Fact]
-        public void CreateImageRegistrations_default_registry_omits_replicate()
+        public void CreateImageRegistrations_default_composition_includes_replicate()
         {
             var registrations = VisionProviderRegistrations.CreateImageRegistrations(
+                () => null,
+                () => null,
+                () => null);
+            var registry = new DefaultImageProviderRegistry(registrations);
+
+            Assert.True(registry.TryResolve("black-forest-labs/flux-schnell", out var resolved));
+            Assert.Equal("replicate", resolved.ProviderName);
+            Assert.Equal(ImageSubmissionMode.AsyncImageJob, resolved.SubmissionMode);
+            Assert.True(registry.TryResolveProviderByName("replicate", out _));
+        }
+
+        [Fact]
+        public void CreateImageRegistrations_default_registry_includes_replicate_descriptor()
+        {
+            var registrations = VisionProviderRegistrations.CreateImageRegistrations(
+                () => null,
                 () => null,
                 () => null);
             var registry = new DefaultImageProviderRegistry(registrations);
 
             var descriptors = registry.EnumerateAllModels();
 
-            Assert.DoesNotContain(descriptors, d => d.ProviderName == "replicate");
-            Assert.DoesNotContain(
+            Assert.Contains(descriptors, d => d.ProviderName == "replicate");
+            Assert.Contains(
                 descriptors,
                 d => d.ModelId == "black-forest-labs/flux-schnell");
-            Assert.False(registry.TryResolveProviderByName("replicate", out _));
-            Assert.False(registry.TryResolve("black-forest-labs/flux-schnell", out _));
+            Assert.True(registry.TryResolveProviderByName("replicate", out _));
+            Assert.True(registry.TryResolve("black-forest-labs/flux-schnell", out _));
         }
 
         private static string FindSourceFile()

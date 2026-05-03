@@ -12,6 +12,7 @@ namespace Rook.Services.Vision.Image.Gemini
         }
 
         public string ProviderName => GeminiImageCapabilities.ProviderName;
+        public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.Sync;
         public IImageProvider Provider { get; }
         public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
             = new GeminiImageOptionsCodec();

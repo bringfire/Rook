@@ -287,6 +287,7 @@ namespace Rook.Services.Vision.Image.Replicate
             new(
                 ReplicateImageCapabilities.FluxSchnell,
                 ReplicateImageCapabilities.ProviderName,
+                ImageSubmissionMode.AsyncImageJob,
                 new ReplicateImageProvider(() => ProviderApiToken),
                 ReplicateImageCapabilities.Models[ReplicateImageCapabilities.FluxSchnell],
                 new ReplicateImagePricingModel(),
@@ -296,6 +297,7 @@ namespace Rook.Services.Vision.Image.Replicate
             new(
                 GeminiImageCapabilities.DefaultModel,
                 GeminiImageCapabilities.ProviderName,
+                ImageSubmissionMode.Sync,
                 new Rook.Tests.Services.Vision.Image.FakeImageProvider(),
                 GeminiImageCapabilities.Models[GeminiImageCapabilities.DefaultModel],
                 new GeminiImagePricingModel(),

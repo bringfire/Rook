@@ -84,6 +84,7 @@ const providerSecretKeyByProvider = new Map();
 // Viewport capture output (artifact envelope, keyed by view so we can
 // re-feed its file_path into `generate` as `input_image_path`).
 let capturedViewport = null;          // { artifact_id, file_path, ... } | null
+let isCapturingViewport = false;
 let viewportOptionsByValue = new Map(); // select value -> { width, height }
 
 // ─── DOM ──────────────────────────────────────────────────────────
@@ -171,7 +172,15 @@ async function loadViewports() {
 }
 
 async function captureViewport() {
+    if (isPromptOnlyAsyncImageModel(selectedImageModel(el.modelSelect))) {
+        return;
+    }
+    if (isCapturingViewport) {
+        return;
+    }
+
     const selectedKey = el.viewportSelect.value || "";
+    isCapturingViewport = true;
     showStatus("Capturing viewport...", "info");
     el.captureBtn.disabled = true;
     // Hide stale dims caption — the `load` handler re-shows it with
@@ -201,7 +210,8 @@ async function captureViewport() {
     } catch (e) {
         showStatus(e.message, "error");
     } finally {
-        el.captureBtn.disabled = false;
+        isCapturingViewport = false;
+        updateGenerateInputMode();
     }
 }
 
@@ -349,20 +359,29 @@ async function generateImage() {
     const prompt = el.prompt.value.trim();
     if (!prompt) { showStatus("Please enter a prompt.", "error"); return; }
 
-    const sourcePath = capturedViewport && capturedViewport.file_path;
-    if (!sourcePath) {
-        showStatus("Capture a viewport first.", "error");
-        return;
-    }
-    const modelError = validateImageModelForSubmit(el.modelSelect);
+    const model = selectedImageModel(el.modelSelect);
+    const modelError = validateGenerateModelForSubmit(el.modelSelect);
     if (modelError) {
         showStatus(modelError, "error");
         return;
     }
 
+    if (isAsyncImageJobModel(model)) {
+        await generateImageJob(prompt, model);
+        return;
+    }
+
+    await generateSyncImage(prompt, model);
+}
+
+async function generateSyncImage(prompt, model) {
+    const sourcePath = capturedViewport && capturedViewport.file_path;
+    if (!sourcePath) {
+        showStatus("Capture a viewport first.", "error");
+        return;
+    }
     setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
     showStatus("Generating image...", "info");
-
     try {
         const args = {
             prompt,
@@ -377,16 +396,8 @@ async function generateImage() {
         }
 
         const artifact = await bridgeCall("generate", args);
-        latestArtifactId = artifact.artifact_id;
-        if (artifact.artifact_id) {
-            el.resultImage.src = `/blob/${encodeURIComponent(artifact.artifact_id)}/image?ts=${Date.now()}`;
-            el.resultPanel.classList.remove("hidden");
-            showStatus("Image generated.", "success");
-        } else {
-            showStatus("Generation returned no artifact.", "error");
-        }
+        renderGeneratedArtifact(artifact, "Image generated.");
     } catch (e) {
-        const model = selectedImageModel(el.modelSelect);
         if (model && isCredentialFailureMessage(e.message)) {
             markProviderCredentialInvalid(model.provider_name);
         }
@@ -394,6 +405,83 @@ async function generateImage() {
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
+}
+
+function renderGeneratedArtifact(artifact, successMessage) {
+    latestArtifactId = artifact && artifact.artifact_id;
+    if (latestArtifactId) {
+        el.resultImage.src = `/blob/${encodeURIComponent(latestArtifactId)}/image?ts=${Date.now()}`;
+        el.resultPanel.classList.remove("hidden");
+        showStatus(successMessage || "Image generated.", "success");
+    } else {
+        showStatus("Generation returned no artifact.", "error");
+    }
+}
+
+async function generateImageJob(prompt, model) {
+    setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
+    showStatus("Starting image job...", "info");
+    try {
+        const args = {
+            prompt,
+            resolution: el.resolutionSelect.value,
+        };
+        const aspectRatio = selectedAspectRatio(el.aspectSelect);
+        if (aspectRatio) args.aspect_ratio = aspectRatio;
+        if (el.modelSelect.value) args.model = el.modelSelect.value;
+
+        const start = await bridgeCall("image_generate_start", args);
+        if (!start || typeof start.job_id !== "string" || start.job_id.length === 0) {
+            throw new Error("Image job did not return a job id.");
+        }
+        const jobId = start.job_id;
+        let terminal = null;
+        for (let attempt = 0; attempt < 180; attempt++) {
+            const status = await bridgeCall("image_job_status", { job_id: jobId });
+            if (!status || typeof status.state !== "string" || status.state.length === 0) {
+                throw new Error("Image job returned an invalid status.");
+            }
+            showImageJobStatus(status);
+            if (["complete", "error", "cancelled", "interrupted"].includes(status.state)) {
+                terminal = status;
+                break;
+            }
+            await delay(1000);
+        }
+        if (!terminal) throw new Error("Image job did not finish before the UI timeout.");
+        if (terminal.state !== "complete") {
+            const err = terminal.error && terminal.error.message;
+            throw new Error(err || `Image job ended with state ${terminal.state}.`);
+        }
+        const result = await bridgeCall("image_job_result", { job_id: jobId });
+        if (!result || !result.result_artifact_id) {
+            throw new Error("Image job completed without an artifact.");
+        }
+        renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
+    } catch (e) {
+        if (model && isCredentialFailureMessage(e.message)) {
+            markProviderCredentialInvalid(model.provider_name);
+        }
+        showStatus(e.message, "error");
+    } finally {
+        setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
+    }
+}
+
+function showImageJobStatus(status) {
+    const state = status && status.state || "unknown";
+    if (state === "queued") showStatus("Image job queued...", "info");
+    else if (state === "submitting") showStatus("Submitting image job...", "info");
+    else if (state === "polling") showStatus("Image job running...", "info");
+    else if (state === "materializing") showStatus("Saving generated image...", "info");
+    else if (state === "complete") showStatus("Image job complete.", "success");
+    else if (state === "cancelled") showStatus("Image job cancelled.", "error");
+    else if (state === "error") showStatus("Image job failed.", "error");
+    else showStatus(`Image job ${state}...`, "info");
+}
+
+function delay(ms) {
+    return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
 async function pickReferenceImages(intoList, previewEl, multi) {
@@ -534,6 +622,7 @@ function normalizeImageModelDescriptor(m) {
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
         credential_secret_key: m.credential_secret_key || "",
+        submission_mode: m.submission_mode || "sync",
         supported_resolutions: cap.resolutions || m.supported_resolutions || [],
         aspect_ratios: cap.aspect_ratios || [],
         supports_image_to_image: cap.supports_image_to_image !== false,
@@ -553,12 +642,23 @@ function normalizeLegacyAvailableModel(m) {
         credential_availability: m.credential_availability || "available_but_unverified",
         credential_message: m.credential_message || "",
         credential_secret_key: m.credential_secret_key || "",
+        submission_mode: m.submission_mode || "sync",
         supported_resolutions: m.supported_resolutions || [],
         aspect_ratios: m.aspect_ratios || [],
         supports_image_to_image: m.supports_image_to_image !== false,
         supports_text_to_image: m.supports_text_to_image !== false,
         max_reference_images: Number(m.max_reference_images || 0),
     };
+}
+
+function isAsyncImageJobModel(model) {
+    return !!model && model.submission_mode === "async_image_job";
+}
+
+function isPromptOnlyAsyncImageModel(model) {
+    return isAsyncImageJobModel(model)
+        && model.supports_text_to_image !== false
+        && model.supports_image_to_image === false;
 }
 
 function rememberProviderSecretKeys(providers) {
@@ -608,7 +708,20 @@ function isCredentialFailureMessage(message) {
         || text.includes("permission denied");
 }
 
-function validateImageModelForSubmit(selectEl) {
+function validateGenerateModelForSubmit(selectEl) {
+    const model = selectedImageModel(selectEl);
+    if (!model) return null;
+    const availability = effectiveCredentialAvailability(model);
+    if (availability === "missing_required_secret") {
+        return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
+    }
+    if (!isPromptOnlyAsyncImageModel(model) && !(capturedViewport && capturedViewport.file_path)) {
+        return "Capture a viewport first.";
+    }
+    return null;
+}
+
+function validateStudioModelForSubmit(selectEl) {
     const model = selectedImageModel(selectEl);
     if (!model) return null;
     const availability = effectiveCredentialAvailability(model);
@@ -616,7 +729,7 @@ function validateImageModelForSubmit(selectEl) {
         return `${providerDisplayName(model.provider_name)} key is required before using this model.`;
     }
     if (model.supports_image_to_image === false) {
-        return "Selected model is incompatible with the current image input workflow.";
+        return "Selected model is incompatible with Studio source-image editing.";
     }
     return null;
 }
@@ -631,26 +744,68 @@ function restoreSelectValueIfSelectable(selectEl, value) {
     }
 }
 
+function shouldDisableGenerateModel(model) {
+    return effectiveCredentialAvailability(model) === "missing_required_secret";
+}
+
+function shouldDisableStudioModel(model) {
+    return shouldDisableGenerateModel(model)
+        || model.supports_image_to_image === false;
+}
+
+function buildImageModelOption(model, disabled) {
+    const availability = effectiveCredentialAvailability(model);
+    const provider = model.provider_name ? ` · ${providerDisplayName(model.provider_name)}` : "";
+    const warning = availability === "invalid_credential" ? " · credential warning" : "";
+    const blocker = availability === "missing_required_secret" ? " · configure key" : "";
+    return `<option value="${escapeAttr(imageModelOptionValue(model))}"${disabled ? " disabled" : ""}>${escapeHtml(model.label || model.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
+}
+
+function applyStudioModelCompatibility() {
+    if (!el.studioModelSelect) return;
+    for (const option of el.studioModelSelect.options) {
+        const model = modelCatalog.find(m => imageModelOptionValue(m) === option.value);
+        if (model && model.supports_image_to_image === false) {
+            option.disabled = true;
+            if (!option.textContent.includes("incompatible with Studio")) {
+                option.textContent += " - incompatible with Studio";
+            }
+        }
+    }
+}
+
+function updateGenerateInputMode() {
+    const model = selectedImageModel(el.modelSelect);
+    const promptOnlyAsync = isPromptOnlyAsyncImageModel(model);
+    const generateView = document.getElementById("generate-view");
+    if (generateView) {
+        generateView.classList.toggle("generate-input-disabled", promptOnlyAsync);
+    }
+
+    const disableCaptureControls = promptOnlyAsync || isCapturingViewport;
+    if (el.captureBtn) el.captureBtn.disabled = disableCaptureControls;
+    if (el.viewportSelect) el.viewportSelect.disabled = disableCaptureControls;
+    if (el.addReferenceBtn) el.addReferenceBtn.disabled = promptOnlyAsync;
+    if (el.clearReferencesBtn) el.clearReferencesBtn.disabled = promptOnlyAsync;
+
+    if (promptOnlyAsync) {
+        generateReferences = [];
+        renderReferencePreview(generateReferences, el.referencePreview);
+    }
+}
+
 function populateImageModelDropdowns(models) {
     const generateModelValue = el.modelSelect && el.modelSelect.value;
     const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;
-    const options = models.map(m => {
-        const availability = effectiveCredentialAvailability(m);
-        const missingCredential = availability === "missing_required_secret";
-        const capabilityMismatch = m.supports_image_to_image === false;
-        const disabled = missingCredential || capabilityMismatch;
-        const provider = m.provider_name ? ` · ${providerDisplayName(m.provider_name)}` : "";
-        const warning = availability === "invalid_credential" ? " · credential warning" : "";
-        const blocker = missingCredential
-            ? " · configure key"
-            : capabilityMismatch ? " · incompatible" : "";
-        return `<option value="${escapeAttr(imageModelOptionValue(m))}"${disabled ? " disabled" : ""}>${escapeHtml(m.label || m.model_id)}${escapeHtml(provider + warning + blocker)}</option>`;
-    }).join("");
-    if (el.modelSelect) el.modelSelect.innerHTML = options;
-    if (el.studioModelSelect) el.studioModelSelect.innerHTML = options;
+    const generateOptions = models.map(m => buildImageModelOption(m, shouldDisableGenerateModel(m))).join("");
+    const studioOptions = models.map(m => buildImageModelOption(m, shouldDisableStudioModel(m))).join("");
+    if (el.modelSelect) el.modelSelect.innerHTML = generateOptions;
+    if (el.studioModelSelect) el.studioModelSelect.innerHTML = studioOptions;
+    applyStudioModelCompatibility();
     restoreSelectValueIfSelectable(el.modelSelect, generateModelValue);
     restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);
     syncResolutionOptions();
+    updateGenerateInputMode();
 }
 
 async function loadImageModels() {
@@ -794,7 +949,7 @@ async function studioGenerate() {
         showStudioStatus("Load a source image first.", "error");
         return;
     }
-    const modelError = validateImageModelForSubmit(el.studioModelSelect);
+    const modelError = validateStudioModelForSubmit(el.studioModelSelect);
     if (modelError) {
         showStudioStatus(modelError, "error");
         return;
@@ -1552,7 +1707,10 @@ function init() {
     // Aspect dropdown drives the RESULT panel's output shape at generate
     // time; it no longer reshapes the source preview. No change listener
     // needed on this view — the value is read in `generateImage`.
-    el.modelSelect.addEventListener("change", syncResolutionOptions);
+    el.modelSelect.addEventListener("change", () => {
+        syncResolutionOptions();
+        updateGenerateInputMode();
+    });
     el.enhanceBtn.addEventListener("click", enhancePrompt);
     if (el.editPromptBtn) {
         el.editPromptBtn.addEventListener("click", () => {

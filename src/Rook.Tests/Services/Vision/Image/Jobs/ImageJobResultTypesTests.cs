@@ -121,6 +121,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             new(
                 ModelId: model,
                 ProviderName: GeminiImageCapabilities.ProviderName,
+                SubmissionMode: ImageSubmissionMode.Sync,
                 Provider: provider,
                 Capability: new ImageCapability(
                     Id: model,

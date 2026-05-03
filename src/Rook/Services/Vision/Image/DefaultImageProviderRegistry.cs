@@ -33,6 +33,9 @@ namespace Rook.Services.Vision.Image
                 if (reg.Models is null)
                     throw new InvalidOperationException(
                         $"Provider '{reg.ProviderName}' registration has null Models.");
+                if (!Enum.IsDefined(typeof(ImageSubmissionMode), reg.SubmissionMode))
+                    throw new InvalidOperationException(
+                        $"Provider '{reg.ProviderName}' registration has invalid SubmissionMode '{reg.SubmissionMode}'.");
 
                 if (!_providerByName.ContainsKey(reg.ProviderName))
                     _providerByName[reg.ProviderName] = reg.Provider;
@@ -65,6 +68,7 @@ namespace Rook.Services.Vision.Image
                     var resolved = new ResolvedImageModel(
                         ModelId: kvp.Key,
                         ProviderName: reg.ProviderName,
+                        SubmissionMode: reg.SubmissionMode,
                         Provider: reg.Provider,
                         Capability: cap,
                         PricingModel: pricing,
@@ -109,6 +113,7 @@ namespace Rook.Services.Vision.Image
                 list.Add(new ImageModelDescriptor(
                     ModelId: m.ModelId,
                     ProviderName: m.ProviderName,
+                    SubmissionMode: m.SubmissionMode,
                     Capability: m.Capability,
                     PricingSource: m.PricingModel.PricingSource));
             }

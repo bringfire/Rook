@@ -5,6 +5,7 @@ namespace Rook.Services.Vision.Image
     public sealed record ResolvedImageModel(
         string ModelId,
         string ProviderName,
+        ImageSubmissionMode SubmissionMode,
         IImageProvider Provider,
         ImageCapability Capability,
         IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel,

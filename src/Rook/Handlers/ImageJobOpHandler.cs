@@ -125,7 +125,9 @@ namespace Rook.Handlers
             Dictionary<string, JsonElement> args,
             CancellationToken ct)
         {
-            var workResult = _visionHandler.BuildImageGenerationWorkItem(args);
+            var workResult = _visionHandler.BuildImageGenerationWorkItem(
+                args,
+                VisionHandler.ImageGenerationWorkItemOptions.AsyncImageJob);
             if (!workResult.Success)
                 return CoerceFailure(workResult.Failure!);
             var work = workResult.WorkItem!;

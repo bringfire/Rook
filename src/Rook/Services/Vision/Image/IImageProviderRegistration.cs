@@ -6,6 +6,7 @@ namespace Rook.Services.Vision.Image
     public interface IImageProviderRegistration
     {
         string ProviderName { get; }
+        ImageSubmissionMode SubmissionMode { get; }
         IImageProvider Provider { get; }
         IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
         IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models { get; }

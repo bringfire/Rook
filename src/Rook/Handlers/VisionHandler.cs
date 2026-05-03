@@ -101,6 +101,21 @@ namespace Rook.Handlers
     /// </summary>
     public class VisionHandler
     {
+        internal sealed class ImageGenerationWorkItemOptions
+        {
+            public static readonly ImageGenerationWorkItemOptions SyncGenerate = new(
+                allowPromptOnlyAsyncTextToImage: false);
+            public static readonly ImageGenerationWorkItemOptions AsyncImageJob = new(
+                allowPromptOnlyAsyncTextToImage: true);
+
+            private ImageGenerationWorkItemOptions(bool allowPromptOnlyAsyncTextToImage)
+            {
+                AllowPromptOnlyAsyncTextToImage = allowPromptOnlyAsyncTextToImage;
+            }
+
+            public bool AllowPromptOnlyAsyncTextToImage { get; }
+        }
+
         public const string ArtifactKindGeneratedImage = "generated_image";
         public const string ArtifactKindEnhancedPrompt = "enhanced_prompt";
         public const string ArtifactKindDepthMap = "depth_map";
@@ -243,7 +258,8 @@ namespace Rook.Handlers
                 ?? new DefaultImageProviderRegistry(
                     VisionProviderRegistrations.CreateImageRegistrations(
                         GetGeminiApiKey,
-                        GetFalApiKey));
+                        GetFalApiKey,
+                        GetReplicateApiToken));
         }
 
         private string? GetGeminiApiKey()
@@ -257,6 +273,13 @@ namespace Rook.Handlers
         {
             if (_generationSecrets is not null)
                 return _generationSecrets.GetSecret(GenerationSecretKeys.FalApiKey);
+            return null;
+        }
+
+        private string? GetReplicateApiToken()
+        {
+            if (_generationSecrets is not null)
+                return _generationSecrets.GetSecret(GenerationSecretKeys.ReplicateApiToken);
             return null;
         }
 
@@ -570,33 +593,123 @@ namespace Rook.Handlers
 
         internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
             Dictionary<string, JsonElement> args)
-        {
-            var prompt = RequireString(args, "prompt", MaxPromptLength);
-            var inputImagePath = RequireString(args, "input_image_path", 2048);
+            => BuildImageGenerationWorkItem(
+                args,
+                ImageGenerationWorkItemOptions.SyncGenerate);
 
-            if (!File.Exists(inputImagePath))
+        internal ImageGenerationWorkItemResult BuildImageGenerationWorkItem(
+            Dictionary<string, JsonElement> args,
+            ImageGenerationWorkItemOptions options)
+        {
+            if (options is null) throw new ArgumentNullException(nameof(options));
+
+            var prompt = RequireString(args, "prompt", MaxPromptLength);
+            var modelInput = GetStringArg(args, "model");
+            var model = string.IsNullOrWhiteSpace(modelInput)
+                ? GeminiImageCapabilities.ResolveShortName(modelInput)
+                : modelInput!.Trim();
+            var resolutionInput = GetStringArg(args, "resolution");
+            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
+                ? "1K"
+                : resolutionInput!;
+            var aspectRatio = NormalizeAspectRatioForProvider(
+                GetStringArg(args, "aspect_ratio"));
+
+            if (!_imageProviderRegistry.TryResolve(model, out var resolvedModel))
             {
-                throw new ArgumentException(
-                    $"input_image_path does not exist: '{inputImagePath}'.");
+                // Preserve the legacy Gemini UI short names only after
+                // registered providers get first chance at exact model IDs.
+                model = GeminiImageCapabilities.ResolveShortName(modelInput);
+                if (!_imageProviderRegistry.TryResolve(model, out resolvedModel))
+                {
+                    if (!_imageProviderRegistry.TryResolveProviderByName(
+                            GeminiImageCapabilities.ProviderName, out var geminiProvider))
+                    {
+                        return ImageGenerationWorkItemResult.Fail(
+                            Fail($"Unknown image model '{model}'."));
+                    }
+
+                    resolvedModel = new ResolvedImageModel(
+                        ModelId: model,
+                        ProviderName: GeminiImageCapabilities.ProviderName,
+                        SubmissionMode: ImageSubmissionMode.Sync,
+                        Provider: geminiProvider,
+                        Capability: new ImageCapability(
+                            Id: model,
+                            Name: model,
+                            Status: "preview",
+                            Resolutions: SupportedResolutionsForModel(model),
+                            AspectRatios: AllowedAspectRatios,
+                            MaxReferenceImages: MaxReferenceImages,
+                            SupportsImageToImage: true,
+                            SupportsTextToImage: true),
+                        PricingModel: new GeminiImagePricingModel(),
+                        OptionsCodec: new GeminiImageOptionsCodec());
+                }
             }
-            var info = new FileInfo(inputImagePath);
-            if (info.Length > MaxInputImageBytes)
+
+            var hasInputImageField = args.TryGetValue("input_image_path", out var inputImageEl);
+            var hasInputImage = hasInputImageField
+                && inputImageEl.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(inputImageEl.GetString());
+            var allowPromptOnly = options.AllowPromptOnlyAsyncTextToImage
+                && resolvedModel.SubmissionMode == ImageSubmissionMode.AsyncImageJob
+                && resolvedModel.Capability.SupportsTextToImage;
+
+            if (hasInputImageField && !hasInputImage)
             {
-                throw new ArgumentException(
-                    $"input_image_path exceeds size limit of {MaxInputImageBytes} bytes " +
-                    $"({info.Length} bytes).");
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Missing or non-string field 'input_image_path'."));
+            }
+
+            if (!hasInputImage && !allowPromptOnly)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Missing or non-string field 'input_image_path'."));
+            }
+
+            if (hasInputImage && !resolvedModel.Capability.SupportsImageToImage)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Selected image model does not support source image input."));
+            }
+
+            if (args.TryGetValue("reference_image_paths", out var refsEl)
+                && resolvedModel.Capability.MaxReferenceImages == 0)
+            {
+                return ImageGenerationWorkItemResult.Fail(
+                    Fail("Selected image model does not support reference_image_paths."));
             }
 
             // Track aggregate raw bytes across primary + all references
             // to enforce MaxAggregateImageBytes. Base64 expansion happens
             // downstream — we cap BEFORE encoding to avoid exceeding
             // Gemini's practical inline-payload limit.
-            long aggregateBytes = info.Length;
-
+            long aggregateBytes = 0;
             var resolvedMedia = new Dictionary<MediaRef, ResolvedMedia>();
-            var inputRef = MediaRef.ForPath(inputImagePath, ImageMediaRoles.InputImage);
+            string? inputImagePath = null;
+            MediaRef? inputRef = null;
+            if (hasInputImage)
+            {
+                inputImagePath = inputImageEl.GetString()!;
+                if (!File.Exists(inputImagePath))
+                {
+                    throw new ArgumentException(
+                        $"input_image_path does not exist: '{inputImagePath}'.");
+                }
+                var info = new FileInfo(inputImagePath);
+                if (info.Length > MaxInputImageBytes)
+                {
+                    throw new ArgumentException(
+                        $"input_image_path exceeds size limit of {MaxInputImageBytes} bytes " +
+                        $"({info.Length} bytes).");
+                }
+                aggregateBytes = info.Length;
+                inputRef = MediaRef.ForPath(inputImagePath, ImageMediaRoles.InputImage);
+            }
+
             IReadOnlyList<MediaRef>? referenceRefs = null;
-            if (args.TryGetValue("reference_image_paths", out var refsEl)
+            if (args.TryGetValue("reference_image_paths", out refsEl)
                 && refsEl.ValueKind == JsonValueKind.Array)
             {
                 if (refsEl.GetArrayLength() > MaxReferenceImages)
@@ -632,49 +745,6 @@ namespace Rook.Handlers
                 referenceRefs = list;
             }
 
-            var modelInput = GetStringArg(args, "model");
-            var model = string.IsNullOrWhiteSpace(modelInput)
-                ? GeminiImageCapabilities.ResolveShortName(modelInput)
-                : modelInput!.Trim();
-            var resolutionInput = GetStringArg(args, "resolution");
-            var resolution = string.IsNullOrWhiteSpace(resolutionInput)
-                ? "1K"
-                : resolutionInput!;
-            var aspectRatio = NormalizeAspectRatioForProvider(
-                GetStringArg(args, "aspect_ratio"));
-
-            if (!_imageProviderRegistry.TryResolve(model, out var resolvedModel))
-            {
-                // Preserve the legacy Gemini UI short names only after
-                // registered providers get first chance at exact model IDs.
-                model = GeminiImageCapabilities.ResolveShortName(modelInput);
-                if (!_imageProviderRegistry.TryResolve(model, out resolvedModel))
-                {
-                    if (!_imageProviderRegistry.TryResolveProviderByName(
-                            GeminiImageCapabilities.ProviderName, out var geminiProvider))
-                    {
-                        return ImageGenerationWorkItemResult.Fail(
-                            Fail($"Unknown image model '{model}'."));
-                    }
-
-                    resolvedModel = new ResolvedImageModel(
-                        ModelId: model,
-                        ProviderName: GeminiImageCapabilities.ProviderName,
-                        Provider: geminiProvider,
-                        Capability: new ImageCapability(
-                            Id: model,
-                            Name: model,
-                            Status: "preview",
-                            Resolutions: SupportedResolutionsForModel(model),
-                            AspectRatios: AllowedAspectRatios,
-                            MaxReferenceImages: MaxReferenceImages,
-                            SupportsImageToImage: true,
-                            SupportsTextToImage: true),
-                        PricingModel: new GeminiImagePricingModel(),
-                        OptionsCodec: new GeminiImageOptionsCodec());
-                }
-            }
-
             var optionsResult = resolvedModel.OptionsCodec.Deserialize(new JsonObject());
             if (!optionsResult.Success || optionsResult.Options is null)
             {
@@ -683,8 +753,11 @@ namespace Rook.Handlers
                         ?? "Image provider options could not be decoded."));
             }
 
-            var inputBytes = File.ReadAllBytes(inputImagePath);
-            resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
+            if (inputImagePath is not null && inputRef is not null)
+            {
+                var inputBytes = File.ReadAllBytes(inputImagePath);
+                resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
+            }
 
             var imageRequest = new ImageGenerationRequest(
                 Model: resolvedModel.ModelId,
@@ -1949,12 +2022,25 @@ namespace Rook.Handlers
                 ["model_id"] = descriptor.ModelId,
                 ["provider_name"] = descriptor.ProviderName,
                 ["pricing_source"] = descriptor.PricingSource,
+                ["submission_mode"] =
+                    ImageSubmissionModeToString(descriptor.SubmissionMode),
                 ["credential_availability"] =
                     CredentialAvailabilityToString(credentialStatus.Availability),
                 ["credential_message"] = credentialStatus.Message,
                 ["capability"] = ImageCapabilityToObj(descriptor.Capability),
             };
         }
+
+        private static string ImageSubmissionModeToString(ImageSubmissionMode mode)
+            => mode switch
+            {
+                ImageSubmissionMode.Sync => "sync",
+                ImageSubmissionMode.AsyncImageJob => "async_image_job",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(mode),
+                    mode,
+                    "Unsupported image submission mode."),
+            };
 
         private ProviderCredentialStatus BuildCredentialStatusForProvider(
             string providerName)

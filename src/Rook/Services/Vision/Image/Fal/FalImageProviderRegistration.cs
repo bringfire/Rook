@@ -12,6 +12,7 @@ namespace Rook.Services.Vision.Image.Fal
         }
 
         public string ProviderName => FalImageCapabilities.ProviderName;
+        public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.Sync;
         public IImageProvider Provider { get; }
         public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
             = new FalImageOptionsCodec();
