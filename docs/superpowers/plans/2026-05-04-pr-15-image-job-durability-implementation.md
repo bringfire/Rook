@@ -80,6 +80,8 @@ Modify:
   - Mostly unchanged; ensure durable records are projected without leaking internals.
 - `src/Rook.Tests/Services/Vision/Image/Jobs/ImageJobManagerTests.cs`
   - Add durability, reconcile, race, append-failure tests.
+- `src/Rook.Tests/Services/Vision/Image/Replicate/ReplicateImageJobManagerTests.cs`
+  - Update direct `ImageJobManager` construction to use isolated fake/temp ledgers.
 - `src/Rook.Tests/Handlers/ImageJobOpHandlerTests.cs`
   - Add durable bridge response/leakage tests.
 - `src/Rook.Tests/Services/Vision/Video/VideoSubsystemFactoryTests.cs`
@@ -773,6 +775,7 @@ git commit -m "feat(vision): add image job JSONL ledger"
 - Create: `src/Rook.Tests/Services/Vision/Image/Jobs/FakeImageJobLedger.cs`
 - Modify: `src/Rook/Services/Vision/Image/Jobs/ImageJobManager.cs`
 - Test: `src/Rook.Tests/Services/Vision/Image/Jobs/ImageJobManagerTests.cs`
+- Test: `src/Rook.Tests/Services/Vision/Image/Replicate/ReplicateImageJobManagerTests.cs`
 
 - [ ] **Step 1: Add fake ledger**
 
@@ -956,20 +959,66 @@ private ImageJobManager Manager(
 
 - [ ] **Step 6: Run focused tests and verify pass**
 
+Update every direct test helper that constructs `ImageJobManager` to pass an isolated ledger. In `src/Rook.Tests/Services/Vision/Image/Replicate/ReplicateImageJobManagerTests.cs`, add a fake ledger field:
+
+```csharp
+private readonly FakeImageJobLedger _ledger = new();
+```
+
+Update its `Manager(...)` helper from:
+
+```csharp
+return new ImageJobManager(
+    registry,
+    _artifactStore,
+    _clock,
+    _idGenerator,
+    TimeSpan.FromMilliseconds(1),
+    ImageJobManager.DefaultMaxConcurrentJobs,
+    new ImageArtifactMaterializer(outputHandler),
+    selector.Select);
+```
+
+to:
+
+```csharp
+return new ImageJobManager(
+    registry,
+    _artifactStore,
+    _clock,
+    _idGenerator,
+    TimeSpan.FromMilliseconds(1),
+    ImageJobManager.DefaultMaxConcurrentJobs,
+    new ImageArtifactMaterializer(outputHandler),
+    selector.Select,
+    _ledger);
+```
+
+Run this scan and update any additional direct test helper hits so no test defaults to production `%APPDATA%\Rook\image\job-ledger.jsonl`:
+
+```powershell
+rg -n "new ImageJobManager\(" src\Rook.Tests
+```
+
+Expected: each direct construction either passes `FakeImageJobLedger`, a temp-file `JsonlImageJobLedger`, or a stub manager; no test direct construction relies on the production default ledger.
+
+- [ ] **Step 7: Run focused tests and verify pass**
+
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "SubmitAsync_AppendsQueuedLedgerRecordBeforeBackgroundWork|SubmitAsync_WhenInitialLedgerAppendFails|SubmitAsync_SyncProvider_CompletesAndWritesArtifact"
+dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "SubmitAsync_AppendsQueuedLedgerRecordBeforeBackgroundWork|SubmitAsync_WhenInitialLedgerAppendFails|SubmitAsync_SyncProvider_CompletesAndWritesArtifact|ReplicateImageJobManagerTests"
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
 git add src\Rook\Services\Vision\Image\Jobs\ImageJobManager.cs `
         src\Rook.Tests\Services\Vision\Image\Jobs\FakeImageJobLedger.cs `
-        src\Rook.Tests\Services\Vision\Image\Jobs\ImageJobManagerTests.cs
+        src\Rook.Tests\Services\Vision\Image\Jobs\ImageJobManagerTests.cs `
+        src\Rook.Tests\Services\Vision\Image\Replicate\ReplicateImageJobManagerTests.cs
 git commit -m "feat(vision): append durable image job submits"
 ```
 
@@ -1464,6 +1513,38 @@ public async Task CancelAsync_AfterRestartInterruptedWithoutProviderJobId_Return
     Assert.DoesNotContain("Cancel", _provider.Calls);
     Assert.Single(_ledger.AllRecords, r => r.JobId == jobId);
 }
+
+[Fact]
+public async Task CancelAsync_AfterRestartRemoteCancelSucceedsButCancelledAppendFails_ReturnsFailureAndLeavesInterrupted()
+{
+    var jobId = Guid.NewGuid();
+    var interrupted = ImageJobLedgerRecordFactory.WithState(
+        ImageJobLedgerRecordFactory.FromInitial(
+            jobId,
+            GeminiImageCapabilities.ProviderName,
+            GeminiImageCapabilities.DefaultModel,
+            ImageJobState.Polling,
+            _clock.UtcNow()),
+        ImageJobState.Interrupted,
+        _clock.UtcNow().AddSeconds(1),
+        providerJobId: "provider-job-cancel-append-fails",
+        error: new GenerationError(GenerationErrorCode.Interrupted, "interrupted", Retryable: true));
+    _ledger.Append(interrupted);
+    _provider.OnCancel = _ => new CanceledOutcome();
+    _ledger.BeforeAppend = record =>
+    {
+        if (record.State == ImageJobState.Cancelled)
+            throw new IOException("cancelled append failed");
+    };
+    using var manager = Manager();
+
+    var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+    Assert.Equal(ImageJobState.Error, result.State);
+    Assert.NotNull(result.Error);
+    Assert.Equal(GenerationErrorCode.DependencyUnavailable, result.Error!.Code);
+    Assert.Equal(ImageJobState.Interrupted, _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+}
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -1533,6 +1614,7 @@ In the not-running branch:
 - `Interrupted` with `ProviderHandle.ProviderJobId` resolves provider by `record.Provider`;
 - calls `TryRemoteCancelAsync(provider, new ProviderJobHandle(providerJobId), ct)`;
 - appends durable `Cancelled` only after provider cancel succeeds.
+- if provider cancel succeeds but the durable `Cancelled` append fails, return failure and leave durable state unchanged. Do not report `Cancelled` to the bridge while the durable record remains `Interrupted`.
 
 - [ ] **Step 6: Run focused tests and verify pass**
 
@@ -1884,6 +1966,7 @@ Expected:
 - [ ] Reconcile makes no provider calls.
 - [ ] Completed durable jobs fetch result only when local artifact exists.
 - [ ] Cancel-after-restart uses only `provider_job_id` and provider-name resolution.
+- [ ] Cancel-after-restart does not report `Cancelled` unless the durable `Cancelled` snapshot append succeeds.
 - [ ] Provider cancel failure leaves durable state unchanged.
 - [ ] No request summaries are persisted.
 - [ ] No Vision UI resurfacing is added.
