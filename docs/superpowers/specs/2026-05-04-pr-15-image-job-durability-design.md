@@ -72,6 +72,15 @@ The durable `error` shape is sanitized:
 
 `provider_error_code` is persisted only when it is a short scalar already present on `GenerationError.ProviderErrorCode`. `GenerationError.ProviderDetail` is not persisted.
 
+Durable error serialization must not write `GenerationError.Message` verbatim. Add an image-ledger error sanitizer that produces the persisted `message`:
+
+- normalize control characters and cap message length;
+- scan for banned provider/internal substrings before writing;
+- if a banned substring is present, replace the whole message with a generic sanitized message derived from the error code, such as `Image job failed; provider details were redacted.`;
+- never persist URLs, provider endpoint names, provider output fields, token-looking values, or materializer request details through the message field.
+
+The same sanitized durable error message is what bridge responses expose when they are built from durable records after restart. Live in-process errors may keep existing bridge behavior, but any error that crosses the ledger boundary must be safe before serialization.
+
 Do not persist:
 
 - prompt text;
@@ -140,10 +149,16 @@ On submit:
 - add `_runningJobs`;
 - start the background task.
 
+The initial durable append is fail-closed. If the `Queued` snapshot cannot be appended, `SubmitAsync` returns a `DependencyUnavailable` image job failure before `_runningJobs` is updated, before any background task starts, and before any provider submit call is made.
+
 On async provider submission:
 
 - when a provider returns `QueuedSubmitOutcome`, persist only `ProviderJobHandle.ProviderJobId` as `provider_job_id`;
 - do not persist status URL, cancel URL, response URL, result token, or provider metadata.
+
+The first transition that learns a remote `provider_job_id` is also fail-closed. The manager must not continue polling a remote provider job until the durable snapshot containing `provider_job_id` is appended. If that append fails after the provider created the remote job, the manager attempts best-effort provider cancel using the in-memory handle, records an in-memory error for the current process, and does not append a misleading durable in-flight snapshot. This prevents restart from losing the only durable handle needed for later cleanup.
+
+Other post-submit transition append failures are terminal for the local job. The manager must stop advancing the state machine, surface a local `DependencyUnavailable` or `ExecutionFailed` error, and avoid appending later stale terminal snapshots. If a remote provider handle is already known, cancellation behavior follows the same fail-closed principle: do not claim durable cancellation unless the `Cancelled` snapshot append succeeds.
 
 On completion:
 
@@ -255,6 +270,7 @@ Bridge responses keep existing public field names, including `provider_name`. Th
 - warning/error messages are sanitized;
 - raw line content is not echoed in warnings;
 - serialization uses on-disk `provider`, not `provider_name`.
+- durable error messages are redacted when the source message contains banned substrings such as provider URLs, `urls.get`, `urls.cancel`, endpoint names, or token-looking values.
 
 ### Leakage Tests
 
@@ -280,8 +296,11 @@ Tests should prove image ledger and bridge responses do not contain:
 
 `ImageJobManager` tests should prove:
 
+- initial ledger append failure returns failure before provider submit and before `_runningJobs` mutation;
 - submit appends a queued durable snapshot;
 - async submit persists only `provider_job_id` on polling;
+- failure appending the first `provider_job_id` snapshot attempts best-effort provider cancel and does not continue polling;
+- post-submit transition append failure stops later stale terminal appends;
 - each successful transition appends one durable snapshot;
 - status survives a new manager over the same ledger;
 - list survives a new manager over the same ledger;
@@ -326,6 +345,9 @@ Tests and scans should prove:
 - The image ledger uses an image-safe operational record, not `VideoJobRecord`.
 - The ledger persists `provider`, not public `provider_name`.
 - The ledger persists only `provider_job_id`, never provider URLs, result tokens, output URLs, provider metadata, request summaries, or secrets.
+- Durable error serialization redacts unsafe substrings from `GenerationError.Message` and never persists `GenerationError.ProviderDetail`.
+- Initial ledger append failure fails closed before provider submission.
+- Failure to persist the first `provider_job_id` snapshot attempts best-effort provider cancel and does not continue the remote polling flow.
 - `image_job_status`, `image_jobs`, `image_job_result`, and `image_job_cancel` work against durable records after manager/plugin restart.
 - Prior non-terminal records reconcile to `Interrupted` on startup.
 - Startup reconcile does not call provider APIs, fetch output, materialize output, spend, or require credentials.
