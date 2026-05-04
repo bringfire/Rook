@@ -41,10 +41,7 @@ namespace Rook.Services.Vision.Image.Replicate
                     "Request is null.",
                     "request");
 
-            if (!string.Equals(
-                    request.Model,
-                    ReplicateImageCapabilities.FluxSchnell,
-                    StringComparison.Ordinal))
+            if (!ReplicateImageCapabilities.Models.TryGetValue(request.Model, out var capability))
             {
                 return FailedSubmit(
                     GenerationErrorCode.InvalidRequest,
@@ -55,13 +52,22 @@ namespace Rook.Services.Vision.Image.Replicate
             var validation = _codec.Validate(
                 request,
                 request.Options,
-                ReplicateImageCapabilities.Models[ReplicateImageCapabilities.FluxSchnell]);
+                capability);
             if (!validation.Success)
             {
                 return FailedSubmit(
                     GenerationErrorCode.InvalidRequest,
                     validation.Message ?? "Replicate image request is invalid.",
                     validation.Field);
+            }
+
+            ReplicateImageSourcePayload? sourcePayload = null;
+            if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
+            {
+                var payload = ReplicateImageSourcePayload.FromResolvedMedia(resolvedMedia);
+                if (payload.Error is not null)
+                    return new FailedSubmitOutcome(payload.Error);
+                sourcePayload = payload.Payload;
             }
 
             var apiToken = _apiTokenProvider();

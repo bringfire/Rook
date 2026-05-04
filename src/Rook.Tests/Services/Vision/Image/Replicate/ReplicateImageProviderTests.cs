@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -88,6 +89,107 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
             Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
             Assert.Equal("model", failed.Error.Field);
             Assert.Contains("Unknown Replicate image model", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_prompt_only_fails_before_http_call()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider("r8-test-token", handler);
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                EmptyMedia(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("requires exactly one source image", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_rejects_reference_image_roles_before_http_call()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMedia(),
+                [MediaRef.ForPath("C:/tmp/ref.png", ImageMediaRoles.ReferenceImage)] = PngMedia(),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("reference_image_paths", failed.Error.Field);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Theory]
+        [InlineData("image/gif")]
+        [InlineData("application/octet-stream")]
+        public async Task SubmitAsync_flux2_rejects_unsupported_mime_before_http_call(string mimeType)
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = new ResolvedMedia(
+                    new byte[] { 0x47, 0x49, 0x46, 0x38 },
+                    mimeType),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("PNG, JPEG, or WebP", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_flux2_rejects_oversized_source_before_http_call()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var bytes = new byte[1024 * 1024 + 1];
+            bytes[0] = 0x89;
+            bytes[1] = 0x50;
+            bytes[2] = 0x4E;
+            bytes[3] = 0x47;
+            bytes[4] = 0x0D;
+            bytes[5] = 0x0A;
+            bytes[6] = 0x1A;
+            bytes[7] = 0x0A;
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = new ResolvedMedia(bytes, "image/png"),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: ReplicateImageCapabilities.Flux2Pro, resolution: "1MP", aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("too large", failed.Error.Message);
             Assert.Empty(handler.Requests);
         }
 
@@ -438,12 +540,13 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         private static ImageGenerationRequest Request(
             string model = ReplicateImageCapabilities.FluxSchnell,
             string aspectRatio = "1:1",
+            string resolution = "1K",
             ProviderOptions? options = null,
             System.Collections.Generic.IReadOnlyList<MediaRef>? referenceImages = null) =>
             new(
                 Model: model,
                 Prompt: "sunlit massing study",
-                Resolution: "1K",
+                Resolution: resolution,
                 AspectRatio: aspectRatio,
                 NumberOfImages: 1,
                 ReferenceImages: referenceImages,
@@ -451,6 +554,11 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
 
         private static System.Collections.Generic.IReadOnlyDictionary<MediaRef, ResolvedMedia> EmptyMedia() =>
             new System.Collections.Generic.Dictionary<MediaRef, ResolvedMedia>();
+
+        private static ResolvedMedia PngMedia() =>
+            new(
+                new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 },
+                "image/png");
 
         private static HttpResponseMessage Json(HttpStatusCode status, string json) =>
             new(status)
