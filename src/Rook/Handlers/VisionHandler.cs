@@ -738,9 +738,10 @@ namespace Rook.Handlers
                     }
                     var mediaRef = MediaRef.ForPath(path, ImageMediaRoles.ReferenceImage);
                     list.Add(mediaRef);
+                    var bytes = File.ReadAllBytes(path);
                     resolvedMedia[mediaRef] = new ResolvedMedia(
-                        File.ReadAllBytes(path),
-                        "image/png");
+                        bytes,
+                        ImageMimeDetector.Detect(bytes, path));
                 }
                 referenceRefs = list;
             }
@@ -756,7 +757,9 @@ namespace Rook.Handlers
             if (inputImagePath is not null && inputRef is not null)
             {
                 var inputBytes = File.ReadAllBytes(inputImagePath);
-                resolvedMedia[inputRef] = new ResolvedMedia(inputBytes, "image/png");
+                resolvedMedia[inputRef] = new ResolvedMedia(
+                    inputBytes,
+                    ImageMimeDetector.Detect(inputBytes, inputImagePath));
             }
 
             var imageRequest = new ImageGenerationRequest(
@@ -1407,18 +1410,7 @@ namespace Rook.Handlers
         }
 
         private static string GuessImageMimeFromExtension(string path)
-        {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            return ext switch
-            {
-                ".png" => "image/png",
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".webp" => "image/webp",
-                ".gif" => "image/gif",
-                ".bmp" => "image/bmp",
-                _ => "application/octet-stream",
-            };
-        }
+            => ImageMimeDetector.FromExtension(path);
 
         private static Bitmap ResizeToFit(Image src, int maxW, int maxH)
         {

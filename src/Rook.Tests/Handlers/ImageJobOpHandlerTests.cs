@@ -30,7 +30,7 @@ namespace Rook.Tests.Handlers
         {
             using var temp = TempDir.Create();
             var inputPath = Path.Combine(temp.Path, "input.png");
-            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
 
             ImageJobStartRequest? captured = null;
             var manager = new StubImageJobManager
@@ -114,7 +114,7 @@ namespace Rook.Tests.Handlers
         {
             using var temp = TempDir.Create();
             var inputPath = Path.Combine(temp.Path, "input.png");
-            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
             var handler = new ImageJobOpHandler(
                 new StubImageJobManager(),
                 NewVisionHandlerWithImageProvider(
@@ -198,7 +198,7 @@ namespace Rook.Tests.Handlers
         {
             using var temp = TempDir.Create();
             var referencePath = Path.Combine(temp.Path, "ref.png");
-            File.WriteAllBytes(referencePath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(referencePath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
             var handler = new ImageJobOpHandler(
                 new StubImageJobManager(),
                 NewVisionHandlerWithImageProvider(
