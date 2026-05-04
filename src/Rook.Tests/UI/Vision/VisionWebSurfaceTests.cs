@@ -731,6 +731,32 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_DisablesStudioReferencesForModelsWithZeroReferenceLimit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function updateStudioInputMode", js);
+            Assert.Contains("const maxReferences = model ? Number(model.max_reference_images || 0) : 0;", js);
+            Assert.Contains("const disableReferenceControls = maxReferences === 0;", js);
+            Assert.Contains("el.studioAddReferenceBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("el.studioClearReferencesBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("if (disableReferenceControls && studioReferences.length > 0) {", js);
+            Assert.Contains("studioReferences = [];", js);
+            Assert.Contains("renderReferencePreview(studioReferences, el.studioReferencePreview);", js);
+            Assert.Contains("updateStudioInputMode();", js);
+        }
+
+        [Fact]
+        public void AppJs_StudioOmitsReferencesForZeroReferenceModelsBeforeSubmit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("const model = selectedImageModel(el.studioModelSelect);", js);
+            Assert.Contains("if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {", js);
+            Assert.Contains("args.reference_image_paths = studioReferences.map(r => r.path);", js);
+        }
+
+        [Fact]
         public void AppJs_GenerateSyncRequiresCapturedViewportFilePath()
         {
             var js = ReadVisionResource("app.js");

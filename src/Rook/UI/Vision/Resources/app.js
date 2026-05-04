@@ -621,6 +621,10 @@ function selectedImageModel(selectEl) {
     return modelCatalog.find(m => imageModelOptionValue(m) === selected) || null;
 }
 
+function modelMaxReferenceImages(model) {
+    return model ? Number(model.max_reference_images || 0) : 0;
+}
+
 function normalizeImageModelDescriptor(m) {
     const cap = m.capability || {};
     return {
@@ -812,6 +816,19 @@ function updateGenerateInputMode() {
     }
 }
 
+function updateStudioInputMode() {
+    const model = selectedImageModel(el.studioModelSelect);
+    const maxReferences = model ? Number(model.max_reference_images || 0) : 0;
+    const disableReferenceControls = maxReferences === 0;
+    if (el.studioAddReferenceBtn) el.studioAddReferenceBtn.disabled = disableReferenceControls;
+    if (el.studioClearReferencesBtn) el.studioClearReferencesBtn.disabled = disableReferenceControls;
+
+    if (disableReferenceControls && studioReferences.length > 0) {
+        studioReferences = [];
+        renderReferencePreview(studioReferences, el.studioReferencePreview);
+    }
+}
+
 function populateImageModelDropdowns(models) {
     const generateModelValue = el.modelSelect && el.modelSelect.value;
     const studioModelValue = el.studioModelSelect && el.studioModelSelect.value;
@@ -824,6 +841,7 @@ function populateImageModelDropdowns(models) {
     restoreSelectValueIfSelectable(el.studioModelSelect, studioModelValue);
     syncResolutionOptions();
     updateGenerateInputMode();
+    updateStudioInputMode();
 }
 
 async function loadImageModels() {
@@ -972,6 +990,7 @@ async function studioGenerate() {
         showStudioStatus(modelError, "error");
         return;
     }
+    const model = selectedImageModel(el.studioModelSelect);
     setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, true);
     showStudioStatus("Generating image...", "info");
 
@@ -984,11 +1003,10 @@ async function studioGenerate() {
         const aspectRatio = selectedAspectRatio(el.studioAspectSelect);
         if (aspectRatio) args.aspect_ratio = aspectRatio;
         if (el.studioModelSelect.value) args.model = el.studioModelSelect.value;
-        if (studioReferences.length > 0) {
+        if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {
             args.reference_image_paths = studioReferences.map(r => r.path);
         }
 
-        const model = selectedImageModel(el.studioModelSelect);
         if (isAsyncImageJobModel(model)) {
             await studioGenerateImageJob(args, model);
             return;
@@ -1794,7 +1812,10 @@ function init() {
             el.studioSourceImage,
             el.studioAspectSelect));
     el.studioAspectSelect.addEventListener("change", refreshPreviewFraming);
-    el.studioModelSelect.addEventListener("change", syncResolutionOptions);
+    el.studioModelSelect.addEventListener("change", () => {
+        syncResolutionOptions();
+        updateStudioInputMode();
+    });
     el.studioEnhanceBtn.addEventListener("click", studioEnhancePrompt);
     el.studioGenerateBtn.addEventListener("click", studioGenerate);
     el.studioApproveBtn.addEventListener("click", () => approveCurrentArtifact(latestStudioArtifactId));
