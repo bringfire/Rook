@@ -702,6 +702,8 @@ namespace Rook.Tests.Handlers
                         Array.Empty<ImageJobRecord>(),
                         appliedLimit: limit));
             }
+
+            public void ReconcileInterruptedJobs() { }
         }
 
         private sealed class TempDir : IDisposable

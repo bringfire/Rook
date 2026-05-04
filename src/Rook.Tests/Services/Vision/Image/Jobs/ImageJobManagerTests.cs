@@ -611,6 +611,167 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal("result_artifact_id", fetch.Error.Field);
         }
 
+        [Theory]
+        [InlineData(ImageJobState.Queued)]
+        [InlineData(ImageJobState.Submitting)]
+        [InlineData(ImageJobState.Polling)]
+        [InlineData(ImageJobState.Materializing)]
+        public void ReconcileInterruptedJobs_MarksPriorNonTerminalRecordsInterrupted(
+            ImageJobState state)
+        {
+            var jobId = Guid.NewGuid();
+            var initial = ImageJobLedgerRecordFactory.FromInitial(
+                jobId,
+                GeminiImageCapabilities.ProviderName,
+                GeminiImageCapabilities.DefaultModel,
+                state,
+                _clock.UtcNow());
+            var stale = state == ImageJobState.Polling
+                ? ImageJobLedgerRecordFactory.WithState(
+                    initial,
+                    state,
+                    initial.UpdatedAt.AddSeconds(1),
+                    providerJobId: "provider-job-1")
+                : initial;
+            _ledger.Append(stale);
+            using var manager = Manager();
+
+            manager.ReconcileInterruptedJobs();
+
+            var latest = _ledger.AllRecords.Last(r => r.JobId == jobId);
+            Assert.Equal(ImageJobState.Interrupted, latest.State);
+            Assert.Equal(stale.ProviderJobId, latest.ProviderJobId);
+            Assert.Equal(GenerationErrorCode.Interrupted, latest.Error!.Code);
+            Assert.DoesNotContain("Submit", _provider.Calls);
+            Assert.DoesNotContain("GetStatus", _provider.Calls);
+        }
+
+        [Fact]
+        public void ReconcileInterruptedJobs_DoesNotTouchTerminalRecords()
+        {
+            var jobId = Guid.NewGuid();
+            var complete = ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    GeminiImageCapabilities.ProviderName,
+                    GeminiImageCapabilities.DefaultModel,
+                    ImageJobState.Queued,
+                    _clock.UtcNow()),
+                ImageJobState.Complete,
+                _clock.UtcNow().AddSeconds(1),
+                resultArtifactId: Guid.NewGuid());
+            _ledger.Append(complete);
+            using var manager = Manager();
+
+            manager.ReconcileInterruptedJobs();
+
+            Assert.Single(_ledger.AllRecords, r => r.JobId == jobId);
+        }
+
+        [Fact]
+        public async Task CancelAsync_AfterRestartInterruptedWithProviderJobId_CallsProviderCancelAndAppendsCancelled()
+        {
+            var jobId = Guid.NewGuid();
+            var interrupted = ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    GeminiImageCapabilities.ProviderName,
+                    GeminiImageCapabilities.DefaultModel,
+                    ImageJobState.Polling,
+                    _clock.UtcNow()),
+                ImageJobState.Interrupted,
+                _clock.UtcNow().AddSeconds(1),
+                providerJobId: "provider-job-cancel",
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true));
+            _ledger.Append(interrupted);
+            var cancelCalls = 0;
+            _provider.OnCancel = handle =>
+            {
+                cancelCalls++;
+                Assert.Equal("provider-job-cancel", handle.ProviderJobId);
+                Assert.Null(handle.CancelUrl);
+                Assert.Null(handle.StatusUrl);
+                Assert.Null(handle.ProviderResultToken);
+                return new CanceledOutcome();
+            };
+            using var manager = Manager();
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Cancelled, result.State);
+            Assert.Equal(1, cancelCalls);
+            Assert.Equal(
+                ImageJobState.Cancelled,
+                _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+        }
+
+        [Fact]
+        public async Task CancelAsync_AfterRestartInterruptedWithoutProviderJobId_ReturnsInterruptedUnchanged()
+        {
+            var jobId = Guid.NewGuid();
+            var interrupted = ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    GeminiImageCapabilities.ProviderName,
+                    GeminiImageCapabilities.DefaultModel,
+                    ImageJobState.Polling,
+                    _clock.UtcNow()),
+                ImageJobState.Interrupted,
+                _clock.UtcNow().AddSeconds(1),
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true));
+            _ledger.Append(interrupted);
+            using var manager = Manager();
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Interrupted, result.State);
+            Assert.DoesNotContain("Cancel", _provider.Calls);
+            Assert.Single(_ledger.AllRecords, r => r.JobId == jobId);
+        }
+
+        [Fact]
+        public async Task CancelAsync_AfterRestartRemoteCancelSucceedsButCancelledAppendFails_ReturnsFailureAndLeavesInterrupted()
+        {
+            var jobId = Guid.NewGuid();
+            var interrupted = ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    GeminiImageCapabilities.ProviderName,
+                    GeminiImageCapabilities.DefaultModel,
+                    ImageJobState.Polling,
+                    _clock.UtcNow()),
+                ImageJobState.Interrupted,
+                _clock.UtcNow().AddSeconds(1),
+                providerJobId: "provider-job-cancel-append-fails",
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true));
+            _ledger.Append(interrupted);
+            _provider.OnCancel = _ => new CanceledOutcome();
+            _ledger.BeforeAppend = record =>
+            {
+                if (record.State == ImageJobState.Cancelled)
+                    throw new IOException("cancelled append failed");
+            };
+            using var manager = Manager();
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, result.State);
+            Assert.NotNull(result.Error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, result.Error!.Code);
+            Assert.Equal(
+                ImageJobState.Interrupted,
+                _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+        }
+
         [Fact]
         public async Task GeneratePathStillRejectsAsyncProviderOutsideJobManager()
         {

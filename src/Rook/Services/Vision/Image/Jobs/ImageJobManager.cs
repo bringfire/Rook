@@ -191,6 +191,14 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (IsTerminal(latest.State))
                     return ImageJobCancelResult.Ok(latest.State);
 
+                var freshest = FindLatestMergedRecord(jobId);
+                if (freshest is not null
+                    && IsTerminal(freshest.State)
+                    && freshest.State != ImageJobState.Interrupted)
+                {
+                    return ImageJobCancelResult.Ok(freshest.State);
+                }
+
                 if (latest.ProviderHandle is { } handle)
                 {
                     var remote = await TryRemoteCancelAsync(
@@ -219,11 +227,18 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Ok(cancelled.State);
             }
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return ImageJobCancelResult.Fail(UnknownJob(jobId));
 
             if (IsTerminal(record.State))
+            {
+                if (record.State == ImageJobState.Interrupted)
+                    return await CancelInterruptedRecordAsync(record, ct)
+                        .ConfigureAwait(false);
+
                 return ImageJobCancelResult.Ok(record.State);
+            }
 
             if (record.ProviderHandle is { } providerHandle)
             {
@@ -250,6 +265,26 @@ namespace Rook.Services.Vision.Image.Jobs
 
             var localCancelled = TryTransitionToLocalCancelled(record, running: null);
             return ImageJobCancelResult.Ok(localCancelled.State);
+        }
+
+        public void ReconcileInterruptedJobs()
+        {
+            var read = _ledger.ReadAll();
+            var now = _clock.UtcNow();
+            foreach (var record in read.Records)
+            {
+                if (IsTerminal(record.State)) continue;
+
+                var interrupted = ImageJobLedgerRecordFactory.WithState(
+                    record,
+                    ImageJobState.Interrupted,
+                    now,
+                    error: new GenerationError(
+                        GenerationErrorCode.Interrupted,
+                        "Image job interrupted by plugin reload.",
+                        Retryable: true));
+                _ledger.Append(interrupted);
+            }
         }
 
         public Task<ImageJobFetchResult> FetchResultAsync(
@@ -950,6 +985,42 @@ namespace Rook.Services.Vision.Image.Jobs
                         "cancel",
                         outcome.GetType().Name));
             }
+        }
+
+        private async Task<ImageJobCancelResult> CancelInterruptedRecordAsync(
+            ImageJobRecord record,
+            CancellationToken ct)
+        {
+            if (record.ProviderHandle is not { } providerHandle
+                || string.IsNullOrWhiteSpace(providerHandle.ProviderJobId))
+            {
+                return ImageJobCancelResult.Ok(ImageJobState.Interrupted);
+            }
+
+            if (!ResolveProviderByName(record.Provider, out var provider))
+                return ImageJobCancelResult.Fail(InvalidRequest(
+                    $"Cannot cancel job {record.JobId:D}: provider '{record.Provider}' is no longer registered.",
+                    nameof(record.Provider)));
+
+            var handle = new ProviderJobHandle(providerHandle.ProviderJobId);
+            var remote = await TryRemoteCancelAsync(provider, handle, ct)
+                .ConfigureAwait(false);
+            if (remote.Error is not null)
+                return ImageJobCancelResult.Fail(remote.Error);
+            if (remote.AlreadyTerminal)
+                return ImageJobCancelResult.Ok(ImageJobState.Interrupted);
+
+            var durable = ImageJobLedgerRecordFactory.WithState(
+                ToLedgerRecord(record),
+                ImageJobState.Cancelled,
+                _clock.UtcNow(),
+                error: CancelledError());
+            if (!TryAppendLedger(durable, out var appendError))
+                return ImageJobCancelResult.Fail(appendError!);
+
+            var cancelled = FromLedgerRecord(durable);
+            _records[record.JobId] = cancelled;
+            return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
         }
 
         private bool ResolveProviderByName(

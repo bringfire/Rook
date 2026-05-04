@@ -19,5 +19,7 @@ namespace Rook.Services.Vision.Image.Jobs
             Guid jobId, CancellationToken ct);
 
         Task<ImageJobListResult> ListJobsAsync(int limit, CancellationToken ct);
+
+        void ReconcileInterruptedJobs();
     }
 }
