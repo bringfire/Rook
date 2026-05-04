@@ -550,6 +550,68 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task StatusAndList_SurviveNewManagerOverSameLedger()
+        {
+            using (var first = Manager())
+            {
+                var submit = await first.SubmitAsync(Start(), CancellationToken.None);
+                _ = await WaitForTerminalAsync(first, submit.JobId!.Value);
+            }
+            using var second = Manager();
+
+            var jobs = await second.ListJobsAsync(10, CancellationToken.None);
+            var record = Assert.Single(jobs.Jobs);
+            var status = await second.GetStatusAsync(record.JobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Complete, record.State);
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.NotNull(status.ResultArtifactId);
+        }
+
+        [Fact]
+        public async Task FetchResultAsync_AfterRestart_VerifiesArtifactExists()
+        {
+            Guid jobId;
+            Guid artifactId;
+            using (var first = Manager())
+            {
+                var submit = await first.SubmitAsync(Start(), CancellationToken.None);
+                var complete = await WaitForTerminalAsync(first, submit.JobId!.Value);
+                jobId = submit.JobId.Value;
+                artifactId = complete.ResultArtifactId!.Value;
+            }
+            using var second = Manager();
+
+            var fetch = await second.FetchResultAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Complete, fetch.State);
+            Assert.Equal(artifactId, fetch.ResultArtifactId);
+            Assert.Equal($"/blob/{artifactId:D}/image", Assert.Single(fetch.Files!).Path);
+        }
+
+        [Fact]
+        public async Task FetchResultAsync_AfterRestartMissingArtifact_ReturnsDependencyUnavailable()
+        {
+            Guid jobId;
+            Guid artifactId;
+            using (var first = Manager())
+            {
+                var submit = await first.SubmitAsync(Start(), CancellationToken.None);
+                var complete = await WaitForTerminalAsync(first, submit.JobId!.Value);
+                jobId = submit.JobId.Value;
+                artifactId = complete.ResultArtifactId!.Value;
+            }
+            Assert.True(_artifactStore.Delete(artifactId));
+            using var second = Manager();
+
+            var fetch = await second.FetchResultAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, fetch.State);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, fetch.Error!.Code);
+            Assert.Equal("result_artifact_id", fetch.Error.Field);
+        }
+
+        [Fact]
         public async Task GeneratePathStillRejectsAsyncProviderOutsideJobManager()
         {
             var inputPath = Path.Combine(_root, "input.png");

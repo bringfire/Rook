@@ -168,7 +168,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ImageJobState.Error,
                     InvalidRequest("JobId must be non-empty.", nameof(jobId))));
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return Task.FromResult(ImageJobStatusResult.Failed(
                     ImageJobState.Error,
                     UnknownJob(jobId)));
@@ -260,7 +261,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ImageJobState.Error,
                     InvalidRequest("JobId must be non-empty.", nameof(jobId))));
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return Task.FromResult(ImageJobFetchResult.Failed(
                     ImageJobState.Error,
                     UnknownJob(jobId)));
@@ -312,7 +314,26 @@ namespace Rook.Services.Vision.Image.Jobs
         public Task<ImageJobListResult> ListJobsAsync(int limit, CancellationToken ct)
         {
             var appliedLimit = Math.Min(MaxListLimit, Math.Max(1, limit));
-            var jobs = _records.Values
+            var merged = new Dictionary<Guid, ImageJobRecord>();
+
+            var read = _ledger.ReadAll();
+            foreach (var record in read.Records)
+                merged[record.JobId] = FromLedgerRecord(record);
+
+            foreach (var record in _records.Values)
+                merged[record.JobId] = FreshestForRead(
+                    record,
+                    merged.TryGetValue(record.JobId, out var existing) ? existing : null)!;
+
+            foreach (var running in _runningJobs.Values)
+            {
+                var record = running.LatestRecord;
+                merged[record.JobId] = FreshestForRead(
+                    record,
+                    merged.TryGetValue(record.JobId, out var existing) ? existing : null)!;
+            }
+
+            var jobs = merged.Values
                 .OrderByDescending(r => r.UpdatedAt)
                 .ThenByDescending(r => r.JobId)
                 .Take(appliedLimit)
@@ -960,6 +981,50 @@ namespace Rook.Services.Vision.Image.Jobs
               or ImageJobState.Error
               or ImageJobState.Cancelled
               or ImageJobState.Interrupted;
+
+        private ImageJobRecord? FindLatestMergedRecord(Guid jobId)
+        {
+            _runningJobs.TryGetValue(jobId, out var running);
+            var live = running?.LatestRecord
+                ?? (_records.TryGetValue(jobId, out var local) ? local : null);
+            var durable = FindDurableRecord(jobId);
+            return FreshestForRead(live, durable);
+        }
+
+        private ImageJobRecord? FindDurableRecord(Guid jobId)
+        {
+            var read = _ledger.ReadAll();
+            foreach (var record in read.Records)
+                if (record.JobId == jobId)
+                    return FromLedgerRecord(record);
+            return null;
+        }
+
+        private static ImageJobRecord? FreshestForRead(
+            ImageJobRecord? live,
+            ImageJobRecord? durable)
+        {
+            if (live is null) return durable;
+            if (durable is null) return live;
+            if (durable.UpdatedAt > live.UpdatedAt) return durable;
+            if (live.UpdatedAt > durable.UpdatedAt) return live;
+            if (IsTerminal(durable.State)) return durable;
+            return live;
+        }
+
+        private static ImageJobRecord FromLedgerRecord(ImageJobLedgerRecord record) =>
+            new(
+                record.JobId,
+                record.State,
+                record.Model,
+                record.Provider,
+                createdAt: record.CreatedAt,
+                updatedAt: record.UpdatedAt,
+                providerHandle: string.IsNullOrWhiteSpace(record.ProviderJobId)
+                    ? null
+                    : new ProviderJobHandle(record.ProviderJobId),
+                resultArtifactId: record.ResultArtifactId,
+                error: record.Error);
 
         private ImageJobRecord LatestRecord(
             Guid jobId,
