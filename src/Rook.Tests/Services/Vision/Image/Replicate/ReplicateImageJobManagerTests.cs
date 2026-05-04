@@ -135,6 +135,81 @@ namespace Rook.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task Flux2_job_materializes_without_leaking_data_uri_to_ledger_or_artifact_metadata()
+        {
+            string? submitBody = null;
+            var apiHandler = new TestHttpMessageHandler
+            {
+                OnSend = request =>
+                {
+                    if (request.Method == HttpMethod.Post)
+                    {
+                        submitBody = request.Content!
+                            .ReadAsStringAsync()
+                            .GetAwaiter()
+                            .GetResult();
+                        return Json(
+                            HttpStatusCode.Created,
+                            Prediction("pred-flux2", "starting"));
+                    }
+
+                    return Json(
+                        HttpStatusCode.OK,
+                        Prediction(
+                            "pred-flux2",
+                            "succeeded",
+                            outputJson: "\"https://replicate.delivery/pbxt/flux2.png\""));
+                },
+            };
+            var outputHandler = new CapturingOutputHandler();
+            using var manager = Manager(
+                apiHandler,
+                outputHandler,
+                providerApiToken: ProviderApiToken,
+                selectorApiToken: SelectorApiToken);
+
+            var submit = await manager.SubmitAsync(
+                Flux2Start(),
+                CancellationToken.None);
+            var status = await WaitForTerminalAsync(
+                manager,
+                submit.JobId!.Value);
+            var fetch = await manager.FetchResultAsync(
+                submit.JobId.Value,
+                CancellationToken.None);
+
+            Assert.Contains("data:image/png;base64,", submitBody);
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Equal(ImageJobState.Complete, fetch.State);
+
+            var artifact = _artifactStore.Get(status.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            var artifactMetadata = MetadataJson(artifact!);
+            Assert.DoesNotContain(
+                "data:image/",
+                artifactMetadata,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "input.png",
+                artifactMetadata,
+                StringComparison.OrdinalIgnoreCase);
+
+            var ledgerJson = JsonSerializer.Serialize(_ledger.AllRecords);
+            Assert.DoesNotContain(
+                "data:image/",
+                ledgerJson,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "sunlit massing study",
+                ledgerJson,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "replicate.delivery",
+                ledgerJson,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task Missing_selector_token_fails_before_output_fetch()
         {
             var apiHandler = new TestHttpMessageHandler
@@ -277,6 +352,40 @@ namespace Rook.Services.Vision.Image.Replicate
                     Options: new ReplicateImageOptions()),
                 new Dictionary<MediaRef, ResolvedMedia>(),
                 Array.Empty<Guid>());
+
+        private static ImageJobStartRequest Flux2Start()
+        {
+            var input = MediaRef.ForPath(
+                "C:/tmp/input.png",
+                ImageMediaRoles.InputImage);
+            return new ImageJobStartRequest(
+                new ImageGenerationRequest(
+                    Model: ReplicateImageCapabilities.Flux2Pro,
+                    Prompt: "sunlit massing study",
+                    Resolution: "1MP",
+                    AspectRatio: "match_input_image",
+                    NumberOfImages: 1,
+                    ReferenceImages: null,
+                    Options: new ReplicateImageOptions()),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [input] = new ResolvedMedia(
+                        new byte[]
+                        {
+                            0x89,
+                            0x50,
+                            0x4E,
+                            0x47,
+                            0x0D,
+                            0x0A,
+                            0x1A,
+                            0x0A,
+                            0x00,
+                        },
+                        "image/png"),
+                },
+                Array.Empty<Guid>());
+        }
 
         private static ResultArtifact RemoteArtifact(string url) =>
             new(

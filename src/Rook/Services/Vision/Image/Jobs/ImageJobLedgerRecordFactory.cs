@@ -27,6 +27,7 @@ namespace Rook.Services.Vision.Image.Jobs
             "cancel_url",
             "response_url",
             "provider_result_token",
+            "data:image/",
             "Bearer ",
             "api_token",
             "r8_",

@@ -586,6 +586,29 @@ namespace Rook.Tests.Handlers
                 expectedHttp: 400);
         }
 
+        [Fact]
+        public void DispatchOffUi_Status_DoesNotExposeDataUriInError()
+        {
+            var manager = new StubImageJobManager
+            {
+                StatusImpl = _ => ImageJobStatusResult.Failed(
+                    ImageJobState.Error,
+                    new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "Provider rejected data:image/png;base64,abcdef",
+                        Retryable: false)),
+            };
+            var handler = new ImageJobOpHandler(manager, NewVisionHandler());
+
+            var response = handler.DispatchOffUi(StatusBody());
+
+            var payload = JsonSerializer.Serialize(response);
+            Assert.DoesNotContain(
+                "data:image/",
+                payload,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private static VisionHandler NewVisionHandler() => new();
 
         private static VisionHandler NewVisionHandlerWithImageProvider(

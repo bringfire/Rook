@@ -94,6 +94,37 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public void WithState_redacts_data_uri_in_error_message()
+        {
+            var initial = ImageJobLedgerRecordFactory.FromInitial(
+                Guid.Parse("55555555-5555-5555-5555-555555555555"),
+                "replicate",
+                "black-forest-labs/flux-2-pro",
+                ImageJobState.Polling,
+                DateTimeOffset.Parse("2026-05-04T12:00:00Z"));
+            var error = new GenerationError(
+                GenerationErrorCode.ExecutionFailed,
+                "Provider rejected data:image/png;base64,abcdef",
+                Retryable: false);
+
+            var next = ImageJobLedgerRecordFactory.WithState(
+                initial,
+                ImageJobState.Error,
+                initial.UpdatedAt.AddSeconds(1),
+                error: error);
+
+            Assert.NotNull(next.Error);
+            Assert.DoesNotContain(
+                "data:image/",
+                next.Error!.Message,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(
+                "redacted",
+                next.Error.Message,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public void WithState_drops_long_provider_error_code()
         {
             var initial = ImageJobLedgerRecordFactory.FromInitial(
