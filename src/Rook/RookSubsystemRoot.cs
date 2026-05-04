@@ -84,10 +84,15 @@ namespace Rook
         }
 
         private int _reconcileFired = 0;
+        private int _imageReconcileFired = 0;
         private int _disposed = 0;
 
         private RookSubsystemRoot()
-            : this(artifactStore: null, generationSecretStore: null, ledger: null) { }
+            : this(
+                artifactStore: null,
+                generationSecretStore: null,
+                ledger: null,
+                imageLedger: null) { }
 
         /// <summary>
         /// Test seam — production callers use <see cref="Instance"/>.
@@ -99,7 +104,8 @@ namespace Rook
         internal RookSubsystemRoot(
             ArtifactStore? artifactStore,
             IGenerationSecretStore? generationSecretStore,
-            IVideoJobLedger? ledger)
+            IVideoJobLedger? ledger,
+            IImageJobLedger? imageLedger)
         {
             SharedArtifactStore = artifactStore ?? new ArtifactStore();
             SharedGenerationSecretStore = generationSecretStore
@@ -126,7 +132,13 @@ namespace Rook
                     var manager = new ImageJobManager(
                         registry,
                         SharedArtifactStore,
-                        requestFactorySelector: selector.Select);
+                        clock: null,
+                        idGenerator: null,
+                        pollInterval: null,
+                        maxConcurrentJobs: ImageJobManager.DefaultMaxConcurrentJobs,
+                        materializer: null,
+                        requestFactorySelector: selector.Select,
+                        ledger: imageLedger ?? new JsonlImageJobLedger());
                     return new ImageJobSubsystemBundle(manager, registry);
                 },
                 LazyThreadSafetyMode.ExecutionAndPublication);
@@ -166,6 +178,22 @@ namespace Rook
             catch
             {
                 Volatile.Write(ref _reconcileFired, 0);
+                throw;
+            }
+        }
+
+        public void ReconcileImageJobsOnce()
+        {
+            if (Interlocked.CompareExchange(ref _imageReconcileFired, 1, 0) != 0)
+                return;
+
+            try
+            {
+                ImageJobs.Manager.ReconcileInterruptedJobs();
+            }
+            catch
+            {
+                Volatile.Write(ref _imageReconcileFired, 0);
                 throw;
             }
         }

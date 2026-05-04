@@ -221,6 +221,19 @@ namespace Rook
                             $"Reason: {ex.GetType().Name}.");
                     }
 
+                    try
+                    {
+                        RookSubsystemRoot.Instance.ReconcileImageJobsOnce();
+                        TraceStartup("Image job subsystem reconciled (or no-op)");
+                    }
+                    catch (Exception ex)
+                    {
+                        TraceStartup($"Image job reconcile failed (non-fatal): {ex.GetType().Name}: {ex.Message}");
+                        RhinoApp.WriteLine(
+                            "Rook: image job reconcile failed at startup; continuing without reconcile. " +
+                            $"Reason: {ex.GetType().Name}.");
+                    }
+
                     RhinoApp.Idle -= EnsureNativeGhBridgeRegistered;
                     StopStartupRetries();
                     TraceStartup("GH bridge registered — companion startup complete");
