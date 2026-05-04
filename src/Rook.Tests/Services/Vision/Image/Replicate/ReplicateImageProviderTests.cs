@@ -194,6 +194,71 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
+        public async Task SubmitAsync_flux2_posts_source_image_schema_with_data_uri_only_in_request_body()
+        {
+            string? requestBody = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    requestBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.Created, """
+                        {
+                          "id": "pred-flux2",
+                          "status": "starting",
+                          "urls": {
+                            "get": "https://api.replicate.com/v1/predictions/pred-flux2",
+                            "cancel": "https://api.replicate.com/v1/predictions/pred-flux2/cancel"
+                          }
+                        }
+                        """);
+                },
+            };
+            var provider = Provider("r8-test-token", handler);
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMedia(),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: ReplicateImageCapabilities.Flux2Pro,
+                    resolution: "1MP",
+                    aspectRatio: "match_input_image"),
+                media,
+                CancellationToken.None);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(
+                "https://api.replicate.com/v1/models/black-forest-labs/flux-2-pro/predictions",
+                request.RequestUri!.ToString());
+
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(requestBody!));
+            Assert.Equal(new[] { "input" }, root.Select(kvp => kvp.Key).OrderBy(k => k));
+            var inputJson = Assert.IsType<JsonObject>(root["input"]);
+            Assert.Equal(
+                new[] { "aspect_ratio", "input_images", "output_format", "prompt", "resolution" },
+                inputJson.Select(kvp => kvp.Key).OrderBy(k => k));
+            Assert.Equal("sunlit massing study", inputJson["prompt"]!.GetValue<string>());
+            Assert.Equal("match_input_image", inputJson["aspect_ratio"]!.GetValue<string>());
+            Assert.Equal("1MP", inputJson["resolution"]!.GetValue<string>());
+            Assert.Equal("png", inputJson["output_format"]!.GetValue<string>());
+
+            var images = Assert.IsType<JsonArray>(inputJson["input_images"]);
+            var image = Assert.Single(images);
+            var dataUri = image!.GetValue<string>();
+            Assert.StartsWith("data:image/png;base64,", dataUri, StringComparison.Ordinal);
+            Assert.DoesNotContain("num_outputs", requestBody);
+            Assert.DoesNotContain("reference", requestBody);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("pred-flux2", queued.Handle.ProviderJobId);
+            Assert.DoesNotContain("data:image/", JsonNode.Parse(requestBody!)!["input"]!.ToJsonString().Replace(dataUri, ""));
+        }
+
+        [Fact]
         public async Task SubmitAsync_posts_official_model_endpoint_and_exact_body()
         {
             string? requestBody = null;

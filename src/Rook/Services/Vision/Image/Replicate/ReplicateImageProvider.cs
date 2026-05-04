@@ -12,8 +12,11 @@ namespace Rook.Services.Vision.Image.Replicate
 {
     public sealed class ReplicateImageProvider : IImageProvider
     {
-        private static readonly ReplicatePredictionEndpoint Endpoint =
+        private static readonly ReplicatePredictionEndpoint FluxSchnellEndpoint =
             ReplicatePredictionEndpoint.OfficialModel("black-forest-labs", "flux-schnell");
+
+        private static readonly ReplicatePredictionEndpoint Flux2ProEndpoint =
+            ReplicatePredictionEndpoint.OfficialModel("black-forest-labs", "flux-2-pro");
 
         private readonly Func<string?> _apiTokenProvider;
         private readonly ReplicateApiClient _client;
@@ -79,8 +82,8 @@ namespace Rook.Services.Vision.Image.Replicate
             {
                 response = await _client.CreatePredictionAsync(
                         apiToken!,
-                        Endpoint,
-                        BuildRequestJson(request),
+                        EndpointForModel(request.Model),
+                        BuildRequestJson(request, sourcePayload),
                         ct)
                     .ConfigureAwait(false);
             }
@@ -309,7 +312,22 @@ namespace Rook.Services.Vision.Image.Replicate
                         CopyMetadata(handle.ProviderMetadata))));
         }
 
-        private static string BuildRequestJson(ImageGenerationRequest request)
+        private static ReplicatePredictionEndpoint EndpointForModel(string model) =>
+            string.Equals(model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal)
+                ? Flux2ProEndpoint
+                : FluxSchnellEndpoint;
+
+        private static string BuildRequestJson(
+            ImageGenerationRequest request,
+            ReplicateImageSourcePayload? sourcePayload)
+        {
+            if (string.Equals(request.Model, ReplicateImageCapabilities.Flux2Pro, StringComparison.Ordinal))
+                return BuildFlux2ProRequestJson(request, sourcePayload);
+
+            return BuildFluxSchnellRequestJson(request);
+        }
+
+        private static string BuildFluxSchnellRequestJson(ImageGenerationRequest request)
         {
             var input = new JsonObject
             {
@@ -318,6 +336,31 @@ namespace Rook.Services.Vision.Image.Replicate
                     ? "1:1"
                     : request.AspectRatio,
                 ["num_outputs"] = 1,
+                ["output_format"] = "png",
+            };
+
+            return new JsonObject
+            {
+                ["input"] = input,
+            }.ToJsonString();
+        }
+
+        private static string BuildFlux2ProRequestJson(
+            ImageGenerationRequest request,
+            ReplicateImageSourcePayload? sourcePayload)
+        {
+            if (sourcePayload is null)
+                throw new InvalidOperationException("Flux 2 Pro source payload was not prepared.");
+
+            var inputImages = new JsonArray { sourcePayload.DataUri };
+            var input = new JsonObject
+            {
+                ["prompt"] = request.Prompt,
+                ["input_images"] = inputImages,
+                ["aspect_ratio"] = "match_input_image",
+                ["resolution"] = string.IsNullOrWhiteSpace(request.Resolution)
+                    ? "1MP"
+                    : request.Resolution,
                 ["output_format"] = "png",
             };
 
