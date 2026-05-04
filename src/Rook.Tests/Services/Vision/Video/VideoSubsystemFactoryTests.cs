@@ -4,8 +4,11 @@ using System.Threading;
 using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
+using Rook.Services.Vision.Image.Gemini;
+using Rook.Services.Vision.Image.Jobs;
 using Rook.Services.Vision.Video;
 using Rook.Services.Vision.Video.Fal;
+using Rook.Tests.Services.Vision.Image.Jobs;
 using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video
@@ -235,11 +238,14 @@ namespace Rook.Tests.Services.Vision.Video
     /// </summary>
     public class RookSubsystemRootLifecycleTests
     {
-        private static RookSubsystemRoot FreshRoot(IVideoJobLedger? ledger = null) =>
+        private static RookSubsystemRoot FreshRoot(
+            IVideoJobLedger? ledger = null,
+            IImageJobLedger? imageLedger = null) =>
             new(
                 artifactStore: new ArtifactStore(),
                 generationSecretStore: new DpapiGenerationSecretStore(),
-                ledger: ledger ?? new FakeVideoJobLedger());
+                ledger: ledger ?? new FakeVideoJobLedger(),
+                imageLedger: imageLedger ?? new FakeImageJobLedger());
 
         [Fact]
         public void Ctor_BuildsVisionSecretStoreAsShimOverSharedGenerationSecretStore()
@@ -248,7 +254,8 @@ namespace Rook.Tests.Services.Vision.Video
             var root = new RookSubsystemRoot(
                 artifactStore: new ArtifactStore(),
                 generationSecretStore: generationSecrets,
-                ledger: new FakeVideoJobLedger());
+                ledger: new FakeVideoJobLedger(),
+                imageLedger: new FakeImageJobLedger());
 
             var shimField = typeof(VisionSecretStore).GetField(
                 "_generationSecrets",
@@ -437,6 +444,43 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.Throws<ObjectDisposedException>(
                 () => root.ReconcileVideoJobsOnce());
+        }
+
+        [Fact]
+        public void ReconcileImageJobsOnce_RepeatedCalls_OnlyFireOnce()
+        {
+            var fakeImageLedger = new FakeImageJobLedger();
+            var jobId = Guid.NewGuid();
+            fakeImageLedger.Append(ImageJobLedgerRecordFactory.FromInitial(
+                jobId,
+                GeminiImageCapabilities.ProviderName,
+                GeminiImageCapabilities.DefaultModel,
+                ImageJobState.Polling,
+                DateTimeOffset.UtcNow));
+
+            var root = FreshRoot(imageLedger: fakeImageLedger);
+            try
+            {
+                root.ReconcileImageJobsOnce();
+                root.ReconcileImageJobsOnce();
+                root.ReconcileImageJobsOnce();
+
+                var interruptedCount = fakeImageLedger.AllRecords
+                    .Count(r => r.State == ImageJobState.Interrupted
+                                && r.JobId == jobId);
+                Assert.Equal(1, interruptedCount);
+            }
+            finally { root.DisposeVideoSubsystemIfCreated(); }
+        }
+
+        [Fact]
+        public void ReconcileImageJobsOnce_AfterDispose_ThrowsObjectDisposed()
+        {
+            var root = FreshRoot();
+            root.DisposeVideoSubsystemIfCreated();
+
+            Assert.Throws<ObjectDisposedException>(
+                () => root.ReconcileImageJobsOnce());
         }
 
         private static VideoJobRecord MakePollingRecord()

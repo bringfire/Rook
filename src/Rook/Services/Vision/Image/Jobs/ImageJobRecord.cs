@@ -10,6 +10,7 @@ namespace Rook.Services.Vision.Image.Jobs
             ImageJobState state,
             string? model,
             string? provider,
+            DateTimeOffset createdAt,
             DateTimeOffset updatedAt,
             ProviderJobHandle? providerHandle = null,
             Guid? resultArtifactId = null,
@@ -23,6 +24,7 @@ namespace Rook.Services.Vision.Image.Jobs
             State = state;
             Model = model ?? string.Empty;
             Provider = provider ?? string.Empty;
+            CreatedAt = createdAt;
             UpdatedAt = updatedAt;
             ProviderHandle = providerHandle;
             ResultArtifactId = resultArtifactId;
@@ -33,6 +35,7 @@ namespace Rook.Services.Vision.Image.Jobs
         public ImageJobState State { get; }
         public string Model { get; }
         public string Provider { get; }
+        public DateTimeOffset CreatedAt { get; }
         public DateTimeOffset UpdatedAt { get; }
         public ProviderJobHandle? ProviderHandle { get; }
         public Guid? ResultArtifactId { get; }

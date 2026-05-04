@@ -63,12 +63,14 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 ImageJobState.Queued,
                 "model",
                 "provider",
+                updatedAt,
                 updatedAt);
 
             Assert.Equal(jobId, record.JobId);
             Assert.Equal(ImageJobState.Queued, record.State);
             Assert.Equal("model", record.Model);
             Assert.Equal("provider", record.Provider);
+            Assert.Equal(updatedAt, record.CreatedAt);
             Assert.Equal(updatedAt, record.UpdatedAt);
             Assert.Null(record.ProviderHandle);
             Assert.Null(record.ResultArtifactId);

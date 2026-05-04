@@ -28,6 +28,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly ImageArtifactMaterializer _materializer;
         private readonly IImageJobClock _clock;
         private readonly IImageJobIdGenerator _idGenerator;
+        private readonly IImageJobLedger _ledger;
         private readonly ImageArtifactRequestFactorySelector? _requestFactorySelector;
         private readonly TimeSpan _pollInterval;
         private readonly SemaphoreSlim _concurrency;
@@ -53,7 +54,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 pollInterval,
                 maxConcurrentJobs,
                 materializer: null,
-                requestFactorySelector: null)
+                requestFactorySelector: null,
+                ledger: null)
         {
         }
 
@@ -69,7 +71,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 pollInterval: null,
                 maxConcurrentJobs: DefaultMaxConcurrentJobs,
                 materializer: null,
-                requestFactorySelector: requestFactorySelector)
+                requestFactorySelector: requestFactorySelector,
+                ledger: null)
         {
         }
 
@@ -81,7 +84,8 @@ namespace Rook.Services.Vision.Image.Jobs
             TimeSpan? pollInterval,
             int maxConcurrentJobs,
             ImageArtifactMaterializer? materializer,
-            ImageArtifactRequestFactorySelector? requestFactorySelector)
+            ImageArtifactRequestFactorySelector? requestFactorySelector,
+            IImageJobLedger? ledger = null)
         {
             if (maxConcurrentJobs <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -93,6 +97,7 @@ namespace Rook.Services.Vision.Image.Jobs
             _materializer = materializer ?? new ImageArtifactMaterializer();
             _clock = clock ?? new SystemImageJobClock();
             _idGenerator = idGenerator ?? new GuidImageJobIdGenerator();
+            _ledger = ledger ?? new JsonlImageJobLedger();
             _requestFactorySelector = requestFactorySelector;
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -126,12 +131,23 @@ namespace Rook.Services.Vision.Image.Jobs
                     Field: validation.Field)));
 
             var jobId = _idGenerator.NewJobId();
+            var now = _clock.UtcNow();
             var initial = new ImageJobRecord(
                 jobId,
                 ImageJobState.Queued,
                 model.ModelId,
                 model.ProviderName,
-                _clock.UtcNow());
+                createdAt: now,
+                updatedAt: now);
+            var durable = ImageJobLedgerRecordFactory.FromInitial(
+                jobId,
+                model.ProviderName,
+                model.ModelId,
+                ImageJobState.Queued,
+                now);
+            if (!TryAppendLedger(durable, out var appendError))
+                return Task.FromResult(ImageJobSubmitResult.Fail(appendError!));
+
             _records[jobId] = initial;
 
             var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
@@ -152,7 +168,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ImageJobState.Error,
                     InvalidRequest("JobId must be non-empty.", nameof(jobId))));
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return Task.FromResult(ImageJobStatusResult.Failed(
                     ImageJobState.Error,
                     UnknownJob(jobId)));
@@ -173,6 +190,14 @@ namespace Rook.Services.Vision.Image.Jobs
                 var latest = LatestRecord(jobId, running.LatestRecord);
                 if (IsTerminal(latest.State))
                     return ImageJobCancelResult.Ok(latest.State);
+
+                var freshest = FindLatestMergedRecord(jobId);
+                if (freshest is not null
+                    && IsTerminal(freshest.State)
+                    && freshest.State != ImageJobState.Interrupted)
+                {
+                    return ImageJobCancelResult.Ok(freshest.State);
+                }
 
                 if (latest.ProviderHandle is { } handle)
                 {
@@ -197,16 +222,25 @@ namespace Rook.Services.Vision.Image.Jobs
                     return ImageJobCancelResult.Ok(latest.State);
 
                 var cancelled = TryTransitionToLocalCancelled(latest, running);
-                if (cancelled.State == ImageJobState.Cancelled)
+                if (cancelled.AppendError is not null)
+                    return ImageJobCancelResult.Fail(cancelled.AppendError);
+                if (cancelled.Record.State == ImageJobState.Cancelled)
                     try { running.Cts.Cancel(); } catch { }
-                return ImageJobCancelResult.Ok(cancelled.State);
+                return ImageJobCancelResult.Ok(cancelled.Record.State);
             }
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return ImageJobCancelResult.Fail(UnknownJob(jobId));
 
             if (IsTerminal(record.State))
+            {
+                if (record.State == ImageJobState.Interrupted)
+                    return await CancelInterruptedRecordAsync(record, ct)
+                        .ConfigureAwait(false);
+
                 return ImageJobCancelResult.Ok(record.State);
+            }
 
             if (record.ProviderHandle is { } providerHandle)
             {
@@ -232,7 +266,29 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Ok(record.State);
 
             var localCancelled = TryTransitionToLocalCancelled(record, running: null);
-            return ImageJobCancelResult.Ok(localCancelled.State);
+            if (localCancelled.AppendError is not null)
+                return ImageJobCancelResult.Fail(localCancelled.AppendError);
+            return ImageJobCancelResult.Ok(localCancelled.Record.State);
+        }
+
+        public void ReconcileInterruptedJobs()
+        {
+            var read = _ledger.ReadAll();
+            var now = _clock.UtcNow();
+            foreach (var record in read.Records)
+            {
+                if (IsTerminal(record.State)) continue;
+
+                var interrupted = ImageJobLedgerRecordFactory.WithState(
+                    record,
+                    ImageJobState.Interrupted,
+                    now,
+                    error: new GenerationError(
+                        GenerationErrorCode.Interrupted,
+                        "Image job interrupted by plugin reload.",
+                        Retryable: true));
+                _ledger.Append(interrupted);
+            }
         }
 
         public Task<ImageJobFetchResult> FetchResultAsync(
@@ -244,7 +300,8 @@ namespace Rook.Services.Vision.Image.Jobs
                     ImageJobState.Error,
                     InvalidRequest("JobId must be non-empty.", nameof(jobId))));
 
-            if (!_records.TryGetValue(jobId, out var record))
+            var record = FindLatestMergedRecord(jobId);
+            if (record is null)
                 return Task.FromResult(ImageJobFetchResult.Failed(
                     ImageJobState.Error,
                     UnknownJob(jobId)));
@@ -296,7 +353,26 @@ namespace Rook.Services.Vision.Image.Jobs
         public Task<ImageJobListResult> ListJobsAsync(int limit, CancellationToken ct)
         {
             var appliedLimit = Math.Min(MaxListLimit, Math.Max(1, limit));
-            var jobs = _records.Values
+            var merged = new Dictionary<Guid, ImageJobRecord>();
+
+            var read = _ledger.ReadAll();
+            foreach (var record in read.Records)
+                merged[record.JobId] = FromLedgerRecord(record);
+
+            foreach (var record in _records.Values)
+                merged[record.JobId] = FreshestForRead(
+                    record,
+                    merged.TryGetValue(record.JobId, out var existing) ? existing : null)!;
+
+            foreach (var running in _runningJobs.Values)
+            {
+                var record = running.LatestRecord;
+                merged[record.JobId] = FreshestForRead(
+                    record,
+                    merged.TryGetValue(record.JobId, out var existing) ? existing : null)!;
+            }
+
+            var jobs = merged.Values
                 .OrderByDescending(r => r.UpdatedAt)
                 .ThenByDescending(r => r.JobId)
                 .Take(appliedLimit)
@@ -322,7 +398,17 @@ namespace Rook.Services.Vision.Image.Jobs
                 await _concurrency.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    current = Transition(current, ImageJobState.Submitting);
+                    if (!TryTransitionWithLedger(
+                            current,
+                            ImageJobState.Submitting,
+                            out current,
+                            out var appendError))
+                    {
+                        running.LatestRecord = appendError is null
+                            ? current
+                            : MarkAppendFailure(current, appendError);
+                        return;
+                    }
                     running.LatestRecord = current;
 
                     var submit = await provider.SubmitAsync(
@@ -334,10 +420,10 @@ namespace Rook.Services.Vision.Image.Jobs
                     switch (submit)
                     {
                         case FailedSubmitOutcome failed:
-                            current = Transition(
+                            current = TransitionOrMarkAppendFailure(
                                 current,
                                 ImageJobState.Error,
-                                error: failed.Error);
+                                failed.Error);
                             running.LatestRecord = current;
                             return;
 
@@ -351,18 +437,33 @@ namespace Rook.Services.Vision.Image.Jobs
                             return;
 
                         case QueuedSubmitOutcome queued:
-                            current = Transition(
-                                current,
-                                ImageJobState.Polling,
-                                providerHandle: queued.Handle);
+                            if (!TryTransitionWithLedger(
+                                    current,
+                                    ImageJobState.Polling,
+                                    out current,
+                                    out appendError,
+                                    providerHandle: queued.Handle))
+                            {
+                                if (appendError is not null)
+                                {
+                                    _ = await TryRemoteCancelAsync(
+                                            provider,
+                                            queued.Handle,
+                                            CancellationToken.None)
+                                        .ConfigureAwait(false);
+                                    current = MarkAppendFailure(current, appendError);
+                                }
+                                running.LatestRecord = current;
+                                return;
+                            }
                             running.LatestRecord = current;
                             break;
 
                         default:
-                            current = Transition(
+                            current = TransitionOrMarkAppendFailure(
                                 current,
                                 ImageJobState.Error,
-                                error: UnknownOutcomeError(
+                                UnknownOutcomeError(
                                     "submit",
                                     submit.GetType().Name));
                             running.LatestRecord = current;
@@ -385,26 +486,34 @@ namespace Rook.Services.Vision.Image.Jobs
 
                             case ProviderCompleteStatusOutcome complete:
                                 handle = complete.UpdatedHandle;
-                                current = Transition(
-                                    current,
-                                    ImageJobState.Materializing,
-                                    providerHandle: handle);
+                                if (!TryTransitionWithLedger(
+                                        current,
+                                        ImageJobState.Materializing,
+                                        out current,
+                                        out appendError,
+                                        providerHandle: handle))
+                                {
+                                    running.LatestRecord = appendError is null
+                                        ? current
+                                        : MarkAppendFailure(current, appendError);
+                                    return;
+                                }
                                 running.LatestRecord = current;
                                 break;
 
                             case FailedStatusOutcome failed:
-                                current = Transition(
+                                current = TransitionOrMarkAppendFailure(
                                     current,
                                     ImageJobState.Error,
-                                    error: failed.Error);
+                                    failed.Error);
                                 running.LatestRecord = current;
                                 return;
 
                             default:
-                                current = Transition(
+                                current = TransitionOrMarkAppendFailure(
                                     current,
                                     ImageJobState.Error,
-                                    error: UnknownOutcomeError(
+                                    UnknownOutcomeError(
                                         "status",
                                         status.GetType().Name));
                                 running.LatestRecord = current;
@@ -428,10 +537,10 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    var cancelled = Transition(
+                    var cancelled = TransitionOrMarkAppendFailure(
                         current,
                         ImageJobState.Cancelled,
-                        error: CancelledError());
+                        CancelledError());
                     running.LatestRecord = cancelled;
                 }
             }
@@ -439,10 +548,10 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    var errored = Transition(
+                    var errored = TransitionOrMarkAppendFailure(
                         current,
                         ImageJobState.Error,
-                        error: new GenerationError(
+                        new GenerationError(
                             GenerationErrorCode.ExecutionFailed,
                             $"Unexpected error during image job: {ex.Message}",
                             Retryable: false));
@@ -464,20 +573,20 @@ namespace Rook.Services.Vision.Image.Jobs
         {
             if (result is FailedResultOutcome failed)
             {
-                var errored = Transition(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    error: failed.Error);
+                    failed.Error);
                 running.LatestRecord = errored;
                 return;
             }
 
             if (result is not SuccessResultOutcome success)
             {
-                var errored = Transition(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    error: UnknownOutcomeError(
+                    UnknownOutcomeError(
                         "result",
                         result.GetType().Name));
                 running.LatestRecord = errored;
@@ -491,10 +600,10 @@ namespace Rook.Services.Vision.Image.Jobs
                     StringComparison.Ordinal));
             if (imageArtifact is null)
             {
-                var errored = Transition(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    error: new GenerationError(
+                    new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Provider result envelope did not contain an image artifact.",
                         Retryable: false));
@@ -504,7 +613,17 @@ namespace Rook.Services.Vision.Image.Jobs
 
             if (current.State != ImageJobState.Materializing)
             {
-                current = Transition(current, ImageJobState.Materializing);
+                if (!TryTransitionWithLedger(
+                        current,
+                        ImageJobState.Materializing,
+                        out current,
+                        out var appendError))
+                {
+                    running.LatestRecord = appendError is null
+                        ? current
+                        : MarkAppendFailure(current, appendError);
+                    return;
+                }
                 running.LatestRecord = current;
             }
 
@@ -521,10 +640,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (IsCancellationMaterializationFailure(materialized, ct))
                     ct.ThrowIfCancellationRequested();
 
-                var errored = Transition(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    error: materialized.Error ?? new GenerationError(
+                    materialized.Error ?? new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Image artifact could not be materialized.",
                         Retryable: false));
@@ -564,10 +683,15 @@ namespace Rook.Services.Vision.Image.Jobs
 
             BeforeCompleteTransitionForTests?.Invoke(current.JobId);
 
-            var complete = Transition(
+            var transitionWon = TryTransitionWithLedger(
                 current,
                 ImageJobState.Complete,
+                out var complete,
+                out var completeAppendError,
                 resultArtifactId: artifact.Id);
+            if (!transitionWon && completeAppendError is not null)
+                complete = MarkAppendFailure(complete, completeAppendError);
+
             if (complete.State != ImageJobState.Complete
                 || complete.ResultArtifactId != artifact.Id)
             {
@@ -624,44 +748,133 @@ namespace Rook.Services.Vision.Image.Jobs
             catch { return false; }
         }
 
-        private ImageJobRecord Transition(
+        private bool TryTransitionWithLedger(
             ImageJobRecord prior,
             ImageJobState state,
+            out ImageJobRecord next,
+            out GenerationError? appendError,
             ProviderJobHandle? providerHandle = null,
             Guid? resultArtifactId = null,
             GenerationError? error = null)
         {
+            appendError = null;
             while (true)
             {
                 var latest = LatestRecord(prior.JobId, prior);
                 if (IsTerminal(latest.State))
-                    return latest;
+                {
+                    next = latest;
+                    return false;
+                }
 
-                var next = BuildTransition(
+                var candidate = BuildTransition(
                     latest,
                     state,
                     providerHandle,
                     resultArtifactId,
                     error);
+                var durable = ImageJobLedgerRecordFactory.WithState(
+                    ToLedgerRecord(latest),
+                    state,
+                    candidate.UpdatedAt,
+                    providerJobId: providerHandle?.ProviderJobId,
+                    resultArtifactId: resultArtifactId,
+                    error: error);
 
-                if (_records.TryUpdate(latest.JobId, next, latest))
-                    return next;
+                if (_records.TryUpdate(latest.JobId, candidate, latest))
+                {
+                    if (!TryAppendLedger(durable, out appendError))
+                    {
+                        next = candidate;
+                        return false;
+                    }
+
+                    next = candidate;
+                    return true;
+                }
 
                 if (!_records.TryGetValue(latest.JobId, out var observed))
                 {
-                    if (_records.TryAdd(latest.JobId, next))
-                        return next;
-                    continue;
+                    next = latest;
+                    return false;
                 }
 
                 if (IsTerminal(observed.State))
-                    return observed;
+                {
+                    next = observed;
+                    return false;
+                }
 
                 prior = Freshest(observed, latest);
             }
         }
 
-        private ImageJobRecord TryTransitionToLocalCancelled(
+        private ImageJobRecord TransitionOrMarkAppendFailure(
+            ImageJobRecord prior,
+            ImageJobState state,
+            GenerationError error,
+            ProviderJobHandle? providerHandle = null,
+            Guid? resultArtifactId = null)
+        {
+            _ = TryTransitionWithLedger(
+                prior,
+                state,
+                out var transitioned,
+                out var appendError,
+                providerHandle,
+                resultArtifactId,
+                error);
+            return appendError is null
+                ? transitioned
+                : MarkAppendFailure(transitioned, appendError);
+        }
+
+        private ImageJobRecord MarkAppendFailure(
+            ImageJobRecord candidate,
+            GenerationError appendError)
+        {
+            while (true)
+            {
+                var errored = BuildTransition(
+                    candidate,
+                    ImageJobState.Error,
+                    error: appendError);
+
+                if (_records.TryUpdate(candidate.JobId, errored, candidate))
+                {
+                    var durable = ImageJobLedgerRecordFactory.WithState(
+                        ToLedgerRecord(candidate),
+                        ImageJobState.Error,
+                        errored.UpdatedAt,
+                        error: appendError);
+                    _ = TryAppendLedger(durable, out _);
+                    return errored;
+                }
+
+                if (!_records.TryGetValue(candidate.JobId, out var observed))
+                    return candidate;
+
+                if (IsTerminal(observed.State) && observed.State != candidate.State)
+                    return observed;
+
+                candidate = observed;
+            }
+        }
+
+        private ImageJobLedgerRecord ToLedgerRecord(ImageJobRecord record) =>
+            new(
+                ImageJobLedgerRecordFactory.CurrentSchemaVersion,
+                record.JobId,
+                record.Provider,
+                record.Model,
+                record.ProviderHandle?.ProviderJobId,
+                record.State,
+                record.ResultArtifactId,
+                ImageJobLedgerRecordFactory.SanitizeError(record.Error),
+                record.CreatedAt,
+                record.UpdatedAt);
+
+        private LocalCancelTransitionResult TryTransitionToLocalCancelled(
             ImageJobRecord prior,
             RunningJob? running)
         {
@@ -669,7 +882,7 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 var latest = LatestRecord(prior.JobId, prior);
                 if (IsTerminal(latest.State))
-                    return latest;
+                    return new LocalCancelTransitionResult(latest, null);
 
                 var cancelled = BuildTransition(
                     latest,
@@ -677,24 +890,70 @@ namespace Rook.Services.Vision.Image.Jobs
                     providerHandle: null,
                     resultArtifactId: null,
                     error: CancelledError());
+                var durable = ImageJobLedgerRecordFactory.WithState(
+                    ToLedgerRecord(latest),
+                    ImageJobState.Cancelled,
+                    cancelled.UpdatedAt,
+                    providerJobId: latest.ProviderHandle?.ProviderJobId,
+                    error: CancelledError());
 
                 BeforeLocalCancelTryUpdateForTests?.Invoke(latest.JobId);
 
                 if (_records.TryUpdate(latest.JobId, cancelled, latest))
                 {
+                    if (!TryAppendLedger(durable, out var appendError))
+                    {
+                        var failed = MarkLocalCancelAppendFailure(
+                            cancelled,
+                            appendError!,
+                            running);
+                        return new LocalCancelTransitionResult(
+                            failed,
+                            appendError);
+                    }
+
                     if (running is not null)
                         running.LatestRecord = cancelled;
-                    return cancelled;
+                    return new LocalCancelTransitionResult(cancelled, null);
                 }
 
                 if (!_records.TryGetValue(latest.JobId, out var observed))
-                    return latest;
+                    return new LocalCancelTransitionResult(latest, null);
 
                 if (IsTerminal(observed.State))
-                    return observed;
+                    return new LocalCancelTransitionResult(observed, null);
 
                 prior = Freshest(observed, latest);
             }
+        }
+
+        private ImageJobRecord MarkLocalCancelAppendFailure(
+            ImageJobRecord cancelled,
+            GenerationError appendError,
+            RunningJob? running)
+        {
+            var failed = BuildTransition(
+                cancelled,
+                ImageJobState.Error,
+                providerHandle: cancelled.ProviderHandle,
+                resultArtifactId: cancelled.ResultArtifactId,
+                error: appendError);
+
+            if (_records.TryUpdate(cancelled.JobId, failed, cancelled))
+            {
+                if (running is not null)
+                {
+                    running.LatestRecord = failed;
+                    try { running.Cts.Cancel(); } catch { }
+                }
+
+                return failed;
+            }
+
+            if (_records.TryGetValue(cancelled.JobId, out var observed))
+                return observed;
+
+            return failed;
         }
 
         private ImageJobRecord BuildTransition(
@@ -708,10 +967,31 @@ namespace Rook.Services.Vision.Image.Jobs
                 state,
                 prior.Model,
                 prior.Provider,
+                prior.CreatedAt,
                 _clock.UtcNow(),
                 providerHandle ?? prior.ProviderHandle,
                 resultArtifactId ?? prior.ResultArtifactId,
                 error);
+
+        private bool TryAppendLedger(
+            ImageJobLedgerRecord record,
+            out GenerationError? error)
+        {
+            try
+            {
+                _ledger.Append(record);
+                error = null;
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                error = new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    $"Image job ledger is unavailable: {ex.Message}",
+                    Retryable: true);
+                return false;
+            }
+        }
 
         private async Task<RemoteCancelResult> TryRemoteCancelAsync(
             IImageProvider provider,
@@ -757,6 +1037,42 @@ namespace Rook.Services.Vision.Image.Jobs
             }
         }
 
+        private async Task<ImageJobCancelResult> CancelInterruptedRecordAsync(
+            ImageJobRecord record,
+            CancellationToken ct)
+        {
+            if (record.ProviderHandle is not { } providerHandle
+                || string.IsNullOrWhiteSpace(providerHandle.ProviderJobId))
+            {
+                return ImageJobCancelResult.Ok(ImageJobState.Interrupted);
+            }
+
+            if (!ResolveProviderByName(record.Provider, out var provider))
+                return ImageJobCancelResult.Fail(InvalidRequest(
+                    $"Cannot cancel job {record.JobId:D}: provider '{record.Provider}' is no longer registered.",
+                    nameof(record.Provider)));
+
+            var handle = new ProviderJobHandle(providerHandle.ProviderJobId);
+            var remote = await TryRemoteCancelAsync(provider, handle, ct)
+                .ConfigureAwait(false);
+            if (remote.Error is not null)
+                return ImageJobCancelResult.Fail(remote.Error);
+            if (remote.AlreadyTerminal)
+                return ImageJobCancelResult.Ok(ImageJobState.Interrupted);
+
+            var durable = ImageJobLedgerRecordFactory.WithState(
+                ToLedgerRecord(record),
+                ImageJobState.Cancelled,
+                _clock.UtcNow(),
+                error: CancelledError());
+            if (!TryAppendLedger(durable, out var appendError))
+                return ImageJobCancelResult.Fail(appendError!);
+
+            var cancelled = FromLedgerRecord(durable);
+            _records[record.JobId] = cancelled;
+            return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
+        }
+
         private bool ResolveProviderByName(
             string providerName,
             out IImageProvider provider) =>
@@ -786,6 +1102,50 @@ namespace Rook.Services.Vision.Image.Jobs
               or ImageJobState.Error
               or ImageJobState.Cancelled
               or ImageJobState.Interrupted;
+
+        private ImageJobRecord? FindLatestMergedRecord(Guid jobId)
+        {
+            _runningJobs.TryGetValue(jobId, out var running);
+            var live = running?.LatestRecord
+                ?? (_records.TryGetValue(jobId, out var local) ? local : null);
+            var durable = FindDurableRecord(jobId);
+            return FreshestForRead(live, durable);
+        }
+
+        private ImageJobRecord? FindDurableRecord(Guid jobId)
+        {
+            var read = _ledger.ReadAll();
+            foreach (var record in read.Records)
+                if (record.JobId == jobId)
+                    return FromLedgerRecord(record);
+            return null;
+        }
+
+        private static ImageJobRecord? FreshestForRead(
+            ImageJobRecord? live,
+            ImageJobRecord? durable)
+        {
+            if (live is null) return durable;
+            if (durable is null) return live;
+            if (durable.UpdatedAt > live.UpdatedAt) return durable;
+            if (live.UpdatedAt > durable.UpdatedAt) return live;
+            if (IsTerminal(durable.State)) return durable;
+            return live;
+        }
+
+        private static ImageJobRecord FromLedgerRecord(ImageJobLedgerRecord record) =>
+            new(
+                record.JobId,
+                record.State,
+                record.Model,
+                record.Provider,
+                createdAt: record.CreatedAt,
+                updatedAt: record.UpdatedAt,
+                providerHandle: string.IsNullOrWhiteSpace(record.ProviderJobId)
+                    ? null
+                    : new ProviderJobHandle(record.ProviderJobId),
+                resultArtifactId: record.ResultArtifactId,
+                error: record.Error);
 
         private ImageJobRecord LatestRecord(
             Guid jobId,
@@ -884,6 +1244,20 @@ namespace Rook.Services.Vision.Image.Jobs
 
             public static RemoteCancelResult Failed(GenerationError error) =>
                 new(error, alreadyTerminal: false);
+        }
+
+        private sealed class LocalCancelTransitionResult
+        {
+            public LocalCancelTransitionResult(
+                ImageJobRecord record,
+                GenerationError? appendError)
+            {
+                Record = record;
+                AppendError = appendError;
+            }
+
+            public ImageJobRecord Record { get; }
+            public GenerationError? AppendError { get; }
         }
     }
 }

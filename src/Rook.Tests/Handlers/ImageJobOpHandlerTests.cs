@@ -375,6 +375,7 @@ namespace Rook.Tests.Handlers
                             "nano-banana-2",
                             "gemini",
                             updatedAt,
+                            updatedAt,
                             resultArtifactId: null),
                     },
                     appliedLimit: limit),
@@ -394,6 +395,51 @@ namespace Rook.Tests.Handlers
             Assert.Equal("gemini", job["provider_name"]);
             Assert.False(job.ContainsKey("provider"));
             Assert.Null(job["result_artifact_id"]);
+        }
+
+        [Fact]
+        public void DispatchOffUi_List_DoesNotExposeProviderHandleOrWarnings()
+        {
+            var updatedAt = new DateTimeOffset(
+                2026, 4, 30, 12, 0, 0, TimeSpan.Zero);
+            var manager = new StubImageJobManager
+            {
+                ListImpl = limit => new ImageJobListResult(
+                    new[]
+                    {
+                        new ImageJobRecord(
+                            SampleJobId,
+                            ImageJobState.Polling,
+                            "black-forest-labs/flux-schnell",
+                            "replicate",
+                            updatedAt,
+                            updatedAt,
+                            providerHandle: new ProviderJobHandle(
+                                providerJobId: "pred-123",
+                                statusUrl: new Uri("https://api.replicate.com/v1/predictions/pred-123"),
+                                responseUrl: new Uri("https://replicate.delivery/output.png"),
+                                cancelUrl: new Uri("https://api.replicate.com/v1/predictions/pred-123/cancel"),
+                                cancelHttpMethod: "POST",
+                                providerResultToken: "https://replicate.delivery/output.png",
+                                providerMetadata: new Dictionary<string, JsonNode>
+                                {
+                                    ["urls"] = JsonValue.Create("https://api.replicate.com/v1/predictions/pred-123")!,
+                                })),
+                    },
+                    appliedLimit: limit),
+            };
+            var handler = new ImageJobOpHandler(manager, NewVisionHandler());
+
+            var response = handler.DispatchOffUi("""{"op":"image_jobs"}""");
+
+            AssertOk(response);
+            var payload = JsonSerializer.Serialize(response.Data);
+            Assert.DoesNotContain("provider_job_id", payload);
+            Assert.DoesNotContain("pred-123", payload);
+            Assert.DoesNotContain("replicate.delivery", payload);
+            Assert.DoesNotContain("api.replicate.com", payload);
+            Assert.DoesNotContain("warnings", payload);
+            Assert.DoesNotContain("urls", payload);
         }
 
         [Fact]
@@ -701,6 +747,8 @@ namespace Rook.Tests.Handlers
                         Array.Empty<ImageJobRecord>(),
                         appliedLimit: limit));
             }
+
+            public void ReconcileInterruptedJobs() { }
         }
 
         private sealed class TempDir : IDisposable

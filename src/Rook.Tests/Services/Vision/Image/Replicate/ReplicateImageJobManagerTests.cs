@@ -30,6 +30,7 @@ namespace Rook.Services.Vision.Image.Replicate
         private readonly ArtifactStore _artifactStore;
         private readonly FakeImageJobClock _clock = new();
         private readonly FakeImageJobIdGenerator _idGenerator = new();
+        private readonly FakeImageJobLedger _ledger = new();
 
         public ReplicateImageJobManagerTests()
         {
@@ -260,7 +261,8 @@ namespace Rook.Services.Vision.Image.Replicate
                 TimeSpan.FromMilliseconds(1),
                 ImageJobManager.DefaultMaxConcurrentJobs,
                 new ImageArtifactMaterializer(outputHandler),
-                selector.Select);
+                selector.Select,
+                _ledger);
         }
 
         private static ImageJobStartRequest Start() =>
