@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
@@ -10,23 +11,37 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
     public class ReplicateImageProviderRegistrationTests
     {
         [Fact]
-        public void Registration_exposes_only_flux_schnell_model()
+        public void Registration_exposes_curated_replicate_models()
         {
             var registration = new ReplicateImageProviderRegistration(
                 new FakeImageProvider());
 
             Assert.Equal("replicate", registration.ProviderName);
-            var model = Assert.Single(registration.Models);
-            Assert.Equal("black-forest-labs/flux-schnell", model.Key);
-            Assert.Equal(ReplicateImageCapabilities.FluxSchnell, model.Value.Capability.Id);
-            Assert.Equal("FLUX.1 Schnell", model.Value.Capability.Name);
-            Assert.Equal("available", model.Value.Capability.Status);
-            Assert.Equal(new[] { "1K" }, model.Value.Capability.Resolutions);
-            Assert.Equal(new[] { "1:1", "4:3", "3:4", "16:9", "9:16" }, model.Value.Capability.AspectRatios);
-            Assert.Equal(0, model.Value.Capability.MaxReferenceImages);
-            Assert.True(model.Value.Capability.SupportsTextToImage);
-            Assert.False(model.Value.Capability.SupportsImageToImage);
-            Assert.IsType<ReplicateImagePricingModel>(model.Value.PricingModel);
+
+            var models = registration.Models;
+            Assert.Equal(2, models.Count);
+
+            var schnell = models[ReplicateImageCapabilities.FluxSchnell];
+            Assert.Equal(ReplicateImageCapabilities.FluxSchnell, schnell.Capability.Id);
+            Assert.Equal("FLUX.1 Schnell", schnell.Capability.Name);
+            Assert.Equal("available", schnell.Capability.Status);
+            Assert.Equal(new[] { "1K" }, schnell.Capability.Resolutions);
+            Assert.Equal(new[] { "1:1", "4:3", "3:4", "16:9", "9:16" }, schnell.Capability.AspectRatios);
+            Assert.Equal(0, schnell.Capability.MaxReferenceImages);
+            Assert.True(schnell.Capability.SupportsTextToImage);
+            Assert.False(schnell.Capability.SupportsImageToImage);
+            Assert.IsType<ReplicateImagePricingModel>(schnell.PricingModel);
+
+            var flux2 = models[ReplicateImageCapabilities.Flux2Pro];
+            Assert.Equal(ReplicateImageCapabilities.Flux2Pro, flux2.Capability.Id);
+            Assert.Equal("FLUX.2 Pro", flux2.Capability.Name);
+            Assert.Equal("available", flux2.Capability.Status);
+            Assert.Equal(new[] { "1MP" }, flux2.Capability.Resolutions);
+            Assert.Equal(new[] { "match_input_image" }, flux2.Capability.AspectRatios);
+            Assert.Equal(0, flux2.Capability.MaxReferenceImages);
+            Assert.False(flux2.Capability.SupportsTextToImage);
+            Assert.True(flux2.Capability.SupportsImageToImage);
+            Assert.IsType<ReplicateImagePricingModel>(flux2.PricingModel);
         }
 
         [Fact]
@@ -52,22 +67,31 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
         }
 
         [Fact]
-        public void Injected_registry_resolves_only_replicate_flux_schnell()
+        public void Injected_registry_resolves_curated_replicate_models()
         {
             var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
             {
                 new ReplicateImageProviderRegistration(new FakeImageProvider()),
             });
 
-            Assert.True(registry.TryResolve(ReplicateImageCapabilities.FluxSchnell, out var resolved));
-            Assert.Equal(ReplicateImageCapabilities.FluxSchnell, resolved.ModelId);
-            Assert.Equal("replicate", resolved.ProviderName);
+            Assert.True(registry.TryResolve(ReplicateImageCapabilities.FluxSchnell, out var schnell));
+            Assert.Equal(ReplicateImageCapabilities.FluxSchnell, schnell.ModelId);
+            Assert.Equal("replicate", schnell.ProviderName);
+
+            Assert.True(registry.TryResolve(ReplicateImageCapabilities.Flux2Pro, out var flux2));
+            Assert.Equal(ReplicateImageCapabilities.Flux2Pro, flux2.ModelId);
+            Assert.Equal("replicate", flux2.ProviderName);
+            Assert.True(flux2.Capability.SupportsImageToImage);
+            Assert.False(flux2.Capability.SupportsTextToImage);
+
             Assert.False(registry.TryResolve("replicate/other-model", out _));
 
-            var all = registry.EnumerateAllModels().ToArray();
-            var descriptor = Assert.Single(all);
-            Assert.Equal(ReplicateImageCapabilities.FluxSchnell, descriptor.ModelId);
-            Assert.Equal("replicate", descriptor.ProviderName);
+            var all = registry.EnumerateAllModels()
+                .OrderBy(d => d.ModelId, StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(2, all.Length);
+            Assert.Contains(all, d => d.ModelId == ReplicateImageCapabilities.FluxSchnell);
+            Assert.Contains(all, d => d.ModelId == ReplicateImageCapabilities.Flux2Pro);
         }
     }
 }
