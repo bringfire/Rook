@@ -222,9 +222,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     return ImageJobCancelResult.Ok(latest.State);
 
                 var cancelled = TryTransitionToLocalCancelled(latest, running);
-                if (cancelled.State == ImageJobState.Cancelled)
+                if (cancelled.AppendError is not null)
+                    return ImageJobCancelResult.Fail(cancelled.AppendError);
+                if (cancelled.Record.State == ImageJobState.Cancelled)
                     try { running.Cts.Cancel(); } catch { }
-                return ImageJobCancelResult.Ok(cancelled.State);
+                return ImageJobCancelResult.Ok(cancelled.Record.State);
             }
 
             var record = FindLatestMergedRecord(jobId);
@@ -264,7 +266,9 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Ok(record.State);
 
             var localCancelled = TryTransitionToLocalCancelled(record, running: null);
-            return ImageJobCancelResult.Ok(localCancelled.State);
+            if (localCancelled.AppendError is not null)
+                return ImageJobCancelResult.Fail(localCancelled.AppendError);
+            return ImageJobCancelResult.Ok(localCancelled.Record.State);
         }
 
         public void ReconcileInterruptedJobs()
@@ -870,7 +874,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 record.CreatedAt,
                 record.UpdatedAt);
 
-        private ImageJobRecord TryTransitionToLocalCancelled(
+        private LocalCancelTransitionResult TryTransitionToLocalCancelled(
             ImageJobRecord prior,
             RunningJob? running)
         {
@@ -878,7 +882,7 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 var latest = LatestRecord(prior.JobId, prior);
                 if (IsTerminal(latest.State))
-                    return latest;
+                    return new LocalCancelTransitionResult(latest, null);
 
                 var cancelled = BuildTransition(
                     latest,
@@ -886,21 +890,32 @@ namespace Rook.Services.Vision.Image.Jobs
                     providerHandle: null,
                     resultArtifactId: null,
                     error: CancelledError());
+                var durable = ImageJobLedgerRecordFactory.WithState(
+                    ToLedgerRecord(latest),
+                    ImageJobState.Cancelled,
+                    cancelled.UpdatedAt,
+                    providerJobId: latest.ProviderHandle?.ProviderJobId,
+                    error: CancelledError());
 
                 BeforeLocalCancelTryUpdateForTests?.Invoke(latest.JobId);
 
                 if (_records.TryUpdate(latest.JobId, cancelled, latest))
                 {
+                    if (!TryAppendLedger(durable, out var appendError))
+                        return new LocalCancelTransitionResult(
+                            cancelled,
+                            appendError);
+
                     if (running is not null)
                         running.LatestRecord = cancelled;
-                    return cancelled;
+                    return new LocalCancelTransitionResult(cancelled, null);
                 }
 
                 if (!_records.TryGetValue(latest.JobId, out var observed))
-                    return latest;
+                    return new LocalCancelTransitionResult(latest, null);
 
                 if (IsTerminal(observed.State))
-                    return observed;
+                    return new LocalCancelTransitionResult(observed, null);
 
                 prior = Freshest(observed, latest);
             }
@@ -1194,6 +1209,20 @@ namespace Rook.Services.Vision.Image.Jobs
 
             public static RemoteCancelResult Failed(GenerationError error) =>
                 new(error, alreadyTerminal: false);
+        }
+
+        private sealed class LocalCancelTransitionResult
+        {
+            public LocalCancelTransitionResult(
+                ImageJobRecord record,
+                GenerationError? appendError)
+            {
+                Record = record;
+                AppendError = appendError;
+            }
+
+            public ImageJobRecord Record { get; }
+            public GenerationError? AppendError { get; }
         }
     }
 }

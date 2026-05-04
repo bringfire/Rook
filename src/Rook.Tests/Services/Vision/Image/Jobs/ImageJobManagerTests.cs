@@ -325,6 +325,44 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task CancelAsync_ImmediatelyAfterSubmit_AppendsDurableCancelled()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-ledger");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Cancelled, cancel.State);
+            var cancelled = Assert.Single(_ledger.AllRecords, r =>
+                r.JobId == submit.JobId.Value && r.State == ImageJobState.Cancelled);
+            Assert.Equal(GenerationErrorCode.Cancelled, cancelled.Error!.Code);
+        }
+
+        [Fact]
+        public async Task CancelAsync_WhenDurableCancelledAppendFails_ReturnsFailure()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-cancel-append-fail");
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            _ledger.BeforeAppend = record =>
+            {
+                if (record.State == ImageJobState.Cancelled)
+                    throw new IOException("cannot persist cancellation");
+            };
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var cancel = await manager.CancelAsync(submit.JobId!.Value, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, cancel.State);
+            Assert.NotNull(cancel.Error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, cancel.Error!.Code);
+            Assert.DoesNotContain(_ledger.AllRecords, r =>
+                r.JobId == submit.JobId.Value && r.State == ImageJobState.Cancelled);
+        }
+
+        [Fact]
         public async Task CancelAsync_WhenProviderAlreadyTerminal_DoesNotStampLocalCancelled()
         {
             _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-already-terminal");
