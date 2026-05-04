@@ -360,6 +360,15 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(GenerationErrorCode.DependencyUnavailable, cancel.Error!.Code);
             Assert.DoesNotContain(_ledger.AllRecords, r =>
                 r.JobId == submit.JobId.Value && r.State == ImageJobState.Cancelled);
+            var status = await manager.GetStatusAsync(
+                submit.JobId.Value,
+                CancellationToken.None);
+            Assert.Equal(ImageJobState.Error, status.State);
+            var list = await manager.ListJobsAsync(10, CancellationToken.None);
+            var listed = Assert.Single(
+                list.Jobs,
+                job => job.JobId == submit.JobId.Value);
+            Assert.Equal(ImageJobState.Error, listed.State);
         }
 
         [Fact]

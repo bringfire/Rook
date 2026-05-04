@@ -902,9 +902,15 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (_records.TryUpdate(latest.JobId, cancelled, latest))
                 {
                     if (!TryAppendLedger(durable, out var appendError))
-                        return new LocalCancelTransitionResult(
+                    {
+                        var failed = MarkLocalCancelAppendFailure(
                             cancelled,
+                            appendError!,
+                            running);
+                        return new LocalCancelTransitionResult(
+                            failed,
                             appendError);
+                    }
 
                     if (running is not null)
                         running.LatestRecord = cancelled;
@@ -919,6 +925,35 @@ namespace Rook.Services.Vision.Image.Jobs
 
                 prior = Freshest(observed, latest);
             }
+        }
+
+        private ImageJobRecord MarkLocalCancelAppendFailure(
+            ImageJobRecord cancelled,
+            GenerationError appendError,
+            RunningJob? running)
+        {
+            var failed = BuildTransition(
+                cancelled,
+                ImageJobState.Error,
+                providerHandle: cancelled.ProviderHandle,
+                resultArtifactId: cancelled.ResultArtifactId,
+                error: appendError);
+
+            if (_records.TryUpdate(cancelled.JobId, failed, cancelled))
+            {
+                if (running is not null)
+                {
+                    running.LatestRecord = failed;
+                    try { running.Cts.Cancel(); } catch { }
+                }
+
+                return failed;
+            }
+
+            if (_records.TryGetValue(cancelled.JobId, out var observed))
+                return observed;
+
+            return failed;
         }
 
         private ImageJobRecord BuildTransition(
