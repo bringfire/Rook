@@ -338,7 +338,17 @@ namespace Rook.Services.Vision.Image.Jobs
                 await _concurrency.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    current = Transition(current, ImageJobState.Submitting);
+                    if (!TryTransitionWithLedger(
+                            current,
+                            ImageJobState.Submitting,
+                            out current,
+                            out var appendError))
+                    {
+                        running.LatestRecord = appendError is null
+                            ? current
+                            : MarkAppendFailure(current, appendError);
+                        return;
+                    }
                     running.LatestRecord = current;
 
                     var submit = await provider.SubmitAsync(
@@ -350,9 +360,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     switch (submit)
                     {
                         case FailedSubmitOutcome failed:
-                            current = Transition(
+                            _ = TryTransitionWithLedger(
                                 current,
                                 ImageJobState.Error,
+                                out current,
+                                out _,
                                 error: failed.Error);
                             running.LatestRecord = current;
                             return;
@@ -367,17 +379,34 @@ namespace Rook.Services.Vision.Image.Jobs
                             return;
 
                         case QueuedSubmitOutcome queued:
-                            current = Transition(
-                                current,
-                                ImageJobState.Polling,
-                                providerHandle: queued.Handle);
+                            if (!TryTransitionWithLedger(
+                                    current,
+                                    ImageJobState.Polling,
+                                    out current,
+                                    out appendError,
+                                    providerHandle: queued.Handle))
+                            {
+                                if (appendError is not null)
+                                {
+                                    _ = await TryRemoteCancelAsync(
+                                            provider,
+                                            queued.Handle,
+                                            CancellationToken.None)
+                                        .ConfigureAwait(false);
+                                    current = MarkAppendFailure(current, appendError);
+                                }
+                                running.LatestRecord = current;
+                                return;
+                            }
                             running.LatestRecord = current;
                             break;
 
                         default:
-                            current = Transition(
+                            _ = TryTransitionWithLedger(
                                 current,
                                 ImageJobState.Error,
+                                out current,
+                                out _,
                                 error: UnknownOutcomeError(
                                     "submit",
                                     submit.GetType().Name));
@@ -401,25 +430,37 @@ namespace Rook.Services.Vision.Image.Jobs
 
                             case ProviderCompleteStatusOutcome complete:
                                 handle = complete.UpdatedHandle;
-                                current = Transition(
-                                    current,
-                                    ImageJobState.Materializing,
-                                    providerHandle: handle);
+                                if (!TryTransitionWithLedger(
+                                        current,
+                                        ImageJobState.Materializing,
+                                        out current,
+                                        out appendError,
+                                        providerHandle: handle))
+                                {
+                                    running.LatestRecord = appendError is null
+                                        ? current
+                                        : MarkAppendFailure(current, appendError);
+                                    return;
+                                }
                                 running.LatestRecord = current;
                                 break;
 
                             case FailedStatusOutcome failed:
-                                current = Transition(
+                                _ = TryTransitionWithLedger(
                                     current,
                                     ImageJobState.Error,
+                                    out current,
+                                    out _,
                                     error: failed.Error);
                                 running.LatestRecord = current;
                                 return;
 
                             default:
-                                current = Transition(
+                                _ = TryTransitionWithLedger(
                                     current,
                                     ImageJobState.Error,
+                                    out current,
+                                    out _,
                                     error: UnknownOutcomeError(
                                         "status",
                                         status.GetType().Name));
@@ -444,9 +485,11 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    var cancelled = Transition(
+                    _ = TryTransitionWithLedger(
                         current,
                         ImageJobState.Cancelled,
+                        out var cancelled,
+                        out _,
                         error: CancelledError());
                     running.LatestRecord = cancelled;
                 }
@@ -455,9 +498,11 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    var errored = Transition(
+                    _ = TryTransitionWithLedger(
                         current,
                         ImageJobState.Error,
+                        out var errored,
+                        out _,
                         error: new GenerationError(
                             GenerationErrorCode.ExecutionFailed,
                             $"Unexpected error during image job: {ex.Message}",
@@ -480,9 +525,11 @@ namespace Rook.Services.Vision.Image.Jobs
         {
             if (result is FailedResultOutcome failed)
             {
-                var errored = Transition(
+                _ = TryTransitionWithLedger(
                     current,
                     ImageJobState.Error,
+                    out var errored,
+                    out _,
                     error: failed.Error);
                 running.LatestRecord = errored;
                 return;
@@ -490,9 +537,11 @@ namespace Rook.Services.Vision.Image.Jobs
 
             if (result is not SuccessResultOutcome success)
             {
-                var errored = Transition(
+                _ = TryTransitionWithLedger(
                     current,
                     ImageJobState.Error,
+                    out var errored,
+                    out _,
                     error: UnknownOutcomeError(
                         "result",
                         result.GetType().Name));
@@ -507,9 +556,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     StringComparison.Ordinal));
             if (imageArtifact is null)
             {
-                var errored = Transition(
+                _ = TryTransitionWithLedger(
                     current,
                     ImageJobState.Error,
+                    out var errored,
+                    out _,
                     error: new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Provider result envelope did not contain an image artifact.",
@@ -520,7 +571,17 @@ namespace Rook.Services.Vision.Image.Jobs
 
             if (current.State != ImageJobState.Materializing)
             {
-                current = Transition(current, ImageJobState.Materializing);
+                if (!TryTransitionWithLedger(
+                        current,
+                        ImageJobState.Materializing,
+                        out current,
+                        out var appendError))
+                {
+                    running.LatestRecord = appendError is null
+                        ? current
+                        : MarkAppendFailure(current, appendError);
+                    return;
+                }
                 running.LatestRecord = current;
             }
 
@@ -537,9 +598,11 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (IsCancellationMaterializationFailure(materialized, ct))
                     ct.ThrowIfCancellationRequested();
 
-                var errored = Transition(
+                _ = TryTransitionWithLedger(
                     current,
                     ImageJobState.Error,
+                    out var errored,
+                    out _,
                     error: materialized.Error ?? new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Image artifact could not be materialized.",
@@ -580,10 +643,15 @@ namespace Rook.Services.Vision.Image.Jobs
 
             BeforeCompleteTransitionForTests?.Invoke(current.JobId);
 
-            var complete = Transition(
+            var transitionWon = TryTransitionWithLedger(
                 current,
                 ImageJobState.Complete,
+                out var complete,
+                out var completeAppendError,
                 resultArtifactId: artifact.Id);
+            if (!transitionWon && completeAppendError is not null)
+                complete = MarkAppendFailure(complete, completeAppendError);
+
             if (complete.State != ImageJobState.Complete
                 || complete.ResultArtifactId != artifact.Id)
             {
@@ -640,42 +708,111 @@ namespace Rook.Services.Vision.Image.Jobs
             catch { return false; }
         }
 
-        private ImageJobRecord Transition(
+        private bool TryTransitionWithLedger(
             ImageJobRecord prior,
             ImageJobState state,
+            out ImageJobRecord next,
+            out GenerationError? appendError,
             ProviderJobHandle? providerHandle = null,
             Guid? resultArtifactId = null,
             GenerationError? error = null)
         {
+            appendError = null;
             while (true)
             {
                 var latest = LatestRecord(prior.JobId, prior);
                 if (IsTerminal(latest.State))
-                    return latest;
+                {
+                    next = latest;
+                    return false;
+                }
 
-                var next = BuildTransition(
+                var candidate = BuildTransition(
                     latest,
                     state,
                     providerHandle,
                     resultArtifactId,
                     error);
+                var durable = ImageJobLedgerRecordFactory.WithState(
+                    ToLedgerRecord(latest),
+                    state,
+                    candidate.UpdatedAt,
+                    providerJobId: providerHandle?.ProviderJobId,
+                    resultArtifactId: resultArtifactId,
+                    error: error);
 
-                if (_records.TryUpdate(latest.JobId, next, latest))
-                    return next;
+                if (_records.TryUpdate(latest.JobId, candidate, latest))
+                {
+                    if (!TryAppendLedger(durable, out appendError))
+                    {
+                        next = candidate;
+                        return false;
+                    }
+
+                    next = candidate;
+                    return true;
+                }
 
                 if (!_records.TryGetValue(latest.JobId, out var observed))
                 {
-                    if (_records.TryAdd(latest.JobId, next))
-                        return next;
-                    continue;
+                    next = latest;
+                    return false;
                 }
 
                 if (IsTerminal(observed.State))
-                    return observed;
+                {
+                    next = observed;
+                    return false;
+                }
 
                 prior = Freshest(observed, latest);
             }
         }
+
+        private ImageJobRecord MarkAppendFailure(
+            ImageJobRecord candidate,
+            GenerationError appendError)
+        {
+            while (true)
+            {
+                var errored = BuildTransition(
+                    candidate,
+                    ImageJobState.Error,
+                    error: appendError);
+
+                if (_records.TryUpdate(candidate.JobId, errored, candidate))
+                {
+                    var durable = ImageJobLedgerRecordFactory.WithState(
+                        ToLedgerRecord(candidate),
+                        ImageJobState.Error,
+                        errored.UpdatedAt,
+                        error: appendError);
+                    _ = TryAppendLedger(durable, out _);
+                    return errored;
+                }
+
+                if (!_records.TryGetValue(candidate.JobId, out var observed))
+                    return candidate;
+
+                if (IsTerminal(observed.State) && observed.State != candidate.State)
+                    return observed;
+
+                candidate = observed;
+            }
+        }
+
+        private ImageJobLedgerRecord ToLedgerRecord(ImageJobRecord record) =>
+            new(
+                ImageJobLedgerRecordFactory.CurrentSchemaVersion,
+                record.JobId,
+                record.Provider,
+                record.Model,
+                record.ProviderHandle?.ProviderJobId,
+                record.State,
+                record.ResultArtifactId,
+                ImageJobLedgerRecordFactory.SanitizeError(record.Error),
+                record.CreatedAt,
+                record.UpdatedAt);
 
         private ImageJobRecord TryTransitionToLocalCancelled(
             ImageJobRecord prior,

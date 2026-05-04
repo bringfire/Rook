@@ -121,7 +121,71 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(
                 _artifactStore.GetBlobAbsolutePath(
                     status.ResultArtifactId!.Value,
-                    ImageMediaRoles.Image)));
+                ImageMediaRoles.Image)));
+        }
+
+        [Fact]
+        public async Task AsyncSubmit_PersistsOnlyProviderJobIdOnPolling()
+        {
+            _provider.OnSubmit = (_, _) => new QueuedSubmitOutcome(new ProviderJobHandle(
+                "prediction-789",
+                statusUrl: new Uri("https://api.replicate.com/v1/predictions/prediction-789"),
+                cancelUrl: new Uri("https://api.replicate.com/v1/predictions/prediction-789/cancel"),
+                cancelHttpMethod: "POST",
+                providerResultToken: "https://replicate.delivery/out.png"));
+            _provider.OnGetStatus = _ => FakeImageProvider.Running();
+            using var manager = Manager(pollInterval: TimeSpan.FromSeconds(5));
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForStateAsync(manager, submit.JobId!.Value, ImageJobState.Polling);
+
+            var polling = _ledger.AllRecords.Last(r => r.JobId == submit.JobId.Value);
+            Assert.Equal(ImageJobState.Polling, polling.State);
+            Assert.Equal("prediction-789", polling.ProviderJobId);
+            var serialized = System.Text.Json.JsonSerializer.Serialize(polling);
+            Assert.DoesNotContain("api.replicate.com", serialized);
+            Assert.DoesNotContain("replicate.delivery", serialized);
+        }
+
+        [Fact]
+        public async Task PollingLedgerAppendFailure_AttemptsProviderCancelAndStopsPolling()
+        {
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("prediction-fail-ledger");
+            var cancelCalls = 0;
+            _provider.OnCancel = handle =>
+            {
+                cancelCalls++;
+                Assert.Equal("prediction-fail-ledger", handle.ProviderJobId);
+                return new CanceledOutcome();
+            };
+            _ledger.BeforeAppend = record =>
+            {
+                if (record.State == ImageJobState.Polling)
+                    throw new IOException("cannot persist provider id");
+            };
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Error, status.State);
+            Assert.Equal(1, cancelCalls);
+            Assert.DoesNotContain(_ledger.AllRecords, r =>
+                r.JobId == submit.JobId.Value && r.State == ImageJobState.Polling);
+        }
+
+        [Fact]
+        public async Task CompleteTransition_AppendsSingleDurableComplete()
+        {
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            var complete = Assert.Single(_ledger.AllRecords, r =>
+                r.JobId == submit.JobId.Value && r.State == ImageJobState.Complete);
+            Assert.Equal(status.ResultArtifactId, complete.ResultArtifactId);
         }
 
         [Fact]
