@@ -28,6 +28,7 @@ namespace Rook.Services.Vision.Image.Jobs
         private readonly ImageArtifactMaterializer _materializer;
         private readonly IImageJobClock _clock;
         private readonly IImageJobIdGenerator _idGenerator;
+        private readonly IImageJobLedger _ledger;
         private readonly ImageArtifactRequestFactorySelector? _requestFactorySelector;
         private readonly TimeSpan _pollInterval;
         private readonly SemaphoreSlim _concurrency;
@@ -53,7 +54,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 pollInterval,
                 maxConcurrentJobs,
                 materializer: null,
-                requestFactorySelector: null)
+                requestFactorySelector: null,
+                ledger: null)
         {
         }
 
@@ -69,7 +71,8 @@ namespace Rook.Services.Vision.Image.Jobs
                 pollInterval: null,
                 maxConcurrentJobs: DefaultMaxConcurrentJobs,
                 materializer: null,
-                requestFactorySelector: requestFactorySelector)
+                requestFactorySelector: requestFactorySelector,
+                ledger: null)
         {
         }
 
@@ -81,7 +84,8 @@ namespace Rook.Services.Vision.Image.Jobs
             TimeSpan? pollInterval,
             int maxConcurrentJobs,
             ImageArtifactMaterializer? materializer,
-            ImageArtifactRequestFactorySelector? requestFactorySelector)
+            ImageArtifactRequestFactorySelector? requestFactorySelector,
+            IImageJobLedger? ledger = null)
         {
             if (maxConcurrentJobs <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -93,6 +97,7 @@ namespace Rook.Services.Vision.Image.Jobs
             _materializer = materializer ?? new ImageArtifactMaterializer();
             _clock = clock ?? new SystemImageJobClock();
             _idGenerator = idGenerator ?? new GuidImageJobIdGenerator();
+            _ledger = ledger ?? new JsonlImageJobLedger();
             _requestFactorySelector = requestFactorySelector;
             _pollInterval = pollInterval ?? DefaultPollInterval;
             _concurrency = new SemaphoreSlim(maxConcurrentJobs, maxConcurrentJobs);
@@ -126,12 +131,23 @@ namespace Rook.Services.Vision.Image.Jobs
                     Field: validation.Field)));
 
             var jobId = _idGenerator.NewJobId();
+            var now = _clock.UtcNow();
             var initial = new ImageJobRecord(
                 jobId,
                 ImageJobState.Queued,
                 model.ModelId,
                 model.ProviderName,
-                _clock.UtcNow());
+                createdAt: now,
+                updatedAt: now);
+            var durable = ImageJobLedgerRecordFactory.FromInitial(
+                jobId,
+                model.ProviderName,
+                model.ModelId,
+                ImageJobState.Queued,
+                now);
+            if (!TryAppendLedger(durable, out var appendError))
+                return Task.FromResult(ImageJobSubmitResult.Fail(appendError!));
+
             _records[jobId] = initial;
 
             var jobCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
@@ -708,10 +724,31 @@ namespace Rook.Services.Vision.Image.Jobs
                 state,
                 prior.Model,
                 prior.Provider,
+                prior.CreatedAt,
                 _clock.UtcNow(),
                 providerHandle ?? prior.ProviderHandle,
                 resultArtifactId ?? prior.ResultArtifactId,
                 error);
+
+        private bool TryAppendLedger(
+            ImageJobLedgerRecord record,
+            out GenerationError? error)
+        {
+            try
+            {
+                _ledger.Append(record);
+                error = null;
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                error = new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    $"Image job ledger is unavailable: {ex.Message}",
+                    Retryable: true);
+                return false;
+            }
+        }
 
         private async Task<RemoteCancelResult> TryRemoteCancelAsync(
             IImageProvider provider,

@@ -29,6 +29,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         private readonly FakeImageJobClock _clock = new();
         private readonly FakeImageJobIdGenerator _idGenerator = new();
         private readonly FakeImageProvider _provider = new();
+        private readonly FakeImageJobLedger _ledger = new();
         private readonly IImageProviderRegistry _registry;
 
         public ImageJobManagerTests()
@@ -62,6 +63,39 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             Assert.Equal("image", Assert.Single(artifact.Files).Role);
             Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(
                 _artifactStore.GetBlobAbsolutePath(artifact.Id, ImageMediaRoles.Image)));
+        }
+
+        [Fact]
+        public async Task SubmitAsync_AppendsQueuedLedgerRecordBeforeBackgroundWork()
+        {
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Queued, submit.State);
+            var queued = Assert.Single(
+                _ledger.AllRecords,
+                r => r.JobId == submit.JobId);
+            Assert.Equal(ImageJobState.Queued, queued.State);
+            Assert.Equal(GeminiImageCapabilities.ProviderName, queued.Provider);
+            Assert.Equal(GeminiImageCapabilities.DefaultModel, queued.Model);
+            Assert.Null(queued.ProviderJobId);
+            await WaitForTerminalAsync(manager, submit.JobId!.Value);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_WhenInitialLedgerAppendFails_DoesNotCallProviderOrTrackRunningJob()
+        {
+            _ledger.BeforeAppend = _ => throw new IOException("ledger unavailable");
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Error, submit.State);
+            Assert.NotNull(submit.Error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, submit.Error!.Code);
+            Assert.DoesNotContain("Submit", _provider.Calls);
+            await WaitForRunningJobCountAsync(manager, 0);
         }
 
         [Fact]
@@ -259,6 +293,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 GeminiImageCapabilities.DefaultModel,
                 GeminiImageCapabilities.ProviderName,
                 DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
                 providerHandle: handle);
             SetRecord(manager, polling);
             _provider.OnCancel = _ =>
@@ -284,6 +319,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 ImageJobState.Polling,
                 GeminiImageCapabilities.DefaultModel,
                 GeminiImageCapabilities.ProviderName,
+                DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow);
             SetRecord(manager, polling);
             manager.BeforeLocalCancelTryUpdateForTests = id =>
@@ -417,6 +453,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                     GeminiImageCapabilities.DefaultModel,
                     GeminiImageCapabilities.ProviderName,
                     DateTimeOffset.MaxValue,
+                    DateTimeOffset.MaxValue,
                     error: new GenerationError(
                         GenerationErrorCode.Cancelled,
                         "Image job cancelled.",
@@ -482,7 +519,8 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         private ImageJobManager Manager(
             TimeSpan? pollInterval = null,
             ImageArtifactMaterializer? materializer = null,
-            ImageArtifactRequestFactorySelector? selector = null) =>
+            ImageArtifactRequestFactorySelector? selector = null,
+            IImageJobLedger? ledger = null) =>
             new(
                 registry: _registry,
                 artifactStore: _artifactStore,
@@ -491,7 +529,8 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(1),
                 maxConcurrentJobs: ImageJobManager.DefaultMaxConcurrentJobs,
                 materializer: materializer,
-                requestFactorySelector: selector);
+                requestFactorySelector: selector,
+                ledger: ledger ?? _ledger);
 
         private static ImageJobStartRequest Start(
             string model = GeminiImageCapabilities.DefaultModel,
@@ -622,6 +661,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                     GeminiImageCapabilities.DefaultModel,
                     GeminiImageCapabilities.ProviderName,
                     DateTimeOffset.UtcNow.AddMilliseconds(1),
+                    DateTimeOffset.UtcNow.AddMilliseconds(1),
                     providerHandle: handle,
                     resultArtifactId: artifact.Id);
             }
@@ -631,6 +671,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 ImageJobState.Error,
                 GeminiImageCapabilities.DefaultModel,
                 GeminiImageCapabilities.ProviderName,
+                DateTimeOffset.UtcNow.AddMilliseconds(1),
                 DateTimeOffset.UtcNow.AddMilliseconds(1),
                 providerHandle: handle,
                 error: new GenerationError(

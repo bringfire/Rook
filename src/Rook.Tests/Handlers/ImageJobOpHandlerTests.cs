@@ -375,6 +375,7 @@ namespace Rook.Tests.Handlers
                             "nano-banana-2",
                             "gemini",
                             updatedAt,
+                            updatedAt,
                             resultArtifactId: null),
                     },
                     appliedLimit: limit),
