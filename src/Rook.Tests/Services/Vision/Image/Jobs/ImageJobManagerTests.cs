@@ -175,6 +175,47 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task TerminalProviderErrorAppendFailure_ReportsLedgerFailureInsteadOfUnpersistedProviderError()
+        {
+            var providerError = new GenerationError(
+                GenerationErrorCode.ExecutionFailed,
+                "provider status failed",
+                Retryable: true);
+            _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-status-error");
+            _provider.OnGetStatus = _ => FakeImageProvider.StatusFailed(providerError);
+            var failedProviderErrorAppend = false;
+            _ledger.BeforeAppend = record =>
+            {
+                if (!failedProviderErrorAppend
+                    && record.State == ImageJobState.Error
+                    && record.Error?.Message == providerError.Message)
+                {
+                    failedProviderErrorAppend = true;
+                    throw new IOException("cannot persist provider error");
+                }
+            };
+            using var manager = Manager();
+
+            var submit = await manager.SubmitAsync(Start(), CancellationToken.None);
+            await WaitForRunningJobCountAsync(manager, 0);
+            var status = await manager.GetStatusAsync(
+                submit.JobId!.Value,
+                CancellationToken.None);
+            var list = await manager.ListJobsAsync(10, CancellationToken.None);
+
+            Assert.True(failedProviderErrorAppend);
+            Assert.Equal(ImageJobState.Error, status.State);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, status.Error!.Code);
+            Assert.Contains("Image job ledger is unavailable", status.Error.Message);
+            Assert.DoesNotContain(providerError.Message, status.Error.Message);
+            var listed = Assert.Single(list.Jobs, j => j.JobId == submit.JobId.Value);
+            Assert.Equal(status.Error.Message, listed.Error!.Message);
+            var latest = _ledger.AllRecords.Last(r => r.JobId == submit.JobId.Value);
+            Assert.Equal(ImageJobState.Error, latest.State);
+            Assert.Equal(status.Error.Message, latest.Error!.Message);
+        }
+
+        [Fact]
         public async Task CompleteTransition_AppendsSingleDurableComplete()
         {
             using var manager = Manager();

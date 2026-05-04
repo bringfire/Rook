@@ -420,12 +420,10 @@ namespace Rook.Services.Vision.Image.Jobs
                     switch (submit)
                     {
                         case FailedSubmitOutcome failed:
-                            _ = TryTransitionWithLedger(
+                            current = TransitionOrMarkAppendFailure(
                                 current,
                                 ImageJobState.Error,
-                                out current,
-                                out _,
-                                error: failed.Error);
+                                failed.Error);
                             running.LatestRecord = current;
                             return;
 
@@ -462,12 +460,10 @@ namespace Rook.Services.Vision.Image.Jobs
                             break;
 
                         default:
-                            _ = TryTransitionWithLedger(
+                            current = TransitionOrMarkAppendFailure(
                                 current,
                                 ImageJobState.Error,
-                                out current,
-                                out _,
-                                error: UnknownOutcomeError(
+                                UnknownOutcomeError(
                                     "submit",
                                     submit.GetType().Name));
                             running.LatestRecord = current;
@@ -506,22 +502,18 @@ namespace Rook.Services.Vision.Image.Jobs
                                 break;
 
                             case FailedStatusOutcome failed:
-                                _ = TryTransitionWithLedger(
+                                current = TransitionOrMarkAppendFailure(
                                     current,
                                     ImageJobState.Error,
-                                    out current,
-                                    out _,
-                                    error: failed.Error);
+                                    failed.Error);
                                 running.LatestRecord = current;
                                 return;
 
                             default:
-                                _ = TryTransitionWithLedger(
+                                current = TransitionOrMarkAppendFailure(
                                     current,
                                     ImageJobState.Error,
-                                    out current,
-                                    out _,
-                                    error: UnknownOutcomeError(
+                                    UnknownOutcomeError(
                                         "status",
                                         status.GetType().Name));
                                 running.LatestRecord = current;
@@ -545,12 +537,10 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    _ = TryTransitionWithLedger(
+                    var cancelled = TransitionOrMarkAppendFailure(
                         current,
                         ImageJobState.Cancelled,
-                        out var cancelled,
-                        out _,
-                        error: CancelledError());
+                        CancelledError());
                     running.LatestRecord = cancelled;
                 }
             }
@@ -558,12 +548,10 @@ namespace Rook.Services.Vision.Image.Jobs
             {
                 if (!IsTerminal(current.State))
                 {
-                    _ = TryTransitionWithLedger(
+                    var errored = TransitionOrMarkAppendFailure(
                         current,
                         ImageJobState.Error,
-                        out var errored,
-                        out _,
-                        error: new GenerationError(
+                        new GenerationError(
                             GenerationErrorCode.ExecutionFailed,
                             $"Unexpected error during image job: {ex.Message}",
                             Retryable: false));
@@ -585,24 +573,20 @@ namespace Rook.Services.Vision.Image.Jobs
         {
             if (result is FailedResultOutcome failed)
             {
-                _ = TryTransitionWithLedger(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    out var errored,
-                    out _,
-                    error: failed.Error);
+                    failed.Error);
                 running.LatestRecord = errored;
                 return;
             }
 
             if (result is not SuccessResultOutcome success)
             {
-                _ = TryTransitionWithLedger(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    out var errored,
-                    out _,
-                    error: UnknownOutcomeError(
+                    UnknownOutcomeError(
                         "result",
                         result.GetType().Name));
                 running.LatestRecord = errored;
@@ -616,12 +600,10 @@ namespace Rook.Services.Vision.Image.Jobs
                     StringComparison.Ordinal));
             if (imageArtifact is null)
             {
-                _ = TryTransitionWithLedger(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    out var errored,
-                    out _,
-                    error: new GenerationError(
+                    new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Provider result envelope did not contain an image artifact.",
                         Retryable: false));
@@ -658,12 +640,10 @@ namespace Rook.Services.Vision.Image.Jobs
                 if (IsCancellationMaterializationFailure(materialized, ct))
                     ct.ThrowIfCancellationRequested();
 
-                _ = TryTransitionWithLedger(
+                var errored = TransitionOrMarkAppendFailure(
                     current,
                     ImageJobState.Error,
-                    out var errored,
-                    out _,
-                    error: materialized.Error ?? new GenerationError(
+                    materialized.Error ?? new GenerationError(
                         GenerationErrorCode.ExecutionFailed,
                         "Image artifact could not be materialized.",
                         Retryable: false));
@@ -827,6 +807,26 @@ namespace Rook.Services.Vision.Image.Jobs
 
                 prior = Freshest(observed, latest);
             }
+        }
+
+        private ImageJobRecord TransitionOrMarkAppendFailure(
+            ImageJobRecord prior,
+            ImageJobState state,
+            GenerationError error,
+            ProviderJobHandle? providerHandle = null,
+            Guid? resultArtifactId = null)
+        {
+            _ = TryTransitionWithLedger(
+                prior,
+                state,
+                out var transitioned,
+                out var appendError,
+                providerHandle,
+                resultArtifactId,
+                error);
+            return appendError is null
+                ? transitioned
+                : MarkAppendFailure(transitioned, appendError);
         }
 
         private ImageJobRecord MarkAppendFailure(
