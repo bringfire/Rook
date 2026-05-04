@@ -659,6 +659,39 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_GenerateRoutesSourceImageAsyncModelsWithInputImagePath()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function isSourceImageAsyncImageModel", js);
+            Assert.Contains("const sourcePath = capturedViewport && capturedViewport.file_path;", js);
+            Assert.Contains("await generateImageJob(prompt, model, sourcePath);", js);
+            Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;", js);
+            Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = \"match_input_image\";", js);
+            Assert.Contains("if (isPromptOnlyAsyncImageModel(model))", js);
+
+            var jobStart = js.IndexOf("async function generateImageJob", StringComparison.Ordinal);
+            var jobEnd = js.IndexOf("function showImageJobStatus", StringComparison.Ordinal);
+            Assert.True(jobStart >= 0);
+            Assert.True(jobEnd > jobStart);
+            var jobBody = js.Substring(jobStart, jobEnd - jobStart);
+            Assert.DoesNotContain("reference_image_paths", jobBody);
+        }
+
+        [Fact]
+        public void AppJs_StudioRoutesAsyncModelsThroughImageJobOps()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("async function studioGenerateImageJob", js);
+            Assert.Contains("await studioGenerateImageJob(args, model);", js);
+            Assert.Contains("bridgeCall(\"image_generate_start\", args)", js);
+            Assert.Contains("bridgeCall(\"image_job_status\"", js);
+            Assert.Contains("bridgeCall(\"image_job_result\"", js);
+            Assert.Contains("showStudioImageJobStatus", js);
+        }
+
+        [Fact]
         public void AppJs_DisablesGenerateSourceControlsForTextToImageOnlyAsyncModels()
         {
             var js = ReadVisionResource("app.js");

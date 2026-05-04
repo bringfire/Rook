@@ -367,7 +367,8 @@ async function generateImage() {
     }
 
     if (isAsyncImageJobModel(model)) {
-        await generateImageJob(prompt, model);
+        const sourcePath = capturedViewport && capturedViewport.file_path;
+        await generateImageJob(prompt, model, sourcePath);
         return;
     }
 
@@ -418,7 +419,7 @@ function renderGeneratedArtifact(artifact, successMessage) {
     }
 }
 
-async function generateImageJob(prompt, model) {
+async function generateImageJob(prompt, model, sourcePath) {
     setGenerating(el.generateBtn, el.generateText, el.generateSpinner, true);
     showStatus("Starting image job...", "info");
     try {
@@ -426,37 +427,15 @@ async function generateImageJob(prompt, model) {
             prompt,
             resolution: el.resolutionSelect.value,
         };
-        const aspectRatio = selectedAspectRatio(el.aspectSelect);
-        if (aspectRatio) args.aspect_ratio = aspectRatio;
+        if (isPromptOnlyAsyncImageModel(model)) {
+            const aspectRatio = selectedAspectRatio(el.aspectSelect);
+            if (aspectRatio) args.aspect_ratio = aspectRatio;
+        }
         if (el.modelSelect.value) args.model = el.modelSelect.value;
+        if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;
+        if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = "match_input_image";
 
-        const start = await bridgeCall("image_generate_start", args);
-        if (!start || typeof start.job_id !== "string" || start.job_id.length === 0) {
-            throw new Error("Image job did not return a job id.");
-        }
-        const jobId = start.job_id;
-        let terminal = null;
-        for (let attempt = 0; attempt < 180; attempt++) {
-            const status = await bridgeCall("image_job_status", { job_id: jobId });
-            if (!status || typeof status.state !== "string" || status.state.length === 0) {
-                throw new Error("Image job returned an invalid status.");
-            }
-            showImageJobStatus(status);
-            if (["complete", "error", "cancelled", "interrupted"].includes(status.state)) {
-                terminal = status;
-                break;
-            }
-            await delay(1000);
-        }
-        if (!terminal) throw new Error("Image job did not finish before the UI timeout.");
-        if (terminal.state !== "complete") {
-            const err = terminal.error && terminal.error.message;
-            throw new Error(err || `Image job ended with state ${terminal.state}.`);
-        }
-        const result = await bridgeCall("image_job_result", { job_id: jobId });
-        if (!result || !result.result_artifact_id) {
-            throw new Error("Image job completed without an artifact.");
-        }
+        const result = await awaitImageJobResult(args, showImageJobStatus);
         renderGeneratedArtifact({ artifact_id: result.result_artifact_id }, "Image generated.");
     } catch (e) {
         if (model && isCredentialFailureMessage(e.message)) {
@@ -466,6 +445,37 @@ async function generateImageJob(prompt, model) {
     } finally {
         setGenerating(el.generateBtn, el.generateText, el.generateSpinner, false);
     }
+}
+
+async function awaitImageJobResult(args, statusHandler) {
+    const start = await bridgeCall("image_generate_start", args);
+    if (!start || typeof start.job_id !== "string" || start.job_id.length === 0) {
+        throw new Error("Image job did not return a job id.");
+    }
+    const jobId = start.job_id;
+    let terminal = null;
+    for (let attempt = 0; attempt < 180; attempt++) {
+        const status = await bridgeCall("image_job_status", { job_id: jobId });
+        if (!status || typeof status.state !== "string" || status.state.length === 0) {
+            throw new Error("Image job returned an invalid status.");
+        }
+        statusHandler(status);
+        if (["complete", "error", "cancelled", "interrupted"].includes(status.state)) {
+            terminal = status;
+            break;
+        }
+        await delay(1000);
+    }
+    if (!terminal) throw new Error("Image job did not finish before the UI timeout.");
+    if (terminal.state !== "complete") {
+        const err = terminal.error && terminal.error.message;
+        throw new Error(err || `Image job ended with state ${terminal.state}.`);
+    }
+    const result = await bridgeCall("image_job_result", { job_id: jobId });
+    if (!result || !result.result_artifact_id) {
+        throw new Error("Image job completed without an artifact.");
+    }
+    return result;
 }
 
 function showImageJobStatus(status) {
@@ -659,6 +669,11 @@ function isPromptOnlyAsyncImageModel(model) {
     return isAsyncImageJobModel(model)
         && model.supports_text_to_image !== false
         && model.supports_image_to_image === false;
+}
+
+function isSourceImageAsyncImageModel(model) {
+    return isAsyncImageJobModel(model)
+        && model.supports_image_to_image !== false;
 }
 
 function rememberProviderSecretKeys(providers) {
@@ -970,6 +985,12 @@ async function studioGenerate() {
             args.reference_image_paths = studioReferences.map(r => r.path);
         }
 
+        const model = selectedImageModel(el.studioModelSelect);
+        if (isAsyncImageJobModel(model)) {
+            await studioGenerateImageJob(args, model);
+            return;
+        }
+
         const artifact = await bridgeCall("generate", args);
         latestStudioArtifactId = artifact.artifact_id;
         if (artifact.artifact_id) {
@@ -987,6 +1008,31 @@ async function studioGenerate() {
         showStudioStatus(e.message, "error");
     } finally {
         setGenerating(el.studioGenerateBtn, el.studioGenerateText, el.studioGenerateSpinner, false);
+    }
+}
+
+function showStudioImageJobStatus(status) {
+    const state = status && status.state || "unknown";
+    if (state === "queued") showStudioStatus("Image job queued...", "info");
+    else if (state === "submitting") showStudioStatus("Submitting image job...", "info");
+    else if (state === "polling") showStudioStatus("Image job running...", "info");
+    else if (state === "materializing") showStudioStatus("Saving generated image...", "info");
+    else if (state === "complete") showStudioStatus("Image job complete.", "success");
+    else if (state === "cancelled") showStudioStatus("Image job cancelled.", "error");
+    else if (state === "error") showStudioStatus("Image job failed.", "error");
+    else showStudioStatus(`Image job ${state}...`, "info");
+}
+
+async function studioGenerateImageJob(args, model) {
+    if (model && isSourceImageAsyncImageModel(model)) args.aspect_ratio = "match_input_image";
+    const result = await awaitImageJobResult(args, showStudioImageJobStatus);
+    latestStudioArtifactId = result.result_artifact_id;
+    if (result.result_artifact_id) {
+        el.studioResultImage.src = `/blob/${encodeURIComponent(result.result_artifact_id)}/image?ts=${Date.now()}`;
+        el.studioResultPanel.classList.remove("hidden");
+        showStudioStatus("Image generated.", "success");
+    } else {
+        showStudioStatus("Generation returned no artifact.", "error");
     }
 }
 
