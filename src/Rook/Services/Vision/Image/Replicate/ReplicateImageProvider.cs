@@ -358,9 +358,7 @@ namespace Rook.Services.Vision.Image.Replicate
                 ["prompt"] = request.Prompt,
                 ["input_images"] = inputImages,
                 ["aspect_ratio"] = "match_input_image",
-                ["resolution"] = string.IsNullOrWhiteSpace(request.Resolution)
-                    ? "1MP"
-                    : request.Resolution,
+                ["resolution"] = "match_input_image",
                 ["output_format"] = "png",
             };
 

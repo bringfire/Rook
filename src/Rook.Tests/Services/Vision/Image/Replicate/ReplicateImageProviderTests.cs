@@ -243,7 +243,7 @@ namespace Rook.Tests.Services.Vision.Image.Replicate
                 inputJson.Select(kvp => kvp.Key).OrderBy(k => k));
             Assert.Equal("sunlit massing study", inputJson["prompt"]!.GetValue<string>());
             Assert.Equal("match_input_image", inputJson["aspect_ratio"]!.GetValue<string>());
-            Assert.Equal("1MP", inputJson["resolution"]!.GetValue<string>());
+            Assert.Equal("match_input_image", inputJson["resolution"]!.GetValue<string>());
             Assert.Equal("png", inputJson["output_format"]!.GetValue<string>());
 
             var images = Assert.IsType<JsonArray>(inputJson["input_images"]);
