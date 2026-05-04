@@ -37,6 +37,9 @@ namespace Rook.Services.Vision.Image.Replicate
                 [ReplicateImageCapabilities.FluxSchnell] = (
                     ReplicateImageCapabilities.Models[ReplicateImageCapabilities.FluxSchnell],
                     new ReplicateImagePricingModel()),
+                [ReplicateImageCapabilities.Flux2Pro] = (
+                    ReplicateImageCapabilities.Models[ReplicateImageCapabilities.Flux2Pro],
+                    new ReplicateImagePricingModel()),
             };
     }
 }

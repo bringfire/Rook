@@ -42,7 +42,7 @@ namespace Rook.Services.Vision.Image.Replicate
             if (refCount > 0)
             {
                 return ValidationResult.Fail(
-                    "reference_image_paths are not supported for Replicate FLUX Schnell.",
+                    $"reference_image_paths are not supported for {capability.Name}.",
                     "reference_image_paths");
             }
 

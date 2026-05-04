@@ -865,7 +865,7 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         {
             var inputPath = Path.Combine(_root, "input.png");
             Directory.CreateDirectory(_root);
-            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
             _provider.OnSubmit = (_, _) => FakeImageProvider.Queued("job-outside-manager");
             var handler = new VisionHandler(
                 _artifactStore,

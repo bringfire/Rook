@@ -659,6 +659,39 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_GenerateRoutesSourceImageAsyncModelsWithInputImagePath()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function isSourceImageAsyncImageModel", js);
+            Assert.Contains("const sourcePath = capturedViewport && capturedViewport.file_path;", js);
+            Assert.Contains("await generateImageJob(prompt, model, sourcePath);", js);
+            Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.input_image_path = sourcePath;", js);
+            Assert.Contains("if (sourcePath && isSourceImageAsyncImageModel(model)) args.aspect_ratio = \"match_input_image\";", js);
+            Assert.Contains("if (isPromptOnlyAsyncImageModel(model))", js);
+
+            var jobStart = js.IndexOf("async function generateImageJob", StringComparison.Ordinal);
+            var jobEnd = js.IndexOf("function showImageJobStatus", StringComparison.Ordinal);
+            Assert.True(jobStart >= 0);
+            Assert.True(jobEnd > jobStart);
+            var jobBody = js.Substring(jobStart, jobEnd - jobStart);
+            Assert.DoesNotContain("reference_image_paths", jobBody);
+        }
+
+        [Fact]
+        public void AppJs_StudioRoutesAsyncModelsThroughImageJobOps()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("async function studioGenerateImageJob", js);
+            Assert.Contains("await studioGenerateImageJob(args, model);", js);
+            Assert.Contains("bridgeCall(\"image_generate_start\", args)", js);
+            Assert.Contains("bridgeCall(\"image_job_status\"", js);
+            Assert.Contains("bridgeCall(\"image_job_result\"", js);
+            Assert.Contains("showStudioImageJobStatus", js);
+        }
+
+        [Fact]
         public void AppJs_DisablesGenerateSourceControlsForTextToImageOnlyAsyncModels()
         {
             var js = ReadVisionResource("app.js");
@@ -668,8 +701,59 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("let isCapturingViewport = false;", js);
             Assert.Contains("promptOnlyAsync || isCapturingViewport", js);
             Assert.Contains("el.captureBtn.disabled = disableCaptureControls", js);
-            Assert.Contains("el.addReferenceBtn.disabled = promptOnlyAsync", js);
+            Assert.Contains("el.addReferenceBtn.disabled = disableReferenceControls", js);
             Assert.Contains("generateReferences = [];", js);
+        }
+
+        [Fact]
+        public void AppJs_ResolutionSelectFallsBackToFirstSupportedModelResolution()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function populateResolutionSelect", js);
+            Assert.Contains("const fallback = values.length > 0 ? values[0] : \"\";", js);
+            Assert.Contains("selectEl.value = values.includes(previous) ? previous : fallback;", js);
+            Assert.DoesNotContain("selectEl.value = values.includes(previous) ? previous : \"1K\";", js);
+        }
+
+        [Fact]
+        public void AppJs_DisablesGenerateReferencesForModelsWithZeroReferenceLimit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("const maxReferences = model ? Number(model.max_reference_images || 0) : 0;", js);
+            Assert.Contains("const disableReferenceControls = promptOnlyAsync || maxReferences === 0;", js);
+            Assert.Contains("el.addReferenceBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("el.clearReferencesBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("if (disableReferenceControls && generateReferences.length > 0) {", js);
+            Assert.Contains("generateReferences = [];", js);
+            Assert.Contains("renderReferencePreview(generateReferences, el.referencePreview);", js);
+        }
+
+        [Fact]
+        public void AppJs_DisablesStudioReferencesForModelsWithZeroReferenceLimit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function updateStudioInputMode", js);
+            Assert.Contains("const maxReferences = model ? Number(model.max_reference_images || 0) : 0;", js);
+            Assert.Contains("const disableReferenceControls = maxReferences === 0;", js);
+            Assert.Contains("el.studioAddReferenceBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("el.studioClearReferencesBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("if (disableReferenceControls && studioReferences.length > 0) {", js);
+            Assert.Contains("studioReferences = [];", js);
+            Assert.Contains("renderReferencePreview(studioReferences, el.studioReferencePreview);", js);
+            Assert.Contains("updateStudioInputMode();", js);
+        }
+
+        [Fact]
+        public void AppJs_StudioOmitsReferencesForZeroReferenceModelsBeforeSubmit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("const model = selectedImageModel(el.studioModelSelect);", js);
+            Assert.Contains("if (modelMaxReferenceImages(model) > 0 && studioReferences.length > 0) {", js);
+            Assert.Contains("args.reference_image_paths = studioReferences.map(r => r.path);", js);
         }
 
         [Fact]

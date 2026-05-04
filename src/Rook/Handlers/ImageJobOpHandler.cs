@@ -320,14 +320,18 @@ namespace Rook.Handlers
             };
 
         private static Dictionary<string, object?> ErrorToObj(
-            GenerationError error) =>
-            new()
+            GenerationError error)
+        {
+            var safe = ImageJobLedgerRecordFactory.SanitizeError(error)
+                ?? error;
+            return new Dictionary<string, object?>
             {
-                ["code"] = ErrorCodeToString(error.Code),
-                ["message"] = error.Message,
-                ["retryable"] = error.Retryable,
-                ["field"] = error.Field,
+                ["code"] = ErrorCodeToString(safe.Code),
+                ["message"] = safe.Message,
+                ["retryable"] = safe.Retryable,
+                ["field"] = safe.Field,
             };
+        }
 
         internal static int MapStatusFromCode(GenerationErrorCode code) =>
             code switch

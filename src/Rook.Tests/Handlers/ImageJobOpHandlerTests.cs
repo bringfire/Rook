@@ -30,7 +30,7 @@ namespace Rook.Tests.Handlers
         {
             using var temp = TempDir.Create();
             var inputPath = Path.Combine(temp.Path, "input.png");
-            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
 
             ImageJobStartRequest? captured = null;
             var manager = new StubImageJobManager
@@ -110,11 +110,132 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task DispatchAsync_Start_AllowsSourceImageForAsyncImageToImageModel()
+        {
+            using var temp = TempDir.Create();
+            var inputPath = Path.Combine(temp.Path, "input.png");
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
+
+            ImageJobStartRequest? captured = null;
+            var manager = new StubImageJobManager
+            {
+                SubmitImpl = (request, _) =>
+                {
+                    captured = request;
+                    return ImageJobSubmitResult.Ok(SampleJobId, ImageJobState.Queued);
+                },
+            };
+
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-2-pro",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: true,
+                    supportsTextToImage: false,
+                    maxReferenceImages: 0,
+                    resolutions: new[] { "1MP" },
+                    aspectRatios: new[] { "match_input_image" }));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "enhance this viewport",
+                  "input_image_path": "{{Escape(inputPath)}}",
+                  "model": "black-forest-labs/flux-2-pro",
+                  "resolution": "1MP",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertOk(response);
+            Assert.NotNull(captured);
+            Assert.Equal("black-forest-labs/flux-2-pro", captured!.Request.Model);
+            Assert.NotEmpty(captured.ResolvedMedia);
+            Assert.Contains(
+                captured.ResolvedMedia,
+                kvp => kvp.Key.Role == ImageMediaRoles.InputImage
+                    && kvp.Value.MimeType == "image/png");
+            Assert.Null(captured.Request.ReferenceImages);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsPromptOnlyForAsyncImageToImageModel()
+        {
+            var manager = new StubImageJobManager();
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-2-pro",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: true,
+                    supportsTextToImage: false,
+                    maxReferenceImages: 0,
+                    resolutions: new[] { "1MP" },
+                    aspectRatios: new[] { "match_input_image" }));
+
+            var response = await handler.DispatchAsync("""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "enhance this viewport",
+                  "model": "black-forest-labs/flux-2-pro",
+                  "resolution": "1MP",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_RejectsReferencesForAsyncImageToImageModelWhenMaxReferenceImagesIsZero()
+        {
+            using var temp = TempDir.Create();
+            var inputPath = Path.Combine(temp.Path, "input.png");
+            var referencePath = Path.Combine(temp.Path, "ref.png");
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+            File.WriteAllBytes(inputPath, png);
+            File.WriteAllBytes(referencePath, png);
+
+            var manager = new StubImageJobManager();
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider(),
+                    "replicate",
+                    "black-forest-labs/flux-2-pro",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: true,
+                    supportsTextToImage: false,
+                    maxReferenceImages: 0,
+                    resolutions: new[] { "1MP" },
+                    aspectRatios: new[] { "match_input_image" }));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "enhance this viewport",
+                  "input_image_path": "{{Escape(inputPath)}}",
+                  "reference_image_paths": [ "{{Escape(referencePath)}}" ],
+                  "model": "black-forest-labs/flux-2-pro",
+                  "resolution": "1MP",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
         public async Task DispatchAsync_Start_RejectsSourceMediaForTextToImageOnlyAsyncModel()
         {
             using var temp = TempDir.Create();
             var inputPath = Path.Combine(temp.Path, "input.png");
-            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
             var handler = new ImageJobOpHandler(
                 new StubImageJobManager(),
                 NewVisionHandlerWithImageProvider(
@@ -198,7 +319,7 @@ namespace Rook.Tests.Handlers
         {
             using var temp = TempDir.Create();
             var referencePath = Path.Combine(temp.Path, "ref.png");
-            File.WriteAllBytes(referencePath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            File.WriteAllBytes(referencePath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
             var handler = new ImageJobOpHandler(
                 new StubImageJobManager(),
                 NewVisionHandlerWithImageProvider(
@@ -465,6 +586,29 @@ namespace Rook.Tests.Handlers
                 expectedHttp: 400);
         }
 
+        [Fact]
+        public void DispatchOffUi_Status_DoesNotExposeDataUriInError()
+        {
+            var manager = new StubImageJobManager
+            {
+                StatusImpl = _ => ImageJobStatusResult.Failed(
+                    ImageJobState.Error,
+                    new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "Provider rejected data:image/png;base64,abcdef",
+                        Retryable: false)),
+            };
+            var handler = new ImageJobOpHandler(manager, NewVisionHandler());
+
+            var response = handler.DispatchOffUi(StatusBody());
+
+            var payload = JsonSerializer.Serialize(response);
+            Assert.DoesNotContain(
+                "data:image/",
+                payload,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private static VisionHandler NewVisionHandler() => new();
 
         private static VisionHandler NewVisionHandlerWithImageProvider(
@@ -473,7 +617,10 @@ namespace Rook.Tests.Handlers
             string modelId,
             ImageSubmissionMode submissionMode,
             bool supportsImageToImage,
-            bool supportsTextToImage)
+            bool supportsTextToImage,
+            int maxReferenceImages = 0,
+            string[]? resolutions = null,
+            string[]? aspectRatios = null)
         {
             var registry = new DefaultImageProviderRegistry(new IImageProviderRegistration[]
             {
@@ -483,7 +630,10 @@ namespace Rook.Tests.Handlers
                     modelId,
                     submissionMode,
                     supportsImageToImage,
-                    supportsTextToImage),
+                    supportsTextToImage,
+                    maxReferenceImages,
+                    resolutions,
+                    aspectRatios),
             });
             var artifactRoot = Path.Combine(
                 Path.GetTempPath(),
@@ -651,7 +801,10 @@ namespace Rook.Tests.Handlers
                 string modelId,
                 ImageSubmissionMode submissionMode,
                 bool supportsImageToImage,
-                bool supportsTextToImage)
+                bool supportsTextToImage,
+                int maxReferenceImages = 0,
+                string[]? resolutions = null,
+                string[]? aspectRatios = null)
             {
                 Provider = provider;
                 ProviderName = providerName;
@@ -663,9 +816,9 @@ namespace Rook.Tests.Handlers
                             Id: modelId,
                             Name: modelId,
                             Status: "preview",
-                            Resolutions: new[] { "1K" },
-                            AspectRatios: new[] { "1:1" },
-                            MaxReferenceImages: supportsImageToImage ? 1 : 0,
+                            Resolutions: resolutions ?? new[] { "1K" },
+                            AspectRatios: aspectRatios ?? new[] { "1:1" },
+                            MaxReferenceImages: maxReferenceImages,
                             SupportsImageToImage: supportsImageToImage,
                             SupportsTextToImage: supportsTextToImage),
                         new FakeImagePricingModel()),
