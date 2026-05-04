@@ -701,8 +701,33 @@ namespace Rook.Tests.UI.Vision
             Assert.Contains("let isCapturingViewport = false;", js);
             Assert.Contains("promptOnlyAsync || isCapturingViewport", js);
             Assert.Contains("el.captureBtn.disabled = disableCaptureControls", js);
-            Assert.Contains("el.addReferenceBtn.disabled = promptOnlyAsync", js);
+            Assert.Contains("el.addReferenceBtn.disabled = disableReferenceControls", js);
             Assert.Contains("generateReferences = [];", js);
+        }
+
+        [Fact]
+        public void AppJs_ResolutionSelectFallsBackToFirstSupportedModelResolution()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function populateResolutionSelect", js);
+            Assert.Contains("const fallback = values.length > 0 ? values[0] : \"\";", js);
+            Assert.Contains("selectEl.value = values.includes(previous) ? previous : fallback;", js);
+            Assert.DoesNotContain("selectEl.value = values.includes(previous) ? previous : \"1K\";", js);
+        }
+
+        [Fact]
+        public void AppJs_DisablesGenerateReferencesForModelsWithZeroReferenceLimit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("const maxReferences = model ? Number(model.max_reference_images || 0) : 0;", js);
+            Assert.Contains("const disableReferenceControls = promptOnlyAsync || maxReferences === 0;", js);
+            Assert.Contains("el.addReferenceBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("el.clearReferencesBtn.disabled = disableReferenceControls", js);
+            Assert.Contains("if (disableReferenceControls && generateReferences.length > 0) {", js);
+            Assert.Contains("generateReferences = [];", js);
+            Assert.Contains("renderReferencePreview(generateReferences, el.referencePreview);", js);
         }
 
         [Fact]

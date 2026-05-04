@@ -598,7 +598,8 @@ function populateResolutionSelect(selectEl, values) {
     selectEl.innerHTML = values
         .map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`)
         .join("");
-    selectEl.value = values.includes(previous) ? previous : "1K";
+    const fallback = values.length > 0 ? values[0] : "";
+    selectEl.value = values.includes(previous) ? previous : fallback;
 }
 
 function syncResolutionOptions() {
@@ -792,6 +793,8 @@ function applyStudioModelCompatibility() {
 function updateGenerateInputMode() {
     const model = selectedImageModel(el.modelSelect);
     const promptOnlyAsync = isPromptOnlyAsyncImageModel(model);
+    const maxReferences = model ? Number(model.max_reference_images || 0) : 0;
+    const disableReferenceControls = promptOnlyAsync || maxReferences === 0;
     const generateView = document.getElementById("generate-view");
     if (generateView) {
         generateView.classList.toggle("generate-input-disabled", promptOnlyAsync);
@@ -800,10 +803,10 @@ function updateGenerateInputMode() {
     const disableCaptureControls = promptOnlyAsync || isCapturingViewport;
     if (el.captureBtn) el.captureBtn.disabled = disableCaptureControls;
     if (el.viewportSelect) el.viewportSelect.disabled = disableCaptureControls;
-    if (el.addReferenceBtn) el.addReferenceBtn.disabled = promptOnlyAsync;
-    if (el.clearReferencesBtn) el.clearReferencesBtn.disabled = promptOnlyAsync;
+    if (el.addReferenceBtn) el.addReferenceBtn.disabled = disableReferenceControls;
+    if (el.clearReferencesBtn) el.clearReferencesBtn.disabled = disableReferenceControls;
 
-    if (promptOnlyAsync) {
+    if (disableReferenceControls && generateReferences.length > 0) {
         generateReferences = [];
         renderReferencePreview(generateReferences, el.referencePreview);
     }
