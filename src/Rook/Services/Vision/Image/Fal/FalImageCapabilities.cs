@@ -7,6 +7,7 @@ namespace Rook.Services.Vision.Image.Fal
     {
         public const string ProviderName = "fal";
         public const string FluxSchnell = "fal-ai/flux/schnell";
+        public const string GptImage2Edit = "openai/gpt-image-2/edit";
         public const string DefaultModel = FluxSchnell;
 
         public static readonly IReadOnlyDictionary<string, ImageCapability> Models =
@@ -21,6 +22,16 @@ namespace Rook.Services.Vision.Image.Fal
                     MaxReferenceImages: 0,
                     SupportsImageToImage: false,
                     SupportsTextToImage: true),
+
+                [GptImage2Edit] = new ImageCapability(
+                    Id: GptImage2Edit,
+                    Name: "GPT Image 2 Edit",
+                    Status: "available",
+                    Resolutions: new[] { "auto" },
+                    AspectRatios: new[] { "match_input_image" },
+                    MaxReferenceImages: 0,
+                    SupportsImageToImage: true,
+                    SupportsTextToImage: false),
             };
     }
 }

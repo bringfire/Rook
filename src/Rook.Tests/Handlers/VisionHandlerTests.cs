@@ -1320,6 +1320,24 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ListImageModels_ExposesFalGptImage2EditAsSourceImageAsyncModel()
+        {
+            var handler = NewHandlerWithSecrets(new InMemoryGenerationSecretStore());
+
+            var response = handler.ListImageModels(new Dictionary<string, JsonElement>());
+
+            Assert.True(response.Success);
+            var json = JsonSerializer.Serialize(response.Data);
+            Assert.Contains("openai/gpt-image-2/edit", json);
+            Assert.Contains("\"provider_name\":\"fal\"", json);
+            Assert.Contains("\"submission_mode\":\"async_image_job\"", json);
+            Assert.Contains("\"supports_image_to_image\":true", json);
+            Assert.Contains("\"supports_text_to_image\":false", json);
+            Assert.Contains("\"max_reference_images\":0", json);
+            Assert.DoesNotContain("openai/gpt-image-2\"", json);
+        }
+
+        [Fact]
         public void ListImageModels_ReplicatePresentTokenIsAvailableButUnverified()
         {
             var store = new InMemoryGenerationSecretStore();

@@ -12,4 +12,9 @@ namespace Rook.Services.Vision.Image
         IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models { get; }
         IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
     }
+
+    public interface IImageModelSubmissionModeRegistration
+    {
+        ImageSubmissionMode GetSubmissionMode(string modelId);
+    }
 }

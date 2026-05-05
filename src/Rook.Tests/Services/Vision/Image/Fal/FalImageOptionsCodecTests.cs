@@ -134,6 +134,62 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             Assert.Equal("aspect_ratio", result.Field);
         }
 
+        [Fact]
+        public void Validate_GptImage2Edit_accepts_auto_resolution_and_match_input_image()
+        {
+            var result = _codec.Validate(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image"),
+                new FalImageOptions(),
+                FalImageCapabilities.Models[FalImageCapabilities.GptImage2Edit]);
+
+            Assert.True(result.Success);
+        }
+
+        [Fact]
+        public void Validate_GptImage2Edit_rejects_references()
+        {
+            var result = _codec.Validate(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: new[]
+                    {
+                        MediaRef.ForPath(
+                            "C:/tmp/ref.png",
+                            ImageMediaRoles.ReferenceImage),
+                    }),
+                new FalImageOptions(),
+                FalImageCapabilities.Models[FalImageCapabilities.GptImage2Edit]);
+
+            Assert.False(result.Success);
+            Assert.Equal("reference_image_paths", result.Field);
+            Assert.Contains("GPT Image 2 Edit", result.Message);
+        }
+
+        [Theory]
+        [InlineData("1K", "match_input_image", "resolution")]
+        [InlineData("auto", "1:1", "aspect_ratio")]
+        public void Validate_GptImage2Edit_rejects_unsupported_resolution_or_aspect(
+            string resolution,
+            string aspectRatio,
+            string expectedField)
+        {
+            var result = _codec.Validate(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: resolution,
+                    aspectRatio: aspectRatio),
+                new FalImageOptions(),
+                FalImageCapabilities.Models[FalImageCapabilities.GptImage2Edit]);
+
+            Assert.False(result.Success);
+            Assert.Equal(expectedField, result.Field);
+        }
+
         [Theory]
         [InlineData(null, "landscape_4_3")]
         [InlineData("", "landscape_4_3")]
@@ -158,12 +214,13 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         }
 
         private static ImageGenerationRequest Request(
+            string? model = null,
             string? resolution = "1K",
             string? aspectRatio = "4:3",
             int numberOfImages = 1,
             IReadOnlyList<MediaRef>? referenceImages = null)
             => new(
-                Model: FalImageCapabilities.FluxSchnell,
+                Model: model ?? FalImageCapabilities.FluxSchnell,
                 Prompt: "test prompt",
                 Resolution: resolution ?? string.Empty,
                 AspectRatio: aspectRatio ?? string.Empty,

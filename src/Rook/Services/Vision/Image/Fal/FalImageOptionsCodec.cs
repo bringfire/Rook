@@ -27,6 +27,14 @@ namespace Rook.Services.Vision.Image.Fal
                     "number_of_images must be 1 for fal image generation.",
                     "number_of_images");
 
+            if (string.Equals(
+                    capability.Id,
+                    FalImageCapabilities.GptImage2Edit,
+                    StringComparison.Ordinal))
+            {
+                return ValidateGptImage2Edit(request);
+            }
+
             var resolution = string.IsNullOrWhiteSpace(request.Resolution)
                 ? "1K"
                 : request.Resolution.ToUpperInvariant();
@@ -53,6 +61,43 @@ namespace Rook.Services.Vision.Image.Fal
                     "aspect_ratio must be one of: " +
                     string.Join(", ", capability.AspectRatios) + ".",
                     "aspect_ratio");
+            }
+
+            return ValidationResult.Ok();
+        }
+
+        private static ValidationResult ValidateGptImage2Edit(
+            ImageGenerationRequest request)
+        {
+            var resolution = string.IsNullOrWhiteSpace(request.Resolution)
+                ? "auto"
+                : request.Resolution.Trim();
+            if (!string.Equals(
+                    resolution,
+                    "auto",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return ValidationResult.Fail(
+                    "resolution must be auto for GPT Image 2 Edit.",
+                    "resolution");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.AspectRatio)
+                && !string.Equals(
+                    request.AspectRatio,
+                    "match_input_image",
+                    StringComparison.Ordinal))
+            {
+                return ValidationResult.Fail(
+                    "aspect_ratio must be match_input_image for GPT Image 2 Edit.",
+                    "aspect_ratio");
+            }
+
+            if ((request.ReferenceImages?.Count ?? 0) > 0)
+            {
+                return ValidationResult.Fail(
+                    "reference_image_paths are not supported for GPT Image 2 Edit.",
+                    "reference_image_paths");
             }
 
             return ValidationResult.Ok();

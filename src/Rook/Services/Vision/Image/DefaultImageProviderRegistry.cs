@@ -65,10 +65,17 @@ namespace Rook.Services.Vision.Image
                             $"Duplicate model id '{kvp.Key}' registered by providers " +
                             $"'{existing.ProviderName}' and '{reg.ProviderName}'.");
 
+                    var submissionMode = SubmissionModeFor(reg, kvp.Key);
+                    if (!Enum.IsDefined(typeof(ImageSubmissionMode), submissionMode))
+                    {
+                        throw new InvalidOperationException(
+                            $"Provider '{reg.ProviderName}' model '{kvp.Key}' has invalid SubmissionMode '{submissionMode}'.");
+                    }
+
                     var resolved = new ResolvedImageModel(
                         ModelId: kvp.Key,
                         ProviderName: reg.ProviderName,
-                        SubmissionMode: reg.SubmissionMode,
+                        SubmissionMode: submissionMode,
                         Provider: reg.Provider,
                         Capability: cap,
                         PricingModel: pricing,
@@ -119,5 +126,12 @@ namespace Rook.Services.Vision.Image
             }
             return list;
         }
+
+        private static ImageSubmissionMode SubmissionModeFor(
+            IImageProviderRegistration registration,
+            string modelId) =>
+            registration is IImageModelSubmissionModeRegistration modelModes
+                ? modelModes.GetSubmissionMode(modelId)
+                : registration.SubmissionMode;
     }
 }

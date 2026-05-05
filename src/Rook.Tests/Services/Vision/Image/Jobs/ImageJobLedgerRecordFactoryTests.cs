@@ -124,6 +124,26 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        [Theory]
+        [InlineData("https://v3.fal.media/files/result.png")]
+        [InlineData("https://queue.fal.run/openai/gpt-image-2/requests/id/status")]
+        [InlineData("https://fal.run/openai/gpt-image-2/edit")]
+        [InlineData("{\"image_urls\":[\"data:image/png;base64,AAAA\"]}")]
+        [InlineData("{\"request_id\":\"fal-gpt-1\",\"status_url\":\"https://queue.fal.run/x\"}")]
+        public void SanitizeError_redacts_fal_transport_details(string message)
+        {
+            var safe = ImageJobLedgerRecordFactory.SanitizeError(
+                new GenerationError(
+                    GenerationErrorCode.ExecutionFailed,
+                    message,
+                    Retryable: false));
+
+            Assert.NotNull(safe);
+            Assert.Equal(
+                "Image job failed; provider details were redacted.",
+                safe!.Message);
+        }
+
         [Fact]
         public void WithState_drops_long_provider_error_code()
         {
