@@ -72,6 +72,138 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         }
 
         [Fact]
+        public async Task SubmitAsync_gpt_image_2_prompt_only_fails_before_http_call()
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                EmptyMedia(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains(
+                "GPT Image 2 Edit requires exactly one source image",
+                failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_gpt_image_2_rejects_reference_image_roles_before_http_call()
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+            var input = MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage);
+            var reference = MediaRef.ForPath(
+                "C:/tmp/ref.png",
+                ImageMediaRoles.ReferenceImage);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [input] = PngMedia(),
+                [reference] = PngMedia(),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: new[] { reference }),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal("reference_image_paths", failed.Error.Field);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_gpt_image_2_rejects_oversized_source_before_http_call()
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+            var bytes = PngBytes();
+            Array.Resize(ref bytes, 1024 * 1024 + 1);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    new(bytes, "image/png"),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("GPT Image 2 Edit data URI upload", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Theory]
+        [InlineData("image/gif", new byte[] { 0x47, 0x49, 0x46, 0x38 })]
+        [InlineData("application/octet-stream", new byte[] { 0x01, 0x02, 0x03 })]
+        public async Task SubmitAsync_gpt_image_2_rejects_unsupported_mime_before_http_call(
+            string declaredMime,
+            byte[] bytes)
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    new(bytes, declaredMime),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("PNG, JPEG, or WebP", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_gpt_image_2_rejects_declared_mime_mismatch_before_http_call()
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    new(PngBytes(), "image/jpeg"),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal("input_image_path", failed.Error.Field);
+            Assert.Contains("MIME does not match", failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task SubmitAsync_success_posts_flux_schnell_request_without_image_bytes()
         {
             string? capturedBody = null;
@@ -343,18 +475,25 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             return Assert.IsType<FailedResultOutcome>(sync.Result);
         }
 
-        private static ImageGenerationRequest Request() =>
+        private static ImageGenerationRequest Request(
+            string? model = null,
+            string? resolution = null,
+            string? aspectRatio = null,
+            IReadOnlyList<MediaRef>? referenceImages = null) =>
             new(
-                Model: FalImageCapabilities.FluxSchnell,
+                Model: model ?? FalImageCapabilities.FluxSchnell,
                 Prompt: "sunlit massing study",
-                Resolution: "1K",
-                AspectRatio: "16:9",
+                Resolution: resolution ?? "1K",
+                AspectRatio: aspectRatio ?? "16:9",
                 NumberOfImages: 1,
-                ReferenceImages: new[]
+                ReferenceImages: referenceImages ?? new[]
                 {
                     MediaRef.ForPath("C:/tmp/reference.png", ImageMediaRoles.ReferenceImage),
                 },
                 Options: new FalImageOptions());
+
+        private static IReadOnlyDictionary<MediaRef, ResolvedMedia> EmptyMedia() =>
+            new Dictionary<MediaRef, ResolvedMedia>();
 
         private static IReadOnlyDictionary<MediaRef, ResolvedMedia> ResolvedImages()
         {
@@ -366,6 +505,16 @@ namespace Rook.Tests.Services.Vision.Image.Fal
                 [reference] = new ResolvedMedia(new byte[] { 6, 5, 4 }, "image/png"),
             };
         }
+
+        private static ResolvedMedia PngMedia() => new(PngBytes(), "image/png");
+
+        private static byte[] PngBytes() =>
+            new byte[]
+            {
+                0x89, 0x50, 0x4E, 0x47,
+                0x0D, 0x0A, 0x1A, 0x0A,
+                1, 2, 3, 4,
+            };
 
         private static (FalImageProvider provider, TestHttpMessageHandler handler) MakeProvider(
             Func<HttpRequestMessage, HttpResponseMessage> onSend,

@@ -45,6 +45,16 @@ namespace Rook.Services.Vision.Image.Fal
                     $"{request.Options?.GetType().Name ?? "null"}.",
                     "options");
 
+            if (string.Equals(
+                    request.Model,
+                    FalImageCapabilities.GptImage2Edit,
+                    StringComparison.Ordinal))
+            {
+                var source = FalGptImage2EditSourcePayload.FromResolvedMedia(media);
+                if (source.Error is not null)
+                    return new FailedSubmitOutcome(source.Error);
+            }
+
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrWhiteSpace(apiKey))
             {
