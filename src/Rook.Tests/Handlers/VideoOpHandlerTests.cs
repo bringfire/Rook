@@ -577,6 +577,64 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Estimate_seedance_with_artifact_start_frame_accepts_empty_fal_options()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertOk(resp, expectedHttp: 200);
+        }
+
+        [Fact]
+        public void Estimate_seedance_rejects_veo_person_generation_options()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": { "person_generation": "allow_adult" },
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            Assert.Contains(
+                "person_generation",
+                JsonSerializer.Serialize(resp.Data),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task Submit_UnknownModel_FailsBeforeOptionsParsing()
         {
             var stub = new StubManager

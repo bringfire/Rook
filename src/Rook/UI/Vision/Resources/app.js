@@ -2449,6 +2449,13 @@ const Video = (() => {
 
     // ─── Estimate / submit ──────────────────────────────────────────
 
+    function buildProviderOptions(m) {
+        if (m && m.provider_name === "fal") {
+            return {};
+        }
+        return { person_generation: ve.personGenSelect.value };
+    }
+
     function buildSubmitArgs() {
         if (!selectedCapability) return null;
         const m = currentModel();
@@ -2459,7 +2466,7 @@ const Video = (() => {
             duration_seconds: parseInt(ve.durationSelect.value, 10),
             resolution: ve.resolutionSelect.value,
             aspect_ratio: ve.aspectSelect.value,
-            options: { person_generation: ve.personGenSelect.value },
+            options: buildProviderOptions(m),
             // PR-V3: number_of_videos locked to 1 — domain
             // CapabilityValidator rejects everything else.
             number_of_videos: 1,
