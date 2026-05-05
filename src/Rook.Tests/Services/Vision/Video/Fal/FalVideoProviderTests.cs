@@ -169,6 +169,121 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Submit_seedance_i2v_posts_data_uri_body_and_returns_request_id_only_handle()
+        {
+            string? body = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""seedance-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var provider = Provider(handler);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var startBytes = PngBytes();
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(startBytes, "image/png"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("seedance-123", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.StatusUrl);
+            Assert.Null(queued.Handle.ResponseUrl);
+            Assert.Null(queued.Handle.CancelUrl);
+            Assert.Null(queued.Handle.ProviderMetadata);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video",
+                request.RequestUri!.ToString());
+
+            var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal("animate this source", json["prompt"]!.GetValue<string>());
+            Assert.Equal(
+                "data:image/png;base64," + Convert.ToBase64String(startBytes),
+                json["image_url"]!.GetValue<string>());
+            Assert.Equal("720p", json["resolution"]!.GetValue<string>());
+            Assert.Equal("6", json["duration"]!.GetValue<string>());
+            Assert.Equal("16:9", json["aspect_ratio"]!.GetValue<string>());
+            Assert.True(json["generate_audio"]!.GetValue<bool>());
+            Assert.Equal(77, json["seed"]!.GetValue<int>());
+            Assert.False(json.ContainsKey("end_image_url"));
+            Assert.False(json.ContainsKey("negative_prompt"));
+            Assert.False(json.ContainsKey("multi_prompt"));
+            Assert.False(json.ContainsKey("elements"));
+        }
+
+        [Fact]
+        public async Task Submit_seedance_interp_includes_end_image_url()
+        {
+            string? body = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""seedance-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var provider = Provider(handler);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var end = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.EndFrame);
+            var startBytes = PngBytes();
+            var endBytes = JpegBytes();
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.Interp, startFrame: start, endFrame: end),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(startBytes, "image/png"),
+                    [end] = new ResolvedMedia(endBytes, "image/jpeg"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("seedance-123", queued.Handle.ProviderJobId);
+
+            var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal(
+                "data:image/png;base64," + Convert.ToBase64String(startBytes),
+                json["image_url"]!.GetValue<string>());
+            Assert.Equal(
+                "data:image/jpeg;base64," + Convert.ToBase64String(endBytes),
+                json["end_image_url"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public async Task Submit_seedance_rejects_t2v_before_http()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(handler);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.T2V),
+                new Dictionary<MediaRef, ResolvedMedia>(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal(nameof(VideoGenerationRequest.Mode), failed.Error.Field);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task Submit_timeout_returns_retryable_dependency_unavailable()
         {
             var handler = new TestHttpMessageHandler
@@ -412,6 +527,24 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 Options: options ?? new FalVideoOptions(),
                 NumberOfVideos: 1);
 
+        private static VideoGenerationRequest SeedanceRequest(
+            VideoMode mode,
+            MediaRef? startFrame = null,
+            MediaRef? endFrame = null) =>
+            new(
+                Model: FalVideoCapabilities.SeedanceI2v,
+                Mode: mode,
+                DurationSeconds: 6,
+                Resolution: "720p",
+                AspectRatio: "16:9",
+                Prompt: "animate this source",
+                StartFrame: startFrame,
+                EndFrame: endFrame,
+                ReferenceFrames: null,
+                Seed: 77,
+                Options: new FalVideoOptions(),
+                NumberOfVideos: 1);
+
         private static ProviderJobHandle Handle() =>
             new(
                 providerJobId: "wan-123",
@@ -434,5 +567,16 @@ namespace Rook.Tests.Services.Vision.Video.Fal
               ""cancel_url"": ""https://queue.fal.run/fal-ai/wan/requests/wan-123/cancel"",
               ""status"": ""IN_QUEUE""
             }";
+
+        private static byte[] PngBytes() =>
+            new byte[]
+            {
+                0x89, 0x50, 0x4E, 0x47,
+                0x0D, 0x0A, 0x1A, 0x0A,
+                1, 2, 3, 4,
+            };
+
+        private static byte[] JpegBytes() =>
+            new byte[] { 0xFF, 0xD8, 0xFF, 1, 2, 3 };
     }
 }

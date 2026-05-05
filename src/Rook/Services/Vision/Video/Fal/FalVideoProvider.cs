@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,8 +13,10 @@ namespace Rook.Services.Vision.Video.Fal
 {
     public sealed class FalVideoProvider : IVideoProvider
     {
-        private static readonly Uri Endpoint =
+        private static readonly Uri WanEndpoint =
             new("https://queue.fal.run/fal-ai/wan/v2.7/text-to-video");
+        private static readonly Uri SeedanceEndpoint =
+            new("https://queue.fal.run/bytedance/seedance-2.0/image-to-video");
         private const string CancelHttpMethod = "PUT";
 
         private readonly Func<string?> _apiKeyProvider;
@@ -39,18 +42,28 @@ namespace Rook.Services.Vision.Video.Fal
                     "Request is null.",
                     nameof(request));
 
+            if (string.Equals(request.Model, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
+                return await SubmitWanAsync(request, ct).ConfigureAwait(false);
+
+            if (string.Equals(request.Model, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
+                return await SubmitSeedanceAsync(request, resolvedMedia, ct).ConfigureAwait(false);
+
+            return FailedSubmit(
+                GenerationErrorCode.InvalidRequest,
+                "fal video provider does not support this model.",
+                nameof(VideoGenerationRequest.Model));
+        }
+
+        private async Task<ProviderSubmitOutcome> SubmitWanAsync(
+            VideoGenerationRequest request,
+            CancellationToken ct)
+        {
             if (request.Options is not FalVideoOptions)
                 return FailedSubmit(
                     GenerationErrorCode.InvalidRequest,
                     $"fal video provider requires {nameof(FalVideoOptions)}; got " +
                     $"{request.Options?.GetType().Name ?? "null"}.",
                     nameof(VideoGenerationRequest.Options));
-
-            if (!string.Equals(request.Model, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
-                return FailedSubmit(
-                    GenerationErrorCode.InvalidRequest,
-                    $"fal video provider only supports {FalVideoCapabilities.WanT2v}.",
-                    nameof(VideoGenerationRequest.Model));
 
             if (request.Mode != VideoMode.T2V)
                 return FailedSubmit(
@@ -85,8 +98,8 @@ namespace Rook.Services.Vision.Video.Fal
             {
                 response = await _client.PostJsonAsync(
                     apiKey!,
-                    Endpoint,
-                    BuildRequestJson(request),
+                    WanEndpoint,
+                    BuildWanRequestJson(request),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -121,6 +134,108 @@ namespace Rook.Services.Vision.Video.Fal
 
                 return new QueuedSubmitOutcome(
                     FalLifecycleMapper.ParseSubmitHandle(root, CancelHttpMethod));
+            }
+            catch (JsonException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal submit response was not valid JSON.");
+            }
+            catch (ArgumentException ex)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    ex.Message);
+            }
+        }
+
+        private async Task<ProviderSubmitOutcome> SubmitSeedanceAsync(
+            VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+            CancellationToken ct)
+        {
+            if (request.Options is not FalVideoOptions)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    $"fal video provider requires {nameof(FalVideoOptions)}; got " +
+                    $"{request.Options?.GetType().Name ?? "null"}.",
+                    nameof(VideoGenerationRequest.Options));
+
+            if (request.Mode != VideoMode.I2V && request.Mode != VideoMode.Interp)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Seedance only supports image-to-video and interpolation modes.",
+                    nameof(VideoGenerationRequest.Mode));
+
+            if (string.IsNullOrWhiteSpace(request.Prompt))
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Seedance requires prompt.",
+                    nameof(VideoGenerationRequest.Prompt));
+
+            if (request.NumberOfVideos != 1)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Seedance supports exactly one video per request.",
+                    nameof(VideoGenerationRequest.NumberOfVideos));
+
+            var (sourcePayload, sourceError) =
+                FalSeedanceI2vSourcePayload.FromResolvedMedia(request, resolvedMedia);
+            if (sourceError is not null)
+                return new FailedSubmitOutcome(sourceError);
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.PostJsonAsync(
+                    apiKey!,
+                    SeedanceEndpoint,
+                    BuildSeedanceRequestJson(request, sourcePayload!),
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(response));
+
+            try
+            {
+                var root = JsonNode.Parse(response.Body) as JsonObject;
+                if (root is null)
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response was empty.");
+
+                if (!TryGetString(root, "request_id", out var requestId))
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response did not contain request_id.",
+                        "request_id");
+
+                return new QueuedSubmitOutcome(new ProviderJobHandle(requestId!));
             }
             catch (JsonException)
             {
@@ -317,7 +432,7 @@ namespace Rook.Services.Vision.Video.Fal
             return ParseFetchResult(response.Body);
         }
 
-        private static string BuildRequestJson(VideoGenerationRequest request)
+        private static string BuildWanRequestJson(VideoGenerationRequest request)
         {
             var body = new JsonObject
             {
@@ -328,6 +443,29 @@ namespace Rook.Services.Vision.Video.Fal
                 ["enable_safety_checker"] = true,
                 ["enable_prompt_expansion"] = true,
             };
+
+            if (request.Seed is int seed)
+                body["seed"] = seed;
+
+            return body.ToJsonString();
+        }
+
+        private static string BuildSeedanceRequestJson(
+            VideoGenerationRequest request,
+            FalSeedanceI2vSourcePayload sourcePayload)
+        {
+            var body = new JsonObject
+            {
+                ["prompt"] = request.Prompt,
+                ["image_url"] = sourcePayload.ImageUrl,
+                ["resolution"] = request.Resolution,
+                ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
+                ["aspect_ratio"] = request.AspectRatio,
+                ["generate_audio"] = true,
+            };
+
+            if (sourcePayload.EndImageUrl is not null)
+                body["end_image_url"] = sourcePayload.EndImageUrl;
 
             if (request.Seed is int seed)
                 body["seed"] = seed;
