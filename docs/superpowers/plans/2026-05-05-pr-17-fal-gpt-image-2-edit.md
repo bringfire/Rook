@@ -1080,7 +1080,7 @@ public async Task SubmitAsync_gpt_image_2_posts_queue_request_with_data_uri_and_
             {
               "request_id": "fal-gpt-1",
               "status_url": "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1/status",
-              "response_url": "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1/response",
+              "response_url": "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1",
               "cancel_url": "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1/cancel",
               "queue_position": 0
             }
@@ -1178,7 +1178,7 @@ public async Task FetchResultAsync_gpt_image_2_parses_exactly_one_image_url_with
 
     var request = Assert.Single(handler.Requests);
     Assert.Equal(
-        "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1/response",
+        "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1",
         request.RequestUri!.ToString());
 
     var success = Assert.IsType<SuccessResultOutcome>(outcome);
@@ -1337,12 +1337,19 @@ route-base constant. Confirm this base against fal queue submit evidence for
 this model during fake/live setup; if fal returns a different base, update this
 constant and its tests while still persisting only `request_id`.
 
+Live fal smoke confirmed that status and cancel use suffixed request routes,
+but result fetch uses the bare request endpoint. Do not append `/response` for
+GPT Image 2 edit result fetch.
+
 ```csharp
 private const string GptImage2EditLifecycleRouteBase =
     "https://queue.fal.run/openai/gpt-image-2/requests";
 
 private static Uri GptImage2EditRequestUri(string requestId, string suffix) =>
     new($"{GptImage2EditLifecycleRouteBase}/{Uri.EscapeDataString(requestId)}/{suffix}");
+
+private static Uri GptImage2EditResultUri(string requestId) =>
+    new($"{GptImage2EditLifecycleRouteBase}/{Uri.EscapeDataString(requestId)}");
 ```
 
 Add model-aware methods:
