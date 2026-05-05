@@ -1273,6 +1273,40 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void ListModels_exposes_seedance_as_fal_i2v_interp_model()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_models"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var models = Assert.IsType<List<Dictionary<string, object?>>>(data["models"]);
+            var seedance = Assert.Single(
+                models,
+                m => (string?)m["model_id"] == FalVideoCapabilities.SeedanceI2v);
+
+            Assert.Equal(FalVideoCapabilities.ProviderName, seedance["provider_name"]);
+            var cap = Assert.IsType<Dictionary<string, object?>>(seedance["capability"]);
+            Assert.Equal(FalVideoCapabilities.SeedanceI2v, cap["id"]);
+
+            var modes = Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["modes"]);
+            var modeStrings = new List<string>();
+            foreach (var mode in modes)
+            {
+                modeStrings.Add(Assert.IsType<string>(mode));
+            }
+
+            Assert.Contains("i2v", modeStrings);
+            Assert.Contains("interp", modeStrings);
+            Assert.DoesNotContain("t2v", modeStrings);
+            Assert.DoesNotContain(
+                models,
+                m => ((string?)m["model_id"] ?? string.Empty)
+                    .IndexOf("kling", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
         public async Task ListJobs_RejectedOnAsyncDispatcher()
         {
             // Defense: dispatcher fork must reject list ops if they
