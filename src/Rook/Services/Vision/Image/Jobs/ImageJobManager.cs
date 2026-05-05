@@ -203,6 +203,7 @@ namespace Rook.Services.Vision.Image.Jobs
                 {
                     var remote = await TryRemoteCancelAsync(
                             running.Model.Provider,
+                            running.Model.ModelId,
                             handle,
                             ct)
                         .ConfigureAwait(false);
@@ -244,12 +245,16 @@ namespace Rook.Services.Vision.Image.Jobs
 
             if (record.ProviderHandle is { } providerHandle)
             {
-                if (!ResolveProviderByName(record.Provider, out var provider))
+                if (!ResolveProviderForRecord(record, out var provider))
                     return ImageJobCancelResult.Fail(InvalidRequest(
-                        $"Cannot cancel job {jobId:D}: provider '{record.Provider}' is no longer registered.",
+                        $"Cannot cancel job {jobId:D}: provider/model '{record.Provider}/{record.Model}' is no longer registered.",
                         nameof(record.Provider)));
 
-                var remote = await TryRemoteCancelAsync(provider, providerHandle, ct)
+                var remote = await TryRemoteCancelAsync(
+                        provider,
+                        record.Model,
+                        providerHandle,
+                        ct)
                     .ConfigureAwait(false);
                 if (remote.Error is not null)
                     return ImageJobCancelResult.Fail(remote.Error);
@@ -448,6 +453,7 @@ namespace Rook.Services.Vision.Image.Jobs
                                 {
                                     _ = await TryRemoteCancelAsync(
                                             provider,
+                                            running.Model.ModelId,
                                             queued.Handle,
                                             CancellationToken.None)
                                         .ConfigureAwait(false);
@@ -474,7 +480,11 @@ namespace Rook.Services.Vision.Image.Jobs
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var status = await provider.GetStatusAsync(handle, ct)
+                        var status = await GetProviderStatusAsync(
+                                provider,
+                                running.Model.ModelId,
+                                handle,
+                                ct)
                             .ConfigureAwait(false);
 
                         switch (status)
@@ -523,7 +533,11 @@ namespace Rook.Services.Vision.Image.Jobs
                         break;
                     }
 
-                    var fetch = await provider.FetchResultAsync(handle, ct)
+                    var fetch = await FetchProviderResultAsync(
+                            provider,
+                            running.Model.ModelId,
+                            handle,
+                            ct)
                         .ConfigureAwait(false);
                     await CompleteResultAsync(running, current, fetch, ct)
                         .ConfigureAwait(false);
@@ -995,13 +1009,14 @@ namespace Rook.Services.Vision.Image.Jobs
 
         private async Task<RemoteCancelResult> TryRemoteCancelAsync(
             IImageProvider provider,
+            string modelId,
             ProviderJobHandle handle,
             CancellationToken ct)
         {
             ProviderCancelOutcome outcome;
             try
             {
-                outcome = await provider.CancelAsync(handle, ct)
+                outcome = await CancelProviderAsync(provider, modelId, handle, ct)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
@@ -1047,13 +1062,13 @@ namespace Rook.Services.Vision.Image.Jobs
                 return ImageJobCancelResult.Ok(ImageJobState.Interrupted);
             }
 
-            if (!ResolveProviderByName(record.Provider, out var provider))
+            if (!ResolveProviderForRecord(record, out var provider))
                 return ImageJobCancelResult.Fail(InvalidRequest(
-                    $"Cannot cancel job {record.JobId:D}: provider '{record.Provider}' is no longer registered.",
+                    $"Cannot cancel job {record.JobId:D}: provider/model '{record.Provider}/{record.Model}' is no longer registered.",
                     nameof(record.Provider)));
 
             var handle = new ProviderJobHandle(providerHandle.ProviderJobId);
-            var remote = await TryRemoteCancelAsync(provider, handle, ct)
+            var remote = await TryRemoteCancelAsync(provider, record.Model, handle, ct)
                 .ConfigureAwait(false);
             if (remote.Error is not null)
                 return ImageJobCancelResult.Fail(remote.Error);
@@ -1073,10 +1088,51 @@ namespace Rook.Services.Vision.Image.Jobs
             return ImageJobCancelResult.Ok(ImageJobState.Cancelled);
         }
 
-        private bool ResolveProviderByName(
-            string providerName,
-            out IImageProvider provider) =>
-            _registry.TryResolveProviderByName(providerName, out provider);
+        private bool ResolveProviderForRecord(
+            ImageJobRecord record,
+            out IImageProvider provider)
+        {
+            provider = null!;
+            if (!_registry.TryResolve(record.Model, out var resolved))
+                return false;
+            if (!string.Equals(
+                    resolved.ProviderName,
+                    record.Provider,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            provider = resolved.Provider;
+            return true;
+        }
+
+        private static Task<ProviderStatusOutcome> GetProviderStatusAsync(
+            IImageProvider provider,
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct) =>
+            provider is IModelAwareImageProvider modelAware
+                ? modelAware.GetStatusAsync(modelId, handle, ct)
+                : provider.GetStatusAsync(handle, ct);
+
+        private static Task<ProviderCancelOutcome> CancelProviderAsync(
+            IImageProvider provider,
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct) =>
+            provider is IModelAwareImageProvider modelAware
+                ? modelAware.CancelAsync(modelId, handle, ct)
+                : provider.CancelAsync(handle, ct);
+
+        private static Task<ProviderResultOutcome> FetchProviderResultAsync(
+            IImageProvider provider,
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct) =>
+            provider is IModelAwareImageProvider modelAware
+                ? modelAware.FetchResultAsync(modelId, handle, ct)
+                : provider.FetchResultAsync(handle, ct);
 
         private static ImageJobStatusResult TranslateToStatus(ImageJobRecord record)
         {

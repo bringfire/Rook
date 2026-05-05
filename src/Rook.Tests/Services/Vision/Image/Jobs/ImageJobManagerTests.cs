@@ -861,6 +861,80 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task Cancel_after_restart_resolves_provider_by_model_and_passes_model_to_provider()
+        {
+            var provider = new ModelAwareLifecycleProvider();
+            var registry = Registry(
+                provider,
+                providerName: "fal",
+                modelId: "openai/gpt-image-2/edit",
+                submissionMode: ImageSubmissionMode.AsyncImageJob);
+            var ledger = new FakeImageJobLedger();
+            var jobId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+            var now = DateTimeOffset.Parse("2026-05-05T12:00:00Z");
+            ledger.Append(ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    "fal",
+                    "openai/gpt-image-2/edit",
+                    ImageJobState.Queued,
+                    now),
+                ImageJobState.Interrupted,
+                now.AddSeconds(1),
+                providerJobId: "fal-request-1",
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true)));
+            using var manager = Manager(registry: registry, ledger: ledger);
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Null(result.Error);
+            Assert.Equal(ImageJobState.Cancelled, result.State);
+            Assert.Equal(new[] { "openai/gpt-image-2/edit" }, provider.CancelModels);
+            Assert.Equal(new[] { "fal-request-1" }, provider.CancelJobIds);
+        }
+
+        [Fact]
+        public async Task Cancel_after_restart_fails_when_model_provider_does_not_match_durable_provider()
+        {
+            var provider = new ModelAwareLifecycleProvider();
+            var registry = Registry(
+                provider,
+                providerName: "fal",
+                modelId: "openai/gpt-image-2/edit",
+                submissionMode: ImageSubmissionMode.AsyncImageJob);
+            var ledger = new FakeImageJobLedger();
+            var jobId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+            var now = DateTimeOffset.Parse("2026-05-05T12:00:00Z");
+            ledger.Append(ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    "other-provider",
+                    "openai/gpt-image-2/edit",
+                    ImageJobState.Queued,
+                    now),
+                ImageJobState.Interrupted,
+                now.AddSeconds(1),
+                providerJobId: "fal-request-1",
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true)));
+            using var manager = Manager(registry: registry, ledger: ledger);
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.NotNull(result.Error);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Empty(provider.CancelModels);
+            Assert.Equal(
+                ImageJobState.Interrupted,
+                ledger.AllRecords.Last(r => r.JobId == jobId).State);
+        }
+
+        [Fact]
         public async Task GeneratePathStillRejectsAsyncProviderOutsideJobManager()
         {
             var inputPath = Path.Combine(_root, "input.png");
@@ -895,9 +969,10 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             TimeSpan? pollInterval = null,
             ImageArtifactMaterializer? materializer = null,
             ImageArtifactRequestFactorySelector? selector = null,
-            IImageJobLedger? ledger = null) =>
+            IImageJobLedger? ledger = null,
+            IImageProviderRegistry? registry = null) =>
             new(
-                registry: _registry,
+                registry: registry ?? _registry,
                 artifactStore: _artifactStore,
                 clock: _clock,
                 idGenerator: _idGenerator,
@@ -1084,32 +1159,118 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
               or ImageJobState.Interrupted;
 
         private static IImageProviderRegistry Registry(IImageProvider provider) =>
+            Registry(
+                provider,
+                GeminiImageCapabilities.ProviderName,
+                GeminiImageCapabilities.DefaultModel,
+                ImageSubmissionMode.Sync);
+
+        private static IImageProviderRegistry Registry(
+            IImageProvider provider,
+            string providerName,
+            string modelId,
+            ImageSubmissionMode submissionMode) =>
             new DefaultImageProviderRegistry(new[]
             {
-                new TestImageProviderRegistration(provider),
+                new TestImageProviderRegistration(
+                    provider,
+                    providerName,
+                    modelId,
+                    submissionMode),
             });
 
         private sealed class TestImageProviderRegistration : IImageProviderRegistration
         {
-            public TestImageProviderRegistration(IImageProvider provider)
+            public TestImageProviderRegistration(
+                IImageProvider provider,
+                string providerName,
+                string modelId,
+                ImageSubmissionMode submissionMode)
             {
                 Provider = provider;
+                ProviderName = providerName;
+                SubmissionMode = submissionMode;
+                Models = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
+                {
+                    [modelId] = (
+                        new ImageCapability(
+                            Id: modelId,
+                            Name: modelId,
+                            Status: "preview",
+                            Resolutions: new[] { "1K" },
+                            AspectRatios: new[] { "1:1" },
+                            MaxReferenceImages: 0,
+                            SupportsImageToImage: true,
+                            SupportsTextToImage: true),
+                        new GeminiImagePricingModel()),
+                };
             }
 
-            public string ProviderName => GeminiImageCapabilities.ProviderName;
-            public ImageSubmissionMode SubmissionMode => ImageSubmissionMode.Sync;
+            public string ProviderName { get; }
+            public ImageSubmissionMode SubmissionMode { get; }
             public IImageProvider Provider { get; }
             public IProviderOptionsCodec<ImageGenerationRequest, ImageCapability> OptionsCodec { get; }
                 = new GeminiImageOptionsCodec();
             public IReadOnlyDictionary<string, (ImageCapability Capability, IPricingModel<ImageGenerationRequest, ImageCapability> PricingModel)> Models { get; }
-                = new Dictionary<string, (ImageCapability, IPricingModel<ImageGenerationRequest, ImageCapability>)>
-                {
-                    [GeminiImageCapabilities.DefaultModel] = (
-                        GeminiImageCapabilities.Models[GeminiImageCapabilities.DefaultModel],
-                        new GeminiImagePricingModel()),
-                };
             public IReadOnlyList<ProviderSecretRequirement> SecretRequirements { get; }
                 = Array.Empty<ProviderSecretRequirement>();
+        }
+
+        private sealed class ModelAwareLifecycleProvider : IModelAwareImageProvider
+        {
+            public string ProviderName => "fal";
+            public List<string> CancelModels { get; } = new();
+            public List<string> CancelJobIds { get; } = new();
+
+            public Task<ProviderSubmitOutcome> SubmitAsync(
+                ImageGenerationRequest request,
+                IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+                CancellationToken ct) =>
+                throw new InvalidOperationException("Submit should not be used.");
+
+            public Task<ProviderStatusOutcome> GetStatusAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException("Legacy status should not be used.");
+
+            public Task<ProviderCancelOutcome> CancelAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException("Legacy cancel should not be used.");
+
+            public Task<ProviderResultOutcome> FetchResultAsync(
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                throw new InvalidOperationException("Legacy result should not be used.");
+
+            public Task<ProviderStatusOutcome> GetStatusAsync(
+                string modelId,
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                Task.FromResult<ProviderStatusOutcome>(
+                    new InFlightStatusOutcome(
+                        GenerationLifecycleState.Running,
+                        null));
+
+            public Task<ProviderCancelOutcome> CancelAsync(
+                string modelId,
+                ProviderJobHandle handle,
+                CancellationToken ct)
+            {
+                CancelModels.Add(modelId);
+                CancelJobIds.Add(handle.ProviderJobId);
+                return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome());
+            }
+
+            public Task<ProviderResultOutcome> FetchResultAsync(
+                string modelId,
+                ProviderJobHandle handle,
+                CancellationToken ct) =>
+                Task.FromResult<ProviderResultOutcome>(
+                    new FailedResultOutcome(new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "not used",
+                        Retryable: false)));
         }
 
         private sealed class EmptyGenerationSecretStore : IGenerationSecretStore
