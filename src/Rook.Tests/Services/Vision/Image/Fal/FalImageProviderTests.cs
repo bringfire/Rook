@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -326,6 +327,16 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             var remote = Assert.IsType<RemoteArtifactBody>(artifact.Body);
             Assert.Equal("https://v3.fal.media/files/result.png", remote.Url.ToString());
             Assert.Empty(success.Envelope.EnvelopeMetadata);
+
+            var serializedMetadata = JsonSerializer.Serialize(new
+            {
+                artifact.ProviderMetadata,
+                success.Envelope.EnvelopeMetadata,
+            });
+            Assert.DoesNotContain("fal.media", serializedMetadata);
+            Assert.DoesNotContain("image_urls", serializedMetadata);
+            Assert.DoesNotContain("request_id", serializedMetadata);
+            Assert.DoesNotContain("prompt", serializedMetadata);
         }
 
         [Fact]

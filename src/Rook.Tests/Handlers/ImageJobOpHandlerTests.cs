@@ -609,6 +609,29 @@ namespace Rook.Tests.Handlers
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        [Fact]
+        public void DispatchOffUi_Status_DoesNotExposeFalTransportInError()
+        {
+            var manager = new StubImageJobManager
+            {
+                StatusImpl = _ => ImageJobStatusResult.Failed(
+                    ImageJobState.Error,
+                    new GenerationError(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal failed with {\"image_urls\":[\"data:image/png;base64,AAAA\"],\"status_url\":\"https://queue.fal.run/x\"}",
+                        Retryable: false)),
+            };
+            var handler = new ImageJobOpHandler(manager, NewVisionHandler());
+
+            var response = handler.DispatchOffUi(StatusBody());
+            var payload = JsonSerializer.Serialize(response.Data);
+
+            Assert.DoesNotContain("image_urls", payload);
+            Assert.DoesNotContain("data:image/", payload);
+            Assert.DoesNotContain("queue.fal.run", payload);
+            Assert.Contains("redacted", payload, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static VisionHandler NewVisionHandler() => new();
 
         private static VisionHandler NewVisionHandlerWithImageProvider(
