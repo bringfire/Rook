@@ -368,7 +368,7 @@ namespace Rook.Tests.Services.Vision.Image.Fal
 
             var request = Assert.Single(handler.Requests);
             Assert.Equal(
-                "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1/response",
+                "https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1",
                 request.RequestUri!.ToString());
 
             var success = Assert.IsType<SuccessResultOutcome>(outcome);

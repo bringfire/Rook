@@ -424,7 +424,7 @@ namespace Rook.Services.Vision.Image.Fal
             {
                 response = await _client.GetAsync(
                     apiKey!,
-                    GptImage2EditRequestUri(handle.ProviderJobId, "response"),
+                    GptImage2EditResultUri(handle.ProviderJobId),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -515,6 +515,11 @@ namespace Rook.Services.Vision.Image.Fal
             new(
                 $"{GptImage2EditLifecycleRouteBase}/" +
                 $"{Uri.EscapeDataString(requestId)}/{suffix}");
+
+        private static Uri GptImage2EditResultUri(string requestId) =>
+            new(
+                $"{GptImage2EditLifecycleRouteBase}/" +
+                $"{Uri.EscapeDataString(requestId)}");
 
         private static ProviderSubmitOutcome ParseSuccess(string responseJson)
         {
