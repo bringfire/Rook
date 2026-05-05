@@ -4,12 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Video;
+using Rook.Services.Vision.Video.Fal;
 using GenErrorCode = Rook.Services.Vision.Generation.GenerationErrorCode;
 using GenInlineArtifactBody = Rook.Services.Vision.Generation.InlineArtifactBody;
 using GenProviderResultEnvelope = Rook.Services.Vision.Generation.ProviderResultEnvelope;
@@ -53,11 +55,12 @@ namespace Rook.Tests.Services.Vision.Video
             TimeSpan? pollInterval = null,
             IVideoCostEstimator? estimator = null,
             VideoArtifactMaterializer? materializer = null,
-            IVideoProviderRegistry? registry = null) =>
+            IVideoProviderRegistry? registry = null,
+            IVideoJobLedger? ledger = null) =>
             new(
                 registry: registry ?? _registry,
                 mediaResolver: _resolver,
-                ledger: _ledger,
+                ledger: ledger ?? _ledger,
                 estimator: estimator ?? _estimator,
                 artifactStore: _artifactStore,
                 clock: _clock,
@@ -1219,6 +1222,170 @@ namespace Rook.Tests.Services.Vision.Video
                 c => c.Method == "CancelForModel");
         }
 
+        [Fact]
+        public async Task Seedance_job_materializes_without_fal_transport_in_ledger_or_artifact_metadata()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            var startFrame = MediaRef.ForArtifact(
+                Guid.NewGuid(),
+                VideoMediaRoles.StartFrame);
+            _resolver.OnResolve = mediaRef =>
+            {
+                Assert.Equal(startFrame, mediaRef);
+                return new ResolvedMedia(PngBytes(), "image/png");
+            };
+            _provider.OnSubmit = (request, resolvedMedia) =>
+            {
+                Assert.Equal(FalVideoCapabilities.SeedanceI2v, request.Model);
+                Assert.Single(resolvedMedia);
+                return new QueuedSubmitOutcome(
+                    new ProviderJobHandle("seedance-request-1"));
+            };
+            _provider.OnGetStatusForModel = (modelId, handle) =>
+            {
+                Assert.Equal(FalVideoCapabilities.SeedanceI2v, modelId);
+                Assert.Equal("seedance-request-1", handle.ProviderJobId);
+                Assert.Null(handle.StatusUrl);
+                Assert.Null(handle.ResponseUrl);
+                Assert.Null(handle.CancelUrl);
+                return FakeVideoProvider.StatusComplete(
+                    handle,
+                    "seedance-request-1");
+            };
+            _provider.OnFetchResultForModel = (modelId, handle) =>
+            {
+                Assert.Equal(FalVideoCapabilities.SeedanceI2v, modelId);
+                Assert.Equal("seedance-request-1", handle.ProviderJobId);
+                return FakeVideoProvider.ResultRemote(
+                    "https://v3.fal.media/files/seedance.mp4",
+                    "video/mp4");
+            };
+            _provider.OnGetStatus = _ =>
+                throw new InvalidOperationException("Legacy status should not be called.");
+            _provider.OnFetchResult = _ =>
+                throw new InvalidOperationException("Legacy fetch should not be called.");
+
+            var ledgerPath = Path.Combine(_artifactRoot, "seedance-ledger.jsonl");
+            var ledger = new JsonlVideoJobLedger(ledgerPath);
+            var downloadHandler = new TestHttpMessageHandler
+            {
+                OnSend = request =>
+                {
+                    Assert.Equal(
+                        "https://v3.fal.media/files/seedance.mp4",
+                        request.RequestUri!.ToString());
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(FakeMp4)
+                        {
+                            Headers =
+                            {
+                                ContentType =
+                                    new System.Net.Http.Headers.MediaTypeHeaderValue(
+                                        "video/mp4"),
+                            },
+                        },
+                    };
+                },
+            };
+            var materializer = new VideoArtifactMaterializer(
+                downloadHandler,
+                maxGeneratedVideoBytes: 1024);
+
+            var mgr = Manager(
+                registry: RegistryWithSeedance(_provider),
+                ledger: ledger,
+                materializer: materializer);
+
+            await mgr.SubmitAsync(
+                SeedanceI2vRequest(startFrame),
+                CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.Single(downloadHandler.Requests);
+
+            var ledgerJson = File.ReadAllText(ledgerPath);
+            Assert.Contains("seedance-request-1", ledgerJson);
+            Assert.DoesNotContain("queue.fal.run", ledgerJson);
+            Assert.DoesNotContain("status_url", ledgerJson);
+            Assert.DoesNotContain("response_url", ledgerJson);
+            Assert.DoesNotContain("cancel_url", ledgerJson);
+            Assert.DoesNotContain("data:image/", ledgerJson);
+            Assert.DoesNotContain("image_url", ledgerJson);
+
+            var artifact = _artifactStore.Get(final.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            var artifactMetadataJson = JsonSerializer.Serialize(artifact!.Metadata);
+            Assert.DoesNotContain("fal.media", artifactMetadataJson);
+            Assert.DoesNotContain("queue.fal.run", artifactMetadataJson);
+            Assert.DoesNotContain("data:image/", artifactMetadataJson);
+            Assert.DoesNotContain("image_url", artifactMetadataJson);
+            Assert.DoesNotContain("seedance-request-1", artifactMetadataJson);
+        }
+
+        [Fact]
+        public async Task Seedance_cancel_after_restart_uses_request_id_only_with_model_identity()
+        {
+            var jobId = Guid.NewGuid();
+            var startFrame = MediaRef.ForArtifact(
+                Guid.NewGuid(),
+                VideoMediaRoles.StartFrame);
+            var request = SeedanceI2vRequest(startFrame);
+            var registry = RegistryWithSeedance(_provider);
+            Assert.True(registry.TryResolve(
+                FalVideoCapabilities.SeedanceI2v,
+                out var seedanceModel));
+            var estimate = _estimator.Estimate(seedanceModel, request).Estimate!;
+            var prior = VideoJobRecordFactory.From(
+                jobId,
+                request,
+                seedanceModel,
+                estimate,
+                VideoJobState.Polling,
+                _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior,
+                VideoJobState.Interrupted,
+                _clock.UtcNow(),
+                providerJobId: "seedance-request-2",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted,
+                    "x",
+                    Retryable: true));
+
+            var ledgerPath = Path.Combine(_artifactRoot, "seedance-cancel-ledger.jsonl");
+            var ledger = new JsonlVideoJobLedger(ledgerPath);
+            ledger.Append(prior);
+            var cancelModels = new List<string>();
+            _provider.OnCancelForModel = (modelId, handle) =>
+            {
+                cancelModels.Add(modelId);
+                Assert.Equal(FalVideoCapabilities.SeedanceI2v, modelId);
+                Assert.Equal("seedance-request-2", handle.ProviderJobId);
+                Assert.Null(handle.CancelUrl);
+                return FakeVideoProvider.CancelOk();
+            };
+            _provider.OnCancel = _ =>
+                throw new InvalidOperationException("Legacy cancel should not be called.");
+
+            var mgr = Manager(registry: registry, ledger: ledger);
+
+            var cancel = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Cancelled, cancel.State);
+            Assert.Null(cancel.Error);
+            Assert.Contains(FalVideoCapabilities.SeedanceI2v, cancelModels);
+
+            var ledgerJson = File.ReadAllText(ledgerPath);
+            Assert.DoesNotContain("status_url", ledgerJson);
+            Assert.DoesNotContain("response_url", ledgerJson);
+            Assert.DoesNotContain("cancel_url", ledgerJson);
+            Assert.DoesNotContain("queue.fal.run", ledgerJson);
+        }
+
         // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──
 
         [Fact]
@@ -1592,6 +1759,37 @@ namespace Rook.Tests.Services.Vision.Video
                 FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
             _provider.OnCancel = _ => FakeVideoProvider.CancelOk();
         }
+
+        private static DefaultVideoProviderRegistry RegistryWithSeedance(
+            IVideoProvider provider) =>
+            new(new[]
+            {
+                new FalVideoProviderRegistration(provider),
+            });
+
+        private static VideoGenerationRequest SeedanceI2vRequest(
+            MediaRef startFrame) =>
+            new(
+                Model: FalVideoCapabilities.SeedanceI2v,
+                Mode: VideoMode.I2V,
+                DurationSeconds: 6,
+                Resolution: "720p",
+                AspectRatio: "16:9",
+                Prompt: "seedance prompt should stay out of transport leakage",
+                StartFrame: startFrame,
+                EndFrame: null,
+                ReferenceFrames: null,
+                Seed: null,
+                Options: new FalVideoOptions(),
+                NumberOfVideos: 1);
+
+        private static byte[] PngBytes() =>
+            new byte[]
+            {
+                0x89, 0x50, 0x4E, 0x47,
+                0x0D, 0x0A, 0x1A, 0x0A,
+                1, 2, 3, 4,
+            };
 
         private static GenProviderResultEnvelope NonVideoSuccessEnvelope()
         {
