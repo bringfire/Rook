@@ -2200,9 +2200,11 @@ const Video = (() => {
         renderFrameThumb("start");
         renderFrameThumb("end");
 
-        // Prompt is required for T2V; optional otherwise.
-        if (mode === "t2v") {
+        const promptRequired = isPromptRequiredForVideo(currentModel(), mode);
+        if (promptRequired && mode === "t2v") {
             ve.promptHint.textContent = "Required for T2V.";
+        } else if (promptRequired) {
+            ve.promptHint.textContent = "Required for this fal model.";
         } else {
             ve.promptHint.textContent = "Optional for I2V/Interp.";
         }
@@ -2456,6 +2458,10 @@ const Video = (() => {
         return { person_generation: ve.personGenSelect.value };
     }
 
+    function isPromptRequiredForVideo(m, mode) {
+        return mode === "t2v" || !!(m && m.provider_name === "fal");
+    }
+
     function buildSubmitArgs() {
         if (!selectedCapability) return null;
         const m = currentModel();
@@ -2492,7 +2498,7 @@ const Video = (() => {
         if (!ve.resolutionSelect.value) return false;
         if (!ve.aspectSelect.value) return false;
         const mode = currentMode();
-        if (mode === "t2v" && !ve.prompt.value.trim()) return false;
+        if (isPromptRequiredForVideo(currentModel(), mode) && !ve.prompt.value.trim()) return false;
         if (mode === "i2v" && !startFrame) return false;
         if (mode === "interp" && (!startFrame || !endFrame)) return false;
         return true;

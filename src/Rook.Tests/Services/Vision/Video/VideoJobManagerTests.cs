@@ -1223,6 +1223,34 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task Submit_seedance_blank_prompt_fails_before_media_resolution_or_provider_submit()
+        {
+            var startFrame = MediaRef.ForArtifact(
+                Guid.NewGuid(),
+                VideoMediaRoles.StartFrame);
+            var request = SeedanceI2vRequest(startFrame) with
+            {
+                Prompt = "   ",
+            };
+            _resolver.OnResolve = _ =>
+                throw new InvalidOperationException(
+                    "Invalid Seedance prompt should fail before media resolution.");
+            _provider.OnSubmit = (_, _) =>
+                throw new InvalidOperationException(
+                    "Invalid Seedance prompt should fail before provider submit.");
+
+            var mgr = Manager(registry: RegistryWithSeedance(_provider));
+
+            var result = await mgr.SubmitAsync(request, CancellationToken.None);
+
+            Assert.Null(result.JobId);
+            Assert.Equal(VideoErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(nameof(VideoGenerationRequest.Prompt), result.Error.Field);
+            Assert.Empty(_provider.RecordedCalls);
+            Assert.Empty(_ledger.AllRecords);
+        }
+
+        [Fact]
         public async Task Seedance_job_materializes_without_fal_transport_in_ledger_or_artifact_metadata()
         {
             var jobId = Guid.NewGuid();

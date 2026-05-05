@@ -604,6 +604,34 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Estimate_seedance_rejects_blank_prompt()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "   ",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, nameof(VideoGenerationRequest.Prompt));
+        }
+
+        [Fact]
         public void Estimate_seedance_rejects_veo_person_generation_options()
         {
             var handler = NewHandler(registry: RegistryWithVeoAndFal());

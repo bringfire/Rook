@@ -671,6 +671,20 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_RequiresPromptForFalVideoModels()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function isPromptRequiredForVideo", js);
+            Assert.Contains("mode === \"t2v\" || !!(m && m.provider_name === \"fal\")", js);
+            Assert.Contains(
+                "isPromptRequiredForVideo(currentModel(), mode) && !ve.prompt.value.trim()",
+                js);
+            Assert.Contains("Required for this fal model.", js);
+            Assert.DoesNotContain("bytedance/seedance-2.0/image-to-video", js);
+        }
+
+        [Fact]
         public void AppJs_GenerateRoutesSourceImageAsyncModelsWithInputImagePath()
         {
             var js = ReadVisionResource("app.js");
