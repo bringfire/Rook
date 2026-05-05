@@ -1,5 +1,7 @@
 # Work Queue
 
+**Last triaged:** 2026-05-05 (**PR-17 fal GPT Image 2 edit source-image workflow is open as draft PR #139 and ready to move toward review/squash merge.** PR #139 adds curated fal.ai `openai/gpt-image-2/edit` as a source-image-only async image job model for Generate and Studio. Scope held to one primary `input_image_path`, prompt required, no prompt-only GPT Image 2, no references/masks/provider options, bounded in-memory data URI transport, `image_size: "auto"`, `quality: "high"`, `output_format: "png"`, fal queue lifecycle via provider/model-aware lookup, request-id-only durable provider handle persistence, sanitized durable/bridge errors, and no native/MCP/public HTTP expansion. **Live Rhino smoke:** Generate tab viewport capture + prompt round-tripped successfully through fal GPT Image 2 edit; a post-smoke 405 on result fetch was traced to fal serving results from the bare request endpoint rather than `/response`; the provider/test/plan docs were corrected; Rhino restart verified the generated artifact still persists in Gallery. **Verification before review:** full managed suite passed `1791/1791`, focused PR-17 suite passed `299/299`, `git diff --check origin/main...HEAD` passed, boundary scan found no native/MCP/internal bridge exposure, PR #139 is `MERGEABLE`/`CLEAN`, and GitHub reports no checks configured. **Promoted to Next after PR-17 merge:** PR-18 curated video model expansion for high-value video workflows, starting with the analogous provider-specific design for Kling 3.0 / Seedance 2.0-class models rather than continuing one-image-model-at-a-time catalog filling. **Still parked:** PR-14a mode UX remains conditional because live Generate/Studio use is clear enough for the current source-image workflows.)
+
 **Last triaged:** 2026-05-04 (**PR-15 and PR-16 shipped; local `main` is synced to `origin/main` at `0eb5ad7 PR-16: Flux 2 Pro source-image workflow`.** PR #137 landed durable image job lifecycle state for managed bridge image jobs: append-only JSONL ledger, startup reconciliation to `Interrupted`, durable list/status/result/cancel-after-restart behavior, sanitized durable errors, fake-ledger isolation in tests, and no native/MCP/public HTTP exposure. PR #138 landed the first serious source-image Replicate workflow: curated `black-forest-labs/flux-2-pro`, async source-image-only Generate and Studio routing, one primary `input_image_path`, bounded data URI transport, MIME/size validation, zero-reference UI gating, schema fix for `resolution: "match_input_image"`, and leakage tests proving prompt/source/data URI/provider internals do not cross ledger/bridge/artifact boundaries. **Live Rhino smoke:** Flux 2 Pro round-tripped successfully with Replicate, generated artifact persisted after Rhino restart, and Schnell prompt-only async still works. **Verification before merge:** focused managed suites passed, diff checks passed, boundary scans found no native/MCP/internal registrar exposure, PR #138 was squash-merged, remote branch deleted, worktree removed, and PR-16 planning docs were removed before merge. **Promoted to Now:** PR-17 curated model expansion / catalog strategy decision for source-image-first workflows across Replicate and fal.ai. **Deferred:** PR-14a mode UX remains parked because the current Generate/Studio behavior was clear enough during live use.)
 
 **Last triaged:** 2026-05-03 (**PR-14 Replicate Settings + visible image model shipped as PR #136 and local `main` is synced to the squash merge.** `origin/main` is at `1359fc8 [codex] Add Replicate Settings and visible image model`, the squash merge of the PR-14 design spec, implementation plan, and managed Vision implementation. Shipped scope: Replicate appears as a Settings credential owner with `replicate.api_token`; `black-forest-labs/flux-schnell` appears in the managed image catalog with backend-owned `submission_mode`; Generate routes prompt-only async T2I submissions through bridge-only image job ops; Studio remains source-image/edit oriented with T2I-only models incompatible/disabled; Replicate output is copied into local artifacts through the authenticated output request selector; and native/MCP/public HTTP/`NativeGhBridgeRegistrar` boundaries remain closed. **Verification:** PR #136 passed senior review with no requested changes, was squash-merged, remote branch deleted, local worktree removed, and local `main` matches `origin/main`. Local verification before merge included focused managed suites, full managed suite `1687/1687`, diff check, and boundary/leakage scans. **Promoted to Now:** PR-15 image job durability and restart recovery. **Conditional Next:** PR-14a mode UX is parked behind the trigger: promote if PR-14 manual smoke/live use shows Generate-only prompt T2I causes visible confusion or Studio mismatch friction.)
@@ -144,22 +146,23 @@ Each item carries:
 
 ## Now
 
-**Active item: PR-17 curated source-image model expansion / catalog strategy.**
+**Active item: PR-17 fal GPT Image 2 edit source-image workflow.**
 
 - **Type:** feature / provider catalog
-- **Stage:** brainstorm
-- **Risk:** M (provider-specific schemas/transports can expand quickly if not kept curated and source-image-first)
-- **Why_now:** PR #138 proved the source-image async path with Flux 2 Pro and live Rhino/Replicate smoke. The next product question is how Rook should populate useful Replicate and fal.ai models beyond Schnell without turning the catalog into uncurated discovery or UI mode sprawl.
-- **Source_doc:** PR #136/#137/#138 review notes and live smoke results.
+- **Stage:** review-ready
+- **Risk:** M (provider-specific queue/result routes and payload privacy need live-smoke confirmation)
+- **Why_now:** PR #138 proved the source-image async path with Flux 2 Pro; PR-17 adds the fal.ai analog with a higher-value source-image edit model while keeping the catalog curated and source-image-first.
+- **Source_doc:** `docs/superpowers/specs/2026-05-05-pr-17-fal-gpt-image-2-edit-design.md`; `docs/superpowers/plans/2026-05-05-pr-17-fal-gpt-image-2-edit.md`; PR #139.
 
-**Scope target:**
-- Decide the next curated model slice after Flux 2 Pro, prioritizing Rhino/Grasshopper screenshot -> high-quality enhancement/edit workflows over prompt-only T2I.
-- Keep the user-facing model list curated. Provider discovery may inform background research, but must not directly populate an unreviewed dynamic catalog.
-- Evaluate Replicate and fal.ai candidates one provider/model shape at a time, including input transport, source/reference semantics, provider schema drift risk, cost/latency, and artifact privacy.
-- Preserve PR-15 durability boundaries: no new durable prompt/source/request/provider metadata unless a concrete resume/retry/history requirement exists.
-- Preserve PR-16 source-image constraints unless deliberately expanded: exactly one primary source image first; multi-reference, upload/provenance changes, auto-resize/compression, and prompt-only premium T2I each need explicit scope.
+**Current PR shape:**
+- Curated fal.ai `openai/gpt-image-2/edit` only; do not add prompt-only `openai/gpt-image-2`.
+- Source-image-only async image job path for Generate and Studio: exactly one primary `input_image_path`, prompt required, no `reference_image_paths`, no mask, no provider-specific option surface.
+- Bounded in-memory data URI transport from sniffed PNG/JPEG/WebP source bytes; no public temp hosting, fal upload abstraction, auto-resize/compression, or persisted data URI.
+- fal queue lifecycle stays inside the model-aware `fal` image provider; durable records persist only `provider + model + provider_job_id` where `provider_job_id` is the safe fal `request_id`.
+- Live-smoke correction: status/cancel use suffixed request routes; result fetch uses the bare request endpoint, not `/response`.
+- Preserve PR-15 durability boundaries: no durable prompt/source/request/provider metadata and no provider internals in bridge job responses.
 
-**Guardrails:** No native/MCP/public HTTP expansion by default; no uncurated dynamic discovery UI; no provider token, signed/authenticated output request, provider URL, data URI, source path, or raw provider envelope in durable records, bridge responses, or artifact metadata. Live provider tests remain explicit opt-in spend.
+**Merge gate:** PR #139 remains draft until final review is accepted. Required evidence is already present locally: full managed suite `1791/1791`, focused PR-17 suite `299/299`, diff check, boundary scan, net7 deploy, live Rhino/fal round trip, and restart/Gallery persistence.
 
 ---
 
@@ -180,22 +183,22 @@ Each item carries:
 
 ## Next
 
-**Conditional next: PR-14a mode UX.**
+**Next item: PR-18 curated video model expansion.**
 
-- **Type:** feature / provider UX
-- **Stage:** parked / conditional
-- **Risk:** M (product-shape work that can expand into a broader RookVision mode model)
-- **Source_doc:** `docs/superpowers/specs/2026-05-03-pr-14-replicate-settings-visible-image-model-design.md` section "PR-14a Follow-Up"; PR #136 review notes.
-- **Trigger to promote:** promote only if continued Flux 2 Pro/Schnell use shows Generate-only prompt T2I, Studio source-image edits, or async job affordances cause visible confusion or workflow friction.
+- **Type:** feature / provider catalog
+- **Stage:** brainstorm
+- **Risk:** M/High (video provider schemas, queue lifecycles, cost, and source/video artifact semantics can diverge sharply by model)
+- **Source_doc:** PR #130/#131 fal video substrate/settings history; PR #111 video transport; PR-15 image durability precedent; PR-16/PR-17 curated source-image model workflow results.
+- **Why next:** PR-16 and PR-17 establish the curated source-image pattern for high-value image workflows. The next product value is the analogous curated video slice, targeting serious video models such as Kling 3.0 / Seedance 2.0-class workflows instead of continuing to fill the image catalog one model at a time.
 
 **Expected scope:**
-- Decide whether Generate needs explicit text-to-image vs image-to-image mode control.
-- Clarify source/reference compatibility presentation across Generate and Studio.
-- Decide whether Studio remains an edit workspace, becomes a general image lab, or becomes mode-driven.
-- Improve async image job progress/cancellation affordances across the full Vision UI if the current minimal status area is not sufficient.
-- Decide whether more model families need a consistent mode/picker design before broader provider expansion.
+- Brainstorm/design first, using the same senior-review process as PR-16/PR-17.
+- Keep the model list curated; provider discovery may inform research but must not directly populate an unreviewed dynamic catalog.
+- Pick a narrow first video model/workflow slice with explicit provider, model id, source semantics, queue transport, result materialization, pricing/cost behavior, and privacy boundaries.
+- Reuse existing video job lifecycle/durability patterns where possible; do not add MCP/native/public parity unless the model workflow specifically requires it.
+- Preserve local artifact materialization and Gallery persistence as the user-facing success condition; live provider smoke is expected and spend is acceptable when explicitly called out.
 
-**Acceptance direction:** PR-14a should resolve concrete UX friction without absorbing PR-15 durability scope, native/MCP parity, broader Replicate model coverage, or provider-specific knobs.
+**Acceptance direction:** PR-18 should produce a narrow, reviewable design for one curated high-value video provider/model workflow before implementation. It should not become general video catalog discovery, broad UI mode redesign, or provider-option sprawl.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
