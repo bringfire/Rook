@@ -50,11 +50,24 @@ namespace Rook.Services.Vision.Image.Fal
                     $"{request.Options?.GetType().Name ?? "null"}.",
                     "options");
 
+            var isGptImage2Edit = string.Equals(
+                request.Model,
+                FalImageCapabilities.GptImage2Edit,
+                StringComparison.Ordinal);
+            var isFluxSchnell = string.Equals(
+                request.Model,
+                FalImageCapabilities.FluxSchnell,
+                StringComparison.Ordinal);
+            if (!isGptImage2Edit && !isFluxSchnell)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    $"fal image provider does not support model '{request.Model}'.",
+                    "model");
+            }
+
             FalGptImage2EditSourcePayload? gptSourcePayload = null;
-            if (string.Equals(
-                    request.Model,
-                    FalImageCapabilities.GptImage2Edit,
-                    StringComparison.Ordinal))
+            if (isGptImage2Edit)
             {
                 var source = FalGptImage2EditSourcePayload.FromResolvedMedia(media);
                 if (source.Error is not null)
@@ -75,10 +88,7 @@ namespace Rook.Services.Vision.Image.Fal
             Uri endpoint;
             try
             {
-                if (string.Equals(
-                        request.Model,
-                        FalImageCapabilities.GptImage2Edit,
-                        StringComparison.Ordinal))
+                if (isGptImage2Edit)
                 {
                     bodyJson = BuildGptImage2EditRequestJson(
                         request,
@@ -129,10 +139,7 @@ namespace Rook.Services.Vision.Image.Fal
             if (!response.IsSuccessStatusCode)
                 return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(response));
 
-            if (string.Equals(
-                    request.Model,
-                    FalImageCapabilities.GptImage2Edit,
-                    StringComparison.Ordinal))
+            if (isGptImage2Edit)
             {
                 return ParseGptImage2EditSubmit(response.Body);
             }
@@ -259,6 +266,14 @@ namespace Rook.Services.Vision.Image.Fal
                     return FailedSubmit(
                         GenerationErrorCode.ExecutionFailed,
                         "fal submit response was missing request id.");
+                }
+
+                if (!IsSafeFalRequestId(requestId))
+                {
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response contained an invalid request id.",
+                        "provider_job_id");
                 }
 
                 return new QueuedSubmitOutcome(new ProviderJobHandle(requestId!));
@@ -675,6 +690,32 @@ namespace Rook.Services.Vision.Image.Fal
             {
                 return false;
             }
+        }
+
+        private static bool IsSafeFalRequestId(string? requestId)
+        {
+            if (string.IsNullOrWhiteSpace(requestId))
+                return false;
+            if (!string.Equals(requestId, requestId!.Trim(), StringComparison.Ordinal))
+                return false;
+            if (requestId.Length > 128)
+                return false;
+
+            foreach (var ch in requestId)
+            {
+                if ((ch >= 'a' && ch <= 'z')
+                    || (ch >= 'A' && ch <= 'Z')
+                    || (ch >= '0' && ch <= '9')
+                    || ch == '-'
+                    || ch == '_')
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return true;
         }
     }
 }

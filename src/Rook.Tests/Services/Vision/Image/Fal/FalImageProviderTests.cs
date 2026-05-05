@@ -72,6 +72,25 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             Assert.Empty(handler.Requests);
         }
 
+        [Theory]
+        [InlineData("openai/gpt-image-2")]
+        [InlineData("fal-ai/flux/schnel")]
+        public async Task SubmitAsync_unknown_model_fails_before_http_call(string model)
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
+
+            var outcome = await provider.SubmitAsync(
+                Request(model: model),
+                ResolvedImages(),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, failed.Error.Code);
+            Assert.Equal("model", failed.Error.Field);
+            Assert.Contains(model, failed.Error.Message);
+            Assert.Empty(handler.Requests);
+        }
+
         [Fact]
         public async Task SubmitAsync_gpt_image_2_prompt_only_fails_before_http_call()
         {
@@ -265,6 +284,39 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             Assert.Null(queued.Handle.CancelUrl);
             Assert.Null(queued.Handle.ProviderMetadata);
             Assert.Null(queued.Handle.ProviderResultToken);
+        }
+
+        [Theory]
+        [InlineData("https://queue.fal.run/openai/gpt-image-2/requests/fal-gpt-1")]
+        [InlineData("data:image/png;base64,AAAA")]
+        [InlineData("{\"request_id\":\"fal-gpt-1\"}")]
+        [InlineData("fal-gpt-1/response")]
+        public async Task SubmitAsync_gpt_image_2_rejects_unsafe_request_id_before_handle_persistence(
+            string requestId)
+        {
+            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.Created, $$"""
+                { "request_id": {{JsonValue.Create(requestId)!.ToJsonString()}} }
+                """));
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    PngMedia(),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            Assert.Single(handler.Requests);
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
+            Assert.Equal("provider_job_id", failed.Error.Field);
+            Assert.DoesNotContain(requestId, failed.Error.Message);
         }
 
         [Theory]
