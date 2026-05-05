@@ -37,10 +37,38 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         {
             var registration = new FalImageProviderRegistration(new FakeImageProvider());
 
-            var model = Assert.Single(registration.Models);
-            Assert.Equal(FalImageCapabilities.FluxSchnell, model.Key);
-            Assert.Equal(FalImageCapabilities.FluxSchnell, model.Value.Capability.Id);
-            Assert.IsType<FalFluxSchnellPricingModel>(model.Value.PricingModel);
+            Assert.True(registration.Models.ContainsKey(FalImageCapabilities.FluxSchnell));
+            var model = registration.Models[FalImageCapabilities.FluxSchnell];
+            Assert.Equal(FalImageCapabilities.FluxSchnell, model.Capability.Id);
+            Assert.IsType<FalFluxSchnellPricingModel>(model.PricingModel);
+        }
+
+        [Fact]
+        public void Models_ExposeGptImage2EditCapability()
+        {
+            var registration = new FalImageProviderRegistration(new FakeImageProvider());
+
+            Assert.True(registration.Models.ContainsKey(FalImageCapabilities.GptImage2Edit));
+            var model = registration.Models[FalImageCapabilities.GptImage2Edit];
+            Assert.Equal("GPT Image 2 Edit", model.Capability.Name);
+            Assert.Equal(new[] { "auto" }, model.Capability.Resolutions);
+            Assert.Equal(new[] { "match_input_image" }, model.Capability.AspectRatios);
+            Assert.Equal(0, model.Capability.MaxReferenceImages);
+            Assert.True(model.Capability.SupportsImageToImage);
+            Assert.False(model.Capability.SupportsTextToImage);
+        }
+
+        [Fact]
+        public void GetSubmissionMode_ReturnsAsyncForGptImage2EditAndSyncForSchnell()
+        {
+            var registration = new FalImageProviderRegistration(new FakeImageProvider());
+
+            Assert.Equal(
+                ImageSubmissionMode.Sync,
+                registration.GetSubmissionMode(FalImageCapabilities.FluxSchnell));
+            Assert.Equal(
+                ImageSubmissionMode.AsyncImageJob,
+                registration.GetSubmissionMode(FalImageCapabilities.GptImage2Edit));
         }
 
         private sealed class FakeImageProvider : IImageProvider
