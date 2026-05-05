@@ -344,6 +344,36 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Status_seedance_reconstructs_status_url_from_model_and_request_id()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{ ""status"": ""COMPLETED"" }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.GetStatusAsync(
+                FalVideoCapabilities.SeedanceI2v,
+                new ProviderJobHandle(
+                    "seedance-123",
+                    providerResultToken: "existing-token"),
+                CancellationToken.None);
+
+            var complete = Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
+            Assert.Equal("seedance-123", complete.UpdatedHandle.ProviderJobId);
+            Assert.Equal("existing-token", complete.UpdatedHandle.ProviderResultToken);
+            Assert.Null(complete.UpdatedHandle.StatusUrl);
+            Assert.Null(complete.UpdatedHandle.ResponseUrl);
+            Assert.Null(complete.UpdatedHandle.CancelUrl);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123/status",
+                request.RequestUri!.ToString());
+        }
+
+        [Fact]
         public async Task Status_timeout_returns_retryable_dependency_unavailable()
         {
             var handler = new TestHttpMessageHandler
@@ -405,6 +435,66 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal("https://v3b.fal.media/files/out.mp4", artifact.ProviderMetadata["url"]!.GetValue<string>());
             Assert.Equal(1280, artifact.ProviderMetadata["width"]!.GetValue<int>());
             Assert.Equal("expanded prompt", success.Envelope.EnvelopeMetadata["actual_prompt"]!.GetValue<string>());
+        }
+
+        [Fact]
+        public async Task Fetch_seedance_reconstructs_response_url_and_drops_provider_metadata()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{
+                  ""video"": {
+                    ""url"": ""https://v3.fal.media/files/seedance.mp4"",
+                    ""content_type"": ""video/mp4"",
+                    ""duration"": 6
+                  },
+                  ""seed"": 42
+                }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.FetchResultAsync(
+                FalVideoCapabilities.SeedanceI2v,
+                new ProviderJobHandle("seedance-123"),
+                CancellationToken.None);
+
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            Assert.Equal(VideoMediaRoles.Video, artifact.Role);
+            var remote = Assert.IsType<RemoteArtifactBody>(artifact.Body);
+            Assert.Equal("https://v3.fal.media/files/seedance.mp4", remote.Url.ToString());
+            Assert.Equal("video/mp4", artifact.DeclaredMimeType);
+            Assert.Empty(artifact.ProviderMetadata);
+            Assert.Empty(success.Envelope.EnvelopeMetadata);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123",
+                request.RequestUri!.ToString());
+        }
+
+        [Theory]
+        [InlineData(@"{}")]
+        [InlineData(@"{ ""video"": {} }")]
+        [InlineData(@"{ ""video"": { ""url"": ""https://"" } }")]
+        [InlineData(@"{ ""video"": { ""url"": ""data:video/mp4;base64,AAAA"" } }")]
+        [InlineData(@"{ ""video"": { ""url"": ""file:///C:/temp/out.mp4"" } }")]
+        public async Task Fetch_seedance_rejects_missing_or_invalid_video_url(string responseJson)
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, responseJson),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.FetchResultAsync(
+                FalVideoCapabilities.SeedanceI2v,
+                new ProviderJobHandle("seedance-123"),
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedResultOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
         }
 
         [Fact]
@@ -502,6 +592,60 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             await provider.CancelAsync(handle, CancellationToken.None);
 
             Assert.Equal(HttpMethod.Post, Assert.Single(handler.Requests).Method);
+        }
+
+        [Fact]
+        public async Task Cancel_seedance_reconstructs_cancel_url_from_model_and_request_id()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.Accepted, @"{ ""status"": ""CANCELLATION_REQUESTED"" }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.CancelAsync(
+                FalVideoCapabilities.SeedanceI2v,
+                new ProviderJobHandle("seedance-123"),
+                CancellationToken.None);
+
+            Assert.IsType<CanceledOutcome>(outcome);
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123/cancel",
+                request.RequestUri!.ToString());
+        }
+
+        [Fact]
+        public async Task Model_aware_lifecycle_rejects_unknown_model_without_inferring_from_request_id_only_handle()
+        {
+            var handler = new TestHttpMessageHandler();
+            var provider = Provider(handler);
+            var handle = new ProviderJobHandle("seedance-123");
+
+            var status = await provider.GetStatusAsync(
+                "unknown-model",
+                handle,
+                CancellationToken.None);
+            var fetch = await provider.FetchResultAsync(
+                "unknown-model",
+                handle,
+                CancellationToken.None);
+            var cancel = await provider.CancelAsync(
+                "unknown-model",
+                handle,
+                CancellationToken.None);
+
+            Assert.Equal(
+                GenerationErrorCode.InvalidRequest,
+                Assert.IsType<FailedStatusOutcome>(status).Error.Code);
+            Assert.Equal(
+                GenerationErrorCode.InvalidRequest,
+                Assert.IsType<FailedResultOutcome>(fetch).Error.Code);
+            Assert.Equal(
+                GenerationErrorCode.InvalidRequest,
+                Assert.IsType<FailedCancelOutcome>(cancel).Error.Code);
+            Assert.Empty(handler.Requests);
         }
 
         private static FalVideoProvider Provider(TestHttpMessageHandler handler) =>

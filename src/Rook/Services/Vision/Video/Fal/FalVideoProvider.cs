@@ -11,7 +11,7 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video.Fal
 {
-    public sealed class FalVideoProvider : IVideoProvider
+    public sealed class FalVideoProvider : IModelAwareVideoProvider
     {
         private static readonly Uri WanEndpoint =
             new("https://queue.fal.run/fal-ai/wan/v2.7/text-to-video");
@@ -319,6 +319,50 @@ namespace Rook.Services.Vision.Video.Fal
             }
         }
 
+        public Task<ProviderStatusOutcome> GetStatusAsync(
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
+                return GetStatusAsync(handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
+                return GetSeedanceStatusAsync(handle, ct);
+
+            return Task.FromResult<ProviderStatusOutcome>(FailedStatus(
+                GenerationErrorCode.InvalidRequest,
+                $"fal video provider does not support async status for model '{modelId}'.",
+                "model"));
+        }
+
+        private async Task<ProviderStatusOutcome> GetSeedanceStatusAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+                return FailedStatus(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle));
+
+            var transportHandle = new ProviderJobHandle(
+                handle.ProviderJobId,
+                statusUrl: QueueStatusUri(SeedanceEndpoint, handle.ProviderJobId),
+                providerResultToken: handle.ProviderResultToken);
+
+            var outcome = await GetStatusAsync(transportHandle, ct).ConfigureAwait(false);
+            if (outcome is ProviderCompleteStatusOutcome complete)
+            {
+                return new ProviderCompleteStatusOutcome(new ProviderJobHandle(
+                    complete.UpdatedHandle.ProviderJobId,
+                    providerResultToken: complete.UpdatedHandle.ProviderResultToken
+                        ?? handle.ProviderResultToken));
+            }
+
+            return outcome;
+        }
+
         public async Task<ProviderCancelOutcome> CancelAsync(
             ProviderJobHandle handle,
             CancellationToken ct)
@@ -334,6 +378,7 @@ namespace Rook.Services.Vision.Video.Fal
                     GenerationErrorCode.ExecutionFailed,
                     "fal cancel URL or method is missing.");
 
+            var cancelHttpMethod = handle.CancelHttpMethod.Trim();
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrWhiteSpace(apiKey))
                 return FailedCancel(
@@ -345,7 +390,7 @@ namespace Rook.Services.Vision.Video.Fal
             {
                 response = await _client.SendAsync(
                     apiKey!,
-                    new HttpMethod(handle.CancelHttpMethod.Trim()),
+                    new HttpMethod(cancelHttpMethod),
                     handle.CancelUrl,
                     bodyJson: null,
                     ct).ConfigureAwait(false);
@@ -376,6 +421,43 @@ namespace Rook.Services.Vision.Video.Fal
                 return new AlreadyTerminalOutcome(GenerationLifecycleState.Completed);
 
             return new FailedCancelOutcome(FalErrorMapper.MapHttpFailure(response));
+        }
+
+        public Task<ProviderCancelOutcome> CancelAsync(
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
+                return CancelAsync(handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
+                return CancelSeedanceAsync(handle, ct);
+
+            return Task.FromResult<ProviderCancelOutcome>(FailedCancel(
+                GenerationErrorCode.InvalidRequest,
+                $"fal video provider does not support async cancel for model '{modelId}'.",
+                "model"));
+        }
+
+        private Task<ProviderCancelOutcome> CancelSeedanceAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+            {
+                return Task.FromResult<ProviderCancelOutcome>(FailedCancel(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle)));
+            }
+
+            var transportHandle = new ProviderJobHandle(
+                handle.ProviderJobId,
+                cancelUrl: QueueCancelUri(SeedanceEndpoint, handle.ProviderJobId),
+                cancelHttpMethod: CancelHttpMethod);
+
+            return CancelAsync(transportHandle, ct);
         }
 
         public async Task<ProviderResultOutcome> FetchResultAsync(
@@ -430,6 +512,72 @@ namespace Rook.Services.Vision.Video.Fal
                 return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(response));
 
             return ParseFetchResult(response.Body);
+        }
+
+        public Task<ProviderResultOutcome> FetchResultAsync(
+            string modelId,
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (string.Equals(modelId, FalVideoCapabilities.WanT2v, StringComparison.Ordinal))
+                return FetchResultAsync(handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
+                return FetchSeedanceResultAsync(handle, ct);
+
+            return Task.FromResult<ProviderResultOutcome>(FailedResult(
+                GenerationErrorCode.InvalidRequest,
+                $"fal video provider does not support async result fetch for model '{modelId}'.",
+                "model"));
+        }
+
+        private async Task<ProviderResultOutcome> FetchSeedanceResultAsync(
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            if (handle is null)
+                return FailedResult(
+                    GenerationErrorCode.InvalidRequest,
+                    "ProviderJobHandle is required.",
+                    nameof(handle));
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await _client.GetAsync(
+                    apiKey!,
+                    QueueResponseUri(SeedanceEndpoint, handle.ProviderJobId),
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal result fetch timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal result fetch failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(response));
+
+            return ParseSeedanceFetchResult(response.Body);
         }
 
         private static string BuildWanRequestJson(VideoGenerationRequest request)
@@ -525,6 +673,63 @@ namespace Rook.Services.Vision.Video.Fal
                     new[] { artifact },
                     envelopeMetadata));
         }
+
+        private static ProviderResultOutcome ParseSeedanceFetchResult(string body)
+        {
+            JsonObject root;
+            try
+            {
+                root = JsonNode.Parse(body) as JsonObject
+                    ?? throw new JsonException();
+            }
+            catch (JsonException)
+            {
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal result response was not valid JSON.");
+            }
+
+            if (root["video"] is not JsonObject video)
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal result response did not contain video object.",
+                    "video");
+
+            if (!TryGetString(video, "url", out var urlText)
+                || !Uri.TryCreate(urlText, UriKind.Absolute, out var url)
+                || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
+            {
+                return FailedResult(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal video URL was missing or invalid.",
+                    "video.url");
+            }
+
+            var artifact = new ResultArtifact(
+                Role: VideoMediaRoles.Video,
+                Body: new RemoteArtifactBody(url),
+                DeclaredMimeType: TryGetString(video, "content_type", out var mime)
+                    ? mime
+                    : null,
+                ProviderMetadata: new Dictionary<string, JsonNode>());
+
+            return new SuccessResultOutcome(
+                new ProviderResultEnvelope(
+                    new[] { artifact },
+                    new Dictionary<string, JsonNode>()));
+        }
+
+        private static Uri QueueStatusUri(Uri endpoint, string requestId) =>
+            new($"{endpoint.ToString().TrimEnd('/')}/requests/" +
+                $"{Uri.EscapeDataString(requestId)}/status");
+
+        private static Uri QueueResponseUri(Uri endpoint, string requestId) =>
+            new($"{endpoint.ToString().TrimEnd('/')}/requests/" +
+                $"{Uri.EscapeDataString(requestId)}");
+
+        private static Uri QueueCancelUri(Uri endpoint, string requestId) =>
+            new($"{endpoint.ToString().TrimEnd('/')}/requests/" +
+                $"{Uri.EscapeDataString(requestId)}/cancel");
 
         private static ProviderSubmitOutcome FailedSubmit(
             GenerationErrorCode code,
