@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -897,6 +898,116 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         }
 
         [Fact]
+        public async Task GptImage2Edit_async_job_materializes_without_persisting_fal_transport_details()
+        {
+            var provider = new ModelAwareLifecycleProvider
+            {
+                SubmitOutcome = new QueuedSubmitOutcome(
+                    new ProviderJobHandle("fal-request-materialize")),
+                StatusOutcomeFactory = handle =>
+                    new ProviderCompleteStatusOutcome(handle),
+                ResultOutcome = new SuccessResultOutcome(new ProviderResultEnvelope(
+                    new[]
+                    {
+                        new ResultArtifact(
+                            ImageMediaRoles.Image,
+                            new RemoteArtifactBody(
+                                new Uri("https://fal.media/files/generated.png")),
+                            "image/png",
+                            new Dictionary<string, JsonNode>()),
+                    },
+                    new Dictionary<string, JsonNode>())),
+            };
+            var registry = Registry(
+                provider,
+                providerName: "fal",
+                modelId: "openai/gpt-image-2/edit",
+                submissionMode: ImageSubmissionMode.AsyncImageJob);
+            var ledger = new FakeImageJobLedger();
+            var handler = new CapturingImageResponseHandler();
+            using var manager = Manager(
+                registry: registry,
+                ledger: ledger,
+                materializer: new ImageArtifactMaterializer(handler));
+
+            var submit = await manager.SubmitAsync(
+                Start(
+                    "openai/gpt-image-2/edit",
+                    SyntheticResolvedModel(
+                        provider,
+                        "openai/gpt-image-2/edit",
+                        providerName: "fal",
+                        submissionMode: ImageSubmissionMode.AsyncImageJob)),
+                CancellationToken.None);
+            var status = await WaitForTerminalAsync(manager, submit.JobId!.Value);
+
+            Assert.Equal(ImageJobState.Complete, status.State);
+            Assert.Equal(new[] { "openai/gpt-image-2/edit" }, provider.StatusModels);
+            Assert.Equal(new[] { "openai/gpt-image-2/edit" }, provider.ResultModels);
+            Assert.Equal(new[] { "fal-request-materialize" }, provider.ResultJobIds);
+            Assert.Equal(
+                new Uri("https://fal.media/files/generated.png"),
+                handler.RequestUri);
+            var artifact = _artifactStore.Get(status.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            var metadataJson = JsonSerializer.Serialize(artifact!.Metadata);
+            Assert.Contains("red cube", metadataJson);
+            Assert.DoesNotContain("fal.media", metadataJson);
+            Assert.DoesNotContain("queue.fal.run", metadataJson);
+            Assert.DoesNotContain("image_urls", metadataJson);
+            Assert.DoesNotContain("fal-request-materialize", metadataJson);
+            var ledgerJson = JsonSerializer.Serialize(ledger.AllRecords);
+            Assert.Contains("fal-request-materialize", ledgerJson);
+            Assert.DoesNotContain("red cube", ledgerJson);
+            Assert.DoesNotContain("fal.media", ledgerJson);
+            Assert.DoesNotContain("queue.fal.run", ledgerJson);
+            Assert.DoesNotContain("image_urls", ledgerJson);
+            Assert.DoesNotContain("data:image/", ledgerJson);
+        }
+
+        [Fact]
+        public async Task Cancel_after_restart_for_gpt_image_2_edit_persists_only_request_id()
+        {
+            var provider = new ModelAwareLifecycleProvider();
+            var registry = Registry(
+                provider,
+                providerName: "fal",
+                modelId: "openai/gpt-image-2/edit",
+                submissionMode: ImageSubmissionMode.AsyncImageJob);
+            var ledger = new FakeImageJobLedger();
+            var jobId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+            var now = DateTimeOffset.Parse("2026-05-05T12:00:00Z");
+            ledger.Append(ImageJobLedgerRecordFactory.WithState(
+                ImageJobLedgerRecordFactory.FromInitial(
+                    jobId,
+                    "fal",
+                    "openai/gpt-image-2/edit",
+                    ImageJobState.Queued,
+                    now),
+                ImageJobState.Interrupted,
+                now.AddSeconds(1),
+                providerJobId: "fal-request-cancel",
+                error: new GenerationError(
+                    GenerationErrorCode.Interrupted,
+                    "interrupted",
+                    Retryable: true)));
+            using var manager = Manager(registry: registry, ledger: ledger);
+
+            var result = await manager.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(ImageJobState.Cancelled, result.State);
+            Assert.Equal(new[] { "openai/gpt-image-2/edit" }, provider.CancelModels);
+            Assert.Equal(new[] { "fal-request-cancel" }, provider.CancelJobIds);
+            var ledgerJson = JsonSerializer.Serialize(ledger.AllRecords);
+            Assert.Contains("fal-request-cancel", ledgerJson);
+            Assert.DoesNotContain("queue.fal.run", ledgerJson);
+            Assert.DoesNotContain("fal.media", ledgerJson);
+            Assert.DoesNotContain("status_url", ledgerJson);
+            Assert.DoesNotContain("response_url", ledgerJson);
+            Assert.DoesNotContain("cancel_url", ledgerJson);
+        }
+
+        [Fact]
         public async Task Cancel_after_restart_fails_when_model_provider_does_not_match_durable_provider()
         {
             var provider = new ModelAwareLifecycleProvider();
@@ -1000,11 +1111,13 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
 
         private static ResolvedImageModel SyntheticResolvedModel(
             IImageProvider provider,
-            string model) =>
+            string model,
+            string providerName = GeminiImageCapabilities.ProviderName,
+            ImageSubmissionMode submissionMode = ImageSubmissionMode.Sync) =>
             new(
                 ModelId: model,
-                ProviderName: GeminiImageCapabilities.ProviderName,
-                SubmissionMode: ImageSubmissionMode.Sync,
+                ProviderName: providerName,
+                SubmissionMode: submissionMode,
                 Provider: provider,
                 Capability: new ImageCapability(
                     Id: model,
@@ -1221,12 +1334,28 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             public string ProviderName => "fal";
             public List<string> CancelModels { get; } = new();
             public List<string> CancelJobIds { get; } = new();
+            public List<string> StatusModels { get; } = new();
+            public List<string> StatusJobIds { get; } = new();
+            public List<string> ResultModels { get; } = new();
+            public List<string> ResultJobIds { get; } = new();
+            public ProviderSubmitOutcome SubmitOutcome { get; set; }
+                = new QueuedSubmitOutcome(new ProviderJobHandle("fal-request-default"));
+            public Func<ProviderJobHandle, ProviderStatusOutcome> StatusOutcomeFactory { get; set; }
+                = _ => new InFlightStatusOutcome(
+                    GenerationLifecycleState.Running,
+                    null);
+            public ProviderResultOutcome ResultOutcome { get; set; }
+                = new FailedResultOutcome(new GenerationError(
+                    GenerationErrorCode.ExecutionFailed,
+                    "not used",
+                    Retryable: false));
+            public ProviderCancelOutcome CancelOutcome { get; set; } = new CanceledOutcome();
 
             public Task<ProviderSubmitOutcome> SubmitAsync(
                 ImageGenerationRequest request,
                 IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
                 CancellationToken ct) =>
-                throw new InvalidOperationException("Submit should not be used.");
+                Task.FromResult(SubmitOutcome);
 
             public Task<ProviderStatusOutcome> GetStatusAsync(
                 ProviderJobHandle handle,
@@ -1246,11 +1375,12 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             public Task<ProviderStatusOutcome> GetStatusAsync(
                 string modelId,
                 ProviderJobHandle handle,
-                CancellationToken ct) =>
-                Task.FromResult<ProviderStatusOutcome>(
-                    new InFlightStatusOutcome(
-                        GenerationLifecycleState.Running,
-                        null));
+                CancellationToken ct)
+            {
+                StatusModels.Add(modelId);
+                StatusJobIds.Add(handle.ProviderJobId);
+                return Task.FromResult(StatusOutcomeFactory(handle));
+            }
 
             public Task<ProviderCancelOutcome> CancelAsync(
                 string modelId,
@@ -1259,18 +1389,18 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
             {
                 CancelModels.Add(modelId);
                 CancelJobIds.Add(handle.ProviderJobId);
-                return Task.FromResult<ProviderCancelOutcome>(new CanceledOutcome());
+                return Task.FromResult(CancelOutcome);
             }
 
             public Task<ProviderResultOutcome> FetchResultAsync(
                 string modelId,
                 ProviderJobHandle handle,
-                CancellationToken ct) =>
-                Task.FromResult<ProviderResultOutcome>(
-                    new FailedResultOutcome(new GenerationError(
-                        GenerationErrorCode.ExecutionFailed,
-                        "not used",
-                        Retryable: false)));
+                CancellationToken ct)
+            {
+                ResultModels.Add(modelId);
+                ResultJobIds.Add(handle.ProviderJobId);
+                return Task.FromResult(ResultOutcome);
+            }
         }
 
         private sealed class EmptyGenerationSecretStore : IGenerationSecretStore
@@ -1310,12 +1440,14 @@ namespace Rook.Tests.Services.Vision.Image.Jobs
         private sealed class CapturingImageResponseHandler : HttpMessageHandler
         {
             public AuthenticationHeaderValue? Authorization { get; private set; }
+            public Uri? RequestUri { get; private set; }
 
             protected override Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
                 CancellationToken cancellationToken)
             {
                 Authorization = request.Headers.Authorization;
+                RequestUri = request.RequestUri;
                 var response = new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new ByteArrayContent(new byte[] { 9, 8, 7 }),
