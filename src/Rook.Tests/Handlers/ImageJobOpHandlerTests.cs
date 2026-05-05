@@ -162,6 +162,59 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public async Task DispatchAsync_Start_GptImage2EditWithSource_UsesImageJobPathAndResolvedFalModel()
+        {
+            using var temp = TempDir.Create();
+            var inputPath = Path.Combine(temp.Path, "input.png");
+            File.WriteAllBytes(inputPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 });
+
+            ImageJobStartRequest? captured = null;
+            var manager = new StubImageJobManager
+            {
+                SubmitImpl = (request, _) =>
+                {
+                    captured = request;
+                    return ImageJobSubmitResult.Ok(SampleJobId, ImageJobState.Queued);
+                },
+            };
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider("fal"),
+                    "fal",
+                    "openai/gpt-image-2/edit",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: true,
+                    supportsTextToImage: false,
+                    maxReferenceImages: 0,
+                    resolutions: new[] { "auto" },
+                    aspectRatios: new[] { "match_input_image" }));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "make this model more photoreal",
+                  "input_image_path": "{{Escape(inputPath)}}",
+                  "model": "openai/gpt-image-2/edit",
+                  "resolution": "auto",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertOk(response);
+            Assert.NotNull(captured);
+            Assert.Equal("openai/gpt-image-2/edit", captured!.Request.Model);
+            Assert.Equal("fal", captured.ResolvedModel!.ProviderName);
+            Assert.Equal(
+                ImageSubmissionMode.AsyncImageJob,
+                captured.ResolvedModel.SubmissionMode);
+            Assert.Contains(
+                captured.ResolvedMedia,
+                kvp => kvp.Key.Role == ImageMediaRoles.InputImage);
+            Assert.Null(captured.Request.ReferenceImages);
+        }
+
+        [Fact]
         public async Task DispatchAsync_Start_RejectsPromptOnlyForAsyncImageToImageModel()
         {
             var manager = new StubImageJobManager();
@@ -228,6 +281,50 @@ namespace Rook.Tests.Handlers
                 """);
 
             AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_Start_GptImage2EditWithReferenceImage_FailsBeforeManagerSubmit()
+        {
+            using var temp = TempDir.Create();
+            var inputPath = Path.Combine(temp.Path, "input.png");
+            var referencePath = Path.Combine(temp.Path, "ref.png");
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00 };
+            File.WriteAllBytes(inputPath, png);
+            File.WriteAllBytes(referencePath, png);
+            var manager = new StubImageJobManager
+            {
+                SubmitImpl = (_, _) => throw new InvalidOperationException(
+                    "Invalid references must fail before manager submit."),
+            };
+            var handler = new ImageJobOpHandler(
+                manager,
+                NewVisionHandlerWithImageProvider(
+                    new FakeAsyncTextToImageProvider("fal"),
+                    "fal",
+                    "openai/gpt-image-2/edit",
+                    ImageSubmissionMode.AsyncImageJob,
+                    supportsImageToImage: true,
+                    supportsTextToImage: false,
+                    maxReferenceImages: 0,
+                    resolutions: new[] { "auto" },
+                    aspectRatios: new[] { "match_input_image" }));
+
+            var response = await handler.DispatchAsync($$"""
+                {
+                  "op": "image_generate_start",
+                  "prompt": "make this model more photoreal",
+                  "input_image_path": "{{Escape(inputPath)}}",
+                  "reference_image_paths": [ "{{Escape(referencePath)}}" ],
+                  "model": "openai/gpt-image-2/edit",
+                  "resolution": "auto",
+                  "aspect_ratio": "match_input_image"
+                }
+                """);
+
+            AssertFail(response, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            var json = JsonSerializer.Serialize(response.Data);
+            Assert.Contains("reference_image_paths", json);
         }
 
         [Fact]
@@ -748,7 +845,14 @@ namespace Rook.Tests.Handlers
 
         private sealed class FakeAsyncTextToImageProvider : IImageProvider
         {
-            public string ProviderName => "replicate";
+            private readonly string _providerName;
+
+            public FakeAsyncTextToImageProvider(string providerName = "replicate")
+            {
+                _providerName = providerName;
+            }
+
+            public string ProviderName => _providerName;
 
             public Task<ProviderSubmitOutcome> SubmitAsync(
                 ImageGenerationRequest request,

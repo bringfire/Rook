@@ -692,6 +692,20 @@ namespace Rook.Tests.UI.Vision
         }
 
         [Fact]
+        public void AppJs_SourceImageAsyncRoutingIsProviderNeutralForFalGptImage2Edit()
+        {
+            var js = ReadVisionResource("app.js");
+
+            Assert.Contains("function isSourceImageAsyncImageModel", js);
+            Assert.Contains("model.submission_mode === \"async_image_job\"", js);
+            Assert.Contains("model.supports_image_to_image !== false", js);
+            Assert.Contains("await generateImageJob(prompt, model, sourcePath);", js);
+            Assert.Contains("await studioGenerateImageJob(args, model);", js);
+            Assert.DoesNotContain("provider_name === \"replicate\"", js);
+            Assert.DoesNotContain("openai/gpt-image-2/edit", js);
+        }
+
+        [Fact]
         public void AppJs_DisablesGenerateSourceControlsForTextToImageOnlyAsyncModels()
         {
             var js = ReadVisionResource("app.js");
