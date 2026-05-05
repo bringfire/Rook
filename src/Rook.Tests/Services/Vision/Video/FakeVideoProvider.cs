@@ -21,12 +21,15 @@ namespace Rook.Tests.Services.Vision.Video
     /// trivially-successful envelopes so the type-level invariants on
     /// the result records can be observed end-to-end.
     /// </summary>
-    public sealed class FakeVideoProvider : IVideoProvider
+    public sealed class FakeVideoProvider : IModelAwareVideoProvider
     {
         public Func<VideoGenerationRequest, IReadOnlyDictionary<MediaRef, ResolvedMedia>, ProviderSubmitOutcome>? OnSubmit { get; set; }
         public Func<ProviderJobHandle, ProviderStatusOutcome>? OnGetStatus { get; set; }
         public Func<ProviderJobHandle, ProviderCancelOutcome>? OnCancel { get; set; }
         public Func<ProviderJobHandle, ProviderResultOutcome>? OnFetchResult { get; set; }
+        public Func<string, ProviderJobHandle, ProviderStatusOutcome>? OnGetStatusForModel { get; set; }
+        public Func<string, ProviderJobHandle, ProviderCancelOutcome>? OnCancelForModel { get; set; }
+        public Func<string, ProviderJobHandle, ProviderResultOutcome>? OnFetchResultForModel { get; set; }
 
         public List<(string Method, object? Payload)> RecordedCalls { get; } = new();
 
@@ -76,6 +79,53 @@ namespace Rook.Tests.Services.Vision.Video
                     Retryable: true));
             return Task.FromResult(result);
         }
+
+        public Task<ProviderStatusOutcome> GetStatusAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct)
+        {
+            RecordedCalls.Add(("GetStatusForModel", new ModelAwareCall(
+                modelId,
+                handle.ProviderJobId,
+                handle.ProviderResultToken)));
+            var result = OnGetStatusForModel?.Invoke(modelId, handle)
+                ?? OnGetStatus?.Invoke(handle)
+                ?? StatusInFlight(50, "polling");
+            return Task.FromResult(result);
+        }
+
+        public Task<ProviderCancelOutcome> CancelAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct)
+        {
+            RecordedCalls.Add(("CancelForModel", new ModelAwareCall(
+                modelId,
+                handle.ProviderJobId,
+                handle.ProviderResultToken)));
+            var result = OnCancelForModel?.Invoke(modelId, handle)
+                ?? OnCancel?.Invoke(handle)
+                ?? CancelOk();
+            return Task.FromResult(result);
+        }
+
+        public Task<ProviderResultOutcome> FetchResultAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct)
+        {
+            RecordedCalls.Add(("FetchResultForModel", new ModelAwareCall(
+                modelId,
+                handle.ProviderJobId,
+                handle.ProviderResultToken)));
+            var result = OnFetchResultForModel?.Invoke(modelId, handle)
+                ?? OnFetchResult?.Invoke(handle)
+                ?? ResultFailed(new VideoJobError(
+                    Code: VideoErrorCode.ExecutionFailed,
+                    Message: "Fetch called before completion (default fake behaviour).",
+                    Retryable: true));
+            return Task.FromResult(result);
+        }
+
+        public sealed record ModelAwareCall(
+            string ModelId,
+            string ProviderJobId,
+            string? ProviderResultToken);
 
         public static ProviderSubmitOutcome SubmitQueued(string providerJobId) =>
             new QueuedSubmitOutcome(new ProviderJobHandle(providerJobId));

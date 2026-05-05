@@ -52,9 +52,10 @@ namespace Rook.Tests.Services.Vision.Video
         private VideoJobManager Manager(
             TimeSpan? pollInterval = null,
             IVideoCostEstimator? estimator = null,
-            VideoArtifactMaterializer? materializer = null) =>
+            VideoArtifactMaterializer? materializer = null,
+            IVideoProviderRegistry? registry = null) =>
             new(
-                registry: _registry,
+                registry: registry ?? _registry,
                 mediaResolver: _resolver,
                 ledger: _ledger,
                 estimator: estimator ?? _estimator,
@@ -103,6 +104,19 @@ namespace Rook.Tests.Services.Vision.Video
                 throw new TimeoutException(timeoutMessage);
 
             await signal.ConfigureAwait(false);
+        }
+
+        private async Task WaitUntilProviderJobIdAsync(Guid jobId)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (_ledger.AllRecords.Any(r => r.JobId == jobId && r.ProviderJobId is not null))
+                    return;
+                await Task.Delay(10);
+            }
+
+            throw new TimeoutException("Provider job id was not persisted.");
         }
 
         // ─── Submit happy path ────────────────────────────────────────
@@ -530,6 +544,104 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("op-cancel-test", cancelCalledWith);
         }
 
+        [Fact]
+        public async Task Active_polling_passes_resolved_model_id_to_model_aware_provider()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var statusCalled = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var fetchCalled = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-model-status");
+            _provider.OnGetStatus = _ =>
+                throw new InvalidOperationException("Legacy status should not be called.");
+            _provider.OnGetStatusForModel = (modelId, handle) =>
+            {
+                Assert.Equal(TestVideoFixtures.DefaultModelId, modelId);
+                Assert.Equal("op-model-status", handle.ProviderJobId);
+                statusCalled.TrySetResult(true);
+                return FakeVideoProvider.StatusComplete(handle, "model-aware-result-token");
+            };
+            _provider.OnFetchResult = _ =>
+                throw new InvalidOperationException("Legacy fetch should not be called.");
+            _provider.OnFetchResultForModel = (modelId, handle) =>
+            {
+                Assert.Equal(TestVideoFixtures.DefaultModelId, modelId);
+                Assert.Equal("op-model-status", handle.ProviderJobId);
+                Assert.Equal("model-aware-result-token", handle.ProviderResultToken);
+                fetchCalled.TrySetResult(true);
+                return FakeVideoProvider.ResultOk(FakeMp4, "video/mp4");
+            };
+
+            using var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            await WaitForSignalAsync(
+                statusCalled.Task,
+                "Background job did not poll through the model-aware provider.");
+            await WaitForSignalAsync(
+                fetchCalled.Task,
+                "Background job did not fetch through the model-aware provider.");
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            var call = _provider.RecordedCalls.First(
+                c => c.Method == "GetStatusForModel");
+            var payload = Assert.IsType<FakeVideoProvider.ModelAwareCall>(call.Payload);
+            Assert.Equal(TestVideoFixtures.DefaultModelId, payload.ModelId);
+            Assert.Equal("op-model-status", payload.ProviderJobId);
+            var fetchCall = Assert.Single(_provider.RecordedCalls,
+                c => c.Method == "FetchResultForModel");
+            var fetchPayload = Assert.IsType<FakeVideoProvider.ModelAwareCall>(fetchCall.Payload);
+            Assert.Equal(TestVideoFixtures.DefaultModelId, fetchPayload.ModelId);
+            Assert.Equal("op-model-status", fetchPayload.ProviderJobId);
+            Assert.Equal("model-aware-result-token", fetchPayload.ProviderResultToken);
+            Assert.DoesNotContain(_provider.RecordedCalls,
+                c => c.Method == "FetchResult");
+        }
+
+        [Fact]
+        public async Task Active_cancel_passes_resolved_model_id_to_model_aware_provider()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+
+            var cancelCalled = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _provider.OnSubmit = (_, _) =>
+                FakeVideoProvider.SubmitQueued("op-model-cancel");
+            _provider.OnGetStatus = _ => FakeVideoProvider.StatusInFlight(10);
+            _provider.OnCancel = _ =>
+                throw new InvalidOperationException("Legacy cancel should not be called.");
+            _provider.OnCancelForModel = (modelId, handle) =>
+            {
+                Assert.Equal(TestVideoFixtures.DefaultModelId, modelId);
+                Assert.Equal("op-model-cancel", handle.ProviderJobId);
+                cancelCalled.TrySetResult(true);
+                return FakeVideoProvider.CancelOk();
+            };
+
+            using var mgr = Manager(pollInterval: TimeSpan.FromMilliseconds(20));
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            await WaitUntilProviderJobIdAsync(jobId);
+
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.Null(result.Error);
+            await WaitForSignalAsync(
+                cancelCalled.Task,
+                "Cancel did not use the model-aware provider.");
+            var call = Assert.Single(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel");
+            var payload = Assert.IsType<FakeVideoProvider.ModelAwareCall>(call.Payload);
+            Assert.Equal(TestVideoFixtures.DefaultModelId, payload.ModelId);
+            Assert.Equal("op-model-cancel", payload.ProviderJobId);
+        }
+
         // ─── Codex round 6: cancel correctness invariants ────────────
         //
         // These pin the cost-leak prevention contract that v3.1 D4 +
@@ -953,11 +1065,16 @@ namespace Rook.Tests.Services.Vision.Video
                 cancelCalledWith = handle.ProviderJobId;
                 return FakeVideoProvider.CancelOk();
             };
+            _provider.OnCancelForModel = (_, _) =>
+                throw new InvalidOperationException(
+                    "Deprecated model cancel should use the legacy provider-name path.");
 
             var mgr = Manager();
             var result = await mgr.CancelAsync(jobId, CancellationToken.None);
 
             Assert.Equal("operations/stranded-by-deprecation", cancelCalledWith);
+            Assert.DoesNotContain(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel");
             Assert.Equal(VideoJobState.Cancelled, result.State);
             Assert.Null(result.Error);
 
@@ -966,6 +1083,140 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoJobState.Cancelled, latest.State);
             Assert.NotNull(latest.Error);
             Assert.Equal(GenErrorCode.Cancelled, latest.Error!.Code);
+        }
+
+        [Fact]
+        public async Task Cancel_interrupted_model_aware_provider_validates_persisted_provider_and_model()
+        {
+            var providerMismatchJobId = Guid.NewGuid();
+            var falModelId = "fal-ai/seedance/v1/pro/text-to-video";
+            var request = T2vRequest() with { Model = falModelId };
+            var falModel = _resolvedModel with
+            {
+                ModelId = falModelId,
+                ProviderName = "fal",
+                Provider = _provider,
+            };
+            var mismatchedModel = falModel with { ProviderName = "veo" };
+            var mismatchRegistry = new SingleModelRegistry(mismatchedModel);
+
+            var mismatchPrior = VideoJobRecordFactory.From(
+                providerMismatchJobId, request, falModel,
+                _estimator.Estimate(falModel, request).Estimate!,
+                VideoJobState.Polling, _clock.UtcNow());
+            mismatchPrior = VideoJobRecordFactory.WithState(
+                mismatchPrior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "fal-request-provider-mismatch",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(mismatchPrior);
+
+            _provider.OnCancel = _ =>
+                throw new InvalidOperationException("Legacy cancel should not be called.");
+            _provider.OnCancelForModel = (_, _) =>
+                throw new InvalidOperationException(
+                    "Model-aware cancel should not be called for provider mismatch.");
+
+            var mismatchMgr = Manager(registry: mismatchRegistry);
+            var mismatchResult = await mismatchMgr.CancelAsync(
+                providerMismatchJobId,
+                CancellationToken.None);
+
+            Assert.NotNull(mismatchResult.Error);
+            Assert.Equal(VideoErrorCode.InvalidRequest, mismatchResult.Error!.Code);
+            Assert.DoesNotContain(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel" || c.Method == "Cancel");
+
+            var successJobId = Guid.NewGuid();
+            var matchingPrior = VideoJobRecordFactory.From(
+                successJobId, request, falModel,
+                _estimator.Estimate(falModel, request).Estimate!,
+                VideoJobState.Polling, _clock.UtcNow());
+            matchingPrior = VideoJobRecordFactory.WithState(
+                matchingPrior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerJobId: "fal-request-model-aware",
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(matchingPrior);
+
+            _provider.RecordedCalls.Clear();
+            _provider.OnCancelForModel = (modelId, handle) =>
+            {
+                Assert.Equal(falModelId, modelId);
+                Assert.Equal("fal-request-model-aware", handle.ProviderJobId);
+                return FakeVideoProvider.CancelOk();
+            };
+
+            var successMgr = Manager(registry: new SingleModelRegistry(falModel));
+            var successResult = await successMgr.CancelAsync(
+                successJobId,
+                CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Cancelled, successResult.State);
+            Assert.Null(successResult.Error);
+            var call = Assert.Single(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel");
+            var payload = Assert.IsType<FakeVideoProvider.ModelAwareCall>(call.Payload);
+            Assert.Equal(falModelId, payload.ModelId);
+            Assert.Equal("fal-request-model-aware", payload.ProviderJobId);
+            Assert.DoesNotContain(_provider.RecordedCalls,
+                c => c.Method == "Cancel");
+        }
+
+        [Fact]
+        public async Task Cancel_deprecated_fal_url_handle_bypasses_model_aware_provider()
+        {
+            var jobId = Guid.NewGuid();
+            var activeFalModel = _resolvedModel with
+            {
+                ModelId = "fal-ai/seedance/v1/pro/text-to-video",
+                ProviderName = "fal",
+                Provider = _provider,
+            };
+            var deprecatedRequest = T2vRequest() with
+            {
+                Model = "fal-ai/seedance/deprecated/url-handle",
+            };
+            var handle = new ProviderJobHandle(
+                providerJobId: "fal-url-queue-id",
+                statusUrl: new Uri("https://queue.fal.ai/status/fal-url-queue-id"),
+                responseUrl: new Uri("https://queue.fal.ai/response/fal-url-queue-id"),
+                cancelUrl: new Uri("https://queue.fal.ai/cancel/fal-url-queue-id"),
+                cancelHttpMethod: "PUT");
+            var prior = VideoJobRecordFactory.From(
+                jobId, deprecatedRequest, activeFalModel,
+                _estimator.Estimate(activeFalModel, T2vRequest() with
+                {
+                    Model = activeFalModel.ModelId,
+                }).Estimate!,
+                VideoJobState.Polling, _clock.UtcNow());
+            prior = VideoJobRecordFactory.WithState(
+                prior, VideoJobState.Interrupted, _clock.UtcNow(),
+                providerHandle: handle,
+                error: new VideoJobError(
+                    VideoErrorCode.Interrupted, "x", Retryable: true));
+            _ledger.Append(prior);
+
+            string? cancelCalledWith = null;
+            _provider.OnCancel = h =>
+            {
+                cancelCalledWith = h.ProviderJobId;
+                return FakeVideoProvider.CancelOk();
+            };
+            _provider.OnCancelForModel = (_, _) =>
+                throw new InvalidOperationException(
+                    "URL-bearing fal handles must bypass model-aware cancel.");
+
+            var mgr = Manager(registry: new SingleModelRegistry(activeFalModel));
+            var result = await mgr.CancelAsync(jobId, CancellationToken.None);
+
+            Assert.Equal(VideoJobState.Cancelled, result.State);
+            Assert.Null(result.Error);
+            Assert.Equal("fal-url-queue-id", cancelCalledWith);
+            Assert.Contains(_provider.RecordedCalls,
+                c => c.Method == "Cancel");
+            Assert.DoesNotContain(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel");
         }
 
         // ─── F1b (review pass 3): in-flight branch terminal short-circuit ──

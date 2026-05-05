@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video
@@ -30,5 +32,17 @@ namespace Rook.Services.Vision.Video
     public interface IVideoProvider
         : IGenerationProvider<VideoGenerationRequest, VideoCapability>
     {
+    }
+
+    public interface IModelAwareVideoProvider : IVideoProvider
+    {
+        Task<ProviderStatusOutcome> GetStatusAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct);
+
+        Task<ProviderCancelOutcome> CancelAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct);
+
+        Task<ProviderResultOutcome> FetchResultAsync(
+            string modelId, ProviderJobHandle handle, CancellationToken ct);
     }
 }

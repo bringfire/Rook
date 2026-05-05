@@ -279,7 +279,7 @@ namespace Rook.Services.Vision.Video
                 if (!string.IsNullOrEmpty(inFlightProviderJobId))
                 {
                     var remote = await TryRemoteCancelAsync(
-                        running.Model.Provider,
+                        running.Model,
                         inFlightProviderHandle ?? new ProviderJobHandle(inFlightProviderJobId!),
                         ct)
                         .ConfigureAwait(false);
@@ -339,9 +339,46 @@ namespace Rook.Services.Vision.Video
 
             if (canRemoteCancel)
             {
-                // H1: resolve by provider NAME, not model id. A
-                // deprecated model whose provider is still registered
-                // must still be cancellable.
+                var remoteHandle = providerHandle ?? new ProviderJobHandle(providerJobId!);
+                if (IsRequestIdOnlyFalHandle(record.Provider, remoteHandle))
+                {
+                    if (!_registry.TryResolve(record.Model, out var resolvedModel))
+                        return JobCancelResult.Fail(new VideoJobError(
+                            Code: VideoErrorCode.InvalidRequest,
+                            Message: $"Cannot cancel job {jobId:D}: model '{record.Model}' " +
+                                     "is no longer registered with this manager.",
+                            Retryable: false,
+                            Field: nameof(record.Model)));
+
+                    if (!string.Equals(
+                            resolvedModel.ProviderName,
+                            record.Provider,
+                            StringComparison.OrdinalIgnoreCase))
+                        return JobCancelResult.Fail(new VideoJobError(
+                            Code: VideoErrorCode.InvalidRequest,
+                            Message: $"Cannot cancel job {jobId:D}: model '{record.Model}' " +
+                                     $"resolves to provider '{resolvedModel.ProviderName}', " +
+                                     $"not persisted provider '{record.Provider}'.",
+                            Retryable: false,
+                            Field: nameof(record.Provider)));
+
+                    var modelAwareRemote = await TryModelAwareRemoteCancelAsync(
+                        resolvedModel,
+                        remoteHandle,
+                        ct).ConfigureAwait(false);
+                    if (modelAwareRemote.Error is not null)
+                        return modelAwareRemote;  // Fail; ledger state unchanged
+
+                    var modelAwareCancelled = VideoJobRecordFactory.WithState(
+                        record, VideoJobState.Cancelled, _clock.UtcNow(),
+                        error: CancelledError());
+                    _ledger.Append(modelAwareCancelled);
+                    return modelAwareRemote;
+                }
+
+                // H1: legacy handles resolve by provider NAME, not model
+                // id. A deprecated model whose provider is still
+                // registered must still be cancellable.
                 if (!_registry.TryResolveProviderByName(record.Provider, out var provider))
                     return JobCancelResult.Fail(new VideoJobError(
                         Code: VideoErrorCode.InvalidRequest,
@@ -350,9 +387,9 @@ namespace Rook.Services.Vision.Video
                         Retryable: false,
                         Field: nameof(record.Provider)));
 
-                var remote = await TryRemoteCancelAsync(
+                var remote = await TryLegacyRemoteCancelAsync(
                     provider,
-                    providerHandle ?? new ProviderJobHandle(providerJobId!),
+                    remoteHandle,
                     ct).ConfigureAwait(false);
                 if (remote.Error is not null)
                     return remote;  // Fail; ledger state unchanged
@@ -382,28 +419,37 @@ namespace Rook.Services.Vision.Video
             return JobCancelResult.Ok(VideoJobState.Cancelled);
         }
 
+        private static Task<JobCancelResult> TryRemoteCancelAsync(
+            ResolvedVideoModel model, ProviderJobHandle handle, CancellationToken ct) =>
+            TryRemoteCancelAsync(model.Provider, model.ModelId, handle, ct);
+
+        private static Task<JobCancelResult> TryModelAwareRemoteCancelAsync(
+            ResolvedVideoModel model, ProviderJobHandle handle, CancellationToken ct)
+        {
+            if (model.Provider is not IModelAwareVideoProvider)
+                return Task.FromResult(JobCancelResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.InvalidRequest,
+                    Message: $"Provider '{model.ProviderName}' does not support model-aware cancellation.",
+                    Retryable: false,
+                    Field: nameof(model.ProviderName))));
+
+            return TryRemoteCancelAsync(model.Provider, model.ModelId, handle, ct);
+        }
+
+        private static Task<JobCancelResult> TryLegacyRemoteCancelAsync(
+            IVideoProvider provider, ProviderJobHandle handle, CancellationToken ct) =>
+            TryRemoteCancelAsync(provider, modelId: null, handle, ct);
+
         private static async Task<JobCancelResult> TryRemoteCancelAsync(
-            IVideoProvider provider, ProviderJobHandle handle, CancellationToken ct)
+            IVideoProvider provider, string? modelId, ProviderJobHandle handle, CancellationToken ct)
         {
             try
             {
-                var outcome = await provider.CancelAsync(handle, ct)
-                    .ConfigureAwait(false);
+                var outcome = modelId is not null && provider is IModelAwareVideoProvider modelAwareProvider
+                    ? await modelAwareProvider.CancelAsync(modelId, handle, ct).ConfigureAwait(false)
+                    : await provider.CancelAsync(handle, ct).ConfigureAwait(false);
 
-                return outcome switch
-                {
-                    CanceledOutcome =>
-                        JobCancelResult.Ok(VideoJobState.Cancelled),
-                    AlreadyTerminalOutcome terminal =>
-                        JobCancelResult.Ok(ToVideoTerminalState(terminal.TerminalState)),
-                    FailedCancelOutcome failed =>
-                        JobCancelResult.Fail(
-                            VideoProviderOutcomeAdapters.ToVideoJobError(failed.Error)),
-                    _ => JobCancelResult.Fail(new VideoJobError(
-                        Code: VideoErrorCode.ExecutionFailed,
-                        Message: $"Unknown provider cancel outcome: {outcome.GetType().Name}.",
-                        Retryable: false)),
-                };
+                return TranslateCancelOutcome(outcome);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -414,6 +460,31 @@ namespace Rook.Services.Vision.Video
                     Retryable: true));
             }
         }
+
+        private static JobCancelResult TranslateCancelOutcome(ProviderCancelOutcome outcome)
+        {
+            return outcome switch
+            {
+                CanceledOutcome =>
+                    JobCancelResult.Ok(VideoJobState.Cancelled),
+                AlreadyTerminalOutcome terminal =>
+                    JobCancelResult.Ok(ToVideoTerminalState(terminal.TerminalState)),
+                FailedCancelOutcome failed =>
+                    JobCancelResult.Fail(
+                        VideoProviderOutcomeAdapters.ToVideoJobError(failed.Error)),
+                _ => JobCancelResult.Fail(new VideoJobError(
+                    Code: VideoErrorCode.ExecutionFailed,
+                    Message: $"Unknown provider cancel outcome: {outcome.GetType().Name}.",
+                    Retryable: false)),
+            };
+        }
+
+        private static bool IsRequestIdOnlyFalHandle(
+            string providerName, ProviderJobHandle handle) =>
+            string.Equals(providerName, "fal", StringComparison.OrdinalIgnoreCase)
+            && handle.StatusUrl is null
+            && handle.ResponseUrl is null
+            && handle.CancelUrl is null;
 
         private static VideoJobError CancelledError() => new(
             Code: VideoErrorCode.Cancelled,
@@ -771,8 +842,10 @@ namespace Rook.Services.Vision.Video
                     while (true)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var statusOutcome = await provider.GetStatusAsync(
-                            handle, ct).ConfigureAwait(false);
+                        var statusOutcome = await GetProviderStatusAsync(
+                            running.Model,
+                            handle,
+                            ct).ConfigureAwait(false);
 
                         switch (statusOutcome)
                         {
@@ -813,7 +886,7 @@ namespace Rook.Services.Vision.Video
                     }
 
                     // Download
-                    var fetch = await provider.FetchResultAsync(handle, ct)
+                    var fetch = await FetchProviderResultAsync(running.Model, handle, ct)
                         .ConfigureAwait(false);
 
                     if (fetch is FailedResultOutcome failedFetch)
@@ -940,6 +1013,26 @@ namespace Rook.Services.Vision.Video
                 providerHandle: providerHandle);
             _ledger.Append(next);
             return next;
+        }
+
+        private static Task<ProviderStatusOutcome> GetProviderStatusAsync(
+            ResolvedVideoModel model,
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            return model.Provider is IModelAwareVideoProvider modelAwareProvider
+                ? modelAwareProvider.GetStatusAsync(model.ModelId, handle, ct)
+                : model.Provider.GetStatusAsync(handle, ct);
+        }
+
+        private static Task<ProviderResultOutcome> FetchProviderResultAsync(
+            ResolvedVideoModel model,
+            ProviderJobHandle handle,
+            CancellationToken ct)
+        {
+            return model.Provider is IModelAwareVideoProvider modelAwareProvider
+                ? modelAwareProvider.FetchResultAsync(model.ModelId, handle, ct)
+                : model.Provider.FetchResultAsync(handle, ct);
         }
 
         private async Task CompleteSyncSubmitAsync(
