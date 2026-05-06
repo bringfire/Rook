@@ -24,12 +24,23 @@ namespace Rook.Services.Vision.Video.Fal
 
         private readonly Func<string?> _apiKeyProvider;
         private readonly FalApiClient _client;
+        private readonly IFalSeedanceSourceTransport _seedanceSourceTransport;
 
         public FalVideoProvider(Func<string?> apiKeyProvider, FalApiClient? client = null)
+            : this(apiKeyProvider, client, seedanceSourceTransport: null)
+        {
+        }
+
+        internal FalVideoProvider(
+            Func<string?> apiKeyProvider,
+            FalApiClient? client,
+            IFalSeedanceSourceTransport? seedanceSourceTransport)
         {
             _apiKeyProvider = apiKeyProvider
                 ?? throw new ArgumentNullException(nameof(apiKeyProvider));
             _client = client ?? new FalApiClient();
+            _seedanceSourceTransport =
+                seedanceSourceTransport ?? new FalSeedanceSourceTransport(_client);
         }
 
         public string ProviderName => FalVideoCapabilities.ProviderName;
@@ -182,23 +193,31 @@ namespace Rook.Services.Vision.Video.Fal
                     "fal Seedance supports exactly one video per request.",
                     nameof(VideoGenerationRequest.NumberOfVideos));
 
-            var (sourcePayload, sourceError) =
-                FalSeedanceI2vSourcePayload.FromResolvedMedia(request, resolvedMedia);
-            if (sourceError is not null)
-                return new FailedSubmitOutcome(sourceError);
-
             var apiKey = _apiKeyProvider();
             if (string.IsNullOrWhiteSpace(apiKey))
                 return FailedSubmit(
                     GenerationErrorCode.DependencyUnavailable,
                     "fal API key is not configured.");
 
+            var (sourceUrls, sourceError) =
+                await _seedanceSourceTransport.ResolveAndUploadAsync(
+                    request,
+                    resolvedMedia,
+                    apiKey!,
+                    ct).ConfigureAwait(false);
+            if (sourceError is not null)
+                return new FailedSubmitOutcome(SanitizeSeedanceSourceError(sourceError));
+            if (sourceUrls is null)
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal Seedance source upload did not return source URLs.");
+
             FalHttpResponse response;
             try
             {
                 response = await PostSeedanceSubmitWithConnectRetryAsync(
                     apiKey!,
-                    BuildSeedanceRequestJson(request, sourcePayload!),
+                    BuildSeedanceRequestJson(request, sourceUrls),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -264,6 +283,10 @@ namespace Rook.Services.Vision.Video.Fal
                     apiKey,
                     SeedanceSubmitEndpoint,
                     bodyJson,
+                    FalJsonPlatformHeaders.ForSeedanceSubmit(
+                        FalSeedanceSourceTransport.SourceMediaExpirationSeconds,
+                        disableStoreIo: true,
+                        disableFalRetry: true),
                     ct).ConfigureAwait(false);
             }
             catch (HttpRequestException ex) when (IsConnectionEstablishmentFailure(ex))
@@ -272,6 +295,10 @@ namespace Rook.Services.Vision.Video.Fal
                     apiKey,
                     SeedanceSubmitEndpoint,
                     bodyJson,
+                    FalJsonPlatformHeaders.ForSeedanceSubmit(
+                        FalSeedanceSourceTransport.SourceMediaExpirationSeconds,
+                        disableStoreIo: true,
+                        disableFalRetry: true),
                     ct).ConfigureAwait(false);
             }
         }
@@ -631,20 +658,20 @@ namespace Rook.Services.Vision.Video.Fal
 
         private static string BuildSeedanceRequestJson(
             VideoGenerationRequest request,
-            FalSeedanceI2vSourcePayload sourcePayload)
+            FalSeedanceSourceUrls sourceUrls)
         {
             var body = new JsonObject
             {
                 ["prompt"] = request.Prompt,
-                ["image_url"] = sourcePayload.ImageUrl,
+                ["image_url"] = sourceUrls.ImageUrl,
                 ["resolution"] = request.Resolution,
                 ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
                 ["aspect_ratio"] = request.AspectRatio,
                 ["generate_audio"] = false,
             };
 
-            if (sourcePayload.EndImageUrl is not null)
-                body["end_image_url"] = sourcePayload.EndImageUrl;
+            if (sourceUrls.EndImageUrl is not null)
+                body["end_image_url"] = sourceUrls.EndImageUrl;
 
             if (request.Seed is int seed)
                 body["seed"] = seed;
@@ -813,6 +840,30 @@ namespace Rook.Services.Vision.Video.Fal
             error.ProviderDetail is null
                 ? error
                 : error with { ProviderDetail = null };
+
+        private static GenerationError SanitizeSeedanceSourceError(GenerationError error)
+        {
+            var sanitized = SanitizeProviderDetail(error);
+            return ContainsSeedanceSourceTransportMarker(sanitized.Message)
+                ? sanitized with { Message = "fal Seedance source upload failed." }
+                : sanitized;
+        }
+
+        private static bool ContainsSeedanceSourceTransportMarker(string message) =>
+            message.IndexOf("https://", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("data:", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("image_url", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("upload_url", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("{\"prompt\"", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request {", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("body {", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request body", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request_body", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request-body", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request envelope", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request_envelope", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("request-envelope", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("X-Fal-", StringComparison.OrdinalIgnoreCase) >= 0;
 
         private static bool IsConnectionEstablishmentFailure(Exception ex)
         {

@@ -1341,16 +1341,14 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.DoesNotContain("status_url", ledgerJson);
             Assert.DoesNotContain("response_url", ledgerJson);
             Assert.DoesNotContain("cancel_url", ledgerJson);
-            Assert.DoesNotContain("data:image/", ledgerJson);
-            Assert.DoesNotContain("image_url", ledgerJson);
+            AssertNoFalSourceTransportMarkers(ledgerJson);
 
             var artifact = _artifactStore.Get(final.ResultArtifactId!.Value);
             Assert.NotNull(artifact);
             var artifactMetadataJson = JsonSerializer.Serialize(artifact!.Metadata);
             Assert.DoesNotContain("fal.media", artifactMetadataJson);
             Assert.DoesNotContain("queue.fal.run", artifactMetadataJson);
-            Assert.DoesNotContain("data:image/", artifactMetadataJson);
-            Assert.DoesNotContain("image_url", artifactMetadataJson);
+            AssertNoFalSourceTransportMarkers(artifactMetadataJson);
             Assert.DoesNotContain("seedance-request-1", artifactMetadataJson);
         }
 
@@ -1370,24 +1368,53 @@ namespace Rook.Tests.Services.Vision.Video
             };
             var echoedDataUri =
                 "data:image/png;base64," + Convert.ToBase64String(startBytes);
+            const string echoedStartUrl =
+                "https://v3.fal.media/files/rook/seedance-sources/start.png";
+            const string echoedEndUrl =
+                "https://v3.fal.media/files/rook/seedance-sources/end.png";
             var submitHandler = new TestHttpMessageHandler
             {
-                OnSend = _ => new HttpResponseMessage((HttpStatusCode)422)
+                OnSend = request =>
                 {
-                    Content = new StringContent(
-                        $$"""
+                    if (request.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        return new HttpResponseMessage(HttpStatusCode.OK)
                         {
-                          "detail": [{
-                            "loc": ["body", "image_url"],
-                            "msg": "invalid image",
-                            "input": "{{echoedDataUri}}"
-                          }],
-                          "image_url": "{{echoedDataUri}}",
-                          "end_image_url": "{{echoedDataUri}}"
-                        }
-                        """,
-                        System.Text.Encoding.UTF8,
-                        "application/json"),
+                            Content = new StringContent(
+                                """
+                                {
+                                  "upload_url": "https://uploads.example.test/source-token",
+                                  "file_url": "https://v3b.fal.media/files/source-private.png"
+                                }
+                                """,
+                                System.Text.Encoding.UTF8,
+                                "application/json"),
+                        };
+                    }
+
+                    if (request.RequestUri.Host == "uploads.example.test")
+                        return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+                    return new HttpResponseMessage((HttpStatusCode)422)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {
+                              "detail": [{
+                                "loc": ["body", "image_url"],
+                                "msg": "invalid image",
+                                "input": "{{echoedDataUri}}"
+                              }],
+                              "image_url": "{{echoedStartUrl}}",
+                              "end_image_url": "{{echoedEndUrl}}",
+                              "upload_url": "https://v3b.fal.media/upload/presigned-token",
+                              "initiate_url": "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+                              "body": "{{echoedDataUri}}"
+                            }
+                            """,
+                            System.Text.Encoding.UTF8,
+                            "application/json"),
+                    };
                 },
             };
             var falProvider = new FalVideoProvider(
@@ -1409,14 +1436,48 @@ namespace Rook.Tests.Services.Vision.Video
 
             Assert.Equal(VideoJobState.Error, final.State);
             Assert.NotNull(final.Error);
-            Assert.Single(submitHandler.Requests);
+            Assert.Collection(
+                submitHandler.Requests,
+                request =>
+                {
+                    Assert.Equal(HttpMethod.Post, request.Method);
+                    Assert.Equal(
+                        "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+                        request.RequestUri!.ToString());
+                },
+                request =>
+                {
+                    Assert.Equal(HttpMethod.Put, request.Method);
+                    Assert.Equal(
+                        "https://uploads.example.test/source-token",
+                        request.RequestUri!.ToString());
+                },
+                request =>
+                {
+                    Assert.Equal(HttpMethod.Post, request.Method);
+                    Assert.Equal(
+                        "https://queue.fal.run/bytedance/seedance-2.0/image-to-video",
+                        request.RequestUri!.ToString());
+                });
 
             var ledgerJson = File.ReadAllText(ledgerPath);
             Assert.Contains("fal request failed with HTTP 422", ledgerJson);
-            Assert.DoesNotContain("data:image/", ledgerJson);
-            Assert.DoesNotContain("image_url", ledgerJson);
-            Assert.DoesNotContain("end_image_url", ledgerJson);
+            AssertNoFalSourceTransportMarkers(ledgerJson);
+            Assert.DoesNotContain("fal.media", ledgerJson);
+            Assert.DoesNotContain("upload_url", ledgerJson);
+            Assert.DoesNotContain("initiate_url", ledgerJson);
+            Assert.DoesNotContain("v3b.fal.media/upload/presigned-token", ledgerJson);
+            Assert.DoesNotContain("https://v3b.fal.media/files/source-private.png", ledgerJson);
             Assert.DoesNotContain(Convert.ToBase64String(startBytes), ledgerJson);
+
+            var finalJson = JsonSerializer.Serialize(final);
+            AssertNoFalSourceTransportMarkers(finalJson);
+            Assert.DoesNotContain("fal.media", finalJson);
+            Assert.DoesNotContain("upload_url", finalJson);
+            Assert.DoesNotContain("initiate_url", finalJson);
+            Assert.DoesNotContain("v3b.fal.media/upload/presigned-token", finalJson);
+            Assert.DoesNotContain("https://v3b.fal.media/files/source-private.png", finalJson);
+            Assert.DoesNotContain(Convert.ToBase64String(startBytes), finalJson);
         }
 
         [Fact]
@@ -1875,6 +1936,18 @@ namespace Rook.Tests.Services.Vision.Video
                 Seed: null,
                 Options: new FalVideoOptions(),
                 NumberOfVideos: 1);
+
+        private static void AssertNoFalSourceTransportMarkers(string text)
+        {
+            Assert.DoesNotContain(
+                "https://v3.fal.media/files/rook/seedance-sources",
+                text);
+            Assert.DoesNotContain("api.fal.ai", text);
+            Assert.DoesNotContain("rest.fal.ai", text);
+            Assert.DoesNotContain("image_url", text);
+            Assert.DoesNotContain("end_image_url", text);
+            Assert.DoesNotContain("data:image", text);
+        }
 
         private static byte[] PngBytes() =>
             new byte[]
