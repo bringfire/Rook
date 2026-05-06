@@ -22,6 +22,62 @@ $ErrorActionPreference = 'Stop'
 
 $CompanionGuid = 'b7e4a8c9-1f62-4c7e-9a2b-5d4e8f1c3a7b'
 $RegBase       = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-Ins\$CompanionGuid"
+$UnsupportedNet48CompanionMessage = 'net48 Rook companion builds are not supported for registration; use the net7.0 Rook.rhp output.'
+$UnsupportedRuntimeMetadataMessage = 'Rook companion runtime metadata must identify a net7.0 build for registration.'
+
+function Test-PathHasExactSegment {
+    param(
+        [string]$Path,
+        [string]$Segment
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $segments = $fullPath -split '[\\/]+'
+    foreach ($part in $segments) {
+        if ($part -ieq $Segment) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Assert-SupportedCompanionRhpPath {
+    param([string]$Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+
+    if (Test-PathHasExactSegment -Path $Path -Segment 'net48') {
+        throw $UnsupportedNet48CompanionMessage
+    }
+
+    if (Test-PathHasExactSegment -Path $Path -Segment 'net7.0') {
+        return
+    }
+
+    $runtimeConfigPath = [System.IO.Path]::ChangeExtension($fullPath, '.runtimeconfig.json')
+    if (-not (Test-Path $runtimeConfigPath)) {
+        throw "$UnsupportedRuntimeMetadataMessage Missing runtime metadata at $runtimeConfigPath."
+    }
+
+    try {
+        $metadata = Get-Content -Path $runtimeConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "$UnsupportedRuntimeMetadataMessage Runtime metadata at ${runtimeConfigPath} is not valid JSON: $_"
+    }
+
+    $tfm = $metadata.runtimeOptions.tfm
+    if ($tfm -eq 'net7.0') {
+        return
+    }
+
+    if ($tfm -eq 'net48') {
+        throw $UnsupportedNet48CompanionMessage
+    }
+
+    $reportedTfm = if ($tfm) { $tfm } else { '(missing)' }
+    throw "$UnsupportedRuntimeMetadataMessage Found target framework '$reportedTfm' in $runtimeConfigPath."
+}
 
 # ---- Unregister -----------------------------------------------------------
 
@@ -40,6 +96,7 @@ if ($Unregister) {
 if (-not $RhpPath) {
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $RepoRoot  = Split-Path -Parent $ScriptDir
+    $RhpSource = $null
 
     # Priority 1: Colocated with deployed RookNative.rhp.
     # In a deployed package, both plugins live in the same directory.
@@ -52,7 +109,7 @@ if (-not $RhpPath) {
         $Colocated = Join-Path $NativeDir 'Rook.rhp'
         if (Test-Path $Colocated) {
             $RhpPath = (Resolve-Path $Colocated).Path
-            Write-Host "Found companion colocated with RookNative: $RhpPath"
+            $RhpSource = 'colocated with RookNative'
         }
     }
 
@@ -60,15 +117,13 @@ if (-not $RhpPath) {
     if (-not $RhpPath) {
         $Candidates = @(
             (Join-Path $RepoRoot 'src\Rook\bin\Debug\net7.0\Rook.rhp'),
-            (Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp'),
-            (Join-Path $RepoRoot 'src\Rook\bin\Debug\net48\Rook.rhp'),
-            (Join-Path $RepoRoot 'src\Rook\bin\Release\net48\Rook.rhp')
+            (Join-Path $RepoRoot 'src\Rook\bin\Release\net7.0\Rook.rhp')
         )
 
         foreach ($c in $Candidates) {
             if (Test-Path $c) {
                 $RhpPath = (Resolve-Path $c).Path
-                Write-Host "Found companion in build output: $RhpPath"
+                $RhpSource = 'repo net7.0 build output'
                 break
             }
         }
@@ -77,9 +132,9 @@ if (-not $RhpPath) {
     if (-not $RhpPath) {
         $msg = "Could not find Rook.rhp.`n"
         $msg += "  Checked colocated with registered RookNative (not found or native not registered).`n"
-        $msg += "  Checked repo build outputs (not built).`n`n"
+        $msg += "  Checked repo net7.0 build outputs (not built).`n`n"
         $msg += "Build the managed companion first:`n"
-        $msg += "  dotnet build src\Rook\Rook.csproj -c Debug`n`n"
+        $msg += "  dotnet build src\Rook\Rook.csproj -f net7.0 -c Debug`n`n"
         $msg += "Or pass -RhpPath explicitly:`n"
         $msg += "  .\scripts\register-companion.ps1 -RhpPath 'C:\path\to\Rook.rhp'"
         Write-Error $msg
@@ -93,6 +148,11 @@ if (-not (Test-Path $RhpPath)) {
 }
 
 $RhpPath = (Resolve-Path $RhpPath).Path
+Assert-SupportedCompanionRhpPath -Path $RhpPath
+
+if ($RhpSource) {
+    Write-Host "Found companion $RhpSource`: $RhpPath"
+}
 Write-Host "Registering companion: $RhpPath"
 
 # ---- Write registry -------------------------------------------------------
