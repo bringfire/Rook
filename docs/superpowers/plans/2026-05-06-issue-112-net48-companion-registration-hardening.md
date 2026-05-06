@@ -302,7 +302,7 @@ function Assert-SupportedCompanionRhpPath {
     try {
         $metadata = Get-Content -Path $runtimeConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
     } catch {
-        throw "$UnsupportedRuntimeMetadataMessage Runtime metadata at $runtimeConfigPath is not valid JSON: $_"
+        throw "$UnsupportedRuntimeMetadataMessage Runtime metadata at ${runtimeConfigPath} is not valid JSON: $_"
     }
 
     $tfm = $metadata.runtimeOptions.tfm
@@ -445,7 +445,7 @@ function Test-RookNet7CompanionPackage {
         $metadata = Get-Content -Path $runtimeConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
     } catch {
         Add-InstallError -Summary $Summary -Code 'companion.runtimeconfig_invalid' `
-            -Message "Rook companion runtime metadata is not valid JSON at $runtimeConfigPath: $_" `
+            -Message "Rook companion runtime metadata is not valid JSON at ${runtimeConfigPath}: $_" `
             -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
         return $false
     }

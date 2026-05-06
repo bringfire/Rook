@@ -142,6 +142,41 @@ function Add-InstallError {
     Write-Host "      [ERROR] $Message" -ForegroundColor Red
 }
 
+function Test-RookNet7CompanionPackage {
+    param(
+        [hashtable]$Summary,
+        [string]$RhpPath
+    )
+
+    $runtimeConfigPath = [System.IO.Path]::ChangeExtension($RhpPath, '.runtimeconfig.json')
+    if (-not (Test-Path $runtimeConfigPath)) {
+        Add-InstallError -Summary $Summary -Code 'companion.runtimeconfig_missing' `
+            -Message "Rook companion runtime metadata missing at $runtimeConfigPath. Rhino 8 companion deployment requires the net7.0 Rook.rhp output." `
+            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
+        return $false
+    }
+
+    try {
+        $metadata = Get-Content -Path $runtimeConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        Add-InstallError -Summary $Summary -Code 'companion.runtimeconfig_invalid' `
+            -Message "Rook companion runtime metadata is not valid JSON at ${runtimeConfigPath}: $_" `
+            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
+        return $false
+    }
+
+    $tfm = $metadata.runtimeOptions.tfm
+    if ($tfm -ne 'net7.0') {
+        $reportedTfm = if ($tfm) { $tfm } else { '(missing)' }
+        Add-InstallError -Summary $Summary -Code 'companion.unsupported_target_framework' `
+            -Message "Rook companion runtime metadata targets '$reportedTfm'. Rhino 8 companion deployment requires net7.0." `
+            -Remediation "Rebuild or repackage the companion with 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release'."
+        return $false
+    }
+
+    return $true
+}
+
 function Write-InstallSummary {
     param([hashtable]$Summary)
     if ($Summary.dry_run) { return }
@@ -600,19 +635,24 @@ function Step-BuildCompanion {
     Write-Host ""
     Write-Host "[6/10] Building companion plugin (C#)..." -ForegroundColor White
 
+    $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
+
     if ($DryRun) {
         $Summary.steps.companion.state = "planned"
         if ($Context.IsRelease) {
-            $Summary.planned_actions += "Use pre-built companion plugin from release package if present"
+            $releaseCompanion = Join-Path $Context.InstallDir "plugin\Rook.rhp"
+            if ((Test-Path $releaseCompanion) -and (Test-RookNet7CompanionPackage -Summary $Summary -RhpPath $releaseCompanion)) {
+                $Summary.planned_actions += "Use pre-built net7.0 companion plugin from release package at $releaseCompanion"
+            } elseif (Test-Path $releaseCompanion) {
+                $Summary.steps.companion.state = "failed"
+            } else {
+                $Summary.planned_actions += "Use pre-built companion plugin from release package if present"
+            }
         } else {
-            $built48 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net48\Rook.rhp"
-            $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
             if (Test-Path $built70) {
                 $Summary.planned_actions += "Reuse existing companion net7.0 build at $built70"
-            } elseif (Test-Path $built48) {
-                $Summary.planned_actions += "Reuse existing companion net48 build at $built48"
             } else {
-                $Summary.planned_actions += "Build companion C# plugin via dotnet build src/Rook -c Release"
+                $Summary.planned_actions += "Build companion C# plugin via dotnet build src/Rook/Rook.csproj -f net7.0 -c Release"
             }
         }
         Write-Host "      [PLAN] Would prepare companion plugin" -ForegroundColor Cyan
@@ -622,28 +662,22 @@ function Step-BuildCompanion {
     if ($Context.IsRelease) {
         $releaseCompanion = Join-Path $Context.InstallDir "plugin\Rook.rhp"
         if (Test-Path $releaseCompanion) {
+            if (-not (Test-RookNet7CompanionPackage -Summary $Summary -RhpPath $releaseCompanion)) {
+                $Summary.steps.companion.state = "failed"
+                return
+            }
+
             $Context.CompanionBuildDir = Join-Path $Context.InstallDir "plugin"
             $Summary.steps.companion.built = $true
             $Summary.steps.companion.state = "completed"
-            Write-Host "      [OK] Pre-built companion plugin found" -ForegroundColor Green
+            Write-Host "      [OK] Pre-built net7.0 companion plugin found" -ForegroundColor Green
         }
         return
     }
 
-    # Check if already built
-    $built48 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net48\Rook.rhp"
-    $built70 = Join-Path $Context.InstallDir "src\Rook\bin\Release\net7.0\Rook.rhp"
-
     if (Test-Path $built70) {
         Write-Host "      [OK] Companion already built (net7.0)" -ForegroundColor Green
         $Context.CompanionBuildDir = Split-Path -Parent $built70
-        $Summary.steps.companion.built = $true
-        $Summary.steps.companion.state = "completed"
-        return
-    }
-    if (Test-Path $built48) {
-        Write-Host "      [OK] Companion already built (net48)" -ForegroundColor Green
-        $Context.CompanionBuildDir = Split-Path -Parent $built48
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         return
@@ -659,17 +693,17 @@ function Step-BuildCompanion {
     }
 
     $Summary.steps.companion.build_attempted = $true
-    $buildTarget = Join-Path $Context.InstallDir "src\Rook"
+    $buildTarget = Join-Path $Context.InstallDir "src\Rook\Rook.csproj"
 
-    Write-Host "      Building from source (dotnet build src/Rook -c Release)..."
-    & dotnet build $buildTarget -c Release --verbosity quiet 2>&1 | Out-Null
+    Write-Host "      Building from source (dotnet build src/Rook/Rook.csproj -f net7.0 -c Release)..."
+    & dotnet build $buildTarget -f net7.0 -c Release --verbosity quiet 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "      Retrying with full output..." -ForegroundColor Yellow
-        & dotnet build $buildTarget -c Release
+        & dotnet build $buildTarget -f net7.0 -c Release
         if ($LASTEXITCODE -ne 0) {
             Add-InstallError -Summary $Summary -Code "companion.build_failed" `
-                -Message "Companion plugin build failed." `
-                -Remediation "Run 'dotnet build src/Rook -c Release' manually to see full output."
+                -Message "Companion plugin net7.0 build failed." `
+                -Remediation "Run 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release' manually to see full output."
             $Summary.steps.companion.state = "failed"
             return
         }
@@ -680,15 +714,10 @@ function Step-BuildCompanion {
         $Summary.steps.companion.built = $true
         $Summary.steps.companion.state = "completed"
         Write-Host "      [OK] Companion built successfully (net7.0)" -ForegroundColor Green
-    } elseif (Test-Path $built48) {
-        $Context.CompanionBuildDir = Split-Path -Parent $built48
-        $Summary.steps.companion.built = $true
-        $Summary.steps.companion.state = "completed"
-        Write-Host "      [OK] Companion built successfully (net48)" -ForegroundColor Green
     } else {
         Add-InstallError -Summary $Summary -Code "companion.build_failed" `
-            -Message "Build reported success but output not found." `
-            -Remediation "Check dotnet build output manually."
+            -Message "Build reported success but net7.0 companion output was not found at $built70." `
+            -Remediation "Run 'dotnet build src\Rook\Rook.csproj -f net7.0 -c Release' manually and check the output path."
         $Summary.steps.companion.state = "failed"
     }
 }
@@ -1458,7 +1487,7 @@ if ($ns.state -eq "failed" -and $ns.build_attempted) {
 }
 
 if ($cs.state -eq "failed") {
-    $Summary.next_actions += "Install .NET SDK or run dotnet build src/Rook -c Release"
+    $Summary.next_actions += "Install .NET SDK or run dotnet build src\Rook\Rook.csproj -f net7.0 -c Release"
 }
 
 if ($ns.built -and $ns.installed -and -not $ns.registered) {
