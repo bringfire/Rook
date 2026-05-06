@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -216,12 +217,81 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal("720p", json["resolution"]!.GetValue<string>());
             Assert.Equal("6", json["duration"]!.GetValue<string>());
             Assert.Equal("16:9", json["aspect_ratio"]!.GetValue<string>());
-            Assert.True(json["generate_audio"]!.GetValue<bool>());
+            Assert.False(json["generate_audio"]!.GetValue<bool>());
             Assert.Equal(77, json["seed"]!.GetValue<int>());
             Assert.False(json.ContainsKey("end_image_url"));
             Assert.False(json.ContainsKey("negative_prompt"));
             Assert.False(json.ContainsKey("multi_prompt"));
             Assert.False(json.ContainsKey("elements"));
+        }
+
+        [Fact]
+        public async Task Submit_seedance_retries_once_after_connect_timeout()
+        {
+            var attempts = 0;
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ =>
+                {
+                    attempts++;
+                    if (attempts == 1)
+                    {
+                        throw new HttpRequestException(
+                            "connect timed out",
+                            new SocketException((int)SocketError.TimedOut));
+                    }
+
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""seedance-retry-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("seedance-retry-123", queued.Handle.ProviderJobId);
+            Assert.Equal(2, attempts);
+            Assert.Equal(2, handler.Requests.Count);
+        }
+
+        [Fact]
+        public async Task Submit_seedance_does_not_retry_generic_transport_failure()
+        {
+            var attempts = 0;
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ =>
+                {
+                    attempts++;
+                    throw new HttpRequestException("request may have been sent");
+                },
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
+            Assert.Equal(1, attempts);
+            Assert.Single(handler.Requests);
         }
 
         [Fact]
@@ -369,7 +439,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123/status",
+                "https://queue.fal.run/bytedance/seedance-2.0/requests/seedance-123/status",
                 request.RequestUri!.ToString());
         }
 
@@ -470,7 +540,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123",
+                "https://queue.fal.run/bytedance/seedance-2.0/requests/seedance-123",
                 request.RequestUri!.ToString());
         }
 
@@ -612,7 +682,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Put, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/bytedance/seedance-2.0/image-to-video/requests/seedance-123/cancel",
+                "https://queue.fal.run/bytedance/seedance-2.0/requests/seedance-123/cancel",
                 request.RequestUri!.ToString());
         }
 

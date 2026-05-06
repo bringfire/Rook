@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -15,8 +16,10 @@ namespace Rook.Services.Vision.Video.Fal
     {
         private static readonly Uri WanEndpoint =
             new("https://queue.fal.run/fal-ai/wan/v2.7/text-to-video");
-        private static readonly Uri SeedanceEndpoint =
+        private static readonly Uri SeedanceSubmitEndpoint =
             new("https://queue.fal.run/bytedance/seedance-2.0/image-to-video");
+        private static readonly Uri SeedanceLifecycleEndpoint =
+            new("https://queue.fal.run/bytedance/seedance-2.0");
         private const string CancelHttpMethod = "PUT";
 
         private readonly Func<string?> _apiKeyProvider;
@@ -193,9 +196,8 @@ namespace Rook.Services.Vision.Video.Fal
             FalHttpResponse response;
             try
             {
-                response = await _client.PostJsonAsync(
+                response = await PostSeedanceSubmitWithConnectRetryAsync(
                     apiKey!,
-                    SeedanceEndpoint,
                     BuildSeedanceRequestJson(request, sourcePayload!),
                     ct).ConfigureAwait(false);
             }
@@ -248,6 +250,29 @@ namespace Rook.Services.Vision.Video.Fal
                 return FailedSubmit(
                     GenerationErrorCode.ExecutionFailed,
                     ex.Message);
+            }
+        }
+
+        private async Task<FalHttpResponse> PostSeedanceSubmitWithConnectRetryAsync(
+            string apiKey,
+            string bodyJson,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await _client.PostJsonAsync(
+                    apiKey,
+                    SeedanceSubmitEndpoint,
+                    bodyJson,
+                    ct).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex) when (IsConnectionEstablishmentFailure(ex))
+            {
+                return await _client.PostJsonAsync(
+                    apiKey,
+                    SeedanceSubmitEndpoint,
+                    bodyJson,
+                    ct).ConfigureAwait(false);
             }
         }
 
@@ -348,7 +373,7 @@ namespace Rook.Services.Vision.Video.Fal
 
             var transportHandle = new ProviderJobHandle(
                 handle.ProviderJobId,
-                statusUrl: QueueStatusUri(SeedanceEndpoint, handle.ProviderJobId),
+                statusUrl: QueueStatusUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
                 providerResultToken: handle.ProviderResultToken);
 
             var outcome = await GetStatusAsync(transportHandle, ct).ConfigureAwait(false);
@@ -457,7 +482,7 @@ namespace Rook.Services.Vision.Video.Fal
 
             var transportHandle = new ProviderJobHandle(
                 handle.ProviderJobId,
-                cancelUrl: QueueCancelUri(SeedanceEndpoint, handle.ProviderJobId),
+                cancelUrl: QueueCancelUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
                 cancelHttpMethod: CancelHttpMethod);
 
             var outcome = await CancelAsync(transportHandle, ct).ConfigureAwait(false);
@@ -558,7 +583,7 @@ namespace Rook.Services.Vision.Video.Fal
             {
                 response = await _client.GetAsync(
                     apiKey!,
-                    QueueResponseUri(SeedanceEndpoint, handle.ProviderJobId),
+                    QueueResponseUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -615,7 +640,7 @@ namespace Rook.Services.Vision.Video.Fal
                 ["resolution"] = request.Resolution,
                 ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
                 ["aspect_ratio"] = request.AspectRatio,
-                ["generate_audio"] = true,
+                ["generate_audio"] = false,
             };
 
             if (sourcePayload.EndImageUrl is not null)
@@ -788,6 +813,24 @@ namespace Rook.Services.Vision.Video.Fal
             error.ProviderDetail is null
                 ? error
                 : error with { ProviderDetail = null };
+
+        private static bool IsConnectionEstablishmentFailure(Exception ex)
+        {
+            for (var current = ex; current is not null; current = current.InnerException)
+            {
+                if (current is SocketException socket)
+                {
+                    return socket.SocketErrorCode is SocketError.TimedOut
+                        or SocketError.HostUnreachable
+                        or SocketError.NetworkUnreachable
+                        or SocketError.ConnectionRefused
+                        or SocketError.HostNotFound
+                        or SocketError.NetworkDown;
+                }
+            }
+
+            return false;
+        }
 
         private static bool TryGetString(JsonObject obj, string key, out string? value)
         {
