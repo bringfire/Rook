@@ -665,6 +665,37 @@ namespace Rook.Tests.Handlers
             AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
         }
 
+        [Theory]
+        [InlineData(2)]
+        [InlineData(16)]
+        public void Estimate_kling_rejects_duration_outside_3_to_15(int durationSeconds)
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "fal-ai/kling-video/v3/standard/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": {{durationSeconds}},
+                  "resolution": "auto",
+                  "aspect_ratio": "auto",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.UnsupportedMedia, expectedHttp: 415);
+            AssertFieldEquals(resp, nameof(VideoGenerationRequest.DurationSeconds));
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
+        }
+
         [Fact]
         public async Task Submit_UnknownModel_FailsBeforeOptionsParsing()
         {
