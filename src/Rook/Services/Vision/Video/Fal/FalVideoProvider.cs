@@ -20,27 +20,35 @@ namespace Rook.Services.Vision.Video.Fal
             new("https://queue.fal.run/bytedance/seedance-2.0/image-to-video");
         private static readonly Uri SeedanceLifecycleEndpoint =
             new("https://queue.fal.run/bytedance/seedance-2.0");
+        private const long SeedanceMaxSourceFrameBytes = 30L * 1024L * 1024L;
+        private static readonly FalSourceFramePolicy SeedanceSourceFramePolicy = new(
+            ModelLabel: "Seedance",
+            FileNamePrefix: "rook-seedance-source",
+            AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
+            MaxSourceFrameBytes: SeedanceMaxSourceFrameBytes,
+            AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
+            RejectEndFrameForI2v: true);
         private const string CancelHttpMethod = "PUT";
 
         private readonly Func<string?> _apiKeyProvider;
         private readonly FalApiClient _client;
-        private readonly IFalSeedanceSourceTransport _seedanceSourceTransport;
+        private readonly IFalSourceFrameTransport _sourceFrameTransport;
 
         public FalVideoProvider(Func<string?> apiKeyProvider, FalApiClient? client = null)
-            : this(apiKeyProvider, client, seedanceSourceTransport: null)
+            : this(apiKeyProvider, client, sourceFrameTransport: null)
         {
         }
 
         internal FalVideoProvider(
             Func<string?> apiKeyProvider,
             FalApiClient? client,
-            IFalSeedanceSourceTransport? seedanceSourceTransport)
+            IFalSourceFrameTransport? sourceFrameTransport)
         {
             _apiKeyProvider = apiKeyProvider
                 ?? throw new ArgumentNullException(nameof(apiKeyProvider));
             _client = client ?? new FalApiClient();
-            _seedanceSourceTransport =
-                seedanceSourceTransport ?? new FalSeedanceSourceTransport(_client);
+            _sourceFrameTransport =
+                sourceFrameTransport ?? new FalSourceFrameTransport(_client);
         }
 
         public string ProviderName => FalVideoCapabilities.ProviderName;
@@ -200,7 +208,8 @@ namespace Rook.Services.Vision.Video.Fal
                     "fal API key is not configured.");
 
             var (sourceUrls, sourceError) =
-                await _seedanceSourceTransport.ResolveAndUploadAsync(
+                await _sourceFrameTransport.ResolveAndUploadAsync(
+                    SeedanceSourceFramePolicy,
                     request,
                     resolvedMedia,
                     apiKey!,
@@ -284,7 +293,7 @@ namespace Rook.Services.Vision.Video.Fal
                     SeedanceSubmitEndpoint,
                     bodyJson,
                     FalJsonPlatformHeaders.ForSeedanceSubmit(
-                        FalSeedanceSourceTransport.SourceMediaExpirationSeconds,
+                        FalSourceFrameTransport.SourceMediaExpirationSeconds,
                         disableStoreIo: true,
                         disableFalRetry: true),
                     ct).ConfigureAwait(false);
@@ -296,7 +305,7 @@ namespace Rook.Services.Vision.Video.Fal
                     SeedanceSubmitEndpoint,
                     bodyJson,
                     FalJsonPlatformHeaders.ForSeedanceSubmit(
-                        FalSeedanceSourceTransport.SourceMediaExpirationSeconds,
+                        FalSourceFrameTransport.SourceMediaExpirationSeconds,
                         disableStoreIo: true,
                         disableFalRetry: true),
                     ct).ConfigureAwait(false);
@@ -658,12 +667,12 @@ namespace Rook.Services.Vision.Video.Fal
 
         private static string BuildSeedanceRequestJson(
             VideoGenerationRequest request,
-            FalSeedanceSourceUrls sourceUrls)
+            FalSourceFrameUrls sourceUrls)
         {
             var body = new JsonObject
             {
                 ["prompt"] = request.Prompt,
-                ["image_url"] = sourceUrls.ImageUrl,
+                ["image_url"] = sourceUrls.StartImageUrl,
                 ["resolution"] = request.Resolution,
                 ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
                 ["aspect_ratio"] = request.AspectRatio,

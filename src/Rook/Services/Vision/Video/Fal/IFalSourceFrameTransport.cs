@@ -5,9 +5,10 @@ using Rook.Services.Vision.Generation;
 
 namespace Rook.Services.Vision.Video.Fal
 {
-    internal interface IFalSeedanceSourceTransport
+    internal interface IFalSourceFrameTransport
     {
-        Task<(FalSeedanceSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(
+        Task<(FalSourceFrameUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(
+            FalSourceFramePolicy policy,
             VideoGenerationRequest request,
             IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
             string apiKey,

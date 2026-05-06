@@ -184,9 +184,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     }");
                 },
             };
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
-                Urls = new FalSeedanceSourceUrls(
+                Urls = new FalSourceFrameUrls(
                     "https://v3b.fal.media/files/start.png",
                     endImageUrl: null),
             };
@@ -210,6 +210,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.Equal(1, sourceTransport.Calls);
             Assert.Equal("test-fal-key", sourceTransport.LastApiKey);
+            Assert.NotNull(sourceTransport.LastPolicy);
+            Assert.Equal("Seedance", sourceTransport.LastPolicy!.ModelLabel);
+            Assert.Equal("rook-seedance-source", sourceTransport.LastPolicy.FileNamePrefix);
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal(
@@ -241,9 +244,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         {
             var attempts = 0;
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
-                Urls = new FalSeedanceSourceUrls(
+                Urls = new FalSourceFrameUrls(
                     "https://v3b.fal.media/files/start.png",
                     endImageUrl: null),
             };
@@ -287,9 +290,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         {
             var attempts = 0;
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
-                Urls = new FalSeedanceSourceUrls(
+                Urls = new FalSourceFrameUrls(
                     "https://v3b.fal.media/files/start.png",
                     endImageUrl: null),
             };
@@ -334,9 +337,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     }");
                 },
             };
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
-                Urls = new FalSeedanceSourceUrls(
+                Urls = new FalSourceFrameUrls(
                     "https://v3b.fal.media/files/start.png",
                     "https://v3b.fal.media/files/end.jpg"),
             };
@@ -367,9 +370,9 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         public async Task Submit_seedance_missing_key_does_not_upload_or_submit()
         {
             var handler = new TestHttpMessageHandler();
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
-                Urls = new FalSeedanceSourceUrls(
+                Urls = new FalSourceFrameUrls(
                     "https://v3b.fal.media/files/start.png",
                     endImageUrl: null),
             };
@@ -394,7 +397,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         public async Task Submit_seedance_upload_failure_never_calls_queue_submit_and_error_is_sanitized()
         {
             var handler = new TestHttpMessageHandler();
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
                 Error = new GenerationError(
                     GenerationErrorCode.DependencyUnavailable,
@@ -445,7 +448,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         public async Task Submit_seedance_interp_end_upload_failure_never_calls_queue_submit()
         {
             var handler = new TestHttpMessageHandler();
-            var sourceTransport = new FakeSeedanceSourceTransport
+            var sourceTransport = new FakeFalSourceFrameTransport
             {
                 Error = new GenerationError(
                     GenerationErrorCode.DependencyUnavailable,
@@ -914,12 +917,12 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
         private static FalVideoProvider Provider(
             TestHttpMessageHandler handler,
-            IFalSeedanceSourceTransport? seedanceSourceTransport = null,
+            IFalSourceFrameTransport? sourceFrameTransport = null,
             Func<string?>? apiKeyProvider = null) =>
             new(
                 apiKeyProvider ?? (() => "test-fal-key"),
                 new FalApiClient(new HttpClient(handler)),
-                seedanceSourceTransport);
+                sourceFrameTransport);
 
         private static VideoGenerationRequest Request(
             int? seed = null,
@@ -993,21 +996,24 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         private static byte[] JpegBytes() =>
             new byte[] { 0xFF, 0xD8, 0xFF, 1, 2, 3 };
 
-        private sealed class FakeSeedanceSourceTransport : IFalSeedanceSourceTransport
+        private sealed class FakeFalSourceFrameTransport : IFalSourceFrameTransport
         {
             public int Calls { get; private set; }
             public GenerationError? Error { get; set; }
-            public FalSeedanceSourceUrls? Urls { get; set; }
+            public FalSourceFrameUrls? Urls { get; set; }
+            public FalSourceFramePolicy? LastPolicy { get; private set; }
             public string? LastApiKey { get; private set; }
             public CancellationToken LastCancellationToken { get; private set; }
 
-            public Task<(FalSeedanceSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(
+            public Task<(FalSourceFrameUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(
+                FalSourceFramePolicy policy,
                 VideoGenerationRequest request,
                 IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
                 string apiKey,
                 CancellationToken ct)
             {
                 Calls++;
+                LastPolicy = policy;
                 LastApiKey = apiKey;
                 LastCancellationToken = ct;
                 return Task.FromResult((Urls, Error));

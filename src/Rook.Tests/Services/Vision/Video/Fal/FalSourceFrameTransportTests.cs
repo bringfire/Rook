@@ -16,7 +16,7 @@ using Xunit;
 
 namespace Rook.Tests.Services.Vision.Video.Fal
 {
-    public class FalSeedanceSourceTransportTests
+    public class FalSourceFrameTransportTests
     {
         [Fact]
         public async Task ResolveAndUploadAsync_rejects_source_larger_than_seedance_limit_before_http()
@@ -24,9 +24,10 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var handler = new TestHttpMessageHandler();
             var transport = Transport(handler);
             var start = Artifact(VideoMediaRoles.StartFrame);
-            var bytes = PngBytes((int)FalSeedanceSourceTransport.MaxSourceFrameBytes + 1);
+            var bytes = PngBytes((int)SeedancePolicy().MaxSourceFrameBytes + 1);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, bytes, "image/png"),
                 "test-fal-key",
@@ -46,9 +47,10 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var handler = UploadHandler();
             var transport = Transport(handler);
             var start = Artifact(VideoMediaRoles.StartFrame);
-            var bytes = ImageBytes(mimeType, (int)FalSeedanceSourceTransport.MaxSourceFrameBytes);
+            var bytes = ImageBytes(mimeType, (int)SeedancePolicy().MaxSourceFrameBytes);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, bytes, mimeType),
                 "test-fal-key",
@@ -56,7 +58,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.Null(error);
             Assert.NotNull(urls);
-            Assert.Equal("v3b.fal.media", new Uri(urls!.ImageUrl).Host);
+            Assert.Equal("v3b.fal.media", new Uri(urls!.StartImageUrl).Host);
             Assert.Null(urls.EndImageUrl);
             Assert.Equal(2, handler.Requests.Count);
             Assert.All(handler.Requests, req => Assert.DoesNotContain("data:", req.RequestUri!.ToString()));
@@ -100,6 +102,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var transport = Transport(handler);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(
                     VideoMode.I2V,
                     startFrame: start,
@@ -109,7 +112,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 CancellationToken.None);
 
             Assert.Null(error);
-            Assert.Equal("https://v3b.fal.media/files/source-private", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/source-private", urls!.StartImageUrl);
 
             var initiate = handler.Requests[0];
             Assert.Equal(HttpMethod.Post, initiate.Method);
@@ -158,6 +161,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             await Assert.ThrowsAsync<OperationCanceledException>(
                 async () => await transport.ResolveAndUploadAsync(
+                    SeedancePolicy(),
                     Request(VideoMode.I2V, startFrame: start),
                     Media(start, PngBytes(), "image/png"),
                     "test-fal-key",
@@ -195,13 +199,14 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
                 CancellationToken.None);
 
             Assert.Null(error);
-            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.StartImageUrl);
             Assert.Equal(2, attempts);
             Assert.Equal(4, handler.Requests.Count);
             Assert.Equal(2, CountRequests(handler, HttpMethod.Post));
@@ -237,13 +242,14 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
                 CancellationToken.None);
 
             Assert.Null(error);
-            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.StartImageUrl);
             Assert.Equal(2, attempts);
             Assert.Equal(3, handler.Requests.Count);
         }
@@ -291,6 +297,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start, prompt: "secret prompt text"),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
@@ -334,6 +341,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
@@ -380,6 +388,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start, prompt: "secret prompt"),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
@@ -389,7 +398,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.NotNull(error);
             Assert.Equal(GenerationErrorCode.DependencyUnavailable, error!.Code);
             Assert.True(error.Retryable);
-            Assert.Null(error.Field);
+            Assert.Equal("start_frame", error.Field);
             Assert.Equal("fal Seedance source upload failed.", error.Message);
             Assert.DoesNotContain("upload_url", error.Message);
             Assert.DoesNotContain("file_url", error.Message);
@@ -406,6 +415,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, PngBytes(), "image/jpeg"),
                 "test-fal-key",
@@ -423,6 +433,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var transport = Transport(handler);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: null),
                 EmptyMedia(),
                 "test-fal-key",
@@ -442,6 +453,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var end = Artifact(VideoMediaRoles.EndFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start, endFrame: end),
                 Media(
                     (start, new ResolvedMedia(PngBytes(), "image/png")),
@@ -462,6 +474,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.Interp, startFrame: start, endFrame: null),
                 Media(start, PngBytes(), "image/png"),
                 "test-fal-key",
@@ -481,6 +494,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var reference = Artifact("reference");
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(
                     VideoMode.I2V,
                     startFrame: start,
@@ -504,6 +518,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 Media(start, GifBytes(), "image/gif"),
                 "test-fal-key",
@@ -522,6 +537,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var start = Artifact(VideoMediaRoles.StartFrame);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.I2V, startFrame: start),
                 EmptyMedia(),
                 "test-fal-key",
@@ -539,6 +555,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var transport = Transport(handler);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.T2V, startFrame: null),
                 EmptyMedia(),
                 "test-fal-key",
@@ -585,6 +602,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var transport = Transport(handler);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.Interp, startFrame: start, endFrame: end),
                 Media(
                     (start, new ResolvedMedia(startBytes, "image/png")),
@@ -594,7 +612,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.Null(error);
             Assert.NotNull(urls);
-            Assert.Equal("https://v3b.fal.media/files/source-1.png", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/source-1.png", urls!.StartImageUrl);
             Assert.Equal("https://v3b.fal.media/files/source-2.jpg", urls.EndImageUrl);
             Assert.Equal(4, handler.Requests.Count);
             Assert.Equal(2, CountRequests(handler, HttpMethod.Post));
@@ -656,6 +674,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var transport = Transport(handler);
 
             var (urls, error) = await transport.ResolveAndUploadAsync(
+                SeedancePolicy(),
                 Request(VideoMode.Interp, startFrame: start, endFrame: end),
                 Media(
                     (start, new ResolvedMedia(startBytes, "image/png")),
@@ -665,7 +684,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.Null(error);
             Assert.NotNull(urls);
-            Assert.Equal("https://v3b.fal.media/files/start.png", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/start.png", urls!.StartImageUrl);
             Assert.Equal("https://v3b.fal.media/files/end-2.jpg", urls.EndImageUrl);
             Assert.Equal(6, handler.Requests.Count);
             Assert.Equal(3, CountRequests(handler, HttpMethod.Post));
@@ -693,7 +712,180 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 putUrls);
         }
 
-        private static FalSeedanceSourceTransport Transport(TestHttpMessageHandler handler) =>
+        [Fact]
+        public async Task ResolveAndUploadAsync_kling_uses_kling_filename_prefix_and_error_label()
+        {
+            string? initiateBody = null;
+            var start = Artifact(VideoMediaRoles.StartFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        initiateBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/kling-source",
+                              "file_url": "https://v3b.fal.media/files/kling-source.png"
+                            }
+                            """);
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                },
+            };
+            var transport = Transport(handler);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                KlingPolicy(),
+                Request(
+                    VideoMode.I2V,
+                    startFrame: start,
+                    model: FalVideoCapabilities.KlingV3StandardI2v,
+                    resolution: "auto",
+                    aspectRatio: "auto"),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.NotNull(urls);
+            Assert.Equal("https://v3b.fal.media/files/kling-source.png", urls!.StartImageUrl);
+            Assert.Equal(2, handler.Requests.Count);
+            Assert.Matches(
+                "^rook-kling-source-[0-9a-f]{32}\\.png$",
+                InitiateFileName(initiateBody!));
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_kling_final_failure_is_sanitized_with_kling_message()
+        {
+            var start = Artifact(VideoMediaRoles.StartFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/kling-source-token",
+                              "file_url": "https://v3b.fal.media/files/kling-leak.png"
+                            }
+                            """);
+                    }
+
+                    return Json(HttpStatusCode.InternalServerError, """
+                        {
+                          "upload_url": "https://uploads.example.test/kling-source-token",
+                          "file_url": "https://v3b.fal.media/files/kling-leak.png",
+                          "prompt": "secret prompt text"
+                        }
+                        """);
+                },
+            };
+            var transport = Transport(handler);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                KlingPolicy(),
+                Request(
+                    VideoMode.I2V,
+                    startFrame: start,
+                    prompt: "secret prompt text",
+                    model: FalVideoCapabilities.KlingV3StandardI2v,
+                    resolution: "auto",
+                    aspectRatio: "auto"),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(urls);
+            Assert.NotNull(error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, error!.Code);
+            Assert.True(error.Retryable);
+            Assert.Null(error.ProviderDetail);
+            Assert.Equal("fal Kling source upload failed.", error.Message);
+            Assert.DoesNotContain("fal/upload", error.Message);
+            Assert.DoesNotContain("upload_url", error.Message);
+            Assert.DoesNotContain("file_url", error.Message);
+            Assert.DoesNotContain("kling-source-token", error.Message);
+            Assert.DoesNotContain("secret prompt text", error.Message);
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_interp_end_upload_failure_does_not_return_partial_urls()
+        {
+            var uploadIndex = 0;
+            var start = Artifact(VideoMediaRoles.StartFrame);
+            var end = Artifact(VideoMediaRoles.EndFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        uploadIndex++;
+                        var uploadName = uploadIndex == 1 ? "start" : $"end-{uploadIndex - 1}";
+                        var ext = uploadIndex == 1 ? "png" : "jpg";
+                        return Json(HttpStatusCode.OK, $$"""
+                            {
+                              "upload_url": "https://uploads.example.test/{{uploadName}}",
+                              "file_url": "https://v3b.fal.media/files/{{uploadName}}.{{ext}}"
+                            }
+                            """);
+                    }
+
+                    if (req.RequestUri!.AbsolutePath.EndsWith("/start", StringComparison.Ordinal))
+                        return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+                    return Json(HttpStatusCode.BadGateway, "{}");
+                },
+            };
+            var transport = Transport(handler);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                KlingPolicy(),
+                Request(
+                    VideoMode.Interp,
+                    startFrame: start,
+                    endFrame: end,
+                    model: FalVideoCapabilities.KlingV3StandardI2v,
+                    resolution: "auto",
+                    aspectRatio: "auto"),
+                Media(
+                    (start, new ResolvedMedia(PngBytes(), "image/png")),
+                    (end, new ResolvedMedia(JpegBytes(), "image/jpeg"))),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(urls);
+            Assert.NotNull(error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, error!.Code);
+            Assert.True(error.Retryable);
+            Assert.Equal("end_frame", error.Field);
+            Assert.Equal("fal Kling source upload failed.", error.Message);
+        }
+
+        private static FalSourceFramePolicy SeedancePolicy() =>
+            new(
+                ModelLabel: "Seedance",
+                FileNamePrefix: "rook-seedance-source",
+                AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
+                MaxSourceFrameBytes: 30L * 1024L * 1024L,
+                AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
+                RejectEndFrameForI2v: true);
+
+        private static FalSourceFramePolicy KlingPolicy(long? maxBytes = null) =>
+            new(
+                ModelLabel: "Kling",
+                FileNamePrefix: "rook-kling-source",
+                AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
+                MaxSourceFrameBytes: maxBytes ?? (30L * 1024L * 1024L),
+                AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
+                RejectEndFrameForI2v: true);
+
+        private static FalSourceFrameTransport Transport(TestHttpMessageHandler handler) =>
             new(new FalApiClient(new HttpClient(handler)));
 
         private static TestHttpMessageHandler UploadHandler()
@@ -749,13 +941,16 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             MediaRef? startFrame,
             MediaRef? endFrame = null,
             IReadOnlyList<MediaRef>? referenceFrames = null,
-            string? prompt = "clip") =>
+            string? prompt = "clip",
+            string? model = null,
+            string? resolution = null,
+            string? aspectRatio = null) =>
             new(
-                Model: FalVideoCapabilities.SeedanceI2v,
+                Model: model ?? FalVideoCapabilities.SeedanceI2v,
                 Mode: mode,
                 DurationSeconds: 6,
-                Resolution: "720p",
-                AspectRatio: "16:9",
+                Resolution: resolution ?? "720p",
+                AspectRatio: aspectRatio ?? "16:9",
                 Prompt: prompt,
                 StartFrame: startFrame,
                 EndFrame: endFrame,
