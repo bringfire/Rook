@@ -88,7 +88,11 @@ namespace Rook.Tests.Services.Vision.Video
             try
             {
                 var expected = VeoCapabilities.Models.Keys
-                    .Concat(new[] { FalVideoCapabilities.WanT2v })
+                    .Concat(new[]
+                    {
+                        FalVideoCapabilities.WanT2v,
+                        FalVideoCapabilities.SeedanceI2v,
+                    })
                     .OrderBy(k => k, StringComparer.Ordinal)
                     .ToArray();
                 var actual = bundle.Registry.EnumerateAllModels()

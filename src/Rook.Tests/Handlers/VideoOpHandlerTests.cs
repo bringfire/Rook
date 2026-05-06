@@ -577,6 +577,92 @@ namespace Rook.Tests.Handlers
         }
 
         [Fact]
+        public void Estimate_seedance_with_artifact_start_frame_accepts_empty_fal_options()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertOk(resp, expectedHttp: 200);
+        }
+
+        [Fact]
+        public void Estimate_seedance_rejects_blank_prompt()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "   ",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            AssertFieldEquals(resp, nameof(VideoGenerationRequest.Prompt));
+        }
+
+        [Fact]
+        public void Estimate_seedance_rejects_veo_person_generation_options()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "bytedance/seedance-2.0/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": 6,
+                  "resolution": "720p",
+                  "aspect_ratio": "16:9",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": { "person_generation": "allow_adult" },
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
+            Assert.Contains(
+                "person_generation",
+                JsonSerializer.Serialize(resp.Data),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task Submit_UnknownModel_FailsBeforeOptionsParsing()
         {
             var stub = new StubManager
@@ -1270,6 +1356,40 @@ namespace Rook.Tests.Handlers
                     Assert.Contains(s, new[] { "t2v", "i2v", "interp" });
                 }
             }
+        }
+
+        [Fact]
+        public void ListModels_exposes_seedance_as_fal_i2v_interp_model()
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi("""{"op":"list_video_models"}""");
+
+            AssertOk(resp, expectedHttp: 200);
+            var data = AssertDataDict(resp);
+            var models = Assert.IsType<List<Dictionary<string, object?>>>(data["models"]);
+            var seedance = Assert.Single(
+                models,
+                m => (string?)m["model_id"] == FalVideoCapabilities.SeedanceI2v);
+
+            Assert.Equal(FalVideoCapabilities.ProviderName, seedance["provider_name"]);
+            var cap = Assert.IsType<Dictionary<string, object?>>(seedance["capability"]);
+            Assert.Equal(FalVideoCapabilities.SeedanceI2v, cap["id"]);
+
+            var modes = Assert.IsAssignableFrom<System.Collections.IEnumerable>(cap["modes"]);
+            var modeStrings = new List<string>();
+            foreach (var mode in modes)
+            {
+                modeStrings.Add(Assert.IsType<string>(mode));
+            }
+
+            Assert.Contains("i2v", modeStrings);
+            Assert.Contains("interp", modeStrings);
+            Assert.DoesNotContain("t2v", modeStrings);
+            Assert.DoesNotContain(
+                models,
+                m => ((string?)m["model_id"] ?? string.Empty)
+                    .IndexOf("kling", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         [Fact]

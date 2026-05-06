@@ -8,6 +8,7 @@ namespace Rook.Services.Vision.Video.Fal
     {
         public const string ProviderName = "fal";
         public const string WanT2v = "fal-ai/wan/v2.7/text-to-video";
+        public const string SeedanceI2v = "bytedance/seedance-2.0/image-to-video";
 
         public static IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
             = BuildModels();
@@ -29,6 +30,19 @@ namespace Rook.Services.Vision.Video.Fal
                         MaxReferenceImages: 0,
                         Must8sWith: Array.Empty<string>()),
                     new FalWanT2vPricingModel()),
+                [SeedanceI2v] = (
+                    new VideoCapability(
+                        Id: SeedanceI2v,
+                        Name: "Seedance 2.0 Image to Video",
+                        Status: "preview",
+                        Resolutions: new[] { "480p", "720p" },
+                        Durations: new[] { 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+                        AspectRatios: new[] { "16:9", "9:16", "1:1", "4:3", "3:4", "21:9" },
+                        Modes: new[] { VideoMode.I2V, VideoMode.Interp },
+                        SupportsReferenceImages: false,
+                        MaxReferenceImages: 0,
+                        Must8sWith: Array.Empty<string>()),
+                    new FalSeedanceI2vPricingModel()),
             };
 
             return dict;

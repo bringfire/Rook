@@ -177,10 +177,15 @@ namespace Rook.Tests.Handlers
             var data = AssertDataDict(cancelResp);
             Assert.Equal("cancelled", data["state"]);
 
-            // Provider.Cancel was invoked with the provider_job_id the
-            // fake assigned at submit ("fake-job-1" by default).
-            Assert.Contains(_provider.RecordedCalls,
-                c => c.Method == "Cancel" && (string)c.Payload! == "fake-job-1");
+            // Active cancel uses the model-aware provider lifecycle and
+            // passes the provider_job_id the fake assigned at submit
+            // ("fake-job-1" by default).
+            var cancelCall = Assert.Single(_provider.RecordedCalls,
+                c => c.Method == "CancelForModel");
+            var payload = Assert.IsType<FakeVideoProvider.ModelAwareCall>(
+                cancelCall.Payload);
+            Assert.Equal(TestVideoFixtures.DefaultModelId, payload.ModelId);
+            Assert.Equal("fake-job-1", payload.ProviderJobId);
         }
 
         // ─── Estimate against real registry + estimator ──────────────────
