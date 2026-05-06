@@ -1355,6 +1355,71 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task Seedance_submit_failure_does_not_persist_echoed_source_transport()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            var startFrame = MediaRef.ForArtifact(
+                Guid.NewGuid(),
+                VideoMediaRoles.StartFrame);
+            var startBytes = PngBytes();
+            _resolver.OnResolve = mediaRef =>
+            {
+                Assert.Equal(startFrame, mediaRef);
+                return new ResolvedMedia(startBytes, "image/png");
+            };
+            var echoedDataUri =
+                "data:image/png;base64," + Convert.ToBase64String(startBytes);
+            var submitHandler = new TestHttpMessageHandler
+            {
+                OnSend = _ => new HttpResponseMessage((HttpStatusCode)422)
+                {
+                    Content = new StringContent(
+                        $$"""
+                        {
+                          "detail": [{
+                            "loc": ["body", "image_url"],
+                            "msg": "invalid image",
+                            "input": "{{echoedDataUri}}"
+                          }],
+                          "image_url": "{{echoedDataUri}}",
+                          "end_image_url": "{{echoedDataUri}}"
+                        }
+                        """,
+                        System.Text.Encoding.UTF8,
+                        "application/json"),
+                },
+            };
+            var falProvider = new FalVideoProvider(
+                () => "test-fal-key",
+                new Rook.Services.Vision.Fal.FalApiClient(
+                    new HttpClient(submitHandler)));
+            var ledgerPath = Path.Combine(_artifactRoot, "seedance-failure-ledger.jsonl");
+            var ledger = new JsonlVideoJobLedger(ledgerPath);
+            var mgr = Manager(
+                registry: RegistryWithSeedance(falProvider),
+                ledger: ledger);
+
+            var submit = await mgr.SubmitAsync(
+                SeedanceI2vRequest(startFrame),
+                CancellationToken.None);
+
+            Assert.Equal(jobId, submit.JobId);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Error, final.State);
+            Assert.NotNull(final.Error);
+            Assert.Single(submitHandler.Requests);
+
+            var ledgerJson = File.ReadAllText(ledgerPath);
+            Assert.Contains("fal request failed with HTTP 422", ledgerJson);
+            Assert.DoesNotContain("data:image/", ledgerJson);
+            Assert.DoesNotContain("image_url", ledgerJson);
+            Assert.DoesNotContain("end_image_url", ledgerJson);
+            Assert.DoesNotContain(Convert.ToBase64String(startBytes), ledgerJson);
+        }
+
+        [Fact]
         public async Task Seedance_cancel_after_restart_uses_request_id_only_with_model_identity()
         {
             var jobId = Guid.NewGuid();

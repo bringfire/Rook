@@ -219,7 +219,7 @@ namespace Rook.Services.Vision.Video.Fal
             }
 
             if (!response.IsSuccessStatusCode)
-                return new FailedSubmitOutcome(FalErrorMapper.MapHttpFailure(response));
+                return new FailedSubmitOutcome(MapSeedanceHttpFailure(response));
 
             try
             {
@@ -352,6 +352,9 @@ namespace Rook.Services.Vision.Video.Fal
                 providerResultToken: handle.ProviderResultToken);
 
             var outcome = await GetStatusAsync(transportHandle, ct).ConfigureAwait(false);
+            if (outcome is FailedStatusOutcome failed)
+                return new FailedStatusOutcome(SanitizeProviderDetail(failed.Error));
+
             if (outcome is ProviderCompleteStatusOutcome complete)
             {
                 return new ProviderCompleteStatusOutcome(new ProviderJobHandle(
@@ -440,16 +443,16 @@ namespace Rook.Services.Vision.Video.Fal
                 "model"));
         }
 
-        private Task<ProviderCancelOutcome> CancelSeedanceAsync(
+        private async Task<ProviderCancelOutcome> CancelSeedanceAsync(
             ProviderJobHandle handle,
             CancellationToken ct)
         {
             if (handle is null)
             {
-                return Task.FromResult<ProviderCancelOutcome>(FailedCancel(
+                return FailedCancel(
                     GenerationErrorCode.InvalidRequest,
                     "ProviderJobHandle is required.",
-                    nameof(handle)));
+                    nameof(handle));
             }
 
             var transportHandle = new ProviderJobHandle(
@@ -457,7 +460,10 @@ namespace Rook.Services.Vision.Video.Fal
                 cancelUrl: QueueCancelUri(SeedanceEndpoint, handle.ProviderJobId),
                 cancelHttpMethod: CancelHttpMethod);
 
-            return CancelAsync(transportHandle, ct);
+            var outcome = await CancelAsync(transportHandle, ct).ConfigureAwait(false);
+            return outcome is FailedCancelOutcome failed
+                ? new FailedCancelOutcome(SanitizeProviderDetail(failed.Error))
+                : outcome;
         }
 
         public async Task<ProviderResultOutcome> FetchResultAsync(
@@ -575,7 +581,7 @@ namespace Rook.Services.Vision.Video.Fal
             }
 
             if (!response.IsSuccessStatusCode)
-                return new FailedResultOutcome(FalErrorMapper.MapHttpFailure(response));
+                return new FailedResultOutcome(MapSeedanceHttpFailure(response));
 
             return ParseSeedanceFetchResult(response.Body);
         }
@@ -774,6 +780,14 @@ namespace Rook.Services.Vision.Video.Fal
                 Message: message,
                 Retryable: retryable,
                 Field: field));
+
+        private static GenerationError MapSeedanceHttpFailure(FalHttpResponse response) =>
+            SanitizeProviderDetail(FalErrorMapper.MapHttpFailure(response));
+
+        private static GenerationError SanitizeProviderDetail(GenerationError error) =>
+            error.ProviderDetail is null
+                ? error
+                : error with { ProviderDetail = null };
 
         private static bool TryGetString(JsonObject obj, string key, out string? value)
         {
