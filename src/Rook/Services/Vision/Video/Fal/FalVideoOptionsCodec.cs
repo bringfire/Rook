@@ -23,11 +23,15 @@ namespace Rook.Services.Vision.Video.Fal
                     $"fal video codec requires {nameof(FalVideoOptions)}; got {options?.GetType().Name ?? "null"}.",
                     nameof(VideoGenerationRequest.Options));
 
-            if (string.Equals(cap.Id, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal)
+            if ((string.Equals(cap.Id, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal)
+                    || string.Equals(cap.Id, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal))
                 && string.IsNullOrWhiteSpace(request.Prompt))
             {
+                var modelName = string.Equals(cap.Id, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal)
+                    ? "Kling v3 Standard Image to Video"
+                    : "Seedance 2.0 Image to Video";
                 return Rook.Services.Vision.Generation.ValidationResult.Fail(
-                    "Seedance 2.0 Image to Video requires prompt.",
+                    $"{modelName} requires prompt.",
                     nameof(VideoGenerationRequest.Prompt));
             }
 
