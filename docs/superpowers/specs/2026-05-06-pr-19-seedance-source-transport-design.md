@@ -58,17 +58,26 @@ Official fal docs reviewed on 2026-05-06 state:
   lifecycle with `X-Fal-Object-Lifecycle-Preference`:
   https://fal.ai/docs/api-reference/client-libraries/javascript/storage
 
-Before implementation, re-check the current official REST upload endpoint and
-response contract. The design requires a REST-confirmed upload path, not
-SDK-only behavior. As of the initial review, fal documents local file upload
-through multipart form upload:
-`POST https://api.fal.ai/v1/serverless/files/file/local/{target_path}`.
-That page shows a `multipart/form-data` request with field name
-`file_upload`, but its displayed response contract is an upload-completed
-boolean rather than the CDN URL that model input needs. Implementation is
-blocked until the exact REST upload endpoint, response URL contract, and
-upload lifecycle header are confirmed from official docs or a controlled
-non-generation probe.
+Task 0 on 2026-05-06 confirmed the URL-returning upload contract with a
+controlled non-generation one-byte probe and the published JavaScript SDK
+source. The local multipart REST page:
+`POST https://api.fal.ai/v1/serverless/files/file/local/{target_path}`
+returns only an upload-completed boolean and is not the PR-19 implementation
+path. The confirmed source-frame upload flow is:
+
+1. `POST https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3`
+   with JSON body containing `content_type` and `file_name`.
+2. Send `X-Fal-Object-Lifecycle: {"expiration_duration_seconds":3600}` on
+   the initiate request.
+3. Read `upload_url` and `file_url` from the initiate response.
+4. `PUT` raw source bytes with the detected content type to the returned
+   HTTPS presigned `upload_url`.
+5. Submit the returned HTTPS fal CDN `file_url` as Seedance `image_url` or
+   `end_image_url`.
+
+The probe observed a `v3b.fal.media` CDN host, so PR-19 must allow the
+reviewed `v3*.fal.media` fal CDN host family instead of hard-coding only
+`v3.fal.media`.
 
 ## Non-Goals
 
@@ -175,10 +184,13 @@ Seedance always uploads source frames to fal CDN in PR-19:
 - no data URI fast path exists.
 - no data URI fallback exists.
 
-The transport should use the official REST upload contract after it is
-confirmed. If the currently documented local-file endpoint is the confirmed
-path, the request must be `multipart/form-data` with the source bytes in the
-`file_upload` form field. The file part must carry the detected content type.
+The transport uses the confirmed fal storage initiate-plus-PUT contract:
+
+- initiate upload at `https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3`;
+- include `content_type` and generated `file_name` in the JSON request body;
+- send the source-upload lifecycle header on the initiate request;
+- `PUT` raw bytes to the returned HTTPS presigned `upload_url`;
+- use the returned HTTPS fal CDN `file_url` in Seedance submit JSON.
 
 The generated target path/filename must not reveal local source paths, artifact
 filenames, prompts, or user-provided text. Use a provider-private prefix plus
@@ -205,8 +217,10 @@ Extend `src/Rook/Services/Vision/Fal/FalApiClient.cs` narrowly.
 
 Required support:
 
-- upload source bytes through fal's confirmed multipart REST upload contract,
-  including the `file_upload` form field and detected content type;
+- initiate a source upload through fal's confirmed REST storage endpoint;
+- PUT raw source bytes to the returned HTTPS presigned upload URL with the
+  detected content type;
+- return only the confirmed `file_url` value from the upload helper;
 - send only the fal platform headers needed by PR-19;
 - post JSON with the same constrained platform header support.
 
@@ -217,16 +231,15 @@ headers for PR-19 queue submit are:
 - `X-Fal-Store-IO`
 - `X-Fal-No-Retry`
 
-The supported lifecycle header for source upload must be the exact officially
-confirmed storage-upload header. The current JS storage docs name that header
-`X-Fal-Object-Lifecycle`; do not use
-`X-Fal-Object-Lifecycle-Preference` on source uploads unless the REST upload
-contract explicitly requires it.
+The supported lifecycle header for source upload is the confirmed
+storage-upload header:
+`X-Fal-Object-Lifecycle`.
 
 The upload endpoint host policy must remain narrow. Existing queue calls are
-limited to `fal.run` and subdomains. Upload support will require whatever
-official REST host fal documents, likely `api.fal.ai`, plus returned CDN host
-validation for source URLs.
+limited to `fal.run` and subdomains. Upload initiation is limited to
+`rest.fal.ai`. Returned upload URLs must be absolute HTTPS presigned URLs and
+are used only inside the upload helper. Returned source `file_url` values must
+be absolute HTTPS fal CDN URLs in the reviewed `v3*.fal.media` host family.
 
 ## Retention And Platform Headers
 
@@ -234,16 +247,9 @@ Use a named provider constant for source media lifetime:
 
 `SeedanceSourceMediaExpirationSeconds = 3600`
 
-Source upload requests send:
+Source upload initiate requests send:
 
-the exact officially confirmed storage-upload lifecycle header with:
-`{"expiration_duration_seconds":3600}`.
-
-As of the 2026-05-06 review, the JS storage API documents this as:
 `X-Fal-Object-Lifecycle: {"expiration_duration_seconds":3600}`.
-
-Implementation is blocked until the REST upload header name is confirmed and
-the implementation plan pins the exact expected header in tests.
 
 Seedance queue submit sends:
 
@@ -356,8 +362,9 @@ Upload behavior:
 
 - uploads start frame once for `I2V`;
 - uploads start and end frame for `Interp`;
-- uses multipart/form-data with the `file_upload` field if the documented REST
-  endpoint is the confirmed upload path;
+- initiates upload at `rest.fal.ai/storage/upload/initiate` with JSON
+  `content_type` and generated `file_name`;
+- PUTs raw source bytes to the returned HTTPS presigned upload URL;
 - sends the detected content type;
 - sends the exact confirmed storage-upload lifecycle header with the named
   one-hour value;
@@ -453,6 +460,7 @@ the latest ledger/artifact metadata for forbidden strings:
 - `fal.media`;
 - `queue.fal.run`;
 - `api.fal.ai`;
+- `rest.fal.ai`;
 - `image_url`;
 - `end_image_url`;
 - `data:image`;
@@ -475,10 +483,8 @@ videos, or credentials from live smoke.
 - fal source media expiration is a named one-hour provider constant.
 - Source upload sends the exact officially confirmed storage-upload lifecycle
   header with the one-hour value.
-- Implementation does not start until the REST upload endpoint, CDN URL
-  response contract, and upload lifecycle header are confirmed.
-- Source upload uses multipart/form-data with `file_upload` if the currently
-  documented REST upload endpoint is the confirmed path.
+- Source upload uses the confirmed initiate-plus-presigned-PUT storage
+  contract.
 - Queue submit sends the one-hour lifecycle header, `X-Fal-Store-IO: 0`, and
   `X-Fal-No-Retry: 1`.
 - Missing API key fails before upload HTTP.
@@ -522,7 +528,7 @@ Future work can decide:
 - Upload retry can orphan short-lived input CDN objects but cannot duplicate
   generation jobs.
 - Queue submit retry remains conservative and disables fal platform retries.
-- Tests cover multipart upload shape, exact upload lifecycle header, URL
+- Tests cover initiate-plus-presigned-PUT upload shape, exact upload lifecycle header, URL
   validation, raw JSONL leakage, upload/end-frame failure ordering, error
   privacy, and boundaries.
 - No placeholders or implementation-only assumptions remain.

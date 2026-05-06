@@ -4,7 +4,7 @@
 
 **Goal:** Replace Seedance 2.0 source-frame data URIs with provider-private fal CDN uploads that accept provider-sized source images while preserving request-id-only durable state and no source URL persistence.
 
-**Architecture:** Keep the change inside managed fal video provider code. Add a Seedance-specific source transport that validates resolved media, uploads source frames to fal CDN, returns only volatile `ImageUrl` / `EndImageUrl`, and lets `FalVideoProvider` submit the queue job with small JSON and retention headers. Extend `FalApiClient` narrowly for confirmed multipart upload and constrained fal platform headers.
+**Architecture:** Keep the change inside managed fal video provider code. Add a Seedance-specific source transport that validates resolved media, uploads source frames to fal CDN, returns only volatile `ImageUrl` / `EndImageUrl`, and lets `FalVideoProvider` submit the queue job with small JSON and retention headers. Extend `FalApiClient` narrowly for the confirmed fal storage initiate-plus-presigned-PUT upload flow and constrained fal platform headers.
 
 **Tech Stack:** C#/.NET 7, xUnit, `System.Net.Http`, `System.Text.Json.Nodes`, existing managed Vision provider/test helpers.
 
@@ -14,8 +14,8 @@
 
 - Modify: `src/Rook/Services/Vision/Fal/FalApiClient.cs`
   - Add constrained fal platform headers for JSON submit.
-  - Add confirmed multipart upload helper for source bytes.
-  - Keep host restrictions narrow: queue/model calls use `fal.run`; upload calls use the confirmed REST host, expected `api.fal.ai`.
+  - Add confirmed fal storage initiate-plus-presigned-PUT helper for source bytes.
+  - Keep host restrictions narrow: queue/model calls use `fal.run`; upload initiation uses `rest.fal.ai`; returned CDN file URLs must be HTTPS `v3*.fal.media`.
 
 - Create: `src/Rook/Services/Vision/Video/Fal/IFalSeedanceSourceTransport.cs`
   - Internal interface for provider-private source upload.
@@ -38,7 +38,7 @@
   - Preserve request-id-only handle and Seedance provider-detail sanitization.
 
 - Modify: `src/Rook.Tests/Services/Vision/Fal/FalApiClientTests.cs`
-  - Add constrained header and multipart upload tests.
+  - Add constrained header and initiate-plus-PUT upload tests.
 
 - Create: `src/Rook.Tests/Services/Vision/Video/Fal/FalSeedanceSourceTransportTests.cs`
   - Add validation, upload shape, URL validation, retry, cancellation, and sanitized error tests.
@@ -61,19 +61,23 @@
 - Modify if needed: `docs/superpowers/specs/2026-05-06-pr-19-seedance-source-transport-design.md`
 - Modify this plan if docs/probe disprove the expected contract.
 
-The rest of this plan assumes this confirmed contract:
+Task 0 is complete. Official docs still document the older local multipart
+endpoint, but that endpoint returns only a completion boolean and the
+controlled non-generation probe against the JavaScript SDK storage flow
+confirmed the URL-returning contract PR-19 needs:
 
-- Upload endpoint: `POST https://api.fal.ai/v1/serverless/files/file/local/{target_path}`
-- Request body: `multipart/form-data`
-- File form field: `file_upload`
-- Upload lifecycle header: `X-Fal-Object-Lifecycle: {"expiration_duration_seconds":3600}`
-- Successful upload body: JSON boolean `true`
-- Public CDN URL derivation after successful upload:
-  `https://v3.fal.media/files/{target_path}`
+- Initiate endpoint: `POST https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3`
+- Initiate request body: JSON with `content_type` and generated `file_name`
+- Upload lifecycle header on initiate: `X-Fal-Object-Lifecycle: {"expiration_duration_seconds":3600}`
+- Initiate response body: JSON with `upload_url` and `file_url`
+- Upload body: raw source bytes `PUT` to returned HTTPS presigned `upload_url`
+- Upload `PUT` content type: detected source MIME type
+- Model input URL: returned HTTPS fal CDN `file_url`
+- CDN host evidence: `v3*.fal.media`; the probe observed `v3b.fal.media`
 
-If the official docs or controlled non-generation probe disprove any item, stop and update the spec and this plan before touching production code.
+Do not use the boolean-returning local multipart endpoint for PR-19.
 
-- [ ] **Step 1: Re-check official docs**
+- [x] **Step 1: Re-check official docs**
 
 Open and verify these official pages:
 
@@ -82,20 +86,22 @@ Open and verify these official pages:
 - `https://fal.ai/docs/api-reference/client-libraries/javascript/storage`
 - `https://fal.ai/docs/documentation/model-apis/common-parameters`
 
-Expected documentation facts:
+Observed documentation facts:
 
 - upload endpoint uses `multipart/form-data`;
 - field name is `file_upload`;
 - platform model queue header remains `X-Fal-Object-Lifecycle-Preference`;
 - `X-Fal-Store-IO: 0` disables request JSON retention;
 - storage upload lifecycle header is `X-Fal-Object-Lifecycle` unless REST docs say otherwise;
-- CDN URL format is `https://v3.fal.media/files/{path}`.
+- CDN URL format is `https://v3.fal.media/files/{path}` in docs, while the
+  live SDK-compatible endpoint may return another `v3*.fal.media` host such
+  as `v3b.fal.media`.
 - Seedance queue submit should use `X-Fal-No-Retry: 1` to disable fal
   platform retries and avoid duplicate generation jobs.
 
-- [ ] **Step 2: Run a controlled non-generation upload probe if docs still do not confirm CDN URL derivation**
+- [x] **Step 2: Run a controlled non-generation upload probe if docs still do not confirm CDN URL derivation**
 
-Use a 1-byte non-sensitive file and a disposable target path. This does not call a generation model.
+Use a 1-byte non-sensitive file and a disposable generated filename. This does not call a generation model.
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -112,37 +118,45 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $file = Join-Path $dir "probe.txt"
 [IO.File]::WriteAllText($file, "x")
 
-$target = "rook/pr19-probe/$([Guid]::NewGuid().ToString('N')).txt"
-$encodedTarget = ($target -split "/" | ForEach-Object { [Uri]::EscapeDataString($_) }) -join "/"
-$url = "https://api.fal.ai/v1/serverless/files/file/local/$encodedTarget"
+$fileName = "rook-pr19-probe-$([Guid]::NewGuid().ToString('N')).txt"
 $lifecycle = '{"expiration_duration_seconds":3600}'
+$initBody = @{ content_type = "text/plain"; file_name = $fileName } | ConvertTo-Json -Compress
 
-$response = curl.exe --fail-with-body --silent --show-error `
+$init = curl.exe --fail-with-body --silent --show-error `
     --request POST `
-    --url $url `
+    --url "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3" `
     --header "Authorization: Key $key" `
+    --header "Content-Type: application/json" `
     --header "X-Fal-Object-Lifecycle: $lifecycle" `
-    --form "file_upload=@$file;type=text/plain"
+    --data $initBody
 
-"upload response: $response"
-"expected CDN URL: https://v3.fal.media/files/$target"
-```
-
-Expected: upload response is `true`. Then verify the derived CDN URL is accessible without auth:
-
-```powershell
-$cdn = "https://v3.fal.media/files/$target"
-$downloaded = curl.exe --fail-with-body --silent --show-error $cdn
-if ($downloaded -ne "x") {
-    throw "Derived CDN URL did not return probe content"
+$obj = $init | ConvertFrom-Json
+if (-not $obj.upload_url -or -not $obj.file_url) {
+    throw "initiate response missing upload_url or file_url"
 }
 ```
 
-- [ ] **Step 3: Record the confirmed contract**
+Expected: initiate response contains `upload_url` and `file_url`. Upload raw
+bytes to `upload_url`, then verify `file_url` is accessible without auth:
 
-If the expected contract is confirmed, add a short note to the implementation PR body during handoff. Do not add probe target paths or CDN URLs to committed docs.
+```powershell
+curl.exe --fail-with-body --silent --show-error `
+    --request PUT `
+    --url $obj.upload_url `
+    --header "Content-Type: text/plain" `
+    --data-binary "@$file"
 
-If the expected contract is wrong, update the spec and this plan before implementation.
+$downloaded = curl.exe --fail-with-body --silent --show-error $obj.file_url
+if ($downloaded -ne "x") {
+    throw "Returned CDN file_url did not return probe content"
+}
+```
+
+- [x] **Step 3: Record the confirmed contract**
+
+Add a short note to the implementation PR body during handoff. Do not add
+probe filenames, presigned upload URLs, CDN file URLs, or credentials to
+committed docs.
 
 ## Task 1: Add fal API Client Header And Upload Support
 
@@ -328,76 +342,123 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalApiClientTests"
 
 Expected: all `FalApiClientTests` pass.
 
-- [ ] **Step 5: Write failing multipart upload tests**
+- [ ] **Step 5: Write failing initiate-plus-PUT upload tests**
 
 Add tests:
 
 ```csharp
 [Fact]
-public async Task UploadLocalFileAsync_posts_multipart_file_upload_with_storage_lifecycle()
+public async Task UploadFileToCdnAsync_initiates_upload_then_puts_raw_bytes()
 {
-    string? contentType = null;
-    string? bodyText = null;
+    var calls = new List<HttpRequestMessage>();
     var handler = new TestHttpMessageHandler
     {
         OnSend = req =>
         {
-            contentType = req.Content!.Headers.ContentType!.MediaType;
-            bodyText = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            calls.Add(req);
+            if (req.RequestUri!.Host == "rest.fal.ai")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        @"{
+                          ""upload_url"": ""https://v3b.fal.media/upload/presigned-token"",
+                          ""file_url"": ""https://v3b.fal.media/files/rook-pr19-source.png""
+                        }",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            Assert.Equal("v3b.fal.media", req.RequestUri.Host);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("true", Encoding.UTF8, "application/json"),
+                Content = new StringContent(string.Empty, Encoding.UTF8, "text/plain"),
             };
         },
     };
     var client = new FalApiClient(new HttpClient(handler));
 
-    var response = await client.UploadLocalFileAsync(
+    var url = await client.UploadFileToCdnAsync(
         "test-key",
-        "rook/seedance-sources/source.png",
+        "rook-pr19-source.png",
         new byte[] { 1, 2, 3 },
         "image/png",
         FalUploadPlatformHeaders.ForSourceUpload(3600),
         CancellationToken.None);
 
-    Assert.Equal(200, response.StatusCode);
-    Assert.Equal("true", response.Body);
-    var request = Assert.Single(handler.Requests);
-    Assert.Equal(HttpMethod.Post, request.Method);
+    Assert.Equal("https://v3b.fal.media/files/rook-pr19-source.png", url);
+    Assert.Equal(2, calls.Count);
+
+    var initiate = calls[0];
+    Assert.Equal(HttpMethod.Post, initiate.Method);
     Assert.Equal(
-        "https://api.fal.ai/v1/serverless/files/file/local/rook/seedance-sources/source.png",
-        request.RequestUri!.ToString());
-    Assert.Equal("Key", request.Headers.Authorization!.Scheme);
-    Assert.Equal("test-key", request.Headers.Authorization.Parameter);
+        "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+        initiate.RequestUri!.ToString());
+    Assert.Equal("Key", initiate.Headers.Authorization!.Scheme);
+    Assert.Equal("test-key", initiate.Headers.Authorization.Parameter);
     Assert.Equal(
         "{\"expiration_duration_seconds\":3600}",
-        Assert.Single(request.Headers.GetValues("X-Fal-Object-Lifecycle")));
-    Assert.Equal("multipart/form-data", contentType);
-    Assert.Contains("name=file_upload", bodyText ?? string.Empty);
-    Assert.Contains("filename=source.png", bodyText ?? string.Empty);
-    Assert.Contains("Content-Type: image/png", bodyText ?? string.Empty);
+        Assert.Single(initiate.Headers.GetValues("X-Fal-Object-Lifecycle")));
+    var initiateJson = await initiate.Content!.ReadAsStringAsync();
+    Assert.Contains(@"""content_type"":""image/png""", initiateJson);
+    Assert.Contains(@"""file_name"":""rook-pr19-source.png""", initiateJson);
+
+    var upload = calls[1];
+    Assert.Equal(HttpMethod.Put, upload.Method);
+    Assert.Null(upload.Headers.Authorization);
+    Assert.Equal("image/png", upload.Content!.Headers.ContentType!.MediaType);
+    Assert.Equal(new byte[] { 1, 2, 3 }, await upload.Content.ReadAsByteArrayAsync());
 }
 
 [Theory]
 [InlineData("../secret.png")]
 [InlineData("/absolute.png")]
 [InlineData("rook\\secret.png")]
-[InlineData("https://api.fal.ai/file.png")]
-public async Task UploadLocalFileAsync_rejects_unsafe_target_paths(string targetPath)
+[InlineData("https://rest.fal.ai/file.png")]
+public async Task UploadFileToCdnAsync_rejects_unsafe_file_names(string fileName)
 {
     var handler = new TestHttpMessageHandler();
     var client = new FalApiClient(new HttpClient(handler));
 
     await Assert.ThrowsAsync<ArgumentException>(
-        async () => await client.UploadLocalFileAsync(
+        async () => await client.UploadFileToCdnAsync(
             "test-key",
-            targetPath,
+            fileName,
             new byte[] { 1 },
             "image/png",
             FalUploadPlatformHeaders.ForSourceUpload(3600),
             CancellationToken.None));
 
     Assert.Empty(handler.Requests);
+}
+
+[Theory]
+[InlineData(null)]
+[InlineData("{}")]
+[InlineData(@"{""upload_url"":""https://v3b.fal.media/upload/x""}")]
+[InlineData(@"{""file_url"":""https://v3b.fal.media/files/x.png""}")]
+[InlineData(@"{""upload_url"":""http://v3b.fal.media/upload/x"",""file_url"":""https://v3b.fal.media/files/x.png""}")]
+[InlineData(@"{""upload_url"":""https://v3b.fal.media/upload/x"",""file_url"":""https://example.com/files/x.png""}")]
+public async Task UploadFileToCdnAsync_rejects_invalid_initiate_response(string? body)
+{
+    var handler = new TestHttpMessageHandler
+    {
+        OnSend = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body ?? string.Empty, Encoding.UTF8, "application/json"),
+        },
+    };
+    var client = new FalApiClient(new HttpClient(handler));
+
+    await Assert.ThrowsAsync<FalApiException>(
+        async () => await client.UploadFileToCdnAsync(
+            "test-key",
+            "source.png",
+            new byte[] { 1 },
+            "image/png",
+            FalUploadPlatformHeaders.ForSourceUpload(3600),
+            CancellationToken.None));
 }
 ```
 
@@ -409,7 +470,8 @@ Run:
 dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalApiClientTests"
 ```
 
-Expected: compile fails because `FalUploadPlatformHeaders` and `UploadLocalFileAsync` do not exist.
+Expected: compile fails because `FalUploadPlatformHeaders`,
+`UploadFileToCdnAsync`, and `FalApiException` do not exist.
 
 - [ ] **Step 7: Implement upload support**
 
@@ -435,12 +497,21 @@ public sealed class FalUploadPlatformHeaders
 }
 ```
 
+Add helper response/error types as needed:
+
+```csharp
+public sealed class FalApiException : Exception
+{
+    public FalApiException(string message) : base(message) { }
+}
+```
+
 Add method:
 
 ```csharp
-public async Task<FalHttpResponse> UploadLocalFileAsync(
+public async Task<string> UploadFileToCdnAsync(
     string apiKey,
-    string targetPath,
+    string fileName,
     byte[] bytes,
     string contentType,
     FalUploadPlatformHeaders platformHeaders,
@@ -448,10 +519,10 @@ public async Task<FalHttpResponse> UploadLocalFileAsync(
 {
     if (string.IsNullOrWhiteSpace(apiKey))
         throw new ArgumentException("fal API key must be non-empty.", nameof(apiKey));
-    if (string.IsNullOrWhiteSpace(targetPath))
-        throw new ArgumentException("fal upload target path must be non-empty.", nameof(targetPath));
-    if (!IsSafeUploadTargetPath(targetPath))
-        throw new ArgumentException("fal upload target path is unsafe.", nameof(targetPath));
+    if (string.IsNullOrWhiteSpace(fileName))
+        throw new ArgumentException("fal upload file name must be non-empty.", nameof(fileName));
+    if (!IsSafeUploadFileName(fileName))
+        throw new ArgumentException("fal upload file name is unsafe.", nameof(fileName));
     if (bytes is null || bytes.Length == 0)
         throw new ArgumentException("fal upload bytes must be non-empty.", nameof(bytes));
     if (string.IsNullOrWhiteSpace(contentType))
@@ -459,62 +530,91 @@ public async Task<FalHttpResponse> UploadLocalFileAsync(
     if (platformHeaders is null)
         throw new ArgumentNullException(nameof(platformHeaders));
 
-    var url = new Uri(
-        "https://api.fal.ai/v1/serverless/files/file/local/" +
-        EscapeUploadTargetPath(targetPath));
-
-    using var request = new HttpRequestMessage(HttpMethod.Post, url);
+    using var request = new HttpRequestMessage(
+        HttpMethod.Post,
+        new Uri("https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3"));
     request.Headers.Authorization = new AuthenticationHeaderValue("Key", apiKey);
     request.Headers.TryAddWithoutValidation(
         "X-Fal-Object-Lifecycle",
         "{\"expiration_duration_seconds\":" +
         platformHeaders.ObjectLifecycleSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) +
         "}");
+    request.Content = new StringContent(
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            content_type = contentType,
+            file_name = fileName,
+        }),
+        Encoding.UTF8,
+        "application/json");
 
-    using var multipart = new MultipartFormDataContent();
-    var file = new ByteArrayContent(bytes);
-    file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-    multipart.Add(file, "file_upload", System.IO.Path.GetFileName(targetPath));
-    request.Content = multipart;
-
-    using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
-    var body = response.Content is null
+    using var initiateResponse = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+    var initiateBody = initiateResponse.Content is null
         ? string.Empty
-        : await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        : await initiateResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+    if (!initiateResponse.IsSuccessStatusCode)
+        throw new FalApiException("fal upload initiation failed.");
 
-    return new FalHttpResponse((int)response.StatusCode, body, CopyHeaders(response));
+    var initiate = System.Text.Json.JsonSerializer.Deserialize<FalUploadInitiateResponse>(initiateBody);
+    if (initiate is null
+        || !IsValidHttpsUrl(initiate.UploadUrl, out var uploadUrl)
+        || !IsValidFalCdnFileUrl(initiate.FileUrl, out _))
+    {
+        throw new FalApiException("fal upload initiation returned an invalid URL.");
+    }
+
+    using var uploadRequest = new HttpRequestMessage(HttpMethod.Put, uploadUrl);
+    uploadRequest.Content = new ByteArrayContent(bytes);
+    uploadRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+    using var uploadResponse = await _httpClient.SendAsync(uploadRequest, ct).ConfigureAwait(false);
+    if (!uploadResponse.IsSuccessStatusCode)
+        throw new FalApiException("fal upload failed.");
+
+    return initiate.FileUrl!;
 }
 ```
 
 Add helpers:
 
 ```csharp
-private static bool IsSafeUploadTargetPath(string targetPath)
+private static bool IsSafeUploadFileName(string fileName)
 {
-    if (targetPath.StartsWith("/", StringComparison.Ordinal)
-        || targetPath.Contains("\\", StringComparison.Ordinal)
-        || targetPath.Contains("://", StringComparison.Ordinal))
+    if (fileName.Contains("/", StringComparison.Ordinal)
+        || fileName.Contains("\\", StringComparison.Ordinal)
+        || fileName.Contains("://", StringComparison.Ordinal)
+        || fileName == "."
+        || fileName == "..")
         return false;
 
-    var segments = targetPath.Split('/');
-    foreach (var segment in segments)
-    {
-        if (string.IsNullOrWhiteSpace(segment)
-            || segment == "."
-            || segment == "..")
-            return false;
-    }
-
-    return true;
+    return !string.IsNullOrWhiteSpace(fileName);
 }
 
-private static string EscapeUploadTargetPath(string targetPath)
+private static bool IsValidHttpsUrl(string? text, out Uri uri)
 {
-    var segments = targetPath.Split('/');
-    for (var i = 0; i < segments.Length; i++)
-        segments[i] = Uri.EscapeDataString(segments[i]);
+    if (Uri.TryCreate(text, UriKind.Absolute, out var parsed)
+        && parsed.Scheme == Uri.UriSchemeHttps)
+    {
+        uri = parsed;
+        return true;
+    }
 
-    return string.Join("/", segments);
+    uri = null!;
+    return false;
+}
+
+internal static bool IsValidFalCdnFileUrl(string? text, out Uri uri) =>
+    IsValidHttpsUrl(text, out uri)
+    && uri.Host.StartsWith("v3", StringComparison.OrdinalIgnoreCase)
+    && uri.Host.EndsWith(".fal.media", StringComparison.OrdinalIgnoreCase)
+    && uri.AbsolutePath.StartsWith("/files/", StringComparison.Ordinal);
+
+private sealed class FalUploadInitiateResponse
+{
+    [System.Text.Json.Serialization.JsonPropertyName("upload_url")]
+    public string? UploadUrl { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("file_url")]
+    public string? FileUrl { get; set; }
 }
 ```
 
@@ -608,7 +708,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.Null(error);
             Assert.NotNull(urls);
-            Assert.Single(handler.Requests);
+            Assert.Equal(2, handler.Requests.Count);
         }
 
         [Fact]
@@ -635,9 +735,21 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         private static TestHttpMessageHandler UploadOkHandler() =>
             new()
             {
-                OnSend = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                OnSend = req =>
                 {
-                    Content = new StringContent("true"),
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(
+                                @"{
+                                  ""upload_url"": ""https://v3b.fal.media/upload/presigned-token"",
+                                  ""file_url"": ""https://v3b.fal.media/files/rook-pr19-source.png""
+                                }"),
+                        };
+                    }
+
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
                 },
             };
 
@@ -781,7 +893,6 @@ namespace Rook.Services.Vision.Video.Fal
         public const long MaxSourceFrameBytes = 30L * 1024L * 1024L;
         public const int SourceMediaExpirationSeconds = 3600;
 
-        private const string SourcePrefix = "rook/seedance-sources";
         private readonly FalApiClient _client;
 
         public FalSeedanceSourceTransport(FalApiClient client)
@@ -886,21 +997,15 @@ namespace Rook.Services.Vision.Video.Fal
             string field,
             CancellationToken ct)
         {
-            var targetPath = BuildTargetPath(source.MimeType);
+            var fileName = BuildFileName(source.MimeType);
             try
             {
-        var response = await UploadWithRetryAsync(
-            apiKey,
-            targetPath,
-            source,
-            ct).ConfigureAwait(false);
+                var url = await UploadWithRetryAsync(
+                    apiKey,
+                    fileName,
+                    source,
+                    ct).ConfigureAwait(false);
 
-                if (!response.IsSuccessStatusCode || !string.Equals(response.Body.Trim(), "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    return (null, Dependency("fal Seedance source upload failed.", field));
-                }
-
-                var url = BuildFalCdnUrl(targetPath);
                 return IsValidFalCdnUrl(url)
                     ? (url, null)
                     : (null, Dependency("fal Seedance source upload returned an invalid URL.", field));
@@ -919,7 +1024,7 @@ namespace Rook.Services.Vision.Video.Fal
             }
         }
 
-        private static string BuildTargetPath(string mimeType)
+        private static string BuildFileName(string mimeType)
         {
             var ext = mimeType switch
             {
@@ -928,16 +1033,14 @@ namespace Rook.Services.Vision.Video.Fal
                 "image/webp" => "webp",
                 _ => "bin",
             };
-            return SourcePrefix + "/" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + "." + ext;
+            return "rook-seedance-source-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + "." + ext;
         }
-
-        internal static string BuildFalCdnUrl(string targetPath) =>
-            "https://v3.fal.media/files/" + targetPath;
 
         internal static bool IsValidFalCdnUrl(string text) =>
             Uri.TryCreate(text, UriKind.Absolute, out var uri)
             && uri.Scheme == Uri.UriSchemeHttps
-            && string.Equals(uri.Host, "v3.fal.media", StringComparison.OrdinalIgnoreCase)
+            && uri.Host.StartsWith("v3", StringComparison.OrdinalIgnoreCase)
+            && uri.Host.EndsWith(".fal.media", StringComparison.OrdinalIgnoreCase)
             && uri.AbsolutePath.StartsWith("/files/", StringComparison.Ordinal);
 
         private static GenerationError InvalidSource(string message, string field) =>
@@ -1002,7 +1105,7 @@ Add tests:
 
 ```csharp
 [Fact]
-public async Task ResolveAndUploadAsync_uploads_with_private_target_path_lifecycle_header_and_content_type()
+public async Task ResolveAndUploadAsync_initiates_upload_with_private_filename_lifecycle_header_and_content_type()
 {
     HttpRequestMessage? captured = null;
     var start = Artifact(VideoMediaRoles.StartFrame);
@@ -1010,11 +1113,22 @@ public async Task ResolveAndUploadAsync_uploads_with_private_target_path_lifecyc
     {
         OnSend = req =>
         {
-            captured = req;
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            if (req.RequestUri!.Host == "rest.fal.ai")
             {
-                Content = new StringContent("true"),
-            };
+                captured = req;
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        @"{
+                          ""upload_url"": ""https://v3b.fal.media/upload/presigned-token"",
+                          ""file_url"": ""https://v3b.fal.media/files/rook-pr19-source.png""
+                        }"),
+                };
+            }
+
+            Assert.Equal(HttpMethod.Put, req.Method);
+            Assert.Equal("image/png", req.Content!.Headers.ContentType!.MediaType);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
         },
     };
     var transport = Transport(handler);
@@ -1028,21 +1142,24 @@ public async Task ResolveAndUploadAsync_uploads_with_private_target_path_lifecyc
     Assert.Null(error);
     Assert.NotNull(urls);
     Assert.NotNull(captured);
-    Assert.StartsWith(
-        "https://api.fal.ai/v1/serverless/files/file/local/rook/seedance-sources/",
-        captured!.RequestUri!.ToString(),
-        StringComparison.Ordinal);
+    Assert.Equal(
+        "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+        captured!.RequestUri!.ToString());
     Assert.Equal(
         "{\"expiration_duration_seconds\":3600}",
         Assert.Single(captured.Headers.GetValues("X-Fal-Object-Lifecycle")));
-    Assert.StartsWith("https://v3.fal.media/files/rook/seedance-sources/", urls!.ImageUrl, StringComparison.Ordinal);
+    var initiateJson = await captured.Content!.ReadAsStringAsync();
+    Assert.Contains(@"""content_type"":""image/png""", initiateJson);
+    Assert.DoesNotContain("rook/seedance-sources", initiateJson, StringComparison.OrdinalIgnoreCase);
+    Assert.StartsWith("https://v3", urls!.ImageUrl, StringComparison.Ordinal);
+    Assert.Contains(".fal.media/files/", urls.ImageUrl, StringComparison.Ordinal);
     Assert.DoesNotContain("prompt", captured.RequestUri.ToString(), StringComparison.OrdinalIgnoreCase);
 }
 
 [Theory]
 [InlineData("")]
 [InlineData("relative/path.png")]
-[InlineData("http://v3.fal.media/files/x.png")]
+[InlineData("http://v3b.fal.media/files/x.png")]
 [InlineData("file:///C:/x.png")]
 [InlineData("data:image/png;base64,abc")]
 [InlineData("https://example.com/files/x.png")]
@@ -1055,7 +1172,7 @@ public void IsValidFalCdnUrl_rejects_invalid_upload_urls(string url)
 public void IsValidFalCdnUrl_accepts_v3_fal_media_files_url()
 {
     Assert.True(FalSeedanceSourceTransport.IsValidFalCdnUrl(
-        "https://v3.fal.media/files/rook/seedance-sources/source.png"));
+        "https://v3b.fal.media/files/source.png"));
 }
 ```
 
@@ -1085,7 +1202,7 @@ public async Task ResolveAndUploadAsync_retries_one_transient_upload_failure()
         {
             attempts++;
             if (attempts == 1)
-                throw new HttpRequestException("temporary upload failure with https://v3.fal.media/files/leak.png");
+                throw new HttpRequestException("temporary upload failure with https://v3b.fal.media/files/leak.png");
 
             return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
             {
@@ -1175,7 +1292,7 @@ public async Task ResolveAndUploadAsync_final_transport_failure_is_sanitized()
         OnSend = _ =>
         {
             attempts++;
-            throw new HttpRequestException("https://v3.fal.media/files/leak.png data:image/png;base64,abc");
+            throw new HttpRequestException("https://v3b.fal.media/files/leak.png data:image/png;base64,abc");
         },
     };
     var transport = Transport(handler);
@@ -1204,7 +1321,7 @@ public async Task ResolveAndUploadAsync_final_upload_failure_is_sanitized()
     {
         OnSend = _ => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
         {
-            Content = new StringContent("{\"url\":\"https://v3.fal.media/files/leak.png\",\"image_url\":\"data:image/png;base64,abc\"}"),
+            Content = new StringContent("{\"url\":\"https://v3b.fal.media/files/leak.png\",\"image_url\":\"data:image/png;base64,abc\"}"),
         },
     };
     var transport = Transport(handler);
@@ -1230,34 +1347,34 @@ public async Task ResolveAndUploadAsync_final_upload_failure_is_sanitized()
 Change `UploadAsync` to call a helper:
 
 ```csharp
-private async Task<FalHttpResponse> UploadWithRetryAsync(
+private async Task<string> UploadWithRetryAsync(
     string apiKey,
-    string targetPath,
+    string fileName,
     ValidatedSource source,
     CancellationToken ct)
 {
     try
     {
-        return await UploadOnceAsync(apiKey, targetPath, source, ct).ConfigureAwait(false);
+        return await UploadOnceAsync(apiKey, fileName, source, ct).ConfigureAwait(false);
     }
     catch (HttpRequestException)
     {
-        return await UploadOnceAsync(apiKey, targetPath, source, ct).ConfigureAwait(false);
+        return await UploadOnceAsync(apiKey, fileName, source, ct).ConfigureAwait(false);
     }
     catch (TaskCanceledException) when (!ct.IsCancellationRequested)
     {
-        return await UploadOnceAsync(apiKey, targetPath, source, ct).ConfigureAwait(false);
+        return await UploadOnceAsync(apiKey, fileName, source, ct).ConfigureAwait(false);
     }
 }
 
-private Task<FalHttpResponse> UploadOnceAsync(
+private Task<string> UploadOnceAsync(
     string apiKey,
-    string targetPath,
+    string fileName,
     ValidatedSource source,
     CancellationToken ct) =>
-    _client.UploadLocalFileAsync(
+    _client.UploadFileToCdnAsync(
         apiKey,
-        targetPath,
+        fileName,
         source.Bytes,
         source.MimeType,
         FalUploadPlatformHeaders.ForSourceUpload(SourceMediaExpirationSeconds),
@@ -1304,7 +1421,7 @@ private sealed class FakeSeedanceSourceTransport : IFalSeedanceSourceTransport
     public GenerationError? Error { get; set; }
     public FalSeedanceSourceUrls Urls { get; set; } =
         new(
-            "https://v3.fal.media/files/rook/seedance-sources/start.png",
+            "https://v3b.fal.media/files/rook-pr19-start.png",
             null);
     public CancellationToken? LastCancellationToken { get; private set; }
 
@@ -1379,7 +1496,8 @@ public async Task Submit_seedance_i2v_uploads_source_then_posts_cdn_url_body_and
 
     var json = JsonNode.Parse(submitBody!)!.AsObject();
     var imageUrl = json["image_url"]!.GetValue<string>();
-    Assert.StartsWith("https://v3.fal.media/files/rook/seedance-sources/", imageUrl, StringComparison.Ordinal);
+    Assert.StartsWith("https://v3", imageUrl, StringComparison.Ordinal);
+    Assert.Contains(".fal.media/files/", imageUrl, StringComparison.Ordinal);
     Assert.DoesNotContain("data:", imageUrl, StringComparison.OrdinalIgnoreCase);
     Assert.False(json.ContainsKey("end_image_url"));
 
@@ -1508,8 +1626,16 @@ public async Task Submit_seedance_real_transport_uploads_before_queue_submit()
         OnSend = req =>
         {
             hosts.Add(req.RequestUri!.Host);
-            return req.RequestUri.Host == "api.fal.ai"
-                ? Json(HttpStatusCode.OK, "true")
+            if (req.RequestUri.Host == "rest.fal.ai")
+            {
+                return Json(HttpStatusCode.OK, @"{
+                  ""upload_url"": ""https://v3b.fal.media/upload/presigned-token"",
+                  ""file_url"": ""https://v3b.fal.media/files/rook-pr19-source.png""
+                }");
+            }
+
+            return req.RequestUri.Host == "v3b.fal.media"
+                ? Json(HttpStatusCode.OK, "{}")
                 : Json(HttpStatusCode.OK, @"{ ""request_id"": ""seedance-123"" }");
         },
     };
@@ -1524,7 +1650,7 @@ public async Task Submit_seedance_real_transport_uploads_before_queue_submit()
         CancellationToken.None);
 
     Assert.IsType<QueuedSubmitOutcome>(outcome);
-    Assert.Equal(new[] { "api.fal.ai", "queue.fal.run" }, hosts);
+    Assert.Equal(new[] { "rest.fal.ai", "v3b.fal.media", "queue.fal.run" }, hosts);
 }
 ```
 
@@ -1654,6 +1780,7 @@ after `var ledgerJson = File.ReadAllText(ledgerPath);`:
 ```csharp
 Assert.DoesNotContain("https://v3.fal.media/files/rook/seedance-sources", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("api.fal.ai", ledgerJson, StringComparison.OrdinalIgnoreCase);
+Assert.DoesNotContain("rest.fal.ai", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("image_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("end_image_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("data:image", ledgerJson, StringComparison.OrdinalIgnoreCase);
@@ -1665,6 +1792,7 @@ that test:
 ```csharp
 Assert.DoesNotContain("https://v3.fal.media/files/rook/seedance-sources", artifactMetadataJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("api.fal.ai", artifactMetadataJson, StringComparison.OrdinalIgnoreCase);
+Assert.DoesNotContain("rest.fal.ai", artifactMetadataJson, StringComparison.OrdinalIgnoreCase);
 ```
 
 - [ ] **Step 2: Add deterministic failed-submit raw JSONL privacy test**
@@ -1679,7 +1807,8 @@ ProviderDetail: new Dictionary<string, JsonNode>
 {
     ["image_url"] = JsonValue.Create("https://v3.fal.media/files/rook/seedance-sources/source.png")!,
     ["end_image_url"] = JsonValue.Create("https://v3.fal.media/files/rook/seedance-sources/end.png")!,
-    ["upload_url"] = JsonValue.Create("https://api.fal.ai/v1/serverless/files/file/local/rook/seedance-sources/source.png")!,
+    ["upload_url"] = JsonValue.Create("https://v3b.fal.media/upload/presigned-token")!,
+    ["initiate_url"] = JsonValue.Create("https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3")!,
     ["body"] = JsonValue.Create("data:image/png;base64," + Convert.ToBase64String(startBytes))!,
 }
 ```
@@ -1691,10 +1820,12 @@ var ledgerJson = File.ReadAllText(ledgerPath);
 Assert.Contains("fal request failed with HTTP 422", ledgerJson);
 Assert.DoesNotContain("https://v3.fal.media/files/rook/seedance-sources", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("api.fal.ai", ledgerJson, StringComparison.OrdinalIgnoreCase);
+Assert.DoesNotContain("rest.fal.ai", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("data:image/", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("image_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("end_image_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("upload_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
+Assert.DoesNotContain("initiate_url", ledgerJson, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain(Convert.ToBase64String(startBytes), ledgerJson, StringComparison.OrdinalIgnoreCase);
 ```
 
@@ -1715,6 +1846,7 @@ Add assertions to the Seedance bridge result/status/list payload strings:
 var payload = result.ToJsonString();
 Assert.DoesNotContain("fal.media", payload, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("api.fal.ai", payload, StringComparison.OrdinalIgnoreCase);
+Assert.DoesNotContain("rest.fal.ai", payload, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("image_url", payload, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("end_image_url", payload, StringComparison.OrdinalIgnoreCase);
 Assert.DoesNotContain("data:image", payload, StringComparison.OrdinalIgnoreCase);
@@ -1735,7 +1867,7 @@ Expected: pass if provider changes already preserve privacy. If a test fails wit
 Run:
 
 ```powershell
-rg -n "SeedanceSource|source upload|fal.media|api.fal.ai|image_url|end_image_url" src\RookNative mcp_server src\Rook\InternalBridge
+rg -n "SeedanceSource|source upload|fal.media|api.fal.ai|rest.fal.ai|image_url|end_image_url" src\RookNative mcp_server src\Rook\InternalBridge
 ```
 
 Expected: no new source-upload route/tool/bridge exposure. Existing unrelated strings must be inspected and documented in PR notes if present.
@@ -1765,19 +1897,19 @@ Expected: all selected tests pass.
 - [ ] **Step 2: Run leakage scan in changed managed files**
 
 ```powershell
-rg -n "data:image|image_url|end_image_url|fal.media|api.fal.ai|X-Fal-Object-Lifecycle|X-Fal-Store-IO|X-Fal-No-Retry" src\Rook src\Rook.Tests
+rg -n "data:image|image_url|end_image_url|fal.media|api.fal.ai|rest.fal.ai|X-Fal-Object-Lifecycle|X-Fal-Store-IO|X-Fal-No-Retry" src\Rook src\Rook.Tests
 ```
 
 Expected:
 
-- `api.fal.ai`, `fal.media`, and fal headers appear only in fal client/source transport/provider tests and implementation.
+- `rest.fal.ai`, `api.fal.ai`, `fal.media`, and fal headers appear only in fal client/source transport/provider tests and implementation.
 - `image_url` / `end_image_url` appear in Seedance submit construction/tests but not ledger/artifact persistence code.
 - No `data:image` remains in Seedance source transport or Seedance provider submit tests.
 
 - [ ] **Step 3: Run boundary scan**
 
 ```powershell
-rg -n "SeedanceSource|source upload|fal.media|api.fal.ai|X-Fal-Object-Lifecycle|X-Fal-No-Retry|image_url|end_image_url" src\RookNative mcp_server src\Rook\InternalBridge
+rg -n "SeedanceSource|source upload|fal.media|api.fal.ai|rest.fal.ai|X-Fal-Object-Lifecycle|X-Fal-No-Retry|image_url|end_image_url" src\RookNative mcp_server src\Rook\InternalBridge
 ```
 
 Expected: no source-upload exposure outside managed fal internals.
@@ -1813,14 +1945,14 @@ Only run if provider spend is approved for this handoff.
 Use a non-sensitive source image. After completion, scan the latest ledger/artifact manifest for:
 
 ```powershell
-rg -n "fal.media|api.fal.ai|image_url|end_image_url|data:image|status_url|response_url|cancel_url" "$env:APPDATA\Rook"
+rg -n "fal.media|api.fal.ai|rest.fal.ai|image_url|end_image_url|data:image|status_url|response_url|cancel_url" "$env:APPDATA\Rook"
 ```
 
 Expected: no source upload URL, data URI, queue URL, or provider envelope leakage.
 
 ## Plan Self-Review
 
-- Spec coverage: Tasks cover REST upload contract confirmation, exact upload lifecycle header, multipart upload shape, source validation, always-upload Seedance transport, provider queue headers including `X-Fal-No-Retry`, missing-key ordering, retry policy, no-submit-after-upload-failure, raw JSONL leakage, and boundary scans.
+- Spec coverage: Tasks cover REST upload contract confirmation, exact upload lifecycle header, initiate-plus-presigned-PUT upload shape, source validation, always-upload Seedance transport, provider queue headers including `X-Fal-No-Retry`, missing-key ordering, retry policy, no-submit-after-upload-failure, raw JSONL leakage, and boundary scans.
 - Placeholder scan: No code step uses `TBD`, `TODO`, or "fill in later". Task 0 is an explicit implementation blocker, not a placeholder.
 - Type consistency: The plan consistently uses `FalJsonPlatformHeaders`, `FalUploadPlatformHeaders`, `IFalSeedanceSourceTransport`, `FalSeedanceSourceTransport`, `FalSeedanceSourceUrls`, `FalSeedanceSourceTransport.MaxSourceFrameBytes`, and `FalSeedanceSourceTransport.SourceMediaExpirationSeconds`.
 - Provider test seam: Provider orchestration tests use a fake `IFalSeedanceSourceTransport`; one integration test keeps the real transport plus fake HTTP to prove upload-before-submit ordering.
