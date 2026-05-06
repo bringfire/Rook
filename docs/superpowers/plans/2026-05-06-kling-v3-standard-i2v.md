@@ -486,6 +486,8 @@ git commit -m "Validate Kling fal video options"
 - Create: `src/Rook/Services/Vision/Video/Fal/IFalSourceFrameTransport.cs`
 - Create: `src/Rook/Services/Vision/Video/Fal/FalSourceFrameTransport.cs`
 - Create: `src/Rook.Tests/Services/Vision/Video/Fal/FalSourceFrameTransportTests.cs`
+- Modify: `src/Rook/Services/Vision/Video/Fal/FalVideoProvider.cs`
+- Modify: `src/Rook.Tests/Services/Vision/Video/Fal/FalVideoProviderTests.cs`
 - Delete: `src/Rook/Services/Vision/Video/Fal/FalSeedanceSourceTransport.cs`
 - Delete: `src/Rook/Services/Vision/Video/Fal/FalSeedanceSourceUrls.cs`
 - Delete: `src/Rook/Services/Vision/Video/Fal/IFalSeedanceSourceTransport.cs`
@@ -984,43 +986,92 @@ using Rook.Services.Vision.Generation;
 using Rook.Services.Vision.Image;
 ```
 
-- [ ] **Step 6: Delete old Seedance-named transport files**
+- [ ] **Step 6: Migrate Seedance provider wiring to generalized transport**
 
-Run:
+In `FalVideoProvider.cs`, replace the Seedance-specific transport field:
 
-```powershell
-git rm src\Rook\Services\Vision\Video\Fal\FalSeedanceSourceTransport.cs `
-       src\Rook\Services\Vision\Video\Fal\FalSeedanceSourceUrls.cs `
-       src\Rook\Services\Vision\Video\Fal\IFalSeedanceSourceTransport.cs
+```csharp
+private readonly IFalSeedanceSourceTransport _seedanceSourceTransport;
 ```
 
-- [ ] **Step 7: Run transport tests**
+with:
 
-Run:
-
-```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalSourceFrameTransportTests"
+```csharp
+private readonly IFalSourceFrameTransport _sourceFrameTransport;
 ```
 
-Expected: pass after adapting all renamed properties from `ImageUrl` to `StartImageUrl`.
+Update the internal constructor signature:
 
-- [ ] **Step 8: Commit**
-
-```powershell
-git add src\Rook\Services\Vision\Video\Fal `
-        src\Rook.Tests\Services\Vision\Video\Fal\FalSourceFrameTransportTests.cs
-git commit -m "Generalize fal video source frame transport"
+```csharp
+internal FalVideoProvider(
+    Func<string?> apiKeyProvider,
+    FalApiClient? client,
+    IFalSourceFrameTransport? sourceFrameTransport)
 ```
 
----
+and initialize:
 
-### Task 4: Add Kling Provider Submit And Lifecycle
+```csharp
+_sourceFrameTransport =
+    sourceFrameTransport ?? new FalSourceFrameTransport(_client);
+```
 
-**Files:**
-- Modify: `src/Rook/Services/Vision/Video/Fal/FalVideoProvider.cs`
-- Modify: `src/Rook.Tests/Services/Vision/Video/Fal/FalVideoProviderTests.cs`
+Add Seedance constants and policy near the existing endpoint constants:
 
-- [ ] **Step 1: Update provider tests to use the generalized fake transport**
+```csharp
+private const long SeedanceMaxSourceFrameBytes = 30L * 1024L * 1024L;
+
+private static readonly FalSourceFramePolicy SeedanceSourceFramePolicy = new(
+    ModelLabel: "Seedance",
+    FileNamePrefix: "rook-seedance-source",
+    AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
+    MaxSourceFrameBytes: SeedanceMaxSourceFrameBytes,
+    AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
+    RejectEndFrameForI2v: true);
+```
+
+In `SubmitSeedanceAsync`, replace the old call with:
+
+```csharp
+var (sourceUrls, sourceError) =
+    await _sourceFrameTransport.ResolveAndUploadAsync(
+        SeedanceSourceFramePolicy,
+        request,
+        resolvedMedia,
+        apiKey!,
+        ct).ConfigureAwait(false);
+```
+
+Update `BuildSeedanceRequestJson` to accept `FalSourceFrameUrls` and map
+`sourceUrls.StartImageUrl` to Seedance `image_url`:
+
+```csharp
+private static string BuildSeedanceRequestJson(
+    VideoGenerationRequest request,
+    FalSourceFrameUrls sourceUrls)
+{
+    var body = new JsonObject
+    {
+        ["prompt"] = request.Prompt,
+        ["image_url"] = sourceUrls.StartImageUrl,
+        ["resolution"] = request.Resolution,
+        ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
+        ["aspect_ratio"] = request.AspectRatio,
+        ["generate_audio"] = false,
+    };
+
+    if (sourceUrls.EndImageUrl is not null)
+        body["end_image_url"] = sourceUrls.EndImageUrl;
+
+    if (request.Seed is int seed)
+        body["seed"] = seed;
+
+    return body.ToJsonString();
+}
+```
+
+Replace `FalSeedanceSourceTransport.SourceMediaExpirationSeconds` references
+with `FalSourceFrameTransport.SourceMediaExpirationSeconds`.
 
 In `FalVideoProviderTests.cs`, replace fake transport type references:
 
@@ -1066,7 +1117,47 @@ private sealed class FakeFalSourceFrameTransport : IFalSourceFrameTransport
 }
 ```
 
-- [ ] **Step 2: Add failing Kling submit tests**
+Update existing Seedance provider tests to instantiate `FalSourceFrameUrls`.
+
+- [ ] **Step 7: Delete old Seedance-named transport files**
+
+Run:
+
+```powershell
+git rm src\Rook\Services\Vision\Video\Fal\FalSeedanceSourceTransport.cs `
+       src\Rook\Services\Vision\Video\Fal\FalSeedanceSourceUrls.cs `
+       src\Rook\Services\Vision\Video\Fal\IFalSeedanceSourceTransport.cs
+```
+
+- [ ] **Step 8: Run transport and provider compile tests**
+
+Run:
+
+```powershell
+dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalSourceFrameTransportTests|Submit_seedance_i2v_uploads_source_then_posts_cdn_url_body_and_returns_request_id_only_handle|Submit_seedance_interp_includes_uploaded_end_image_url"
+```
+
+Expected: pass after adapting all renamed properties from `ImageUrl` to
+`StartImageUrl` and migrating Seedance provider tests to the generalized fake.
+
+- [ ] **Step 9: Commit**
+
+```powershell
+git add src\Rook\Services\Vision\Video\Fal `
+        src\Rook.Tests\Services\Vision\Video\Fal\FalSourceFrameTransportTests.cs `
+        src\Rook.Tests\Services\Vision\Video\Fal\FalVideoProviderTests.cs
+git commit -m "Generalize fal video source frame transport"
+```
+
+---
+
+### Task 4: Add Kling Provider Submit And Lifecycle
+
+**Files:**
+- Modify: `src/Rook/Services/Vision/Video/Fal/FalVideoProvider.cs`
+- Modify: `src/Rook.Tests/Services/Vision/Video/Fal/FalVideoProviderTests.cs`
+
+- [ ] **Step 1: Add failing Kling submit tests**
 
 Add this test:
 
@@ -1255,7 +1346,7 @@ private static VideoGenerationRequest KlingRequest(
         NumberOfVideos: 1);
 ```
 
-- [ ] **Step 3: Add failing Kling lifecycle/result tests**
+- [ ] **Step 2: Add failing Kling lifecycle/result tests**
 
 Add status, cancel, and result tests:
 
@@ -1336,7 +1427,7 @@ public async Task Fetch_kling_reconstructs_response_url_and_drops_provider_metad
 }
 ```
 
-- [ ] **Step 4: Run provider tests to verify they fail**
+- [ ] **Step 3: Run provider tests to verify they fail**
 
 Run:
 
@@ -1344,9 +1435,9 @@ Run:
 dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalVideoProviderTests"
 ```
 
-Expected: compile or test failures because provider constructor and Kling branches are not implemented.
+Expected: test failures because Kling submit/lifecycle branches are not implemented.
 
-- [ ] **Step 5: Implement provider constants, policies, and constructor**
+- [ ] **Step 4: Implement provider constants and Kling policy**
 
 In `FalVideoProvider.cs`, add endpoints:
 
@@ -1355,43 +1446,12 @@ private static readonly Uri KlingSubmitEndpoint =
     new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
 private static readonly Uri KlingLifecycleEndpoint =
     new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
-private const long SeedanceMaxSourceFrameBytes = 30L * 1024L * 1024L;
 private const long KlingMaxSourceFrameBytes = 30L * 1024L * 1024L;
 ```
 
-Replace the transport field:
+Add Kling policy beside the Seedance source-frame policy introduced in Task 3:
 
 ```csharp
-private readonly IFalSourceFrameTransport _sourceFrameTransport;
-```
-
-Update constructors:
-
-```csharp
-internal FalVideoProvider(
-    Func<string?> apiKeyProvider,
-    FalApiClient? client,
-    IFalSourceFrameTransport? sourceFrameTransport)
-{
-    _apiKeyProvider = apiKeyProvider
-        ?? throw new ArgumentNullException(nameof(apiKeyProvider));
-    _client = client ?? new FalApiClient();
-    _sourceFrameTransport =
-        sourceFrameTransport ?? new FalSourceFrameTransport(_client);
-}
-```
-
-Add policies:
-
-```csharp
-private static readonly FalSourceFramePolicy SeedanceSourceFramePolicy = new(
-    ModelLabel: "Seedance",
-    FileNamePrefix: "rook-seedance-source",
-    AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
-    MaxSourceFrameBytes: SeedanceMaxSourceFrameBytes,
-    AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
-    RejectEndFrameForI2v: true);
-
 private static readonly FalSourceFramePolicy KlingSourceFramePolicy = new(
     ModelLabel: "Kling",
     FileNamePrefix: "rook-kling-source",
@@ -1401,7 +1461,7 @@ private static readonly FalSourceFramePolicy KlingSourceFramePolicy = new(
     RejectEndFrameForI2v: true);
 ```
 
-- [ ] **Step 6: Implement Kling submit branch**
+- [ ] **Step 5: Implement Kling submit branch**
 
 In `SubmitAsync`, add:
 
@@ -1580,44 +1640,7 @@ private static string BuildKlingRequestJson(
 }
 ```
 
-- [ ] **Step 7: Update Seedance to use the generalized transport**
-
-In `SubmitSeedanceAsync`, change:
-
-```csharp
-await _seedanceSourceTransport.ResolveAndUploadAsync(...)
-BuildSeedanceRequestJson(request, sourceUrls)
-FalSeedanceSourceTransport.SourceMediaExpirationSeconds
-```
-
-to:
-
-```csharp
-await _sourceFrameTransport.ResolveAndUploadAsync(
-    SeedanceSourceFramePolicy,
-    request,
-    resolvedMedia,
-    apiKey!,
-    ct)
-BuildSeedanceRequestJson(request, sourceUrls)
-FalSourceFrameTransport.SourceMediaExpirationSeconds
-```
-
-Update `BuildSeedanceRequestJson` signature to:
-
-```csharp
-private static string BuildSeedanceRequestJson(
-    VideoGenerationRequest request,
-    FalSourceFrameUrls sourceUrls)
-```
-
-and map:
-
-```csharp
-["image_url"] = sourceUrls.StartImageUrl,
-```
-
-- [ ] **Step 8: Implement Kling lifecycle and result branches**
+- [ ] **Step 6: Implement Kling lifecycle and result branches**
 
 In `GetStatusAsync(string modelId, ...)`, add Kling:
 
@@ -1672,7 +1695,7 @@ Seedance code. These helpers must:
 
 Rename `ParseSeedanceFetchResult` to `ParsePrivateFalVideoFetchResult` and use it for Seedance and Kling.
 
-- [ ] **Step 9: Run provider tests**
+- [ ] **Step 7: Run provider tests**
 
 Run:
 
@@ -1682,7 +1705,7 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj --filter "FalVideoProviderTests"
 
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
 git add src\Rook\Services\Vision\Video\Fal\FalVideoProvider.cs `
