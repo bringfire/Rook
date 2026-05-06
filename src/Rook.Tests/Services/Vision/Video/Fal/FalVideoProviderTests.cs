@@ -551,6 +551,162 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Submit_kling_i2v_uploads_source_then_posts_start_image_body_and_returns_request_id_only_handle()
+        {
+            string? body = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""kling-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var sourceTransport = new FakeFalSourceFrameTransport
+            {
+                Urls = new FalSourceFrameUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    endImageUrl: null),
+            };
+            var provider = Provider(handler, sourceTransport);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+
+            var outcome = await provider.SubmitAsync(
+                KlingRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("kling-123", queued.Handle.ProviderJobId);
+            Assert.Null(queued.Handle.StatusUrl);
+            Assert.Null(queued.Handle.ResponseUrl);
+            Assert.Null(queued.Handle.CancelUrl);
+            Assert.Null(queued.Handle.ProviderMetadata);
+
+            Assert.Equal(1, sourceTransport.Calls);
+            Assert.Equal("test-fal-key", sourceTransport.LastApiKey);
+            Assert.NotNull(sourceTransport.LastPolicy);
+            Assert.Equal("Kling", sourceTransport.LastPolicy!.ModelLabel);
+            Assert.Equal("rook-kling-source", sourceTransport.LastPolicy.FileNamePrefix);
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video",
+                request.RequestUri!.ToString());
+            Assert.Equal(
+                "{\"expiration_duration_seconds\":3600}",
+                Assert.Single(request.Headers.GetValues("X-Fal-Object-Lifecycle-Preference")));
+            Assert.Equal("0", Assert.Single(request.Headers.GetValues("X-Fal-Store-IO")));
+            Assert.Equal("1", Assert.Single(request.Headers.GetValues("X-Fal-No-Retry")));
+
+            var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal("animate this source", json["prompt"]!.GetValue<string>());
+            Assert.Equal("https://v3b.fal.media/files/start.png", json["start_image_url"]!.GetValue<string>());
+            Assert.Equal("5", json["duration"]!.GetValue<string>());
+            Assert.False(json["generate_audio"]!.GetValue<bool>());
+            Assert.False(json.ContainsKey("end_image_url"));
+            Assert.False(json.ContainsKey("resolution"));
+            Assert.False(json.ContainsKey("aspect_ratio"));
+            Assert.False(json.ContainsKey("multi_prompt"));
+            Assert.False(json.ContainsKey("elements"));
+            Assert.False(json.ContainsKey("negative_prompt"));
+            Assert.False(json.ContainsKey("cfg_scale"));
+            Assert.False(json.ContainsKey("seed"));
+            Assert.DoesNotContain("data:", body!);
+        }
+
+        [Fact]
+        public async Task Submit_kling_interp_includes_uploaded_end_image_url()
+        {
+            string? body = null;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    body = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""kling-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var sourceTransport = new FakeFalSourceFrameTransport
+            {
+                Urls = new FalSourceFrameUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    "https://v3b.fal.media/files/end.jpg"),
+            };
+            var provider = Provider(handler, sourceTransport);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var end = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.EndFrame);
+
+            var outcome = await provider.SubmitAsync(
+                KlingRequest(VideoMode.Interp, startFrame: start, endFrame: end),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                    [end] = new ResolvedMedia(JpegBytes(), "image/jpeg"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("kling-123", queued.Handle.ProviderJobId);
+            Assert.Equal(1, sourceTransport.Calls);
+
+            var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal("https://v3b.fal.media/files/start.png", json["start_image_url"]!.GetValue<string>());
+            Assert.Equal("https://v3b.fal.media/files/end.jpg", json["end_image_url"]!.GetValue<string>());
+            Assert.DoesNotContain("data:", body!);
+        }
+
+        [Fact]
+        public async Task Submit_kling_upload_failure_never_calls_queue_submit_and_error_is_sanitized()
+        {
+            var handler = new TestHttpMessageHandler();
+            var sourceTransport = new FakeFalSourceFrameTransport
+            {
+                Error = new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal Kling source upload failed for https://v3b.fal.media/files/leak.png request body.",
+                    Retryable: true,
+                    Field: "start_frame",
+                    ProviderErrorCode: "source_upload_failed",
+                    ProviderDetail: new Dictionary<string, JsonNode>
+                    {
+                        ["image_url"] = JsonValue.Create("https://v3b.fal.media/files/leak.png")!,
+                        ["upload_url"] = JsonValue.Create("https://uploads.example.test/source-token")!,
+                        ["body"] = JsonValue.Create("data:image/png;base64,abcd")!,
+                    }),
+            };
+            var provider = Provider(handler, sourceTransport);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+
+            var outcome = await provider.SubmitAsync(
+                KlingRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
+            Assert.Equal("start_frame", failed.Error.Field);
+            Assert.Equal("source_upload_failed", failed.Error.ProviderErrorCode);
+            Assert.Null(failed.Error.ProviderDetail);
+            Assert.Equal("fal Kling source upload failed.", failed.Error.Message);
+            Assert.Equal(1, sourceTransport.Calls);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
         public async Task Submit_timeout_returns_retryable_dependency_unavailable()
         {
             var handler = new TestHttpMessageHandler
@@ -637,6 +793,33 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
                 "https://queue.fal.run/bytedance/seedance-2.0/requests/seedance-123/status",
+                request.RequestUri!.ToString());
+        }
+
+        [Fact]
+        public async Task Status_kling_reconstructs_status_url_from_model_and_request_id()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{ ""status"": ""COMPLETED"" }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.GetStatusAsync(
+                FalVideoCapabilities.KlingV3StandardI2v,
+                new ProviderJobHandle("kling-123"),
+                CancellationToken.None);
+
+            var complete = Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
+            Assert.Equal("kling-123", complete.UpdatedHandle.ProviderJobId);
+            Assert.Null(complete.UpdatedHandle.StatusUrl);
+            Assert.Null(complete.UpdatedHandle.ResponseUrl);
+            Assert.Null(complete.UpdatedHandle.CancelUrl);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123/status",
                 request.RequestUri!.ToString());
         }
 
@@ -738,6 +921,43 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
                 "https://queue.fal.run/bytedance/seedance-2.0/requests/seedance-123",
+                request.RequestUri!.ToString());
+        }
+
+        [Fact]
+        public async Task Fetch_kling_reconstructs_response_url_and_drops_provider_metadata()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{
+                  ""video"": {
+                    ""url"": ""https://v3.fal.media/files/kling.mp4"",
+                    ""content_type"": ""video/mp4"",
+                    ""duration"": 5
+                  },
+                  ""seed"": 42
+                }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.FetchResultAsync(
+                FalVideoCapabilities.KlingV3StandardI2v,
+                new ProviderJobHandle("kling-123"),
+                CancellationToken.None);
+
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            Assert.Equal(VideoMediaRoles.Video, artifact.Role);
+            var remote = Assert.IsType<RemoteArtifactBody>(artifact.Body);
+            Assert.Equal("https://v3.fal.media/files/kling.mp4", remote.Url.ToString());
+            Assert.Equal("video/mp4", artifact.DeclaredMimeType);
+            Assert.Empty(artifact.ProviderMetadata);
+            Assert.Empty(success.Envelope.EnvelopeMetadata);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123",
                 request.RequestUri!.ToString());
         }
 
@@ -884,6 +1104,28 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Cancel_kling_reconstructs_cancel_url_from_model_and_request_id()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.Accepted, @"{ ""status"": ""CANCELLATION_REQUESTED"" }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.CancelAsync(
+                FalVideoCapabilities.KlingV3StandardI2v,
+                new ProviderJobHandle("kling-123"),
+                CancellationToken.None);
+
+            Assert.IsType<CanceledOutcome>(outcome);
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal(
+                "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123/cancel",
+                request.RequestUri!.ToString());
+        }
+
+        [Fact]
         public async Task Model_aware_lifecycle_rejects_unknown_model_without_inferring_from_request_id_only_handle()
         {
             var handler = new TestHttpMessageHandler();
@@ -955,6 +1197,26 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 Resolution: "720p",
                 AspectRatio: "16:9",
                 Prompt: "animate this source",
+                StartFrame: startFrame,
+                EndFrame: endFrame,
+                ReferenceFrames: null,
+                Seed: 77,
+                Options: new FalVideoOptions(),
+                NumberOfVideos: 1);
+
+        private static VideoGenerationRequest KlingRequest(
+            VideoMode mode,
+            MediaRef? startFrame = null,
+            MediaRef? endFrame = null,
+            int durationSeconds = 5,
+            string? prompt = "animate this source") =>
+            new(
+                Model: FalVideoCapabilities.KlingV3StandardI2v,
+                Mode: mode,
+                DurationSeconds: durationSeconds,
+                Resolution: "auto",
+                AspectRatio: "auto",
+                Prompt: prompt,
                 StartFrame: startFrame,
                 EndFrame: endFrame,
                 ReferenceFrames: null,

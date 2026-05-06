@@ -20,12 +20,24 @@ namespace Rook.Services.Vision.Video.Fal
             new("https://queue.fal.run/bytedance/seedance-2.0/image-to-video");
         private static readonly Uri SeedanceLifecycleEndpoint =
             new("https://queue.fal.run/bytedance/seedance-2.0");
+        private static readonly Uri KlingSubmitEndpoint =
+            new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
+        private static readonly Uri KlingLifecycleEndpoint =
+            new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
         private const long SeedanceMaxSourceFrameBytes = 30L * 1024L * 1024L;
+        private const long KlingMaxSourceFrameBytes = 30L * 1024L * 1024L;
         private static readonly FalSourceFramePolicy SeedanceSourceFramePolicy = new(
             ModelLabel: "Seedance",
             FileNamePrefix: "rook-seedance-source",
             AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
             MaxSourceFrameBytes: SeedanceMaxSourceFrameBytes,
+            AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
+            RejectEndFrameForI2v: true);
+        private static readonly FalSourceFramePolicy KlingSourceFramePolicy = new(
+            ModelLabel: "Kling",
+            FileNamePrefix: "rook-kling-source",
+            AllowedModes: new[] { VideoMode.I2V, VideoMode.Interp },
+            MaxSourceFrameBytes: KlingMaxSourceFrameBytes,
             AllowedMimeTypes: new[] { "image/png", "image/jpeg", "image/webp" },
             RejectEndFrameForI2v: true);
         private const string CancelHttpMethod = "PUT";
@@ -69,6 +81,9 @@ namespace Rook.Services.Vision.Video.Fal
 
             if (string.Equals(request.Model, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
                 return await SubmitSeedanceAsync(request, resolvedMedia, ct).ConfigureAwait(false);
+
+            if (string.Equals(request.Model, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal))
+                return await SubmitKlingAsync(request, resolvedMedia, ct).ConfigureAwait(false);
 
             return FailedSubmit(
                 GenerationErrorCode.InvalidRequest,
@@ -215,7 +230,7 @@ namespace Rook.Services.Vision.Video.Fal
                     apiKey!,
                     ct).ConfigureAwait(false);
             if (sourceError is not null)
-                return new FailedSubmitOutcome(SanitizeSeedanceSourceError(sourceError));
+                return new FailedSubmitOutcome(SanitizeSourceError(sourceError, "Seedance"));
             if (sourceUrls is null)
                 return FailedSubmit(
                     GenerationErrorCode.ExecutionFailed,
@@ -249,7 +264,117 @@ namespace Rook.Services.Vision.Video.Fal
             }
 
             if (!response.IsSuccessStatusCode)
-                return new FailedSubmitOutcome(MapSeedanceHttpFailure(response));
+                return new FailedSubmitOutcome(MapPrivateFalVideoHttpFailure(response));
+
+            try
+            {
+                var root = JsonNode.Parse(response.Body) as JsonObject;
+                if (root is null)
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response was empty.");
+
+                if (!TryGetString(root, "request_id", out var requestId))
+                    return FailedSubmit(
+                        GenerationErrorCode.ExecutionFailed,
+                        "fal submit response did not contain request_id.",
+                        "request_id");
+
+                return new QueuedSubmitOutcome(new ProviderJobHandle(requestId!));
+            }
+            catch (JsonException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal submit response was not valid JSON.");
+            }
+            catch (ArgumentException ex)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    ex.Message);
+            }
+        }
+
+        private async Task<ProviderSubmitOutcome> SubmitKlingAsync(
+            VideoGenerationRequest request,
+            IReadOnlyDictionary<MediaRef, ResolvedMedia> resolvedMedia,
+            CancellationToken ct)
+        {
+            if (request.Options is not FalVideoOptions)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    $"fal video provider requires {nameof(FalVideoOptions)}; got " +
+                    $"{request.Options?.GetType().Name ?? "null"}.",
+                    nameof(VideoGenerationRequest.Options));
+
+            if (request.Mode != VideoMode.I2V && request.Mode != VideoMode.Interp)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Kling only supports image-to-video and interpolation modes.",
+                    nameof(VideoGenerationRequest.Mode));
+
+            if (string.IsNullOrWhiteSpace(request.Prompt))
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Kling requires prompt.",
+                    nameof(VideoGenerationRequest.Prompt));
+
+            if (request.NumberOfVideos != 1)
+                return FailedSubmit(
+                    GenerationErrorCode.InvalidRequest,
+                    "fal Kling supports exactly one video per request.",
+                    nameof(VideoGenerationRequest.NumberOfVideos));
+
+            var apiKey = _apiKeyProvider();
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal API key is not configured.");
+
+            var (sourceUrls, sourceError) =
+                await _sourceFrameTransport.ResolveAndUploadAsync(
+                    KlingSourceFramePolicy,
+                    request,
+                    resolvedMedia,
+                    apiKey!,
+                    ct).ConfigureAwait(false);
+            if (sourceError is not null)
+                return new FailedSubmitOutcome(SanitizeSourceError(sourceError, "Kling"));
+            if (sourceUrls is null)
+                return FailedSubmit(
+                    GenerationErrorCode.ExecutionFailed,
+                    "fal Kling source upload did not return source URLs.");
+
+            FalHttpResponse response;
+            try
+            {
+                response = await PostKlingSubmitWithConnectRetryAsync(
+                    apiKey!,
+                    BuildKlingRequestJson(request, sourceUrls),
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit timed out.",
+                    retryable: true);
+            }
+            catch (HttpRequestException)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal video submit failed due to a transport error.",
+                    retryable: true);
+            }
+
+            if (!response.IsSuccessStatusCode)
+                return new FailedSubmitOutcome(MapPrivateFalVideoHttpFailure(response));
 
             try
             {
@@ -303,6 +428,37 @@ namespace Rook.Services.Vision.Video.Fal
                 return await _client.PostJsonAsync(
                     apiKey,
                     SeedanceSubmitEndpoint,
+                    bodyJson,
+                    FalJsonPlatformHeaders.ForSeedanceSubmit(
+                        FalSourceFrameTransport.SourceMediaExpirationSeconds,
+                        disableStoreIo: true,
+                        disableFalRetry: true),
+                    ct).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<FalHttpResponse> PostKlingSubmitWithConnectRetryAsync(
+            string apiKey,
+            string bodyJson,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await _client.PostJsonAsync(
+                    apiKey,
+                    KlingSubmitEndpoint,
+                    bodyJson,
+                    FalJsonPlatformHeaders.ForSeedanceSubmit(
+                        FalSourceFrameTransport.SourceMediaExpirationSeconds,
+                        disableStoreIo: true,
+                        disableFalRetry: true),
+                    ct).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex) when (IsConnectionEstablishmentFailure(ex))
+            {
+                return await _client.PostJsonAsync(
+                    apiKey,
+                    KlingSubmitEndpoint,
                     bodyJson,
                     FalJsonPlatformHeaders.ForSeedanceSubmit(
                         FalSourceFrameTransport.SourceMediaExpirationSeconds,
@@ -389,7 +545,10 @@ namespace Rook.Services.Vision.Video.Fal
                 return GetStatusAsync(handle, ct);
 
             if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
-                return GetSeedanceStatusAsync(handle, ct);
+                return GetModelEndpointStatusAsync(SeedanceLifecycleEndpoint, handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal))
+                return GetModelEndpointStatusAsync(KlingLifecycleEndpoint, handle, ct);
 
             return Task.FromResult<ProviderStatusOutcome>(FailedStatus(
                 GenerationErrorCode.InvalidRequest,
@@ -397,7 +556,8 @@ namespace Rook.Services.Vision.Video.Fal
                 "model"));
         }
 
-        private async Task<ProviderStatusOutcome> GetSeedanceStatusAsync(
+        private async Task<ProviderStatusOutcome> GetModelEndpointStatusAsync(
+            Uri endpoint,
             ProviderJobHandle handle,
             CancellationToken ct)
         {
@@ -409,7 +569,7 @@ namespace Rook.Services.Vision.Video.Fal
 
             var transportHandle = new ProviderJobHandle(
                 handle.ProviderJobId,
-                statusUrl: QueueStatusUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
+                statusUrl: QueueStatusUri(endpoint, handle.ProviderJobId),
                 providerResultToken: handle.ProviderResultToken);
 
             var outcome = await GetStatusAsync(transportHandle, ct).ConfigureAwait(false);
@@ -496,7 +656,10 @@ namespace Rook.Services.Vision.Video.Fal
                 return CancelAsync(handle, ct);
 
             if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
-                return CancelSeedanceAsync(handle, ct);
+                return CancelModelEndpointAsync(SeedanceLifecycleEndpoint, handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal))
+                return CancelModelEndpointAsync(KlingLifecycleEndpoint, handle, ct);
 
             return Task.FromResult<ProviderCancelOutcome>(FailedCancel(
                 GenerationErrorCode.InvalidRequest,
@@ -504,7 +667,8 @@ namespace Rook.Services.Vision.Video.Fal
                 "model"));
         }
 
-        private async Task<ProviderCancelOutcome> CancelSeedanceAsync(
+        private async Task<ProviderCancelOutcome> CancelModelEndpointAsync(
+            Uri endpoint,
             ProviderJobHandle handle,
             CancellationToken ct)
         {
@@ -518,7 +682,7 @@ namespace Rook.Services.Vision.Video.Fal
 
             var transportHandle = new ProviderJobHandle(
                 handle.ProviderJobId,
-                cancelUrl: QueueCancelUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
+                cancelUrl: QueueCancelUri(endpoint, handle.ProviderJobId),
                 cancelHttpMethod: CancelHttpMethod);
 
             var outcome = await CancelAsync(transportHandle, ct).ConfigureAwait(false);
@@ -590,7 +754,10 @@ namespace Rook.Services.Vision.Video.Fal
                 return FetchResultAsync(handle, ct);
 
             if (string.Equals(modelId, FalVideoCapabilities.SeedanceI2v, StringComparison.Ordinal))
-                return FetchSeedanceResultAsync(handle, ct);
+                return FetchModelEndpointResultAsync(SeedanceLifecycleEndpoint, handle, ct);
+
+            if (string.Equals(modelId, FalVideoCapabilities.KlingV3StandardI2v, StringComparison.Ordinal))
+                return FetchModelEndpointResultAsync(KlingLifecycleEndpoint, handle, ct);
 
             return Task.FromResult<ProviderResultOutcome>(FailedResult(
                 GenerationErrorCode.InvalidRequest,
@@ -598,7 +765,8 @@ namespace Rook.Services.Vision.Video.Fal
                 "model"));
         }
 
-        private async Task<ProviderResultOutcome> FetchSeedanceResultAsync(
+        private async Task<ProviderResultOutcome> FetchModelEndpointResultAsync(
+            Uri endpoint,
             ProviderJobHandle handle,
             CancellationToken ct)
         {
@@ -619,7 +787,7 @@ namespace Rook.Services.Vision.Video.Fal
             {
                 response = await _client.GetAsync(
                     apiKey!,
-                    QueueResponseUri(SeedanceLifecycleEndpoint, handle.ProviderJobId),
+                    QueueResponseUri(endpoint, handle.ProviderJobId),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -642,9 +810,9 @@ namespace Rook.Services.Vision.Video.Fal
             }
 
             if (!response.IsSuccessStatusCode)
-                return new FailedResultOutcome(MapSeedanceHttpFailure(response));
+                return new FailedResultOutcome(MapPrivateFalVideoHttpFailure(response));
 
-            return ParseSeedanceFetchResult(response.Body);
+            return ParsePrivateFalVideoFetchResult(response.Body);
         }
 
         private static string BuildWanRequestJson(VideoGenerationRequest request)
@@ -684,6 +852,24 @@ namespace Rook.Services.Vision.Video.Fal
 
             if (request.Seed is int seed)
                 body["seed"] = seed;
+
+            return body.ToJsonString();
+        }
+
+        private static string BuildKlingRequestJson(
+            VideoGenerationRequest request,
+            FalSourceFrameUrls sourceUrls)
+        {
+            var body = new JsonObject
+            {
+                ["prompt"] = request.Prompt,
+                ["start_image_url"] = sourceUrls.StartImageUrl,
+                ["duration"] = request.DurationSeconds.ToString(CultureInfo.InvariantCulture),
+                ["generate_audio"] = false,
+            };
+
+            if (sourceUrls.EndImageUrl is not null)
+                body["end_image_url"] = sourceUrls.EndImageUrl;
 
             return body.ToJsonString();
         }
@@ -741,7 +927,7 @@ namespace Rook.Services.Vision.Video.Fal
                     envelopeMetadata));
         }
 
-        private static ProviderResultOutcome ParseSeedanceFetchResult(string body)
+        private static ProviderResultOutcome ParsePrivateFalVideoFetchResult(string body)
         {
             JsonObject root;
             try
@@ -842,7 +1028,7 @@ namespace Rook.Services.Vision.Video.Fal
                 Retryable: retryable,
                 Field: field));
 
-        private static GenerationError MapSeedanceHttpFailure(FalHttpResponse response) =>
+        private static GenerationError MapPrivateFalVideoHttpFailure(FalHttpResponse response) =>
             SanitizeProviderDetail(FalErrorMapper.MapHttpFailure(response));
 
         private static GenerationError SanitizeProviderDetail(GenerationError error) =>
@@ -850,18 +1036,22 @@ namespace Rook.Services.Vision.Video.Fal
                 ? error
                 : error with { ProviderDetail = null };
 
-        private static GenerationError SanitizeSeedanceSourceError(GenerationError error)
+        private static GenerationError SanitizeSourceError(
+            GenerationError error,
+            string modelLabel)
         {
             var sanitized = SanitizeProviderDetail(error);
-            return ContainsSeedanceSourceTransportMarker(sanitized.Message)
-                ? sanitized with { Message = "fal Seedance source upload failed." }
+            return ContainsSourceTransportMarker(sanitized.Message)
+                ? sanitized with { Message = $"fal {modelLabel} source upload failed." }
                 : sanitized;
         }
 
-        private static bool ContainsSeedanceSourceTransportMarker(string message) =>
+        private static bool ContainsSourceTransportMarker(string message) =>
             message.IndexOf("https://", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("data:", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("image_url", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("start_image_url", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("end_image_url", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("upload_url", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("{\"prompt\"", StringComparison.OrdinalIgnoreCase) >= 0
             || message.IndexOf("request {", StringComparison.OrdinalIgnoreCase) >= 0
