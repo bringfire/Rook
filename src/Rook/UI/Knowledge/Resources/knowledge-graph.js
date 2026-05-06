@@ -149,22 +149,67 @@
 
     // ─── Bootstrap with timeout ───────────────────────────────────
     var BOOTSTRAP_TIMEOUT_MS = 15000;
+    var bootstrapState = 'waiting';
+
+    function applyBootstrap(payload) {
+        payload = payload || {};
+        var host = payload.host || window.__rookServiceHost || '127.0.0.1';
+        var port = payload.port || window.__rookServicePort;
+        var nonce = payload.nonce || window.__rookSessionNonce || '';
+
+        if (!port) return false;
+
+        window.__rookServiceHost = host;
+        window.__rookServicePort = port;
+        window.__rookSessionNonce = nonce;
+
+        if (bootstrapState === 'connected') return true;
+
+        bootstrapState = 'connected';
+        setStatus('Connected');
+        loadGraph();
+        return true;
+    }
+
+    function showBootstrapFailure(message) {
+        bootstrapState = 'failed';
+        setStatus('Service unavailable');
+        if (loadingEl) {
+            loadingEl.textContent = message || 'Rook service is unavailable.';
+        }
+    }
+
+    window.rookKnowledgeGraphBootstrap = applyBootstrap;
+    window.rookKnowledgeGraphBootstrapFailed = showBootstrapFailure;
+
+    window.addEventListener('rook-knowledge-bootstrap', function (event) {
+        applyBootstrap(event.detail);
+    });
+
+    window.addEventListener('rook-knowledge-bootstrap-failed', function (event) {
+        var detail = event.detail || {};
+        showBootstrapFailure(detail.message);
+    });
 
     function waitForBootstrap() {
         var start = Date.now();
         function poll() {
-            if (window.__rookServiceHost && window.__rookServicePort) {
-                setStatus('Connected');
-                loadGraph();
+            if (applyBootstrap()) {
                 return;
             }
+            if (window.__rookKnowledgeGraphBootstrapError) {
+                showBootstrapFailure(window.__rookKnowledgeGraphBootstrapError);
+                return;
+            }
+            if (bootstrapState === 'failed') return;
             if (Date.now() - start > BOOTSTRAP_TIMEOUT_MS) {
-                setStatus('Service unavailable');
-                if (loadingEl) loadingEl.textContent =
-                    'Could not connect to Rook service. Try restarting the chat service or reopening this panel.';
-                return;
+                bootstrapState = 'slow';
+                setStatus('Starting service...');
+                if (loadingEl) {
+                    loadingEl.textContent = 'Starting Rook service. This can take up to a minute on first launch.';
+                }
             }
-            setTimeout(poll, 100);
+            setTimeout(poll, bootstrapState === 'slow' ? 500 : 100);
         }
         poll();
     }

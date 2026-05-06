@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Eto.Drawing;
@@ -18,6 +19,7 @@ namespace Rook.UI.Knowledge
     public class KnowledgeGraphPanel : Panel, IPanel
     {
         private readonly KnowledgeGraphSurface _surface;
+        private readonly KnowledgeGraphBootstrapCoordinator _bootstrap;
         private uint _documentSerialNumber;
         private bool _closed;
 
@@ -26,7 +28,12 @@ namespace Rook.UI.Knowledge
         public KnowledgeGraphPanel(uint documentSerialNumber)
         {
             _documentSerialNumber = documentSerialNumber;
-            _surface = new KnowledgeGraphSurface();
+            _surface = new KnowledgeGraphSurface(OnWebViewReadyAsync);
+            _bootstrap = new KnowledgeGraphBootstrapCoordinator(
+                ct => ChatServiceManager.Instance.EnsureStartedAsync(ct),
+                () => ChatServiceManager.Instance.SessionNonce,
+                script => _surface.ExecuteScript(script),
+                message => RhinoApp.WriteLine(message));
 
             // Use the WebView directly as panel content.  Wrapping in
             // TableLayout caused the WebView to lose its content on
@@ -38,34 +45,7 @@ namespace Rook.UI.Knowledge
         {
             _documentSerialNumber = documentSerialNumber;
 
-            // Ensure chat service is running (provides /knowledge/* routes)
-            // and inject service host/port + nonce into the WebView.
-            Task.Run(async () =>
-            {
-                try
-                {
-                    var health = await ChatServiceManager.Instance.EnsureStartedAsync();
-                    if (!health.ServiceAvailable || health.BaseUri == null)
-                    {
-                        RhinoApp.WriteLine("Rook: Knowledge Graph panel — chat service unavailable");
-                        return;
-                    }
-
-                    var nonce = ChatServiceManager.Instance.SessionNonce ?? "";
-                    var host = health.BaseUri.Host;
-                    var port = health.BaseUri.Port;
-
-                    var escapedNonce = RookWebSurface.EscapeForJavaScript(nonce);
-                    _surface.ExecuteScript(
-                        $"window.__rookServiceHost = '{host}';" +
-                        $"window.__rookServicePort = {port};" +
-                        $"window.__rookSessionNonce = '{escapedNonce}';");
-                }
-                catch (Exception ex)
-                {
-                    RhinoApp.WriteLine($"Rook: Knowledge Graph bootstrap failed: {ex.Message}");
-                }
-            });
+            _ = Task.Run(() => _bootstrap.RequestBootstrapAsync(default));
         }
 
         public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
@@ -94,13 +74,30 @@ namespace Rook.UI.Knowledge
             _surface.Dispose();
         }
 
+        private Task OnWebViewReadyAsync(CancellationToken ct)
+        {
+            return _bootstrap.MarkWebViewReadyAsync(ct);
+        }
+
         /// <summary>
         /// Knowledge Graph surface — declares resource root and entry page.
         /// </summary>
         private class KnowledgeGraphSurface : RookWebSurface
         {
+            private readonly Func<CancellationToken, Task> _onWebViewReady;
+
+            public KnowledgeGraphSurface(Func<CancellationToken, Task> onWebViewReady)
+            {
+                _onWebViewReady = onWebViewReady;
+            }
+
             protected override string ResourceRoot => "Rook.UI.Knowledge.Resources";
             protected override string EntryPage => "knowledge-graph.html";
+
+            protected override void OnWebViewReady()
+            {
+                _ = Task.Run(() => _onWebViewReady(default));
+            }
 
             protected override string MinimalFallbackHtml => @"<!DOCTYPE html>
 <html><head><meta charset='UTF-8'>
