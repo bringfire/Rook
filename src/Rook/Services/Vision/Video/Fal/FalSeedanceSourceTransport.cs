@@ -142,7 +142,30 @@ namespace Rook.Services.Vision.Video.Fal
             return (new SourceFrame(resolved.Bytes, detectedMime), null);
         }
 
-        private Task<string> UploadAsync(
+        private async Task<string> UploadAsync(
+            string apiKey,
+            SourceFrame frame,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await UploadOnceAsync(apiKey, frame, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (FalApiException)
+            {
+                return await UploadOnceAsync(apiKey, frame, ct).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+                return await UploadOnceAsync(apiKey, frame, ct).ConfigureAwait(false);
+            }
+        }
+
+        private Task<string> UploadOnceAsync(
             string apiKey,
             SourceFrame frame,
             CancellationToken ct) =>

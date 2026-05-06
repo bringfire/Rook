@@ -167,6 +167,190 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task ResolveAndUploadAsync_retries_one_transient_upload_failure()
+        {
+            var attempts = 0;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        attempts++;
+                        return Json(HttpStatusCode.OK, $$"""
+                            {
+                              "upload_url": "https://uploads.example.test/source-{{attempts}}",
+                              "file_url": "https://v3b.fal.media/files/source-{{attempts}}.png"
+                            }
+                            """);
+                    }
+
+                    if (attempts == 1)
+                        return Json(HttpStatusCode.BadGateway, "{}");
+
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                },
+            };
+            var transport = Transport(handler);
+            var start = Artifact(VideoMediaRoles.StartFrame);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                Request(VideoMode.I2V, startFrame: start),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.ImageUrl);
+            Assert.Equal(2, attempts);
+            Assert.Equal(4, handler.Requests.Count);
+            Assert.Equal(2, CountRequests(handler, HttpMethod.Post));
+            Assert.Equal(2, CountRequests(handler, HttpMethod.Put));
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_retries_one_upload_timeout_when_not_caller_cancelled()
+        {
+            var attempts = 0;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        attempts++;
+                        if (attempts == 1)
+                            throw new TaskCanceledException("timeout");
+
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/source-2",
+                              "file_url": "https://v3b.fal.media/files/source-2.png"
+                            }
+                            """);
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                },
+            };
+            var transport = Transport(handler);
+            var start = Artifact(VideoMediaRoles.StartFrame);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                Request(VideoMode.I2V, startFrame: start),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.Equal("https://v3b.fal.media/files/source-2.png", urls!.ImageUrl);
+            Assert.Equal(2, attempts);
+            Assert.Equal(3, handler.Requests.Count);
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_final_transport_failure_is_sanitized()
+        {
+            var attempts = 0;
+            var forbidden = new[]
+            {
+                "https://v3b.fal.media/files/leak.png",
+                "https://uploads.example.test/source-token",
+                "image_url",
+                "data:image/png;base64",
+                "X-Fal-Object-Lifecycle",
+                "secret prompt text",
+            };
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        attempts++;
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/source-token",
+                              "file_url": "https://v3b.fal.media/files/leak.png"
+                            }
+                            """);
+                    }
+
+                    return Json(HttpStatusCode.InternalServerError, """
+                        {
+                          "image_url": "https://v3b.fal.media/files/leak.png",
+                          "upload_url": "https://uploads.example.test/source-token",
+                          "data": "data:image/png;base64,abcd",
+                          "header": "X-Fal-Object-Lifecycle",
+                          "prompt": "secret prompt text"
+                        }
+                        """);
+                },
+            };
+            var transport = Transport(handler);
+            var start = Artifact(VideoMediaRoles.StartFrame);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                Request(VideoMode.I2V, startFrame: start, prompt: "secret prompt text"),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(urls);
+            Assert.NotNull(error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, error!.Code);
+            Assert.True(error.Retryable);
+            Assert.Null(error.ProviderDetail);
+            Assert.Equal("fal Seedance source upload failed.", error.Message);
+            foreach (var marker in forbidden)
+                Assert.DoesNotContain(marker, error.Message);
+            Assert.Equal(2, attempts);
+            Assert.Equal(4, handler.Requests.Count);
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_invalid_upload_response_url_returns_sanitized_dependency_error()
+        {
+            var attempts = 0;
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        attempts++;
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/source-token",
+                              "file_url": "https://uploads.example.test/not-fal-cdn"
+                            }
+                            """);
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                },
+            };
+            var transport = Transport(handler);
+            var start = Artifact(VideoMediaRoles.StartFrame);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                Request(VideoMode.I2V, startFrame: start),
+                Media(start, PngBytes(), "image/png"),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(urls);
+            Assert.NotNull(error);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, error!.Code);
+            Assert.True(error.Retryable);
+            Assert.Null(error.ProviderDetail);
+            Assert.Equal("fal Seedance source upload failed.", error.Message);
+            Assert.DoesNotContain("uploads.example.test", error.Message);
+            Assert.Equal(2, attempts);
+            Assert.Equal(2, handler.Requests.Count);
+        }
+
+        [Fact]
         public async Task ResolveAndUploadAsync_upload_failure_returns_retryable_dependency_unavailable()
         {
             var handler = new TestHttpMessageHandler
@@ -211,7 +395,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.DoesNotContain("file_url", error.Message);
             Assert.DoesNotContain("source-token", error.Message);
             Assert.DoesNotContain("secret prompt", error.Message);
-            Assert.Equal(2, handler.Requests.Count);
+            Assert.Equal(4, handler.Requests.Count);
         }
 
         [Fact]
@@ -431,6 +615,82 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal(new[] { "image/png", "image/jpeg" }, putContentTypes);
             Assert.Equal(startBytes, putBodies[0]);
             Assert.Equal(endBytes, putBodies[1]);
+        }
+
+        [Fact]
+        public async Task ResolveAndUploadAsync_interp_retries_end_upload_without_reuploading_start()
+        {
+            var initiateBodies = new List<string>();
+            var putUrls = new List<string>();
+            var uploadIndex = 0;
+            var start = Artifact(VideoMediaRoles.StartFrame);
+            var end = Artifact(VideoMediaRoles.EndFrame);
+            var startBytes = PngBytes();
+            var endBytes = JpegBytes();
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    if (req.RequestUri!.Host == "rest.fal.ai")
+                    {
+                        uploadIndex++;
+                        initiateBodies.Add(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                        var isStart = uploadIndex == 1;
+                        var uploadName = isStart ? "start" : $"end-{uploadIndex - 1}";
+                        var ext = isStart ? "png" : "jpg";
+                        return Json(HttpStatusCode.OK, $$"""
+                            {
+                              "upload_url": "https://uploads.example.test/{{uploadName}}",
+                              "file_url": "https://v3b.fal.media/files/{{uploadName}}.{{ext}}"
+                            }
+                            """);
+                    }
+
+                    putUrls.Add(req.RequestUri!.ToString());
+                    if (req.RequestUri!.AbsolutePath.EndsWith("/end-1", StringComparison.Ordinal))
+                        return Json(HttpStatusCode.BadGateway, "{}");
+
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                },
+            };
+            var transport = Transport(handler);
+
+            var (urls, error) = await transport.ResolveAndUploadAsync(
+                Request(VideoMode.Interp, startFrame: start, endFrame: end),
+                Media(
+                    (start, new ResolvedMedia(startBytes, "image/png")),
+                    (end, new ResolvedMedia(endBytes, "image/jpeg"))),
+                "test-fal-key",
+                CancellationToken.None);
+
+            Assert.Null(error);
+            Assert.NotNull(urls);
+            Assert.Equal("https://v3b.fal.media/files/start.png", urls!.ImageUrl);
+            Assert.Equal("https://v3b.fal.media/files/end-2.jpg", urls.EndImageUrl);
+            Assert.Equal(6, handler.Requests.Count);
+            Assert.Equal(3, CountRequests(handler, HttpMethod.Post));
+            Assert.Equal(3, CountRequests(handler, HttpMethod.Put));
+
+            var startInitiates = 0;
+            var endInitiates = 0;
+            foreach (var body in initiateBodies)
+            {
+                if (InitiateContentType(body) == "image/png")
+                    startInitiates++;
+                if (InitiateContentType(body) == "image/jpeg")
+                    endInitiates++;
+            }
+
+            Assert.Equal(1, startInitiates);
+            Assert.Equal(2, endInitiates);
+            Assert.Equal(
+                new[]
+                {
+                    "https://uploads.example.test/start",
+                    "https://uploads.example.test/end-1",
+                    "https://uploads.example.test/end-2",
+                },
+                putUrls);
         }
 
         private static FalSeedanceSourceTransport Transport(TestHttpMessageHandler handler) =>
