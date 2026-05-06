@@ -170,7 +170,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
-        public async Task Submit_seedance_i2v_posts_data_uri_body_and_returns_request_id_only_handle()
+        public async Task Submit_seedance_i2v_uploads_source_then_posts_cdn_url_body_and_returns_request_id_only_handle()
         {
             string? body = null;
             var handler = new TestHttpMessageHandler
@@ -184,15 +184,20 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     }");
                 },
             };
-            var provider = Provider(handler);
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Urls = new FalSeedanceSourceUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    endImageUrl: null),
+            };
+            var provider = Provider(handler, sourceTransport);
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
-            var startBytes = PngBytes();
 
             var outcome = await provider.SubmitAsync(
                 SeedanceRequest(VideoMode.I2V, startFrame: start),
                 new Dictionary<MediaRef, ResolvedMedia>
                 {
-                    [start] = new ResolvedMedia(startBytes, "image/png"),
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
                 },
                 CancellationToken.None);
 
@@ -203,17 +208,23 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Null(queued.Handle.CancelUrl);
             Assert.Null(queued.Handle.ProviderMetadata);
 
+            Assert.Equal(1, sourceTransport.Calls);
+            Assert.Equal("test-fal-key", sourceTransport.LastApiKey);
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal(
                 "https://queue.fal.run/bytedance/seedance-2.0/image-to-video",
                 request.RequestUri!.ToString());
+            Assert.Equal(
+                "{\"expiration_duration_seconds\":3600}",
+                Assert.Single(request.Headers.GetValues("X-Fal-Object-Lifecycle-Preference")));
+            Assert.Equal("0", Assert.Single(request.Headers.GetValues("X-Fal-Store-IO")));
+            Assert.Equal("1", Assert.Single(request.Headers.GetValues("X-Fal-No-Retry")));
 
             var json = JsonNode.Parse(body!)!.AsObject();
             Assert.Equal("animate this source", json["prompt"]!.GetValue<string>());
-            Assert.Equal(
-                "data:image/png;base64," + Convert.ToBase64String(startBytes),
-                json["image_url"]!.GetValue<string>());
+            Assert.Equal("https://v3b.fal.media/files/start.png", json["image_url"]!.GetValue<string>());
+            Assert.DoesNotContain("data:", body!);
             Assert.Equal("720p", json["resolution"]!.GetValue<string>());
             Assert.Equal("6", json["duration"]!.GetValue<string>());
             Assert.Equal("16:9", json["aspect_ratio"]!.GetValue<string>());
@@ -230,6 +241,12 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         {
             var attempts = 0;
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Urls = new FalSeedanceSourceUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    endImageUrl: null),
+            };
             var handler = new TestHttpMessageHandler
             {
                 OnSend = _ =>
@@ -248,7 +265,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     }");
                 },
             };
-            var provider = Provider(handler);
+            var provider = Provider(handler, sourceTransport);
 
             var outcome = await provider.SubmitAsync(
                 SeedanceRequest(VideoMode.I2V, startFrame: start),
@@ -260,6 +277,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("seedance-retry-123", queued.Handle.ProviderJobId);
+            Assert.Equal(1, sourceTransport.Calls);
             Assert.Equal(2, attempts);
             Assert.Equal(2, handler.Requests.Count);
         }
@@ -269,6 +287,12 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         {
             var attempts = 0;
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Urls = new FalSeedanceSourceUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    endImageUrl: null),
+            };
             var handler = new TestHttpMessageHandler
             {
                 OnSend = _ =>
@@ -277,7 +301,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     throw new HttpRequestException("request may have been sent");
                 },
             };
-            var provider = Provider(handler);
+            var provider = Provider(handler, sourceTransport);
 
             var outcome = await provider.SubmitAsync(
                 SeedanceRequest(VideoMode.I2V, startFrame: start),
@@ -290,12 +314,13 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
             Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
             Assert.True(failed.Error.Retryable);
+            Assert.Equal(1, sourceTransport.Calls);
             Assert.Equal(1, attempts);
             Assert.Single(handler.Requests);
         }
 
         [Fact]
-        public async Task Submit_seedance_interp_includes_end_image_url()
+        public async Task Submit_seedance_interp_includes_uploaded_end_image_url()
         {
             string? body = null;
             var handler = new TestHttpMessageHandler
@@ -309,31 +334,200 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                     }");
                 },
             };
-            var provider = Provider(handler);
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Urls = new FalSeedanceSourceUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    "https://v3b.fal.media/files/end.jpg"),
+            };
+            var provider = Provider(handler, sourceTransport);
             var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
             var end = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.EndFrame);
-            var startBytes = PngBytes();
-            var endBytes = JpegBytes();
 
             var outcome = await provider.SubmitAsync(
                 SeedanceRequest(VideoMode.Interp, startFrame: start, endFrame: end),
                 new Dictionary<MediaRef, ResolvedMedia>
                 {
-                    [start] = new ResolvedMedia(startBytes, "image/png"),
-                    [end] = new ResolvedMedia(endBytes, "image/jpeg"),
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                    [end] = new ResolvedMedia(JpegBytes(), "image/jpeg"),
                 },
                 CancellationToken.None);
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("seedance-123", queued.Handle.ProviderJobId);
+            Assert.Equal(1, sourceTransport.Calls);
 
             var json = JsonNode.Parse(body!)!.AsObject();
+            Assert.Equal("https://v3b.fal.media/files/start.png", json["image_url"]!.GetValue<string>());
+            Assert.Equal("https://v3b.fal.media/files/end.jpg", json["end_image_url"]!.GetValue<string>());
+            Assert.DoesNotContain("data:", body!);
+        }
+
+        [Fact]
+        public async Task Submit_seedance_missing_key_does_not_upload_or_submit()
+        {
+            var handler = new TestHttpMessageHandler();
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Urls = new FalSeedanceSourceUrls(
+                    "https://v3b.fal.media/files/start.png",
+                    endImageUrl: null),
+            };
+            var provider = Provider(handler, sourceTransport, () => null);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.Equal(0, sourceTransport.Calls);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task Submit_seedance_upload_failure_never_calls_queue_submit_and_error_is_sanitized()
+        {
+            var handler = new TestHttpMessageHandler();
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Error = new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal Seedance source upload failed for request body.",
+                    Retryable: true,
+                    Field: "start_frame",
+                    ProviderErrorCode: "source_upload_failed",
+                    ProviderDetail: new Dictionary<string, JsonNode>
+                    {
+                        ["image_url"] = JsonValue.Create("https://v3b.fal.media/files/leak.png")!,
+                        ["upload_url"] = JsonValue.Create("https://uploads.example.test/source-token")!,
+                        ["body"] = JsonValue.Create("data:image/png;base64,abcd")!,
+                        ["header"] = JsonValue.Create("X-Fal-Object-Lifecycle")!,
+                    }),
+            };
+            var provider = Provider(handler, sourceTransport);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
+            Assert.Equal("start_frame", failed.Error.Field);
+            Assert.Equal("source_upload_failed", failed.Error.ProviderErrorCode);
+            Assert.Null(failed.Error.ProviderDetail);
+            Assert.Equal("fal Seedance source upload failed.", failed.Error.Message);
+            Assert.DoesNotContain("https://v3b.fal.media/files/leak.png", failed.Error.Message);
+            Assert.DoesNotContain("https://uploads.example.test/source-token", failed.Error.Message);
+            Assert.DoesNotContain("data:image/png;base64", failed.Error.Message);
+            Assert.DoesNotContain("{\"prompt\"", failed.Error.Message);
+            Assert.DoesNotContain("request body", failed.Error.Message);
+            Assert.DoesNotContain("body", failed.Error.Message);
+            Assert.DoesNotContain("image_url", failed.Error.Message);
+            Assert.DoesNotContain("upload_url", failed.Error.Message);
+            Assert.DoesNotContain("X-Fal-Object-Lifecycle", failed.Error.Message);
+            Assert.Equal(1, sourceTransport.Calls);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task Submit_seedance_interp_end_upload_failure_never_calls_queue_submit()
+        {
+            var handler = new TestHttpMessageHandler();
+            var sourceTransport = new FakeSeedanceSourceTransport
+            {
+                Error = new GenerationError(
+                    GenerationErrorCode.DependencyUnavailable,
+                    "fal Seedance end frame source upload failed.",
+                    Retryable: true,
+                    Field: "end_frame"),
+            };
+            var provider = Provider(handler, sourceTransport);
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var end = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.EndFrame);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.Interp, startFrame: start, endFrame: end),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                    [end] = new ResolvedMedia(JpegBytes(), "image/jpeg"),
+                },
+                CancellationToken.None);
+
+            var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.Equal("end_frame", failed.Error.Field);
+            Assert.Equal(1, sourceTransport.Calls);
+            Assert.Empty(handler.Requests);
+        }
+
+        [Fact]
+        public async Task Submit_seedance_with_real_transport_uploads_source_before_queue_submit()
+        {
+            var requests = new List<string>();
+            string? queueBody = null;
+            var start = MediaRef.ForArtifact(Guid.NewGuid(), VideoMediaRoles.StartFrame);
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = req =>
+                {
+                    requests.Add(req.RequestUri!.ToString());
+                    if (req.RequestUri.Host == "rest.fal.ai")
+                    {
+                        return Json(HttpStatusCode.OK, """
+                            {
+                              "upload_url": "https://uploads.example.test/source-token",
+                              "file_url": "https://v3b.fal.media/files/source-private.png"
+                            }
+                            """);
+                    }
+
+                    if (req.RequestUri.Host == "uploads.example.test")
+                        return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+                    queueBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return Json(HttpStatusCode.OK, @"{
+                      ""request_id"": ""seedance-real-transport-123"",
+                      ""status"": ""IN_QUEUE""
+                    }");
+                },
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.SubmitAsync(
+                SeedanceRequest(VideoMode.I2V, startFrame: start),
+                new Dictionary<MediaRef, ResolvedMedia>
+                {
+                    [start] = new ResolvedMedia(PngBytes(), "image/png"),
+                },
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("seedance-real-transport-123", queued.Handle.ProviderJobId);
             Assert.Equal(
-                "data:image/png;base64," + Convert.ToBase64String(startBytes),
-                json["image_url"]!.GetValue<string>());
-            Assert.Equal(
-                "data:image/jpeg;base64," + Convert.ToBase64String(endBytes),
-                json["end_image_url"]!.GetValue<string>());
+                new[]
+                {
+                    "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+                    "https://uploads.example.test/source-token",
+                    "https://queue.fal.run/bytedance/seedance-2.0/image-to-video",
+                },
+                requests);
+
+            var json = JsonNode.Parse(queueBody!)!.AsObject();
+            Assert.Equal("https://v3b.fal.media/files/source-private.png", json["image_url"]!.GetValue<string>());
+            Assert.DoesNotContain("data:", queueBody!);
         }
 
         [Fact]
@@ -718,8 +912,14 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Empty(handler.Requests);
         }
 
-        private static FalVideoProvider Provider(TestHttpMessageHandler handler) =>
-            new(() => "test-fal-key", new FalApiClient(new HttpClient(handler)));
+        private static FalVideoProvider Provider(
+            TestHttpMessageHandler handler,
+            IFalSeedanceSourceTransport? seedanceSourceTransport = null,
+            Func<string?>? apiKeyProvider = null) =>
+            new(
+                apiKeyProvider ?? (() => "test-fal-key"),
+                new FalApiClient(new HttpClient(handler)),
+                seedanceSourceTransport);
 
         private static VideoGenerationRequest Request(
             int? seed = null,
@@ -792,5 +992,26 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
         private static byte[] JpegBytes() =>
             new byte[] { 0xFF, 0xD8, 0xFF, 1, 2, 3 };
+
+        private sealed class FakeSeedanceSourceTransport : IFalSeedanceSourceTransport
+        {
+            public int Calls { get; private set; }
+            public GenerationError? Error { get; set; }
+            public FalSeedanceSourceUrls? Urls { get; set; }
+            public string? LastApiKey { get; private set; }
+            public CancellationToken LastCancellationToken { get; private set; }
+
+            public Task<(FalSeedanceSourceUrls? Urls, GenerationError? Error)> ResolveAndUploadAsync(
+                VideoGenerationRequest request,
+                IReadOnlyDictionary<MediaRef, ResolvedMedia> media,
+                string apiKey,
+                CancellationToken ct)
+            {
+                Calls++;
+                LastApiKey = apiKey;
+                LastCancellationToken = ct;
+                return Task.FromResult((Urls, Error));
+            }
+        }
     }
 }
