@@ -1389,10 +1389,13 @@ namespace Rook.Tests.Handlers
             Assert.Contains("i2v", modeStrings);
             Assert.Contains("interp", modeStrings);
             Assert.DoesNotContain("t2v", modeStrings);
-            Assert.DoesNotContain(
+            var kling = Assert.Single(
                 models,
-                m => ((string?)m["model_id"] ?? string.Empty)
-                    .IndexOf("kling", StringComparison.OrdinalIgnoreCase) >= 0);
+                m => (string?)m["model_id"] == FalVideoCapabilities.KlingV3StandardI2v);
+
+            Assert.Equal(FalVideoCapabilities.ProviderName, kling["provider_name"]);
+            var klingCap = Assert.IsType<Dictionary<string, object?>>(kling["capability"]);
+            Assert.Equal(FalVideoCapabilities.KlingV3StandardI2v, klingCap["id"]);
             AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(data));
         }
 
@@ -1484,6 +1487,7 @@ namespace Rook.Tests.Handlers
             Assert.DoesNotContain("api.fal.ai", text);
             Assert.DoesNotContain("rest.fal.ai", text);
             Assert.DoesNotContain("image_url", text);
+            Assert.DoesNotContain("start_image_url", text);
             Assert.DoesNotContain("end_image_url", text);
             Assert.DoesNotContain("data:image", text);
         }
