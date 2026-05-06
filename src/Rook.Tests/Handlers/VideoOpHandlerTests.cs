@@ -601,6 +601,7 @@ namespace Rook.Tests.Handlers
                 """);
 
             AssertOk(resp, expectedHttp: 200);
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
         }
 
         [Fact]
@@ -629,6 +630,7 @@ namespace Rook.Tests.Handlers
 
             AssertFail(resp, GenerationErrorCode.InvalidRequest, expectedHttp: 400);
             AssertFieldEquals(resp, nameof(VideoGenerationRequest.Prompt));
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
         }
 
         [Fact]
@@ -660,6 +662,7 @@ namespace Rook.Tests.Handlers
                 "person_generation",
                 JsonSerializer.Serialize(resp.Data),
                 StringComparison.OrdinalIgnoreCase);
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
         }
 
         [Fact]
@@ -1390,6 +1393,7 @@ namespace Rook.Tests.Handlers
                 models,
                 m => ((string?)m["model_id"] ?? string.Empty)
                     .IndexOf("kling", StringComparison.OrdinalIgnoreCase) >= 0);
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(data));
         }
 
         [Fact]
@@ -1473,6 +1477,16 @@ namespace Rook.Tests.Handlers
 
         private static string ResultBody() =>
             $$"""{"op":"get_video_job_result","job_id":"{{SampleJobId:D}}"}""";
+
+        private static void AssertNoFalSourceTransportMarkers(string text)
+        {
+            Assert.DoesNotContain("fal.media", text);
+            Assert.DoesNotContain("api.fal.ai", text);
+            Assert.DoesNotContain("rest.fal.ai", text);
+            Assert.DoesNotContain("image_url", text);
+            Assert.DoesNotContain("end_image_url", text);
+            Assert.DoesNotContain("data:image", text);
+        }
 
         private static void AssertOk(ApiResponse resp, int expectedHttp)
         {
