@@ -24,7 +24,7 @@ namespace Rook.Services.Vision.Video.Fal
                     GenerationErrorCode.InvalidRequest,
                     "Request is null.",
                     Retryable: false,
-                    Field: nameof(VideoGenerationRequest)));
+                    Field: nameof(request)));
 
             if (capability is null)
                 return PricingResult.Fail(new GenerationError(

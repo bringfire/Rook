@@ -65,7 +65,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
 
             Assert.False(result.Success);
             Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
-            Assert.Equal(nameof(VideoGenerationRequest), result.Error.Field);
+            Assert.Equal("request", result.Error.Field);
         }
 
         [Fact]
