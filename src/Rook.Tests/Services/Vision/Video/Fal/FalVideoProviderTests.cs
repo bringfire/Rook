@@ -819,7 +819,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123/status",
+                "https://queue.fal.run/fal-ai/kling-video/requests/kling-123/status",
                 request.RequestUri!.ToString());
         }
 
@@ -957,7 +957,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123",
+                "https://queue.fal.run/fal-ai/kling-video/requests/kling-123",
                 request.RequestUri!.ToString());
         }
 
@@ -1121,7 +1121,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var request = Assert.Single(handler.Requests);
             Assert.Equal(HttpMethod.Put, request.Method);
             Assert.Equal(
-                "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123/cancel",
+                "https://queue.fal.run/fal-ai/kling-video/requests/kling-123/cancel",
                 request.RequestUri!.ToString());
         }
 

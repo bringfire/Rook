@@ -162,24 +162,30 @@ establishment failures where the body did not reach fal.
 
 ## Endpoint Strategy
 
-Kling uses the exact fal model endpoint for queue submit, then the model base
-without the `image-to-video` subpath for lifecycle reconstruction. fal queue
-subpaths are used for submit but are not included in status/result/cancel
-routes:
+Kling uses the exact fal model endpoint for queue submit, then the root
+`fal-ai/kling-video` queue path for lifecycle reconstruction. fal queue
+variant/version subpaths are used for submit but are not included in
+status/result/cancel routes:
 
 - submit:
   `https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video`
 - status:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/{request_id}/status`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/status`
 - result:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/{request_id}`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}`
 - cancel:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/{request_id}/cancel`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/cancel`
 
 Seedance proved that submit and lifecycle endpoint assumptions can produce
 HTTP 405s. The implementation reconstructs Kling status, result, and cancel
 from the model base above. Fake provider tests must pin the request URLs for
 submit, status, result, and cancel so endpoint drift is visible.
+
+Live fal evidence from May 7, 2026: a request submitted through
+`fal-ai/kling-video/v3/standard/image-to-video` returned HTTP 405 for lifecycle
+roots under both `.../v3/standard` and `.../v3/standard/image-to-video`, but
+HTTP 200 for status/result under
+`https://queue.fal.run/fal-ai/kling-video/requests/{request_id}`.
 
 Kling durable handles remain request-id-only:
 
