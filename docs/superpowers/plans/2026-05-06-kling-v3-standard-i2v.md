@@ -1367,7 +1367,7 @@ public async Task Status_kling_reconstructs_status_url_from_model_and_request_id
 
     Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
     Assert.Equal(
-        "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123/status",
+        "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123/status",
         Assert.Single(handler.Requests).RequestUri!.ToString());
 }
 
@@ -1389,7 +1389,7 @@ public async Task Cancel_kling_reconstructs_cancel_url_from_model_and_request_id
     var request = Assert.Single(handler.Requests);
     Assert.Equal(HttpMethod.Put, request.Method);
     Assert.Equal(
-        "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123/cancel",
+        "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123/cancel",
         request.RequestUri!.ToString());
 }
 
@@ -1422,7 +1422,7 @@ public async Task Fetch_kling_reconstructs_response_url_and_drops_provider_metad
     Assert.Empty(artifact.ProviderMetadata);
     Assert.Empty(success.Envelope.EnvelopeMetadata);
     Assert.Equal(
-        "https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/kling-123",
+        "https://queue.fal.run/fal-ai/kling-video/v3/standard/requests/kling-123",
         Assert.Single(handler.Requests).RequestUri!.ToString());
 }
 ```
@@ -1445,7 +1445,7 @@ In `FalVideoProvider.cs`, add endpoints:
 private static readonly Uri KlingSubmitEndpoint =
     new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
 private static readonly Uri KlingLifecycleEndpoint =
-    new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
+    new("https://queue.fal.run/fal-ai/kling-video/v3/standard");
 private const long KlingMaxSourceFrameBytes = 30L * 1024L * 1024L;
 ```
 
@@ -1856,7 +1856,7 @@ dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
 
 Expected: succeeds.
 
-- [ ] **Step 4: Optional local deploy for Rhino smoke**
+- [x] **Step 4: Optional local deploy for Rhino smoke**
 
 Only run after Rhino is closed:
 

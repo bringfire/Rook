@@ -23,7 +23,7 @@ namespace Rook.Services.Vision.Video.Fal
         private static readonly Uri KlingSubmitEndpoint =
             new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
         private static readonly Uri KlingLifecycleEndpoint =
-            new("https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video");
+            new("https://queue.fal.run/fal-ai/kling-video/v3/standard");
         private const long SeedanceMaxSourceFrameBytes = 30L * 1024L * 1024L;
         private const long KlingMaxSourceFrameBytes = 30L * 1024L * 1024L;
         private static readonly FalSourceFramePolicy SeedanceSourceFramePolicy = new(
