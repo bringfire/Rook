@@ -176,7 +176,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             var result = model.Estimate(null!, capability);
 
             Assert.False(result.Success);
-            Assert.Equal(nameof(VideoGenerationRequest), result.Error!.Field);
+            Assert.Equal("request", result.Error!.Field);
         }
 
         private static VideoGenerationRequest Request(int durationSeconds) =>
@@ -291,7 +291,7 @@ namespace Rook.Services.Vision.Video.Fal
                     GenerationErrorCode.InvalidRequest,
                     "Request is null.",
                     Retryable: false,
-                    Field: nameof(VideoGenerationRequest)));
+                    Field: nameof(request)));
 
             if (capability is null)
                 return PricingResult.Fail(new GenerationError(
