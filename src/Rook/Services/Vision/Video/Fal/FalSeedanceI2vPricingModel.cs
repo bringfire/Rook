@@ -8,8 +8,9 @@ namespace Rook.Services.Vision.Video.Fal
     public sealed class FalSeedanceI2vPricingModel
         : IPricingModel<VideoGenerationRequest, VideoCapability>
     {
-        public const string Source = "fal-bytedance-seedance-2.0-i2v-output-second-2026-05-05";
-        private const decimal UnitPriceUsd = 0.3024m;
+        public const string Source = "fal-bytedance-seedance-2.0-i2v-output-second-2026-05-07";
+        private const decimal DefaultUnitPriceUsd = 0.3024m;
+        private const decimal UnitPrice1080pUsd = 0.6804m;
 
         public string PricingSource => Source;
 
@@ -44,10 +45,11 @@ namespace Rook.Services.Vision.Video.Fal
                     Field: nameof(request.NumberOfVideos)));
             }
 
-            var total = UnitPriceUsd * quantity;
+            var unitPrice = UnitPriceFor(request.Resolution);
+            var total = unitPrice * quantity;
             var pricing = new Rook.Services.Vision.Generation.JobPricing(
                 Currency: "USD",
-                UnitPrice: UnitPriceUsd,
+                UnitPrice: unitPrice,
                 Unit: "output_second",
                 Quantity: quantity,
                 TotalUsd: total,
@@ -59,6 +61,13 @@ namespace Rook.Services.Vision.Video.Fal
                 Provenance: Source);
 
             return PricingResult.Ok(pricing, estimate);
+        }
+
+        private static decimal UnitPriceFor(string resolution)
+        {
+            return string.Equals(resolution, "1080p", StringComparison.OrdinalIgnoreCase)
+                ? UnitPrice1080pUsd
+                : DefaultUnitPriceUsd;
         }
 
         public Rook.Services.Vision.Generation.JobPricing? ExtractActualSpend(
