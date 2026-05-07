@@ -11,6 +11,7 @@ namespace Rook.Services.Vision.Video
     internal sealed class VideoArtifactMaterializer
     {
         internal const long MaxGeneratedVideoBytes = 250L * 1024 * 1024;
+        private const int MaxRemoteFetchAttempts = 3;
 
         private readonly HttpClient _httpClient;
         private readonly long _maxGeneratedVideoBytes;
@@ -66,98 +67,119 @@ namespace Rook.Services.Vision.Video
                 return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
                     "Video artifact body type is unsupported."));
 
-            try
+            for (var attempt = 1; attempt <= MaxRemoteFetchAttempts; attempt++)
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, remote.Url);
-                using var response = await _httpClient.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (!response.IsSuccessStatusCode)
+                try
                 {
-                    return VideoArtifactMaterializationResult.Fail(
-                        new GenerationError(
-                            GenerationErrorCode.DependencyUnavailable,
-                            $"Remote video artifact fetch failed with HTTP {(int)response.StatusCode}.",
-                            IsRetryableStatus(response.StatusCode)));
-                }
-
-                if (response.Content is null)
-                    return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
-                        "Remote video artifact response was empty."));
-
-                var contentLength = response.Content.Headers.ContentLength;
-                if (contentLength > _maxGeneratedVideoBytes)
-                    return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
-                        "Remote video artifact exceeded the maximum allowed size."));
-
-                var mimeType = ResolveMimeType(
-                    artifact.DeclaredMimeType,
-                    response.Content.Headers.ContentType?.MediaType);
-
-                using var stream = await response.Content.ReadAsStreamAsync()
-                    .ConfigureAwait(false);
-                using var buffer = new MemoryStream();
-                var readBuffer = new byte[81920];
-
-                while (true)
-                {
-                    var read = await stream.ReadAsync(
-                            readBuffer,
-                            0,
-                            readBuffer.Length,
+                    using var request = new HttpRequestMessage(HttpMethod.Get, remote.Url);
+                    using var response = await _httpClient.SendAsync(
+                            request,
+                            HttpCompletionOption.ResponseHeadersRead,
                             cancellationToken)
                         .ConfigureAwait(false);
-                    if (read == 0)
-                        break;
 
-                    if (buffer.Length + read > _maxGeneratedVideoBytes)
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        if (IsRetryableStatus(response.StatusCode)
+                            && attempt < MaxRemoteFetchAttempts)
+                        {
+                            continue;
+                        }
+
+                        return VideoArtifactMaterializationResult.Fail(
+                            new GenerationError(
+                                GenerationErrorCode.DependencyUnavailable,
+                                $"Remote video artifact fetch failed with HTTP {(int)response.StatusCode}.",
+                                IsRetryableStatus(response.StatusCode)));
+                    }
+
+                    if (response.Content is null)
+                        return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
+                            "Remote video artifact response was empty."));
+
+                    var contentLength = response.Content.Headers.ContentLength;
+                    if (contentLength > _maxGeneratedVideoBytes)
                         return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
                             "Remote video artifact exceeded the maximum allowed size."));
 
-                    buffer.Write(readBuffer, 0, read);
+                    var mimeType = ResolveMimeType(
+                        artifact.DeclaredMimeType,
+                        response.Content.Headers.ContentType?.MediaType);
+
+                    using var stream = await response.Content.ReadAsStreamAsync()
+                        .ConfigureAwait(false);
+                    using var buffer = new MemoryStream();
+                    var readBuffer = new byte[81920];
+
+                    while (true)
+                    {
+                        var read = await stream.ReadAsync(
+                                readBuffer,
+                                0,
+                                readBuffer.Length,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        if (read == 0)
+                            break;
+
+                        if (buffer.Length + read > _maxGeneratedVideoBytes)
+                            return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
+                                "Remote video artifact exceeded the maximum allowed size."));
+
+                        buffer.Write(readBuffer, 0, read);
+                    }
+
+                    if (buffer.Length == 0)
+                        return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
+                            "Remote video artifact response was empty."));
+
+                    return VideoArtifactMaterializationResult.Ok(buffer.ToArray(), mimeType);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return VideoArtifactMaterializationResult.Fail(
+                        new GenerationError(
+                            GenerationErrorCode.Interrupted,
+                            "Remote video artifact fetch was cancelled.",
+                            Retryable: false));
+                }
+                catch (TaskCanceledException)
+                {
+                    if (attempt < MaxRemoteFetchAttempts)
+                        continue;
 
-                if (buffer.Length == 0)
-                    return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
-                        "Remote video artifact response was empty."));
+                    return VideoArtifactMaterializationResult.Fail(
+                        new GenerationError(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Remote video artifact fetch timed out.",
+                            Retryable: true));
+                }
+                catch (HttpRequestException)
+                {
+                    if (attempt < MaxRemoteFetchAttempts)
+                        continue;
 
-                return VideoArtifactMaterializationResult.Ok(buffer.ToArray(), mimeType);
+                    return VideoArtifactMaterializationResult.Fail(
+                        new GenerationError(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Remote video artifact fetch failed due to a transport error.",
+                            Retryable: true));
+                }
+                catch (IOException)
+                {
+                    if (attempt < MaxRemoteFetchAttempts)
+                        continue;
+
+                    return VideoArtifactMaterializationResult.Fail(
+                        new GenerationError(
+                            GenerationErrorCode.DependencyUnavailable,
+                            "Remote video artifact fetch failed while reading the response stream.",
+                            Retryable: true));
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return VideoArtifactMaterializationResult.Fail(
-                    new GenerationError(
-                        GenerationErrorCode.Interrupted,
-                        "Remote video artifact fetch was cancelled.",
-                        Retryable: false));
-            }
-            catch (TaskCanceledException)
-            {
-                return VideoArtifactMaterializationResult.Fail(
-                    new GenerationError(
-                        GenerationErrorCode.DependencyUnavailable,
-                        "Remote video artifact fetch timed out.",
-                        Retryable: true));
-            }
-            catch (HttpRequestException)
-            {
-                return VideoArtifactMaterializationResult.Fail(
-                    new GenerationError(
-                        GenerationErrorCode.DependencyUnavailable,
-                        "Remote video artifact fetch failed due to a transport error.",
-                        Retryable: true));
-            }
-            catch (IOException)
-            {
-                return VideoArtifactMaterializationResult.Fail(
-                    new GenerationError(
-                        GenerationErrorCode.DependencyUnavailable,
-                        "Remote video artifact fetch failed while reading the response stream.",
-                        Retryable: true));
-            }
+
+            return VideoArtifactMaterializationResult.Fail(ExecutionFailed(
+                "Remote video artifact fetch failed."));
         }
 
         private static string ResolveMimeType(
