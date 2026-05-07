@@ -36,7 +36,7 @@ namespace Rook.Services.Vision.Video.Fal
                         Id: SeedanceI2v,
                         Name: "Seedance 2.0 Image to Video",
                         Status: "preview",
-                        Resolutions: new[] { "480p", "720p" },
+                        Resolutions: new[] { "480p", "720p", "1080p" },
                         Durations: new[] { 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
                         AspectRatios: new[] { "16:9", "9:16", "1:1", "4:3", "3:4", "21:9" },
                         Modes: new[] { VideoMode.I2V, VideoMode.Interp },

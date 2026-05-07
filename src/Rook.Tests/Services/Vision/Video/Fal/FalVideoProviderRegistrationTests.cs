@@ -80,6 +80,7 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Empty(cap.Must8sWith);
             Assert.Contains("480p", cap.Resolutions);
             Assert.Contains("720p", cap.Resolutions);
+            Assert.Contains("1080p", cap.Resolutions);
             Assert.Equal(Enumerable.Range(4, 12), cap.Durations);
             Assert.DoesNotContain(0, cap.Durations);
             Assert.Contains("16:9", cap.AspectRatios);
