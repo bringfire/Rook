@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
+from ctypes import wintypes
 import inspect
 import json
 import os
@@ -138,8 +140,43 @@ def _smoke_popen_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
-def _terminate_smoke_process_tree(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
+def _windows_kernel32() -> ctypes.WinDLL:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def _create_windows_job_for_process(process: subprocess.Popen[str]) -> int | None:
+    if os.name != "nt":
+        return None
+
+    kernel32 = _windows_kernel32()
+    job_handle = kernel32.CreateJobObjectW(None, None)
+    if not job_handle:
+        return None
+
+    if not kernel32.AssignProcessToJobObject(job_handle, int(process._handle)):
+        kernel32.CloseHandle(job_handle)
+        return None
+    return int(job_handle)
+
+
+def _close_windows_job(job_handle: int | None) -> None:
+    if os.name != "nt" or job_handle is None:
+        return
+    _windows_kernel32().CloseHandle(job_handle)
+
+
+def _terminate_smoke_process_tree(process: subprocess.Popen[str], job_handle: int | None) -> None:
+    if os.name == "nt" and job_handle is not None:
+        _windows_kernel32().TerminateJobObject(job_handle, 1)
         return
 
     if os.name == "nt":
@@ -183,37 +220,41 @@ def run_smoke_command(
         text=True,
         **_smoke_popen_kwargs(),
     )
+    job_handle = _create_windows_job_for_process(process)
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        _terminate_smoke_process_tree(process)
         try:
-            stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_smoke_process_tree(process, job_handle)
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
 
-        duration_seconds = time.monotonic() - start
-        stdout = stdout or exc.stdout or ""
-        stderr = stderr or exc.stderr or ""
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode(errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode(errors="replace")
-        diagnostic = f"smoke command timed out after {timeout_seconds} seconds"
-        if stderr:
-            stderr = f"{stderr}\n{diagnostic}"
-        else:
-            stderr = diagnostic
-        return SmokeCommandResult(
-            command=command,
-            scoped_env=scoped_env,
-            returncode=124,
-            stdout=stdout,
-            stderr=stderr,
-            duration_seconds=duration_seconds,
-            timed_out=True,
-        )
+            duration_seconds = time.monotonic() - start
+            stdout = stdout or exc.stdout or ""
+            stderr = stderr or exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode(errors="replace")
+            diagnostic = f"smoke command timed out after {timeout_seconds} seconds"
+            if stderr:
+                stderr = f"{stderr}\n{diagnostic}"
+            else:
+                stderr = diagnostic
+            return SmokeCommandResult(
+                command=command,
+                scoped_env=scoped_env,
+                returncode=124,
+                stdout=stdout,
+                stderr=stderr,
+                duration_seconds=duration_seconds,
+                timed_out=True,
+            )
+    finally:
+        _close_windows_job(job_handle)
 
     duration_seconds = time.monotonic() - start
     return SmokeCommandResult(

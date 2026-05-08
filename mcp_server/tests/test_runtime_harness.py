@@ -486,6 +486,52 @@ def test_run_smoke_command_timeout_kills_descendant_holding_output_pipes(tmp_pat
                 )
 
 
+def test_run_smoke_command_timeout_kills_descendant_after_parent_exits(tmp_path: Path):
+    child_pid_path = tmp_path / "child-after-parent-exit.pid"
+    script = (
+        "from pathlib import Path\n"
+        "import subprocess, sys\n"
+        f"child_pid_path = {str(child_pid_path)!r}\n"
+        "child = subprocess.Popen([\n"
+        "    sys.executable,\n"
+        "    '-c',\n"
+        "    'import time; time.sleep(3)',\n"
+        "])\n"
+        "Path(child_pid_path).write_text(str(child.pid), encoding='utf-8')\n"
+        "print('parent-exiting')\n"
+        "sys.stdout.flush()\n"
+    )
+
+    started = time.monotonic()
+    try:
+        result = run_smoke_command(
+            [sys.executable, "-c", script],
+            env_additions={},
+            timeout_seconds=0.2,
+        )
+        elapsed = time.monotonic() - started
+
+        assert result.timed_out is True
+        assert result.returncode != 0
+        assert "timed out" in result.stderr.lower()
+        assert "parent-exiting" in result.stdout
+        assert elapsed < 1.5
+        assert child_pid_path.exists()
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        assert _wait_until_pid_exits(child_pid)
+    finally:
+        if child_pid_path.exists():
+            child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+            if _pid_is_running(child_pid):
+                subprocess.run(
+                    ["taskkill", "/PID", str(child_pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+
+
 def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path: Path):
     ready_path = tmp_path / "owned-discovery-instance-2222-native.json"
     ready_path.write_text('{"processId":2222}', encoding="utf-8")
