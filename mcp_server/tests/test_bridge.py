@@ -160,6 +160,23 @@ def test_select_rhino_instance_respects_explicit_port_for_non_gh(discovery_dir: 
     assert selected["pluginType"] == "native"
 
 
+def test_select_rhino_instance_preserves_ambient_missing_explicit_port(
+    discovery_dir: Path,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-5001-native.json",
+        {
+            "port": 9950,
+            "processId": 5001,
+            "pluginType": "native",
+        },
+    )
+
+    selected = bridge.select_rhino_instance(port=9951)
+
+    assert selected == {"port": 9951}
+
+
 def test_select_rhino_instance_respects_process_id_for_non_gh(discovery_dir: Path) -> None:
     _write_instance(
         discovery_dir / "instance-7001-native.json",
@@ -193,6 +210,23 @@ def test_select_rhino_instance_rejects_port_anchor_with_wrong_process_id(
         {
             "port": 9951,
             "processId": 9999,
+            "pluginType": "native",
+        },
+    )
+
+    selected = bridge.select_rhino_instance(port=9951, process_id=7102)
+
+    assert selected is None
+
+
+def test_select_rhino_instance_rejects_missing_port_anchor_with_process_id(
+    discovery_dir: Path,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
             "pluginType": "native",
         },
     )
@@ -337,6 +371,24 @@ def test_get_rhino_host_rejects_scoped_port_with_wrong_process_id(
         {
             "port": 9951,
             "processId": 9999,
+            "pluginType": "native",
+        },
+    )
+
+    with bridge.rhino_request_context(port=9951, process_id=7102):
+        result = bridge.get_rhino_host()
+
+    assert result is None
+
+
+def test_get_rhino_host_rejects_missing_scoped_port_anchor_with_process_id(
+    discovery_dir: Path,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
             "pluginType": "native",
         },
     )

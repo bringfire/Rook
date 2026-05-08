@@ -220,7 +220,7 @@ def select_rhino_instance(
     if port is not None:
         anchor = next((inst for inst in instances if inst.get("port") == port), None)
         if anchor is None:
-            return {"port": port}
+            return {"port": port} if process_id is None else None
 
         if process_id is not None and anchor.get("processId") != process_id:
             return None
