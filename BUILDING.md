@@ -343,6 +343,38 @@ pytest tests/test_block_replace_object_geometry_live.py -m requires_rhino -v
 If Rhino is not reachable, each test is skipped cleanly (not failed) — the
 `requires_rhino` marker is a capability hint, not a hard gate.
 
+### Owned Rhino runtime harness
+
+The owned Rhino runtime harness is an opt-in helper for focused live smoke
+verification when you want the test runner to own the Rhino process lifecycle:
+
+```powershell
+python scripts\run_rhino_runtime_harness.py --smoke pytest-select
+```
+
+The harness starts one Rhino process, waits only for
+`%TEMP%\rook\instance-{PID}-native.json` matching the Rhino process ID it owns,
+then pings the exact RookNative port discovered from that manifest. It runs the
+selected live smoke tests with `ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID`
+set so tests target that owned runtime. Validation scripts that still accept the
+older compatibility name may also receive `NATIVE_PORT`, but the scoped harness
+contract is the `ROOK_RHINO_*` environment pair.
+
+Harness run artifacts from `%TEMP%\rook` are captured under
+`.scratch\rhino-runtime-harness` for inspection. When the run finishes, the
+harness closes only the Rhino process it started.
+
+Ambient pytest behavior is unchanged. Without harness environment variables,
+`pytest -m requires_rhino` continues to discover or skip live tests as before.
+When harness environment variables are present, both `ROOK_RHINO_PORT` and
+`ROOK_RHINO_PROCESS_ID` must be valid and reachable; otherwise the tests fail
+instead of silently skipping.
+
+The harness does not build, deploy, register, or modify plugins. Keep install
+and deployment steps opt-in using the build and registration commands above.
+This v1 is intentionally non-invasive: there is no native shutdown/control
+route, and external close targets only the owned Rhino process.
+
 ---
 
 ## Rhino Must Be Closed During Build
