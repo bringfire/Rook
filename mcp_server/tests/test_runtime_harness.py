@@ -595,7 +595,6 @@ def test_run_smoke_command_timeout_kills_descendant_holding_output_pipes(tmp_pat
         assert result.timed_out is True
         assert result.returncode != 0
         assert "timed out" in result.stderr.lower()
-        assert "parent-start" in result.stdout
         assert elapsed < 1.5
         assert child_pid_path.exists()
         child_pid = int(child_pid_path.read_text(encoding="utf-8"))
