@@ -5,8 +5,11 @@ do not need Rhino running. Those tests do not request any of the fixtures
 below; they will not be affected by this conftest.
 
 The fixtures here exist for the `@pytest.mark.requires_rhino` live-integration
-tests (see test_block_replace_object_geometry_live.py). They are opt-in via
-fixture request — no autouse, no surprise side-effects for the unit suite.
+tests (see test_block_replace_object_geometry_live.py). The live document reset
+fixture is opt-in via fixture request. The only autouse fixture here scopes
+Rhino bridge requests for marked live tests when the owned runtime harness sets
+`ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID`, so unit tests still avoid live
+Rhino side effects.
 
 Run live tests with:
     pytest -m requires_rhino mcp_server/tests/
@@ -18,9 +21,11 @@ throwaway Rhino session.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -31,6 +36,64 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _REPO_ROOT / "mcp_server" / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
+
+
+def _get_harness_scope_from_env() -> tuple[int, int] | None:
+    port_raw = os.environ.get("ROOK_RHINO_PORT")
+    pid_raw = os.environ.get("ROOK_RHINO_PROCESS_ID")
+
+    if port_raw is None and pid_raw is None:
+        return None
+    if port_raw is None or pid_raw is None:
+        raise RuntimeError(
+            "ROOK_RHINO_PORT and ROOK_RHINO_PROCESS_ID must both be set "
+            "for Rhino runtime harness mode"
+        )
+
+    try:
+        port = int(port_raw)
+        pid = int(pid_raw)
+    except ValueError as ex:
+        raise RuntimeError(
+            "ROOK_RHINO_PORT and ROOK_RHINO_PROCESS_ID must be positive integers"
+        ) from ex
+
+    if port <= 0 or pid <= 0:
+        raise RuntimeError(
+            "ROOK_RHINO_PORT and ROOK_RHINO_PROCESS_ID must be positive integers"
+        )
+
+    return port, pid
+
+
+@contextmanager
+def _harness_rhino_request_context_for_test() -> Iterator[None]:
+    scope = _get_harness_scope_from_env()
+    if scope is None:
+        yield
+        return
+
+    from rook import bridge
+
+    port, pid = scope
+    with bridge.rhino_request_context(port=port, process_id=pid):
+        yield
+
+
+@contextmanager
+def _harness_rhino_request_context_for_marked_test(request) -> Iterator[None]:
+    if request.node.get_closest_marker("requires_rhino") is None:
+        yield
+        return
+
+    with _harness_rhino_request_context_for_test():
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _scope_harness_rhino_requests(request):
+    with _harness_rhino_request_context_for_marked_test(request):
+        yield
 
 
 def _is_error(result: Any) -> bool:
@@ -63,6 +126,8 @@ def fresh_document():
     """
     from rook.server import _mcp_tool_executor
 
+    harness_scope = _get_harness_scope_from_env()
+
     async def _setup() -> tuple[bool, str | None]:
         try:
             ping = await asyncio.wait_for(
@@ -70,14 +135,20 @@ def fresh_document():
                 timeout=3.0,
             )
         except (asyncio.TimeoutError, Exception) as ex:  # noqa: BLE001 — skip path
+            if harness_scope is not None:
+                raise
             return False, f"Rhino ping raised: {ex!r}"
 
         if _is_error(ping):
+            if harness_scope is not None:
+                raise RuntimeError(f"Rhino ping returned error: {ping!r}")
             return False, f"Rhino ping returned error: {ping!r}"
 
         # Reset to a blank document so tests start from a known empty state.
         new_doc = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
         if _is_error(new_doc):
+            if harness_scope is not None:
+                raise RuntimeError(f"rhino_document_ops(new) failed: {new_doc!r}")
             return False, f"rhino_document_ops(new) failed: {new_doc!r}"
 
         # `new` does NOT purge the InstanceDefinitions table on Rhino 8 —
