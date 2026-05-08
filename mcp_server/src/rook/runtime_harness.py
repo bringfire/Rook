@@ -51,7 +51,10 @@ def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:
 
 async def ping_native(host: str, port: int) -> bool:
     async with httpx.AsyncClient(timeout=3.0) as client:
-        response = await client.get(f"http://{host}:{port}/ping")
+        try:
+            response = await client.get(f"http://{host}:{port}/ping")
+        except httpx.HTTPError:
+            return False
     if response.text.strip() == "pong":
         return True
     try:

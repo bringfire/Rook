@@ -34,6 +34,7 @@ class PingRecorder:
 class FakeAsyncClient:
     response = httpx.Response(200, text="")
     urls: list[str] = []
+    exception: Exception | None = None
 
     def __init__(self, timeout: float):
         self.timeout = timeout
@@ -46,6 +47,8 @@ class FakeAsyncClient:
 
     async def get(self, url: str):
         self.urls.append(url)
+        if self.exception is not None:
+            raise self.exception
         return self.response
 
 
@@ -244,8 +247,20 @@ def test_wait_for_ready_times_out_when_ping_never_succeeds(tmp_path: Path):
 async def test_ping_native_accepts_supported_pong_shapes(monkeypatch, response):
     FakeAsyncClient.response = response
     FakeAsyncClient.urls = []
+    FakeAsyncClient.exception = None
     monkeypatch.setattr("rook.runtime_harness.httpx.AsyncClient", FakeAsyncClient)
 
     assert await ping_native("localhost", 9821) is True
+
+    assert FakeAsyncClient.urls == ["http://localhost:9821/ping"]
+
+
+@pytest.mark.asyncio
+async def test_ping_native_returns_false_when_endpoint_not_listening(monkeypatch):
+    FakeAsyncClient.urls = []
+    FakeAsyncClient.exception = httpx.ConnectError("connection refused")
+    monkeypatch.setattr("rook.runtime_harness.httpx.AsyncClient", FakeAsyncClient)
+
+    assert await ping_native("localhost", 9821) is False
 
     assert FakeAsyncClient.urls == ["http://localhost:9821/ping"]
