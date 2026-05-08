@@ -9,6 +9,7 @@ namespace Rook.Services.Vision.Video.Fal
         public const string ProviderName = "fal";
         public const string WanT2v = "fal-ai/wan/v2.7/text-to-video";
         public const string SeedanceI2v = "bytedance/seedance-2.0/image-to-video";
+        public const string KlingV3StandardI2v = "fal-ai/kling-video/v3/standard/image-to-video";
 
         public static IReadOnlyDictionary<string, (VideoCapability Capability, IPricingModel<VideoGenerationRequest, VideoCapability> PricingModel)> Models { get; }
             = BuildModels();
@@ -35,7 +36,7 @@ namespace Rook.Services.Vision.Video.Fal
                         Id: SeedanceI2v,
                         Name: "Seedance 2.0 Image to Video",
                         Status: "preview",
-                        Resolutions: new[] { "480p", "720p" },
+                        Resolutions: new[] { "480p", "720p", "1080p" },
                         Durations: new[] { 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
                         AspectRatios: new[] { "16:9", "9:16", "1:1", "4:3", "3:4", "21:9" },
                         Modes: new[] { VideoMode.I2V, VideoMode.Interp },
@@ -43,6 +44,19 @@ namespace Rook.Services.Vision.Video.Fal
                         MaxReferenceImages: 0,
                         Must8sWith: Array.Empty<string>()),
                     new FalSeedanceI2vPricingModel()),
+                [KlingV3StandardI2v] = (
+                    new VideoCapability(
+                        Id: KlingV3StandardI2v,
+                        Name: "Kling v3 Standard Image to Video",
+                        Status: "preview",
+                        Resolutions: new[] { "auto" },
+                        Durations: new[] { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+                        AspectRatios: new[] { "auto" },
+                        Modes: new[] { VideoMode.I2V, VideoMode.Interp },
+                        SupportsReferenceImages: false,
+                        MaxReferenceImages: 0,
+                        Must8sWith: Array.Empty<string>()),
+                    new FalKlingV3StandardI2vPricingModel()),
             };
 
             return dict;

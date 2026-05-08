@@ -162,23 +162,30 @@ establishment failures where the body did not reach fal.
 
 ## Endpoint Strategy
 
-Kling uses the exact fal model endpoint for queue submit and lifecycle
-reconstruction:
+Kling uses the exact fal model endpoint for queue submit, then the root
+`fal-ai/kling-video` queue path for lifecycle reconstruction. fal queue
+variant/version subpaths are used for submit but are not included in
+status/result/cancel routes:
 
 - submit:
   `https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video`
 - status:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/{request_id}/status`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/status`
 - result:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/{request_id}`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}`
 - cancel:
-  `https://queue.fal.run/fal-ai/kling-video/v3/standard/image-to-video/requests/{request_id}/cancel`
+  `https://queue.fal.run/fal-ai/kling-video/requests/{request_id}/cancel`
 
 Seedance proved that submit and lifecycle endpoint assumptions can produce
-HTTP 405s. The first implementation should reconstruct Kling status, result,
-and cancel from the exact model endpoint above unless live smoke proves fal
-requires a different lifecycle base. Fake provider tests must pin the request
-URLs for status, result, and cancel so endpoint drift is visible.
+HTTP 405s. The implementation reconstructs Kling status, result, and cancel
+from the model base above. Fake provider tests must pin the request URLs for
+submit, status, result, and cancel so endpoint drift is visible.
+
+Live fal evidence from May 7, 2026: a request submitted through
+`fal-ai/kling-video/v3/standard/image-to-video` returned HTTP 405 for lifecycle
+roots under both `.../v3/standard` and `.../v3/standard/image-to-video`, but
+HTTP 200 for status/result under
+`https://queue.fal.run/fal-ai/kling-video/requests/{request_id}`.
 
 Kling durable handles remain request-id-only:
 
@@ -446,8 +453,8 @@ generated videos, or credentials.
 - Source-frame policy is per model.
 - Kling source-frame validation accepts only locally detected PNG, JPEG, and
   WebP in this slice.
-- Submit, status, result, and cancel use the exact Kling model endpoint unless
-  live smoke proves a different lifecycle base is required.
+- Submit uses the exact Kling model subpath endpoint; status, result, and
+  cancel use the Kling model base without `image-to-video`.
 - Fake tests pin submit/status/result/cancel URLs.
 - Durable Kling fal handles are request-id-only with explicit model identity.
 - Result parsing accepts exactly one `video.url`.
@@ -470,8 +477,7 @@ Future Kling work can separately review:
 - GIF and AVIF source-frame support;
 - Pro, 4K, O3, Omni, or reference-to-video endpoints;
 - richer UI defaults or copy for `auto` resolution/aspect ratio;
-- live-smoke-driven endpoint changes if fal requires a different lifecycle
-  base.
+- live-smoke-driven endpoint changes if fal changes the lifecycle base.
 
 ## Self-Review
 

@@ -45,6 +45,38 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public void Estimate_prices_i2v_1080p_request_with_token_derived_rate()
+        {
+            var model = new FalSeedanceI2vPricingModel();
+            var request = new VideoGenerationRequest(
+                Model: FalVideoCapabilities.SeedanceI2v,
+                Mode: VideoMode.I2V,
+                DurationSeconds: 6,
+                Resolution: "1080p",
+                AspectRatio: "16:9",
+                Prompt: "clip",
+                StartFrame: MediaRef.ForArtifact(
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                    "image"),
+                EndFrame: null,
+                ReferenceFrames: null,
+                Seed: null,
+                Options: new FalVideoOptions(),
+                NumberOfVideos: 1);
+
+            var result = model.Estimate(
+                request,
+                FalVideoCapabilities.Models[FalVideoCapabilities.SeedanceI2v].Capability);
+
+            Assert.True(result.Success);
+            Assert.Equal("output_second", result.Pricing!.Unit);
+            Assert.Equal(6m, result.Pricing.Quantity);
+            Assert.Equal(0.6804m, result.Pricing.UnitPrice);
+            Assert.Equal(4.0824m, result.Pricing.TotalUsd);
+            Assert.Equal(FalSeedanceI2vPricingModel.Source, result.Pricing.PricingSource);
+        }
+
+        [Fact]
         public void ExtractActualSpend_returns_null()
         {
             var model = new FalSeedanceI2vPricingModel();

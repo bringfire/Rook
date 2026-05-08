@@ -92,6 +92,7 @@ namespace Rook.Tests.Services.Vision.Video
                     {
                         FalVideoCapabilities.WanT2v,
                         FalVideoCapabilities.SeedanceI2v,
+                        FalVideoCapabilities.KlingV3StandardI2v,
                     })
                     .OrderBy(k => k, StringComparer.Ordinal)
                     .ToArray();

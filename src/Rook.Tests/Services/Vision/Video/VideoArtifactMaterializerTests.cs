@@ -152,6 +152,34 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task Remote_transport_error_is_retried_before_success()
+        {
+            var calls = 0;
+            var handler = new CapturingHandler(_ =>
+            {
+                calls++;
+                if (calls == 1)
+                    throw new HttpRequestException("connection reset");
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(new byte[] { 1, 2, 3 }),
+                };
+            });
+            var materializer = new VideoArtifactMaterializer(
+                handler,
+                maxGeneratedVideoBytes: 4);
+
+            var result = await materializer.MaterializeAsync(
+                Remote("https://cdn.example.test/out.mp4"),
+                CancellationToken.None);
+
+            Assert.True(result.Success);
+            Assert.Equal(new byte[] { 1, 2, 3 }, result.Bytes);
+            Assert.Equal(2, handler.Requests.Count);
+        }
+
+        [Fact]
         public async Task Declared_mime_wins_over_response_mime()
         {
             var handler = new CapturingHandler(_ =>

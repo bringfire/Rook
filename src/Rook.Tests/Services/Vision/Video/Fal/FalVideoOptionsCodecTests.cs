@@ -36,6 +36,23 @@ namespace Rook.Tests.Services.Vision.Video.Fal
             Assert.Equal(field, result.Error.Field);
         }
 
+        [Theory]
+        [InlineData("multi_prompt")]
+        [InlineData("elements")]
+        [InlineData("negative_prompt")]
+        [InlineData("cfg_scale")]
+        [InlineData("generate_audio")]
+        public void Deserialize_kling_deferred_provider_fields_fail(string field)
+        {
+            var json = new JsonObject { [field] = "x" };
+
+            var result = _codec.Deserialize(json);
+
+            Assert.False(result.Success);
+            Assert.Equal(GenerationErrorCode.InvalidRequest, result.Error!.Code);
+            Assert.Equal(field, result.Error.Field);
+        }
+
         [Fact]
         public void Serialize_fal_options_returns_empty_object()
         {
@@ -53,6 +70,34 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 request,
                 request.Options,
                 FalVideoCapabilities.Models[FalVideoCapabilities.WanT2v].Capability);
+
+            Assert.True(result.Success);
+        }
+
+        [Fact]
+        public void Validate_rejects_missing_prompt_for_kling()
+        {
+            var request = KlingRequest(prompt: " ");
+
+            var result = _codec.Validate(
+                request,
+                request.Options,
+                FalVideoCapabilities.Models[FalVideoCapabilities.KlingV3StandardI2v].Capability);
+
+            Assert.False(result.Success);
+            Assert.Equal(nameof(VideoGenerationRequest.Prompt), result.Field);
+            Assert.Contains("Kling", result.Message);
+        }
+
+        [Fact]
+        public void Validate_accepts_prompt_for_kling()
+        {
+            var request = KlingRequest(prompt: "camera glides around the model");
+
+            var result = _codec.Validate(
+                request,
+                request.Options,
+                FalVideoCapabilities.Models[FalVideoCapabilities.KlingV3StandardI2v].Capability);
 
             Assert.True(result.Success);
         }
@@ -84,6 +129,21 @@ namespace Rook.Tests.Services.Vision.Video.Fal
                 ReferenceFrames: null,
                 Seed: null,
                 Options: options,
+                NumberOfVideos: 1);
+
+        private static VideoGenerationRequest KlingRequest(string? prompt) =>
+            new(
+                Model: FalVideoCapabilities.KlingV3StandardI2v,
+                Mode: VideoMode.I2V,
+                DurationSeconds: 5,
+                Resolution: "auto",
+                AspectRatio: "auto",
+                Prompt: prompt,
+                StartFrame: MediaRef.ForArtifact(System.Guid.NewGuid(), VideoMediaRoles.StartFrame),
+                EndFrame: null,
+                ReferenceFrames: null,
+                Seed: null,
+                Options: new FalVideoOptions(),
                 NumberOfVideos: 1);
     }
 }

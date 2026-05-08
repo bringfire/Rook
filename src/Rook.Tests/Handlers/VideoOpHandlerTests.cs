@@ -665,6 +665,37 @@ namespace Rook.Tests.Handlers
             AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
         }
 
+        [Theory]
+        [InlineData(2)]
+        [InlineData(16)]
+        public void Estimate_kling_rejects_duration_outside_3_to_15(int durationSeconds)
+        {
+            var handler = NewHandler(registry: RegistryWithVeoAndFal());
+
+            var resp = handler.DispatchOffUi($$"""
+                {
+                  "op": "estimate_video_job",
+                  "model": "fal-ai/kling-video/v3/standard/image-to-video",
+                  "mode": "i2v",
+                  "duration_seconds": {{durationSeconds}},
+                  "resolution": "auto",
+                  "aspect_ratio": "auto",
+                  "prompt": "a camera glide through a courtyard",
+                  "start_frame": {
+                    "kind": "artifact_id",
+                    "artifact_id": "{{SampleArtifactId:D}}",
+                    "role": "image"
+                  },
+                  "options": {},
+                  "number_of_videos": 1
+                }
+                """);
+
+            AssertFail(resp, GenerationErrorCode.UnsupportedMedia, expectedHttp: 415);
+            AssertFieldEquals(resp, nameof(VideoGenerationRequest.DurationSeconds));
+            AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(resp.Data));
+        }
+
         [Fact]
         public async Task Submit_UnknownModel_FailsBeforeOptionsParsing()
         {
@@ -1389,10 +1420,13 @@ namespace Rook.Tests.Handlers
             Assert.Contains("i2v", modeStrings);
             Assert.Contains("interp", modeStrings);
             Assert.DoesNotContain("t2v", modeStrings);
-            Assert.DoesNotContain(
+            var kling = Assert.Single(
                 models,
-                m => ((string?)m["model_id"] ?? string.Empty)
-                    .IndexOf("kling", StringComparison.OrdinalIgnoreCase) >= 0);
+                m => (string?)m["model_id"] == FalVideoCapabilities.KlingV3StandardI2v);
+
+            Assert.Equal(FalVideoCapabilities.ProviderName, kling["provider_name"]);
+            var klingCap = Assert.IsType<Dictionary<string, object?>>(kling["capability"]);
+            Assert.Equal(FalVideoCapabilities.KlingV3StandardI2v, klingCap["id"]);
             AssertNoFalSourceTransportMarkers(JsonSerializer.Serialize(data));
         }
 
@@ -1484,6 +1518,7 @@ namespace Rook.Tests.Handlers
             Assert.DoesNotContain("api.fal.ai", text);
             Assert.DoesNotContain("rest.fal.ai", text);
             Assert.DoesNotContain("image_url", text);
+            Assert.DoesNotContain("start_image_url", text);
             Assert.DoesNotContain("end_image_url", text);
             Assert.DoesNotContain("data:image", text);
         }
