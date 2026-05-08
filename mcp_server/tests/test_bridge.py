@@ -185,6 +185,23 @@ def test_select_rhino_instance_respects_process_id_for_non_gh(discovery_dir: Pat
     assert selected["pluginType"] == "native"
 
 
+def test_select_rhino_instance_rejects_port_anchor_with_wrong_process_id(
+    discovery_dir: Path,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        {
+            "port": 9951,
+            "processId": 9999,
+            "pluginType": "native",
+        },
+    )
+
+    selected = bridge.select_rhino_instance(port=9951, process_id=7102)
+
+    assert selected is None
+
+
 @pytest.mark.asyncio
 async def test_call_rhino_uses_scoped_process_and_document_context(
     discovery_dir: Path,
@@ -285,6 +302,48 @@ async def test_call_rhino_fails_fast_on_duplicate_native_host_port(
 def test_get_rhino_host_returns_none_when_no_instance(discovery_dir: Path) -> None:
     """With an empty discovery folder, get_rhino_host() returns None."""
     result = bridge.get_rhino_host()
+    assert result is None
+
+
+def test_get_rhino_host_uses_scoped_process_context(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        {
+            "port": 9951,
+            "processId": 7102,
+            "pluginType": "native",
+        },
+    )
+
+    with bridge.rhino_request_context(port=9951, process_id=7102):
+        result = bridge.get_rhino_host()
+
+    assert result == "http://127.0.0.1:9951"
+
+
+def test_get_rhino_host_rejects_scoped_port_with_wrong_process_id(
+    discovery_dir: Path,
+) -> None:
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        {
+            "port": 9951,
+            "processId": 9999,
+            "pluginType": "native",
+        },
+    )
+
+    with bridge.rhino_request_context(port=9951, process_id=7102):
+        result = bridge.get_rhino_host()
+
     assert result is None
 
 
