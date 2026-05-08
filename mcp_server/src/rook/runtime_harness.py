@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
+import subprocess
 import time
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -15,6 +18,7 @@ import httpx
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
 MIN_POLL_SECONDS = 0.001
+HARNESS_ENV_KEYS = ("ROOK_RHINO_PORT", "ROOK_RHINO_PROCESS_ID", "NATIVE_PORT")
 
 
 class DiscoveryError(RuntimeError):
@@ -30,6 +34,89 @@ class OwnedRhinoRecord:
     raw: dict[str, Any]
 
 
+class CleanupStatus(Enum):
+    NOT_ATTEMPTED = "not_attempted"
+
+
+class HarnessStatus(Enum):
+    SUCCESS = "success"
+    NON_GREEN = "non_green"
+
+
+@dataclass(frozen=True)
+class SmokeCommandResult:
+    command: list[str]
+    scoped_env: dict[str, str]
+    returncode: int
+    stdout: str
+    stderr: str
+    duration_seconds: float
+    timed_out: bool = False
+
+    @property
+    def succeeded(self) -> bool:
+        return self.returncode == 0 and not self.timed_out
+
+    def to_manifest_dict(self) -> dict[str, Any]:
+        return {
+            "command": self.command,
+            "scoped_env": self.scoped_env,
+            "returncode": self.returncode,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "duration_seconds": self.duration_seconds,
+            "timed_out": self.timed_out,
+        }
+
+
+@dataclass(frozen=True)
+class RhinoHarnessResult:
+    run_id: str
+    artifact_dir: Path
+    pid: int
+    port: int
+    ready_record_path: Path | None = None
+    smoke: SmokeCommandResult | None = None
+    cleanup_status: CleanupStatus = CleanupStatus.NOT_ATTEMPTED
+
+    @property
+    def success(self) -> bool:
+        return self.smoke is not None and self.smoke.succeeded
+
+    @property
+    def status(self) -> HarnessStatus:
+        if self.success:
+            return HarnessStatus.SUCCESS
+        return HarnessStatus.NON_GREEN
+
+    def to_manifest_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "artifact_dir": str(self.artifact_dir),
+            "pid": self.pid,
+            "port": self.port,
+            "ready": {
+                "record_snapshot_path": str(self.ready_record_path) if self.ready_record_path else None,
+                "record_available": self.ready_record_path is not None,
+            },
+            "smoke": self.smoke.to_manifest_dict() if self.smoke else None,
+            "cleanup": {
+                "status": self.cleanup_status.value,
+            },
+            "status": self.status.value,
+            "success": self.success,
+        }
+
+    def write_manifest(self) -> Path:
+        self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = self.artifact_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(self.to_manifest_dict(), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return manifest_path
+
+
 class ProcessLike(Protocol):
     pid: int
     returncode: int | None
@@ -38,6 +125,65 @@ class ProcessLike(Protocol):
 
 
 PingFunction = Callable[[str, int], bool | Awaitable[bool]]
+
+
+def _scoped_env_subset(env_additions: dict[str, str]) -> dict[str, str]:
+    return {key: str(env_additions[key]) for key in HARNESS_ENV_KEYS if key in env_additions}
+
+
+def run_smoke_command(
+    command: list[str],
+    env_additions: dict[str, str],
+    cwd: Path | None = None,
+    timeout_seconds: float | None = None,
+) -> SmokeCommandResult:
+    start = time.monotonic()
+    scoped_env = _scoped_env_subset(env_additions)
+    env = os.environ.copy()
+    env.update({key: str(value) for key, value in env_additions.items()})
+
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration_seconds = time.monotonic() - start
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        diagnostic = f"smoke command timed out after {timeout_seconds} seconds"
+        if stderr:
+            stderr = f"{stderr}\n{diagnostic}"
+        else:
+            stderr = diagnostic
+        return SmokeCommandResult(
+            command=command,
+            scoped_env=scoped_env,
+            returncode=124,
+            stdout=stdout,
+            stderr=stderr,
+            duration_seconds=duration_seconds,
+            timed_out=True,
+        )
+
+    duration_seconds = time.monotonic() - start
+    return SmokeCommandResult(
+        command=command,
+        scoped_env=scoped_env,
+        returncode=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+        duration_seconds=duration_seconds,
+    )
 
 
 def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:

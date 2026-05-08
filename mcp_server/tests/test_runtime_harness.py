@@ -1,10 +1,19 @@
 import json
+import sys
 from pathlib import Path
 
 import httpx
 import pytest
 
-from rook.runtime_harness import DiscoveryError, OwnedRhinoDiscovery, ping_native
+from rook.runtime_harness import (
+    CleanupStatus,
+    DiscoveryError,
+    HarnessStatus,
+    OwnedRhinoDiscovery,
+    RhinoHarnessResult,
+    run_smoke_command,
+    ping_native,
+)
 
 
 class FakeProcess:
@@ -315,3 +324,140 @@ async def test_ping_native_returns_false_when_endpoint_not_listening(monkeypatch
     assert await ping_native("localhost", 9821) is False
 
     assert FakeAsyncClient.urls == ["http://localhost:9821/ping"]
+
+
+def test_run_smoke_command_captures_output_and_scoped_env(tmp_path: Path):
+    script = (
+        "import os, sys\n"
+        "print(os.environ['ROOK_RHINO_PORT'])\n"
+        "print(os.environ['ROOK_RHINO_PROCESS_ID'])\n"
+        "print(os.environ['NATIVE_PORT'])\n"
+        "print(os.environ.get('IGNORED_FOR_MANIFEST'))\n"
+        "print('err-line', file=sys.stderr)\n"
+    )
+
+    result = run_smoke_command(
+        [sys.executable, "-c", script],
+        env_additions={
+            "ROOK_RHINO_PORT": "9001",
+            "ROOK_RHINO_PROCESS_ID": "1234",
+            "NATIVE_PORT": "9001",
+            "IGNORED_FOR_MANIFEST": "ambient-ok",
+        },
+        cwd=tmp_path,
+        timeout_seconds=5,
+    )
+
+    assert result.command == [sys.executable, "-c", script]
+    assert result.scoped_env == {
+        "ROOK_RHINO_PORT": "9001",
+        "ROOK_RHINO_PROCESS_ID": "1234",
+        "NATIVE_PORT": "9001",
+    }
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["9001", "1234", "9001", "ambient-ok"]
+    assert result.stderr.strip() == "err-line"
+    assert result.duration_seconds >= 0
+    assert result.succeeded is True
+
+
+def test_failing_smoke_command_is_non_green_and_manifest_records_output(tmp_path: Path):
+    smoke = run_smoke_command(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('partial out'); print('partial err', file=sys.stderr); sys.exit(7)",
+        ],
+        env_additions={"ROOK_RHINO_PORT": "9002"},
+        timeout_seconds=5,
+    )
+    harness = RhinoHarnessResult(
+        run_id="run-failure",
+        artifact_dir=tmp_path,
+        pid=1234,
+        port=9002,
+        ready_record_path=tmp_path / "owned-discovery-instance-1234-native.json",
+        smoke=smoke,
+    )
+
+    manifest_path = harness.write_manifest()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert smoke.returncode == 7
+    assert smoke.succeeded is False
+    assert harness.status == HarnessStatus.NON_GREEN
+    assert harness.success is False
+    assert manifest["status"] == "non_green"
+    assert manifest["success"] is False
+    assert manifest["smoke"]["returncode"] == 7
+    assert manifest["smoke"]["stdout"] == "partial out\n"
+    assert manifest["smoke"]["stderr"] == "partial err\n"
+
+
+def test_run_smoke_command_timeout_returns_result_without_throwing():
+    result = run_smoke_command(
+        [sys.executable, "-c", "import time; time.sleep(2)"],
+        env_additions={},
+        timeout_seconds=0.01,
+    )
+
+    assert result.returncode != 0
+    assert result.timed_out is True
+    assert "timed out" in result.stderr.lower()
+    assert result.succeeded is False
+
+
+def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path: Path):
+    ready_path = tmp_path / "owned-discovery-instance-2222-native.json"
+    ready_path.write_text('{"processId":2222}', encoding="utf-8")
+    smoke = run_smoke_command(
+        [sys.executable, "-c", "print('ok')"],
+        env_additions={
+            "ROOK_RHINO_PORT": "9010",
+            "ROOK_RHINO_PROCESS_ID": "2222",
+            "NATIVE_PORT": "9010",
+        },
+        timeout_seconds=5,
+    )
+    harness = RhinoHarnessResult(
+        run_id="run-success",
+        artifact_dir=tmp_path,
+        pid=2222,
+        port=9010,
+        ready_record_path=ready_path,
+        smoke=smoke,
+        cleanup_status=CleanupStatus.NOT_ATTEMPTED,
+    )
+
+    manifest_path = harness.write_manifest()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest_path == tmp_path / "manifest.json"
+    assert manifest == {
+        "run_id": "run-success",
+        "artifact_dir": str(tmp_path),
+        "pid": 2222,
+        "port": 9010,
+        "ready": {
+            "record_snapshot_path": str(ready_path),
+            "record_available": True,
+        },
+        "smoke": {
+            "command": [sys.executable, "-c", "print('ok')"],
+            "scoped_env": {
+                "ROOK_RHINO_PORT": "9010",
+                "ROOK_RHINO_PROCESS_ID": "2222",
+                "NATIVE_PORT": "9010",
+            },
+            "returncode": 0,
+            "stdout": "ok\n",
+            "stderr": "",
+            "duration_seconds": smoke.duration_seconds,
+            "timed_out": False,
+        },
+        "cleanup": {
+            "status": "not_attempted",
+        },
+        "status": "success",
+        "success": True,
+    }
