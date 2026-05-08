@@ -19,6 +19,8 @@ def _add_mcp_src_to_path(repo_root: Path) -> None:
 
 
 def _smoke_command(name: str, repo_root: Path) -> tuple[list[str], Path]:
+    if name == "ping-only":
+        return (["ping-only"], repo_root)
     if name == "pytest-select":
         return (
             [
@@ -48,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
     parser.add_argument(
         "--smoke",
-        choices=["pytest-select", "rhino-operational"],
+        choices=["ping-only", "pytest-select", "rhino-operational"],
         default="pytest-select",
     )
     return parser

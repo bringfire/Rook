@@ -170,6 +170,10 @@ def _windows_user32() -> ctypes.WinDLL:
     user32.EnumWindows.restype = wintypes.BOOL
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
     user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     user32.GetWindowThreadProcessId.restype = wintypes.DWORD
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
@@ -200,16 +204,68 @@ def close_windows_for_pid(pid: int) -> int:
     return posted_count
 
 
+def _window_title(user32: ctypes.WinDLL, hwnd: int) -> str:
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ""
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    copied = user32.GetWindowTextW(hwnd, buffer, length + 1)
+    if copied <= 0:
+        return ""
+    return buffer.value
+
+
+def describe_windows_for_pid(pid: int) -> list[dict[str, Any]]:
+    if os.name != "nt":
+        return []
+
+    user32 = _windows_user32()
+    windows: list[dict[str, Any]] = []
+
+    def enum_window(hwnd, lparam):
+        visible = bool(user32.IsWindowVisible(hwnd))
+        if not visible:
+            return True
+
+        window_pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+        if window_pid.value == pid:
+            windows.append(
+                {
+                    "hwnd": f"0x{int(hwnd):x}",
+                    "visible": visible,
+                    "title": _window_title(user32, hwnd),
+                }
+            )
+        return True
+
+    enum_windows_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows(enum_windows_proc(enum_window), 0)
+    return windows
+
+
 def request_external_graceful_close(
     process,
     timeout_seconds: float,
     close_windows_for_pid_fn: Callable[[int], int] = close_windows_for_pid,
+    describe_windows_for_pid_fn: Callable[[int], list[dict[str, Any]]] = describe_windows_for_pid,
+    diagnostics: list[str] | None = None,
 ) -> bool:
-    close_windows_for_pid_fn(process.pid)
+    windows_before = describe_windows_for_pid_fn(process.pid)
+    posted_count = close_windows_for_pid_fn(process.pid)
     try:
         process.wait(timeout=timeout_seconds)
         return False
     except Exception:
+        if diagnostics is not None:
+            diagnostics.append(
+                f"cleanup WM_CLOSE posted to {posted_count} window(s) for pid {process.pid}; "
+                f"windows before close: {windows_before}"
+            )
+            diagnostics.append(
+                f"cleanup timed out after {timeout_seconds} seconds for pid {process.pid}; "
+                f"windows after timeout: {describe_windows_for_pid_fn(process.pid)}"
+            )
         process.kill()
         try:
             process.wait(timeout=1.0)
@@ -351,6 +407,82 @@ def run_smoke_command(
         stderr=stderr,
         duration_seconds=duration_seconds,
     )
+
+
+def run_ping_smoke(
+    record: OwnedRhinoRecord,
+    ping: PingFunction | None = None,
+) -> SmokeCommandResult:
+    start = time.monotonic()
+    ping = ping or ping_native
+    env = {
+        "ROOK_RHINO_PORT": str(record.port),
+        "ROOK_RHINO_PROCESS_ID": str(record.pid),
+    }
+    try:
+        ping_result = ping(record.host, record.port)
+        if inspect.isawaitable(ping_result):
+            ping_result = _run_awaitable_sync(ping_result)
+    except Exception as exc:
+        return SmokeCommandResult(
+            command=["ping-only"],
+            scoped_env=_scoped_env_subset(env),
+            returncode=1,
+            stdout="",
+            stderr=f"ping-only smoke failed: {exc}",
+            duration_seconds=time.monotonic() - start,
+        )
+
+    return SmokeCommandResult(
+        command=["ping-only"],
+        scoped_env=_scoped_env_subset(env),
+        returncode=0 if ping_result else 1,
+        stdout="pong\n" if ping_result else "",
+        stderr="" if ping_result else "ping-only smoke did not receive pong",
+        duration_seconds=time.monotonic() - start,
+    )
+
+
+def save_owned_document_for_cleanup(
+    record: OwnedRhinoRecord,
+    artifact_dir: Path,
+    warnings: list[str],
+    timeout_seconds: float = 20.0,
+) -> Path | None:
+    cleanup_dir = artifact_dir / "cleanup"
+    save_path = cleanup_dir / f"owned-rhino-{record.pid}-cleanup.3dm"
+    try:
+        cleanup_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        warnings.append(f"cleanup document save failed before request: {exc}")
+        return None
+
+    url = f"http://{record.host}:{record.port}/document/save"
+    try:
+        response = httpx.post(
+            url,
+            json={"path": str(save_path), "small": True},
+            timeout=timeout_seconds,
+        )
+    except httpx.HTTPError as exc:
+        warnings.append(f"cleanup document save failed: {exc}")
+        return None
+
+    if response.status_code >= 400:
+        warnings.append(
+            f"cleanup document save failed with HTTP {response.status_code}: {response.text}"
+        )
+        return None
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict) and payload.get("success") is False:
+        warnings.append(f"cleanup document save failed: {payload.get('error') or payload}")
+        return None
+
+    return save_path
 
 
 def copy_temp_rook_artifacts(
@@ -508,17 +640,22 @@ def run_rhino_runtime_harness(
                 if smoke_kind == "rhino-operational":
                     smoke_env["NATIVE_PORT"] = str(record.port)
                 try:
-                    smoke = run_smoke_command(
-                        smoke_command,
-                        smoke_env,
-                        cwd=smoke_cwd,
-                        timeout_seconds=smoke_timeout_seconds,
-                    )
+                    if smoke_kind == "ping-only":
+                        smoke = run_ping_smoke(record, ping_native)
+                    else:
+                        smoke = run_smoke_command(
+                            smoke_command,
+                            smoke_env,
+                            cwd=smoke_cwd,
+                            timeout_seconds=smoke_timeout_seconds,
+                        )
                 except Exception as exc:
                     warnings.append(f"Rhino smoke command failed before result: {exc}")
                     copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
                 else:
                     result = replace(result, smoke=smoke)
+                    if smoke_kind != "ping-only":
+                        save_owned_document_for_cleanup(record, artifact_dir, warnings)
                     copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
                     before_shutdown_copied = True
                     if not smoke.succeeded:
@@ -532,7 +669,11 @@ def run_rhino_runtime_harness(
         force_failed = False
         if not already_exited_before_cleanup:
             try:
-                forced = request_external_graceful_close(process, cleanup_timeout_seconds)
+                forced = request_external_graceful_close(
+                    process,
+                    cleanup_timeout_seconds,
+                    diagnostics=warnings,
+                )
             except Exception as exc:
                 warnings.append(f"Rhino cleanup failed: {exc}")
                 force_failed = True

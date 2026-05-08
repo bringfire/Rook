@@ -351,6 +351,9 @@ verification when you want the test runner to own the Rhino process lifecycle:
 ```powershell
 # From the repo root
 python scripts\run_rhino_runtime_harness.py --smoke pytest-select
+
+# Non-mutating readiness/cleanup diagnostic
+python scripts\run_rhino_runtime_harness.py --smoke ping-only
 ```
 
 The harness starts one Rhino process, waits only for
@@ -363,7 +366,10 @@ contract is the `ROOK_RHINO_*` environment pair.
 
 Harness run artifacts from `%TEMP%\rook` are captured under
 `.scratch\rhino-runtime-harness` for inspection. When the run finishes, the
-harness closes only the Rhino process it started.
+harness saves the owned document into the run artifact folder before external
+close for smoke modes that may dirty the document, then closes only the Rhino
+process it started. `ping-only` skips the save step so it remains a pure
+readiness and cleanup diagnostic.
 
 Ambient pytest behavior is unchanged. Without harness environment variables,
 `pytest -m requires_rhino` continues to discover or skip live tests as before.
