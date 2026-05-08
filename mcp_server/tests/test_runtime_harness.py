@@ -1,5 +1,8 @@
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -89,6 +92,35 @@ def _native_record(pid: int, **overrides) -> dict:
     }
     record.update(overrides)
     return record
+
+
+def _pid_is_running(pid: int) -> bool:
+    if os.name == "nt":
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        return str(pid) in result.stdout
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_until_pid_exits(pid: int, timeout_seconds: float = 1.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not _pid_is_running(pid):
+            return True
+        time.sleep(0.05)
+    return not _pid_is_running(pid)
 
 
 def test_owned_discovery_accepts_exact_native_pid(tmp_path: Path):
@@ -405,6 +437,53 @@ def test_run_smoke_command_timeout_returns_result_without_throwing():
     assert result.timed_out is True
     assert "timed out" in result.stderr.lower()
     assert result.succeeded is False
+
+
+def test_run_smoke_command_timeout_kills_descendant_holding_output_pipes(tmp_path: Path):
+    child_pid_path = tmp_path / "child.pid"
+    script = (
+        "from pathlib import Path\n"
+        "import subprocess, sys, time\n"
+        f"child_pid_path = {str(child_pid_path)!r}\n"
+        "child = subprocess.Popen([\n"
+        "    sys.executable,\n"
+        "    '-c',\n"
+        "    'import sys, time; print(\"child-start\"); sys.stdout.flush(); time.sleep(3)',\n"
+        "])\n"
+        "Path(child_pid_path).write_text(str(child.pid), encoding='utf-8')\n"
+        "print('parent-start')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(3)\n"
+    )
+
+    started = time.monotonic()
+    try:
+        result = run_smoke_command(
+            [sys.executable, "-c", script],
+            env_additions={},
+            timeout_seconds=0.2,
+        )
+        elapsed = time.monotonic() - started
+
+        assert result.timed_out is True
+        assert result.returncode != 0
+        assert "timed out" in result.stderr.lower()
+        assert "parent-start" in result.stdout
+        assert elapsed < 1.5
+        assert child_pid_path.exists()
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        assert _wait_until_pid_exits(child_pid)
+    finally:
+        if child_pid_path.exists():
+            child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+            if _pid_is_running(child_pid):
+                subprocess.run(
+                    ["taskkill", "/PID", str(child_pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
 
 
 def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path: Path):

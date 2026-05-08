@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import os
+import signal
 import subprocess
 import time
 import tempfile
@@ -131,6 +132,37 @@ def _scoped_env_subset(env_additions: dict[str, str]) -> dict[str, str]:
     return {key: str(env_additions[key]) for key in HARNESS_ENV_KEYS if key in env_additions}
 
 
+def _smoke_popen_kwargs() -> dict[str, Any]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _terminate_smoke_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.kill()
+
+
 def run_smoke_command(
     command: list[str],
     env_additions: dict[str, str],
@@ -142,20 +174,28 @@ def run_smoke_command(
     env = os.environ.copy()
     env.update({key: str(value) for key, value in env_additions.items()})
 
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **_smoke_popen_kwargs(),
+    )
     try:
-        completed = subprocess.run(
-            command,
-            cwd=cwd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
+        _terminate_smoke_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+
         duration_seconds = time.monotonic() - start
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
+        stdout = stdout or exc.stdout or ""
+        stderr = stderr or exc.stderr or ""
         if isinstance(stdout, bytes):
             stdout = stdout.decode(errors="replace")
         if isinstance(stderr, bytes):
@@ -179,9 +219,9 @@ def run_smoke_command(
     return SmokeCommandResult(
         command=command,
         scoped_env=scoped_env,
-        returncode=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        returncode=process.returncode if process.returncode is not None else 0,
+        stdout=stdout,
+        stderr=stderr,
         duration_seconds=duration_seconds,
     )
 
