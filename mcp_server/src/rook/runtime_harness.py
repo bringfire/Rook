@@ -22,6 +22,7 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
 MIN_POLL_SECONDS = 0.001
 HARNESS_ENV_KEYS = ("ROOK_RHINO_PORT", "ROOK_RHINO_PROCESS_ID", "NATIVE_PORT")
+FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS = 1.0
 
 
 class DiscoveryError(RuntimeError):
@@ -134,6 +135,14 @@ def _scoped_env_subset(env_additions: dict[str, str]) -> dict[str, str]:
     return {key: str(env_additions[key]) for key in HARNESS_ENV_KEYS if key in env_additions}
 
 
+def _decode_timeout_stream(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
 def _smoke_popen_kwargs() -> dict[str, Any]:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -226,20 +235,28 @@ def run_smoke_command(
             stdout, stderr = process.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             _terminate_smoke_process_tree(process, job_handle)
+            drain_error: subprocess.TimeoutExpired | None = None
             try:
                 stdout, stderr = process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as post_terminate_exc:
+                drain_error = post_terminate_exc
                 process.kill()
-                stdout, stderr = process.communicate()
+                try:
+                    stdout, stderr = process.communicate(timeout=FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS)
+                except subprocess.TimeoutExpired as final_drain_exc:
+                    drain_error = final_drain_exc
+                    stdout = final_drain_exc.stdout or post_terminate_exc.stdout or exc.stdout or ""
+                    stderr = final_drain_exc.stderr or post_terminate_exc.stderr or exc.stderr or ""
 
             duration_seconds = time.monotonic() - start
-            stdout = stdout or exc.stdout or ""
-            stderr = stderr or exc.stderr or ""
-            if isinstance(stdout, bytes):
-                stdout = stdout.decode(errors="replace")
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode(errors="replace")
+            stdout = _decode_timeout_stream(stdout or exc.stdout)
+            stderr = _decode_timeout_stream(stderr or exc.stderr)
             diagnostic = f"smoke command timed out after {timeout_seconds} seconds"
+            if drain_error is not None:
+                diagnostic = (
+                    f"{diagnostic}; could not drain smoke command output after cleanup "
+                    f"within {drain_error.timeout} seconds"
+                )
             if stderr:
                 stderr = f"{stderr}\n{diagnostic}"
             else:

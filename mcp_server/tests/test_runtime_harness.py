@@ -532,6 +532,58 @@ def test_run_smoke_command_timeout_kills_descendant_after_parent_exits(tmp_path:
                 )
 
 
+def test_run_smoke_command_timeout_recovery_never_uses_unbounded_final_drain(monkeypatch):
+    class AlwaysTimingOutProcess:
+        pid = 4242
+        returncode = None
+
+        def __init__(self):
+            self.communicate_timeouts: list[float | None] = []
+            self.kill_called = False
+
+        def communicate(self, timeout=None):
+            self.communicate_timeouts.append(timeout)
+            if timeout is None:
+                raise AssertionError("communicate called without a timeout")
+            raise subprocess.TimeoutExpired(
+                cmd=["fake-smoke"],
+                timeout=timeout,
+                output="partial stdout",
+                stderr="partial stderr",
+            )
+
+        def kill(self):
+            self.kill_called = True
+            self.returncode = -9
+
+        def poll(self):
+            return self.returncode
+
+    fake_process = AlwaysTimingOutProcess()
+    monkeypatch.setattr(
+        "rook.runtime_harness.subprocess.Popen",
+        lambda *args, **kwargs: fake_process,
+    )
+    monkeypatch.setattr("rook.runtime_harness._create_windows_job_for_process", lambda process: None)
+    monkeypatch.setattr("rook.runtime_harness._terminate_smoke_process_tree", lambda process, job: None)
+    monkeypatch.setattr("rook.runtime_harness._close_windows_job", lambda job: None)
+
+    result = run_smoke_command(
+        ["fake-smoke"],
+        env_additions={},
+        timeout_seconds=0.2,
+    )
+
+    assert result.timed_out is True
+    assert result.returncode != 0
+    assert result.stdout == "partial stdout"
+    assert "partial stderr" in result.stderr
+    assert "timed out" in result.stderr.lower()
+    assert "could not drain" in result.stderr.lower()
+    assert fake_process.kill_called is True
+    assert fake_process.communicate_timeouts == [0.2, 5, 1]
+
+
 def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path: Path):
     ready_path = tmp_path / "owned-discovery-instance-2222-native.json"
     ready_path.write_text('{"processId":2222}', encoding="utf-8")
