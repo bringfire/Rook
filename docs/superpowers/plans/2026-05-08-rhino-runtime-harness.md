@@ -17,7 +17,9 @@
 | `mcp_server/src/rook/runtime_harness.py` | Create | Own process lifecycle, exact owned-PID discovery, ping, smoke subprocess execution, best-effort artifact copy, manifest writing, cleanup classification. |
 | `scripts/run_rhino_runtime_harness.py` | Create | CLI wrapper that imports the harness from the source tree and exits `0` only for a green harness run. |
 | `mcp_server/tests/test_runtime_harness.py` | Create | Unit tests for discovery, no broad fallback, smoke env, run result cleanup states, manifest/artifact behavior. No live Rhino required. |
-| `mcp_server/tests/conftest.py` | Modify | Add harness-mode env parsing and bind `fresh_document` calls to both `ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID` through `bridge.rhino_request_context`. Ambient mode remains unchanged. |
+| `mcp_server/src/rook/bridge.py` | Modify | Make direct `get_rhino_host()` calls honor the active `rhino_request_context` when explicit args are absent. |
+| `mcp_server/tests/test_bridge.py` | Modify | Pin `get_rhino_host()` context behavior so direct live-test helper calls cannot escape harness scoping. |
+| `mcp_server/tests/conftest.py` | Modify | Add harness-mode env parsing and an autouse `requires_rhino` fixture that binds the entire live test body to both `ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID`. Ambient mode remains unchanged. |
 | `mcp_server/tests/test_live_harness_scoping.py` | Create | Unit tests for pytest harness-mode parsing and failure/skip semantics without live Rhino. |
 | `BUILDING.md` | Modify | Document the opt-in harness command and state that default live pytest behavior remains ambient unless harness env vars are set. |
 
@@ -602,6 +604,7 @@ class HarnessRunResult:
     pid: int
     port: int | None
     artifact_dir: Path
+    run_started_at: float
     green: bool = False
     smoke_stdout: str = ""
     smoke_stderr: str = ""
@@ -616,7 +619,12 @@ class RhinoRuntimeHarness:
 
     def new_result(self, *, pid: int, port: int | None, artifact_dir: Path) -> HarnessRunResult:
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        return HarnessRunResult(pid=pid, port=port, artifact_dir=artifact_dir)
+        return HarnessRunResult(
+            pid=pid,
+            port=port,
+            artifact_dir=artifact_dir,
+            run_started_at=time.time(),
+        )
 
     def build_smoke_env(
         self,
@@ -718,11 +726,37 @@ def test_copy_rook_temp_artifacts_copies_readable_files(tmp_path: Path) -> None:
     assert (tmp_path / "run" / "before-shutdown" / "companion-startup.log").read_text(encoding="utf-8") == "startup"
 
 
+def test_copy_rook_temp_artifacts_filters_before_run_window(tmp_path: Path) -> None:
+    source = tmp_path / "rook"
+    source.mkdir()
+    old_log = source / "old.log"
+    new_log = source / "new.log"
+    old_log.write_text("old", encoding="utf-8")
+    new_log.write_text("new", encoding="utf-8")
+    os.utime(old_log, (1000, 1000))
+    os.utime(new_log, (2000, 2000))
+    harness = RhinoRuntimeHarness(artifact_root=tmp_path)
+    result = harness.new_result(pid=1234, port=34567, artifact_dir=tmp_path / "run")
+    result.run_started_at = 1500
+
+    copied = harness.copy_rook_temp_artifacts(result=result, temp_rook_dir=source, label="before-shutdown")
+
+    assert [path.name for path in copied] == ["new.log"]
+    assert not (tmp_path / "run" / "before-shutdown" / "old.log").exists()
+
+
 def test_classify_graceful_exit_with_discovery_leftover_is_non_green(tmp_path: Path) -> None:
     harness = RhinoRuntimeHarness(artifact_root=tmp_path)
     result = harness.new_result(pid=1234, port=34567, artifact_dir=tmp_path / "run")
 
-    harness.classify_cleanup(result, process_exited=True, discovery_leftover=True, forced=False, force_failed=False)
+    harness.classify_cleanup(
+        result,
+        already_exited_before_cleanup=False,
+        process_exited_after_cleanup=True,
+        discovery_leftover=True,
+        forced=False,
+        force_failed=False,
+    )
 
     assert result.cleanup_path == CleanupPath.GRACEFUL_EXIT_DISCOVERY_LEFTOVER
     assert result.green is False
@@ -732,9 +766,50 @@ def test_classify_forced_cleanup_is_non_green(tmp_path: Path) -> None:
     harness = RhinoRuntimeHarness(artifact_root=tmp_path)
     result = harness.new_result(pid=1234, port=34567, artifact_dir=tmp_path / "run")
 
-    harness.classify_cleanup(result, process_exited=True, discovery_leftover=True, forced=True, force_failed=False)
+    harness.classify_cleanup(
+        result,
+        already_exited_before_cleanup=False,
+        process_exited_after_cleanup=True,
+        discovery_leftover=True,
+        forced=True,
+        force_failed=False,
+    )
 
     assert result.cleanup_path == CleanupPath.GRACEFUL_TIMEOUT_FORCED_KILL
+    assert result.green is False
+
+
+def test_classify_already_exited_before_cleanup_is_distinct(tmp_path: Path) -> None:
+    harness = RhinoRuntimeHarness(artifact_root=tmp_path)
+    result = harness.new_result(pid=1234, port=34567, artifact_dir=tmp_path / "run")
+
+    harness.classify_cleanup(
+        result,
+        already_exited_before_cleanup=True,
+        process_exited_after_cleanup=True,
+        discovery_leftover=False,
+        forced=False,
+        force_failed=False,
+    )
+
+    assert result.cleanup_path == CleanupPath.ALREADY_EXITED_BEFORE_CLEANUP
+    assert result.green is False
+
+
+def test_classify_force_kill_failed_when_still_running_after_cleanup(tmp_path: Path) -> None:
+    harness = RhinoRuntimeHarness(artifact_root=tmp_path)
+    result = harness.new_result(pid=1234, port=34567, artifact_dir=tmp_path / "run")
+
+    harness.classify_cleanup(
+        result,
+        already_exited_before_cleanup=False,
+        process_exited_after_cleanup=False,
+        discovery_leftover=True,
+        forced=True,
+        force_failed=True,
+    )
+
+    assert result.cleanup_path == CleanupPath.FORCE_KILL_FAILED
     assert result.green is False
 ```
 
@@ -760,6 +835,7 @@ Add methods to `RhinoRuntimeHarness`:
         result: HarnessRunResult,
         temp_rook_dir: Path,
         label: str,
+        mtime_slop_seconds: float = 5.0,
     ) -> list[Path]:
         destination = result.artifact_dir / label
         copied: list[Path] = []
@@ -772,6 +848,8 @@ Add methods to `RhinoRuntimeHarness`:
             if not source.is_file():
                 continue
             try:
+                if source.stat().st_mtime < result.run_started_at - mtime_slop_seconds:
+                    continue
                 relative = source.relative_to(temp_rook_dir)
                 target = destination / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -785,11 +863,16 @@ Add methods to `RhinoRuntimeHarness`:
         self,
         result: HarnessRunResult,
         *,
-        process_exited: bool,
+        already_exited_before_cleanup: bool,
+        process_exited_after_cleanup: bool,
         discovery_leftover: bool,
         forced: bool,
         force_failed: bool,
     ) -> None:
+        if already_exited_before_cleanup:
+            result.cleanup_path = CleanupPath.ALREADY_EXITED_BEFORE_CLEANUP
+            result.green = False
+            return
         if force_failed:
             result.cleanup_path = CleanupPath.FORCE_KILL_FAILED
             result.green = False
@@ -798,8 +881,8 @@ Add methods to `RhinoRuntimeHarness`:
             result.cleanup_path = CleanupPath.GRACEFUL_TIMEOUT_FORCED_KILL
             result.green = False
             return
-        if not process_exited:
-            result.cleanup_path = CleanupPath.ALREADY_EXITED_BEFORE_CLEANUP
+        if not process_exited_after_cleanup:
+            result.cleanup_path = CleanupPath.FORCE_KILL_FAILED
             result.green = False
             return
         if discovery_leftover:
@@ -998,7 +1081,114 @@ git add mcp_server/src/rook/runtime_harness.py mcp_server/tests/test_runtime_har
 git commit -m "feat: add owned Rhino cleanup adapter"
 ```
 
-## Task 6: Harness-Aware Pytest Scoping
+## Task 6: Bridge Context Pins for Direct Host Lookup
+
+**Files:**
+- Modify: `mcp_server/src/rook/bridge.py`
+- Modify: `mcp_server/tests/test_bridge.py`
+
+- [ ] **Step 1: Add failing direct-host context test**
+
+Append to `mcp_server/tests/test_bridge.py`:
+
+```python
+def test_get_rhino_host_uses_scoped_process_context(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-7101-native.json",
+        {
+            "port": 9950,
+            "processId": 7101,
+            "pluginType": "native",
+        },
+    )
+    _write_instance(
+        discovery_dir / "instance-7102-native.json",
+        {
+            "port": 9951,
+            "processId": 7102,
+            "pluginType": "native",
+        },
+    )
+
+    with bridge.rhino_request_context(port=9951, process_id=7102):
+        host = bridge.get_rhino_host()
+
+    assert host == "http://127.0.0.1:9951"
+```
+
+- [ ] **Step 2: Run test and verify it fails**
+
+Run:
+
+```powershell
+cd mcp_server
+pytest tests/test_bridge.py::test_get_rhino_host_uses_scoped_process_context -v
+```
+
+Expected before implementation: fails because `get_rhino_host()` ignores the active request context and may select the first discovered native instance.
+
+- [ ] **Step 3: Make `get_rhino_host()` honor request context**
+
+Modify `mcp_server/src/rook/bridge.py`:
+
+```python
+def get_rhino_host(
+    port: int | None = None,
+    endpoint: str | None = None,
+    process_id: int | None = None,
+) -> str | None:
+    """Get the Rhino host URL, optionally resolved for a specific endpoint.
+
+    Returns None if no Rhino instance is discovered and no explicit/context
+    port was provided. Callers must handle None to produce clear error messages.
+    """
+    resolved_port = port if port is not None else _RHINO_CONTEXT_PORT.get()
+    resolved_process_id = (
+        process_id if process_id is not None else _RHINO_CONTEXT_PROCESS_ID.get()
+    )
+
+    if resolved_port is not None and resolved_port <= 0:
+        resolved_port = None
+    if resolved_process_id is not None and resolved_process_id <= 0:
+        resolved_process_id = None
+
+    if resolved_port and endpoint is None and resolved_process_id is None:
+        return f"http://{DEFAULT_HOST}:{resolved_port}"
+
+    instance = select_rhino_instance(
+        endpoint=endpoint,
+        port=resolved_port,
+        process_id=resolved_process_id,
+    )
+    if instance and instance.get("port"):
+        host = instance.get("host") or DEFAULT_HOST
+        return f"http://{host}:{instance['port']}"
+
+    if resolved_port:
+        return f"http://{DEFAULT_HOST}:{resolved_port}"
+
+    return None
+```
+
+- [ ] **Step 4: Run bridge tests**
+
+Run:
+
+```powershell
+cd mcp_server
+pytest tests/test_bridge.py -v
+```
+
+Expected: pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add mcp_server/src/rook/bridge.py mcp_server/tests/test_bridge.py
+git commit -m "fix: route direct Rhino host lookup through context"
+```
+
+## Task 7: Harness-Aware Pytest Scoping
 
 **Files:**
 - Modify: `mcp_server/tests/conftest.py`
@@ -1017,6 +1207,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import conftest
+from rook import bridge
 
 
 def test_harness_env_absent_is_ambient(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1047,6 +1238,25 @@ def test_harness_env_returns_port_and_pid(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("ROOK_RHINO_PROCESS_ID", "1234")
 
     assert conftest._get_harness_scope_from_env() == (34567, 1234)
+
+
+def test_harness_live_context_wraps_direct_host_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("ROOK_RHINO_PORT", "34567")
+    monkeypatch.setenv("ROOK_RHINO_PROCESS_ID", "1234")
+    monkeypatch.setattr(bridge, "DISCOVERY_FOLDER", tmp_path)
+    monkeypatch.setattr(bridge, "_is_pid_alive", lambda pid: True)
+    (tmp_path / "instance-1234-native.json").write_text(
+        '{"host":"127.0.0.1","port":34567,"processId":1234,"pluginType":"native"}',
+        encoding="utf-8",
+    )
+
+    with conftest._harness_rhino_request_context_for_test():
+        assert bridge.get_rhino_host() == "http://127.0.0.1:34567"
+        assert bridge.get_rhino_request_context()["port"] == 34567
+        assert bridge.get_rhino_request_context()["process_id"] == 1234
 ```
 
 - [ ] **Step 2: Run tests and verify they fail**
@@ -1060,11 +1270,14 @@ pytest tests/test_live_harness_scoping.py -v
 
 Expected: fail with missing `_get_harness_scope_from_env`.
 
-- [ ] **Step 3: Implement env parsing helper**
+- [ ] **Step 3: Implement env parsing and full-test context helpers**
 
 Modify `mcp_server/tests/conftest.py` near `_is_error`:
 
 ```python
+from contextlib import contextmanager
+
+
 def _get_harness_scope_from_env() -> tuple[int, int] | None:
     port_raw = os.environ.get("ROOK_RHINO_PORT")
     pid_raw = os.environ.get("ROOK_RHINO_PROCESS_ID")
@@ -1086,30 +1299,53 @@ def _get_harness_scope_from_env() -> tuple[int, int] | None:
         raise RuntimeError("ROOK_RHINO_PORT and ROOK_RHINO_PROCESS_ID must be positive integers")
 
     return port, pid
+
+
+@contextmanager
+def _harness_rhino_request_context_for_test():
+    from rook.bridge import rhino_request_context
+
+    harness_scope = _get_harness_scope_from_env()
+    if harness_scope is None:
+        yield
+        return
+
+    port, process_id = harness_scope
+    with rhino_request_context(port=port, process_id=process_id):
+        yield
 ```
 
 Add `import os` at the top of `conftest.py`.
 
-- [ ] **Step 4: Route `fresh_document` through the bridge request context**
+- [ ] **Step 4: Add an autouse fixture that wraps entire live tests**
 
-Modify the `_setup()` body in `fresh_document`:
+Add below `_harness_rhino_request_context_for_test()`:
+
+```python
+@pytest.fixture(autouse=True)
+def _harness_scope_for_requires_rhino_tests(request):
+    if "requires_rhino" not in request.keywords:
+        yield
+        return
+
+    with _harness_rhino_request_context_for_test():
+        yield
+```
+
+This fixture is the key safety boundary: it keeps both `_mcp_tool_executor()` calls and direct `get_rhino_host()` calls in live-test bodies scoped to the owned PID/port for the full duration of each `requires_rhino` test. Ambient mode remains unchanged because the context helper is a no-op when both env vars are absent.
+
+- [ ] **Step 5: Simplify `fresh_document` to rely on the full-test context**
+
+Keep the existing `fresh_document` behavior, but make harness-mode failures fail instead of skip. Replace the start of `_setup()` with:
 
 ```python
     async def _setup() -> tuple[bool, str | None]:
-        from rook.bridge import rhino_request_context
-
         harness_scope = _get_harness_scope_from_env()
-        context_kwargs = {}
-        if harness_scope is not None:
-            port, process_id = harness_scope
-            context_kwargs = {"port": port, "process_id": process_id}
-
         try:
-            with rhino_request_context(**context_kwargs):
-                ping = await asyncio.wait_for(
-                    _mcp_tool_executor("rhino_ping", {}),
-                    timeout=3.0,
-                )
+            ping = await asyncio.wait_for(
+                _mcp_tool_executor("rhino_ping", {}),
+                timeout=3.0,
+            )
         except RuntimeError:
             raise
         except (asyncio.TimeoutError, Exception) as ex:  # noqa: BLE001
@@ -1122,29 +1358,28 @@ Modify the `_setup()` body in `fresh_document`:
                 raise RuntimeError(f"Harness-owned Rhino ping returned error: {ping!r}")
             return False, f"Rhino ping returned error: {ping!r}"
 
-        with rhino_request_context(**context_kwargs):
-            new_doc = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
-            if _is_error(new_doc):
-                if harness_scope is not None:
-                    raise RuntimeError(f"Harness-owned rhino_document_ops(new) failed: {new_doc!r}")
-                return False, f"rhino_document_ops(new) failed: {new_doc!r}"
+        new_doc = await _mcp_tool_executor("rhino_document_ops", {"action": "new"})
+        if _is_error(new_doc):
+            if harness_scope is not None:
+                raise RuntimeError(f"Harness-owned rhino_document_ops(new) failed: {new_doc!r}")
+            return False, f"rhino_document_ops(new) failed: {new_doc!r}"
 
-            blocks_list = await _mcp_tool_executor("rhino_blocks", {})
-            if isinstance(blocks_list, dict) and isinstance(blocks_list.get("blocks"), list):
-                for entry in blocks_list["blocks"]:
-                    name = entry.get("name") if isinstance(entry, dict) else None
-                    if name:
-                        await _mcp_tool_executor(
-                            "rhino_block_delete",
-                            {"name": name, "deleteInstances": True},
-                        )
+        blocks_list = await _mcp_tool_executor("rhino_blocks", {})
+        if isinstance(blocks_list, dict) and isinstance(blocks_list.get("blocks"), list):
+            for entry in blocks_list["blocks"]:
+                name = entry.get("name") if isinstance(entry, dict) else None
+                if name:
+                    await _mcp_tool_executor(
+                        "rhino_block_delete",
+                        {"name": name, "deleteInstances": True},
+                    )
 
         return True, None
 ```
 
 Keep the existing skip after `asyncio.run(_setup())`; RuntimeError in harness mode should escape and fail the test.
 
-- [ ] **Step 5: Run scoping tests**
+- [ ] **Step 6: Run scoping tests**
 
 Run:
 
@@ -1155,7 +1390,18 @@ pytest tests/test_live_harness_scoping.py -v
 
 Expected: pass.
 
-- [ ] **Step 6: Run a representative existing live-test file without harness env**
+- [ ] **Step 7: Run bridge context and scoping tests together**
+
+Run:
+
+```powershell
+cd mcp_server
+pytest tests/test_bridge.py::test_get_rhino_host_uses_scoped_process_context tests/test_live_harness_scoping.py -v
+```
+
+Expected: pass.
+
+- [ ] **Step 8: Run a representative existing live-test file without harness env**
 
 Run:
 
@@ -1166,14 +1412,14 @@ pytest tests/test_select_additive_live.py -m requires_rhino -v
 
 Expected without Rhino: skipped, not failed. Expected with ambient Rhino: existing behavior unchanged.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```powershell
 git add mcp_server/tests/conftest.py mcp_server/tests/test_live_harness_scoping.py
 git commit -m "test: scope live pytest to owned Rhino"
 ```
 
-## Task 7: Harness CLI Runner
+## Task 8: Harness CLI Runner
 
 **Files:**
 - Modify: `mcp_server/src/rook/runtime_harness.py`
@@ -1360,6 +1606,7 @@ Add to `RhinoRuntimeHarness`:
             result.warnings.append(f"harness failure: {exc!r}")
             self.copy_rook_temp_artifacts(result=result, temp_rook_dir=DEFAULT_DISCOVERY_DIR, label="failure")
         finally:
+            already_exited_before_cleanup = process.poll() is not None
             forced = False
             force_failed = False
             try:
@@ -1370,10 +1617,11 @@ Add to `RhinoRuntimeHarness`:
                 result.warnings.append(f"cleanup failed: {exc!r}")
 
             discovery_leftover = discovery.owned_path(process.pid).exists()
-            process_exited = process.poll() is not None
+            process_exited_after_cleanup = process.poll() is not None
             self.classify_cleanup(
                 result,
-                process_exited=process_exited,
+                already_exited_before_cleanup=already_exited_before_cleanup,
+                process_exited_after_cleanup=process_exited_after_cleanup,
                 discovery_leftover=discovery_leftover,
                 forced=forced,
                 force_failed=force_failed,
@@ -1411,7 +1659,7 @@ git add mcp_server/src/rook/runtime_harness.py scripts/run_rhino_runtime_harness
 git commit -m "feat: add Rhino runtime harness entry point"
 ```
 
-## Task 8: Documentation and Final Verification
+## Task 9: Documentation and Final Verification
 
 **Files:**
 - Modify: `BUILDING.md`
