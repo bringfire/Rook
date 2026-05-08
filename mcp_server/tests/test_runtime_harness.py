@@ -754,6 +754,36 @@ def test_copy_temp_rook_artifacts_continues_after_individual_copy_failure(
     assert "permission denied" in harness.warnings[0]
 
 
+def test_copy_temp_rook_artifacts_rejects_parent_traversal_label(tmp_path: Path):
+    temp_rook = tmp_path / "temp-rook-source"
+    temp_rook.mkdir()
+    (temp_rook / "root.log").write_text("root", encoding="utf-8")
+    harness = _harness_result(tmp_path)
+
+    copied = copy_temp_rook_artifacts(harness, temp_rook, str(Path("..") / "escaped"))
+
+    assert copied == []
+    assert not (tmp_path / "escaped" / "root.log").exists()
+    assert not (harness.artifact_dir / ".." / "escaped" / "root.log").resolve().exists()
+    assert harness.warnings
+    assert "unsafe" in harness.warnings[0].lower()
+
+
+def test_copy_temp_rook_artifacts_rejects_absolute_label(tmp_path: Path):
+    temp_rook = tmp_path / "temp-rook-source"
+    temp_rook.mkdir()
+    (temp_rook / "root.log").write_text("root", encoding="utf-8")
+    harness = _harness_result(tmp_path)
+    outside_dir = tmp_path / "absolute-output"
+
+    copied = copy_temp_rook_artifacts(harness, temp_rook, str(outside_dir))
+
+    assert copied == []
+    assert not (outside_dir / "root.log").exists()
+    assert harness.warnings
+    assert "unsafe" in harness.warnings[0].lower()
+
+
 @pytest.mark.parametrize(
     (
         "kwargs",

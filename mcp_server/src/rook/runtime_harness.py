@@ -318,7 +318,13 @@ def copy_temp_rook_artifacts(
         return []
 
     copied: list[Path] = []
-    destination_root = result.artifact_dir / label
+    artifact_root = result.artifact_dir.resolve()
+    destination_root = (artifact_root / label).resolve()
+    if not destination_root.is_relative_to(artifact_root):
+        result.warnings.append(
+            f"unsafe temp Rook artifact label would copy outside artifact directory: {label}"
+        )
+        return []
     min_mtime = result.run_started_at - mtime_slop_seconds
 
     for source_path in sorted(temp_rook_dir.rglob("*")):
@@ -328,7 +334,12 @@ def copy_temp_rook_artifacts(
             if source_path.stat().st_mtime < min_mtime:
                 continue
             relative_path = source_path.relative_to(temp_rook_dir)
-            destination_path = destination_root / relative_path
+            destination_path = (destination_root / relative_path).resolve()
+            if not destination_path.is_relative_to(artifact_root):
+                result.warnings.append(
+                    f"unsafe temp Rook artifact destination would copy outside artifact directory: {destination_path}"
+                )
+                continue
             destination_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, destination_path)
         except OSError as exc:
