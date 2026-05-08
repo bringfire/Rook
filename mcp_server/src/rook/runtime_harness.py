@@ -11,7 +11,8 @@ import shutil
 import subprocess
 import time
 import tempfile
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
@@ -402,6 +403,119 @@ def copy_temp_rook_artifacts(
         copied.append(destination_path)
 
     return copied
+
+
+def _new_run_id() -> str:
+    return f"rhino-runtime-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+
+def run_rhino_runtime_harness(
+    *,
+    rhino_exe: Path,
+    artifact_root: Path,
+    smoke_command: list[str],
+    smoke_cwd: Path | None = None,
+    smoke_timeout_seconds: float | None = None,
+    discovery: OwnedRhinoDiscovery | None = None,
+    temp_rook_dir: Path = DEFAULT_DISCOVERY_DIR,
+    readiness_timeout_seconds: float = 30.0,
+    readiness_poll_seconds: float = 0.25,
+    cleanup_timeout_seconds: float = 10.0,
+) -> RhinoHarnessResult:
+    """Run one owned Rhino process through readiness, smoke, artifacts, and cleanup.
+
+    The harness intentionally waits only for the discovery file matching the
+    launched process id and cleans up only through that owned process object.
+    """
+    run_id = _new_run_id()
+    artifact_dir = artifact_root / run_id
+    warnings: list[str] = []
+
+    rhino_exe = Path(rhino_exe)
+    artifact_root = Path(artifact_root)
+    if not rhino_exe.exists():
+        result = RhinoHarnessResult(
+            run_id=run_id,
+            artifact_dir=artifact_dir,
+            pid=0,
+            port=0,
+            warnings=[f"Rhino executable not found: {rhino_exe}"],
+        )
+        result.write_manifest()
+        return result
+
+    discovery = discovery or OwnedRhinoDiscovery()
+    process = subprocess.Popen([str(rhino_exe)])
+    pid = int(process.pid)
+    port = 0
+    before_shutdown_copied = False
+    result = RhinoHarnessResult(
+        run_id=run_id,
+        artifact_dir=artifact_dir,
+        pid=pid,
+        port=port,
+        warnings=warnings,
+    )
+
+    try:
+        try:
+            record = discovery.wait_for_ready(
+                pid=pid,
+                process=process,
+                ping=ping_native,
+                timeout_seconds=readiness_timeout_seconds,
+                poll_seconds=readiness_poll_seconds,
+            )
+        except DiscoveryError as exc:
+            warnings.append(f"Rhino readiness failed: {exc}")
+            copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+        else:
+            port = record.port
+            ready_record_path = discovery.snapshot_owned_record(record, artifact_dir)
+            result = replace(result, port=port, ready_record_path=ready_record_path)
+            smoke_env = {
+                "ROOK_RHINO_PORT": str(record.port),
+                "ROOK_RHINO_PROCESS_ID": str(record.pid),
+                "NATIVE_PORT": str(record.port),
+            }
+            smoke = run_smoke_command(
+                smoke_command,
+                smoke_env,
+                cwd=smoke_cwd,
+                timeout_seconds=smoke_timeout_seconds,
+            )
+            result = replace(result, smoke=smoke)
+            copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+            before_shutdown_copied = True
+            if not smoke.succeeded:
+                warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
+                copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+    finally:
+        if not before_shutdown_copied:
+            copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+        already_exited_before_cleanup = process.poll() is not None
+        forced = False
+        force_failed = False
+        if not already_exited_before_cleanup:
+            try:
+                forced = request_external_graceful_close(process, cleanup_timeout_seconds)
+            except Exception as exc:
+                warnings.append(f"Rhino cleanup failed: {exc}")
+                force_failed = True
+        process_exited_after_cleanup = process.poll() is not None
+        discovery_leftover = discovery.owned_path(pid).exists()
+        cleanup_status = classify_cleanup_status(
+            already_exited_before_cleanup=already_exited_before_cleanup,
+            process_exited_after_cleanup=process_exited_after_cleanup,
+            discovery_leftover=discovery_leftover,
+            forced=forced,
+            force_failed=force_failed,
+        )
+        result = replace(result, cleanup_status=cleanup_status)
+        copy_temp_rook_artifacts(result, temp_rook_dir, "after-shutdown")
+        result.write_manifest()
+
+    return result
 
 
 def classify_cleanup_status(

@@ -13,14 +13,17 @@ from rook.runtime_harness import (
     DiscoveryError,
     HarnessStatus,
     OwnedRhinoDiscovery,
+    OwnedRhinoRecord,
     RhinoHarnessResult,
     SmokeCommandResult,
     classify_cleanup_status,
     close_windows_for_pid,
     copy_temp_rook_artifacts,
     request_external_graceful_close,
+    run_rhino_runtime_harness,
     run_smoke_command,
     ping_native,
+    _scoped_env_subset,
 )
 
 
@@ -169,6 +172,82 @@ class FakeExternalProcess:
 
     def kill(self):
         self.kill_calls += 1
+
+
+class FakeHarnessProcess:
+    def __init__(self, pid: int, poll_results: list[int | None] | None = None):
+        self.pid = pid
+        self.returncode: int | None = None
+        self.poll_results = poll_results or [None]
+        self.wait_calls: list[float | None] = []
+        self.kill_calls = 0
+
+    def poll(self) -> int | None:
+        if self.returncode is not None:
+            return self.returncode
+        if self.poll_results:
+            self.returncode = self.poll_results.pop(0)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self.wait_calls.append(timeout)
+        self.returncode = 0
+        return 0
+
+    def kill(self):
+        self.kill_calls += 1
+        self.returncode = -9
+
+
+class FakeHarnessDiscovery:
+    def __init__(
+        self,
+        *,
+        pid: int = 4321,
+        port: int = 9921,
+        fail_ready: bool = False,
+        leftover: bool = False,
+    ):
+        self.pid = pid
+        self.port = port
+        self.fail_ready = fail_ready
+        self.leftover = leftover
+        self.wait_calls: list[dict[str, object]] = []
+        self.snapshot_calls: list[Path] = []
+
+    def owned_path(self, pid: int):
+        class _OwnedPath:
+            def __init__(self, exists_value: bool):
+                self.exists_value = exists_value
+
+            def exists(self) -> bool:
+                return self.exists_value
+
+        return _OwnedPath(self.leftover)
+
+    def wait_for_ready(self, **kwargs):
+        self.wait_calls.append(kwargs)
+        if self.fail_ready:
+            raise DiscoveryError("owned ready failed")
+        return OwnedRhinoRecord(
+            pid=self.pid,
+            host="127.0.0.1",
+            port=self.port,
+            path=Path(f"instance-{self.pid}-native.json"),
+            raw={
+                "processId": self.pid,
+                "pluginType": "native",
+                "host": "127.0.0.1",
+                "port": self.port,
+            },
+        )
+
+    def snapshot_owned_record(self, record, artifact_dir: Path) -> Path:
+        self.snapshot_calls.append(artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        path = artifact_dir / f"owned-discovery-instance-{record.pid}-native.json"
+        path.write_text(json.dumps(record.raw), encoding="utf-8")
+        return path
 
 
 def test_owned_discovery_accepts_exact_native_pid(tmp_path: Path):
@@ -1008,3 +1087,240 @@ def test_manifest_records_cleanup_path_status_and_warnings(tmp_path: Path):
     assert manifest["warnings"] == ["could not copy C:/Temp/rook/bad.log: permission denied"]
     assert manifest["status"] == "non_green"
     assert manifest["success"] is False
+
+
+def test_runtime_harness_missing_rhino_exe_writes_manifest_and_does_not_launch(
+    tmp_path: Path,
+    monkeypatch,
+):
+    popen_calls: list[object] = []
+    monkeypatch.setattr(
+        "rook.runtime_harness.subprocess.Popen",
+        lambda *args, **kwargs: popen_calls.append((args, kwargs)),
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=tmp_path / "missing" / "Rhino.exe",
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+    )
+
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert popen_calls == []
+    assert result.success is False
+    assert result.status == HarnessStatus.NON_GREEN
+    assert any("Rhino executable not found" in warning for warning in result.warnings)
+    assert manifest["warnings"] == result.warnings
+    assert manifest["status"] == "non_green"
+
+
+def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_smoke(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+    popen_calls: list[list[str]] = []
+    smoke_calls: list[tuple[list[str], dict[str, str], Path | None, float | None]] = []
+    artifact_labels: list[str] = []
+    close_calls: list[tuple[FakeHarnessProcess, float]] = []
+
+    monkeypatch.setattr(
+        "rook.runtime_harness.subprocess.Popen",
+        lambda command: popen_calls.append(command) or process,
+    )
+
+    def fake_smoke(command, env_additions, cwd=None, timeout_seconds=None):
+        smoke_calls.append((command, env_additions, cwd, timeout_seconds))
+        return SmokeCommandResult(command, _scoped_env_subset(env_additions), 0, "", "", 0.01)
+
+    monkeypatch.setattr("rook.runtime_harness.run_smoke_command", fake_smoke)
+    monkeypatch.setattr(
+        "rook.runtime_harness.copy_temp_rook_artifacts",
+        lambda result, temp_rook_dir, label: artifact_labels.append(label) or [],
+    )
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: close_calls.append(
+            (cleanup_process, timeout_seconds)
+        )
+        or cleanup_process.wait(timeout_seconds)
+        or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        smoke_cwd=tmp_path,
+        discovery=discovery,
+        cleanup_timeout_seconds=2.5,
+    )
+
+    assert popen_calls == [[str(rhino_exe)]]
+    assert len(discovery.wait_calls) == 1
+    assert discovery.wait_calls[0]["pid"] == 4321
+    assert discovery.wait_calls[0]["process"] is process
+    assert discovery.wait_calls[0]["ping"] is ping_native
+    assert discovery.snapshot_calls == [result.artifact_dir]
+    assert smoke_calls == [
+        (
+            ["smoke"],
+            {
+                "ROOK_RHINO_PORT": "9921",
+                "ROOK_RHINO_PROCESS_ID": "4321",
+                "NATIVE_PORT": "9921",
+            },
+            tmp_path,
+            None,
+        )
+    ]
+    assert artifact_labels == ["before-shutdown", "after-shutdown"]
+    assert close_calls == [(process, 2.5)]
+    assert result.cleanup_status == CleanupStatus.GRACEFUL_EXIT
+    assert result.success is True
+    assert result.ready_record_path is not None
+    assert result.ready_record_path.exists()
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["success"] is True
+    assert manifest["ready"]["record_snapshot_path"] == str(result.ready_record_path)
+
+
+def test_runtime_harness_readiness_failure_captures_artifacts_and_cleans_owned_process(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, fail_ready=True)
+    artifact_labels: list[str] = []
+    close_calls: list[FakeHarnessProcess] = []
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.copy_temp_rook_artifacts",
+        lambda result, temp_rook_dir, label: artifact_labels.append(label) or [],
+    )
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: close_calls.append(cleanup_process)
+        or cleanup_process.wait(timeout_seconds)
+        or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+    )
+
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert artifact_labels == ["readiness-failure", "before-shutdown", "after-shutdown"]
+    assert close_calls == [process]
+    assert result.smoke is None
+    assert result.success is False
+    assert any("owned ready failed" in warning for warning in result.warnings)
+    assert manifest["smoke"] is None
+    assert manifest["status"] == "non_green"
+
+
+def test_runtime_harness_forced_cleanup_is_non_green(tmp_path: Path, monkeypatch):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda command, env_additions, cwd=None, timeout_seconds=None: SmokeCommandResult(
+            command,
+            _scoped_env_subset(env_additions),
+            0,
+            "",
+            "",
+            0.01,
+        ),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: cleanup_process.kill() or True,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+    )
+
+    assert result.cleanup_status == CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL
+    assert result.success is False
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["cleanup"]["status"] == "graceful_timeout_forced_kill"
+    assert manifest["status"] == "non_green"
+
+
+def test_runtime_harness_discovery_leftover_after_graceful_exit_is_non_green(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921, leftover=True)
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda command, env_additions, cwd=None, timeout_seconds=None: SmokeCommandResult(
+            command,
+            _scoped_env_subset(env_additions),
+            0,
+            "",
+            "",
+            0.01,
+        ),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: cleanup_process.wait(timeout_seconds) or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+    )
+
+    assert result.cleanup_status == CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER
+    assert result.success is False
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["cleanup"]["status"] == "graceful_exit_discovery_leftover"
+    assert manifest["status"] == "non_green"
+
+
+def test_runtime_harness_cli_help_works():
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "scripts" / "run_rhino_runtime_harness.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--rhino-exe" in result.stdout
+    assert "--artifact-root" in result.stdout
+    assert "--smoke" in result.stdout
