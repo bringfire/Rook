@@ -44,7 +44,7 @@ class OwnedRhinoDiscovery:
             raise DiscoveryError(f"owned Rhino discovery JSON must be an object: {path}")
 
         process_id = raw.get("processId")
-        if process_id != pid:
+        if not isinstance(process_id, int) or isinstance(process_id, bool) or process_id != pid:
             raise DiscoveryError(f"wrong processId in owned Rhino discovery file: {process_id}")
 
         plugin_type = raw.get("pluginType")

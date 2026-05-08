@@ -51,6 +51,13 @@ def test_owned_discovery_rejects_wrong_process_id(tmp_path: Path):
         OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
 
 
+def test_owned_discovery_rejects_boolean_process_id(tmp_path: Path):
+    _write_record(tmp_path, 1, _native_record(True))
+
+    with pytest.raises(DiscoveryError, match="processId"):
+        OwnedRhinoDiscovery(tmp_path).read_owned_record(1)
+
+
 def test_owned_discovery_rejects_non_native_plugin_type(tmp_path: Path):
     _write_record(tmp_path, 1234, _native_record(1234, pluginType="managed"))
 
