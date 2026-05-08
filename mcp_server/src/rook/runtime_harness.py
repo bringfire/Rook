@@ -40,6 +40,8 @@ class OwnedRhinoDiscovery:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise DiscoveryError(f"malformed JSON in owned Rhino discovery file: {path}") from exc
+        if not isinstance(raw, dict):
+            raise DiscoveryError(f"owned Rhino discovery JSON must be an object: {path}")
 
         process_id = raw.get("processId")
         if process_id != pid:
@@ -60,7 +62,7 @@ class OwnedRhinoDiscovery:
             raise DiscoveryError(f"owned Rhino discovery host must be loopback: {host}")
 
         port = raw.get("port")
-        if not isinstance(port, int) or port <= 0:
+        if not isinstance(port, int) or isinstance(port, bool) or port <= 0:
             raise DiscoveryError(f"invalid port in owned Rhino discovery file: {port}")
 
         return OwnedRhinoRecord(pid=pid, host=host, port=port, path=path, raw=raw)

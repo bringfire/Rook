@@ -58,7 +58,7 @@ def test_owned_discovery_rejects_non_native_plugin_type(tmp_path: Path):
         OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
 
 
-@pytest.mark.parametrize("port", [None, 0, -1, "abc"])
+@pytest.mark.parametrize("port", [None, 0, -1, "abc", True])
 def test_owned_discovery_rejects_invalid_port(tmp_path: Path, port):
     _write_record(tmp_path, 1234, _native_record(1234, port=port))
 
@@ -80,6 +80,14 @@ def test_owned_discovery_rejects_malformed_json(tmp_path: Path):
     path.write_text("{not-json", encoding="utf-8")
 
     with pytest.raises(DiscoveryError, match="malformed JSON"):
+        OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
+
+
+def test_owned_discovery_rejects_top_level_non_object_json(tmp_path: Path):
+    path = tmp_path / "instance-1234-native.json"
+    path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(DiscoveryError, match="object"):
         OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
 
 
