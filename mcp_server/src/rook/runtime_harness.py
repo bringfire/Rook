@@ -497,7 +497,7 @@ def run_rhino_runtime_harness(
                     cwd=smoke_cwd,
                     timeout_seconds=smoke_timeout_seconds,
                 )
-            except OSError as exc:
+            except Exception as exc:
                 warnings.append(f"Rhino smoke command failed before result: {exc}")
                 copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
             else:

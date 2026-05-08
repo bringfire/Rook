@@ -1306,6 +1306,47 @@ def test_runtime_harness_smoke_exception_warns_and_still_cleans_owned_process(
     assert manifest["status"] == "non_green"
 
 
+def test_runtime_harness_non_oserror_smoke_exception_warns_and_returns_result(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+    close_calls: list[FakeHarnessProcess] = []
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("bad smoke")),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: close_calls.append(cleanup_process)
+        or cleanup_process.wait(timeout_seconds)
+        or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["bad-smoke"],
+        discovery=discovery,
+    )
+
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert close_calls == [process]
+    assert result.smoke is None
+    assert result.success is False
+    assert any("Rhino smoke command failed before result" in warning for warning in result.warnings)
+    assert any("bad smoke" in warning for warning in result.warnings)
+    assert manifest["warnings"] == result.warnings
+    assert manifest["smoke"] is None
+    assert manifest["status"] == "non_green"
+
+
 def test_runtime_harness_forced_cleanup_is_non_green(tmp_path: Path, monkeypatch):
     rhino_exe = tmp_path / "Rhino.exe"
     rhino_exe.write_text("fake", encoding="utf-8")
