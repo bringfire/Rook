@@ -1114,6 +1114,22 @@ def test_get_rhino_host_uses_scoped_process_context(discovery_dir: Path) -> None
         host = bridge.get_rhino_host()
 
     assert host == "http://127.0.0.1:9951"
+
+
+def test_get_rhino_host_rejects_scoped_port_with_wrong_process_id(discovery_dir: Path) -> None:
+    _write_instance(
+        discovery_dir / "instance-9999-native.json",
+        {
+            "port": 9951,
+            "processId": 9999,
+            "pluginType": "native",
+        },
+    )
+
+    with bridge.rhino_request_context(port=9951, process_id=7102):
+        host = bridge.get_rhino_host()
+
+    assert host is None
 ```
 
 - [ ] **Step 2: Run test and verify it fails**
@@ -1125,9 +1141,39 @@ cd mcp_server
 pytest tests/test_bridge.py::test_get_rhino_host_uses_scoped_process_context -v
 ```
 
-Expected before implementation: fails because `get_rhino_host()` ignores the active request context and may select the first discovered native instance.
+Expected before implementation: the first test fails because `get_rhino_host()` ignores the active request context and may select the first discovered native instance. The wrong-PID test fails because `select_rhino_instance(port=9951, process_id=7102)` accepts the port anchor before checking that the discovered process id matches `7102`.
 
-- [ ] **Step 3: Make `get_rhino_host()` honor request context**
+- [ ] **Step 3: Make `select_rhino_instance()` reject port/PID mismatches**
+
+Modify the `if port is not None:` block in `mcp_server/src/rook/bridge.py`:
+
+```python
+    if port is not None:
+        anchor = next((inst for inst in instances if inst.get("port") == port), None)
+        if anchor is None:
+            return {"port": port} if process_id is None else None
+
+        anchor_pid = anchor.get("processId")
+        if process_id is not None and anchor_pid != process_id:
+            return None
+
+        if not normalized_endpoint or (
+            not normalized_endpoint.startswith(GH_ROUTE_PREFIX)
+            and not normalized_endpoint.startswith(RC_ROUTE_PREFIX)
+        ):
+            return anchor
+
+        if anchor_pid:
+            scoped_instances = [
+                inst for inst in instances if inst.get("processId") == anchor_pid
+            ]
+        else:
+            scoped_instances = [anchor]
+```
+
+This is the safety-critical selector change. In harness mode, port and PID are a pair; the right port with the wrong PID is not a valid owned runtime.
+
+- [ ] **Step 4: Make `get_rhino_host()` honor request context**
 
 Modify `mcp_server/src/rook/bridge.py`:
 
@@ -1164,13 +1210,13 @@ def get_rhino_host(
         host = instance.get("host") or DEFAULT_HOST
         return f"http://{host}:{instance['port']}"
 
-    if resolved_port:
+    if resolved_port and resolved_process_id is None:
         return f"http://{DEFAULT_HOST}:{resolved_port}"
 
     return None
 ```
 
-- [ ] **Step 4: Run bridge tests**
+- [ ] **Step 5: Run bridge tests**
 
 Run:
 
@@ -1181,7 +1227,7 @@ pytest tests/test_bridge.py -v
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add mcp_server/src/rook/bridge.py mcp_server/tests/test_bridge.py
