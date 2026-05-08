@@ -36,6 +36,14 @@ def test_owned_discovery_accepts_exact_native_pid(tmp_path: Path):
     assert record.raw == _native_record(pid, host="LOCALHOST", port=9876)
 
 
+def test_owned_discovery_accepts_whitespace_padded_loopback_host(tmp_path: Path):
+    _write_record(tmp_path, 1234, _native_record(1234, host=" LOCALHOST "))
+
+    record = OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
+
+    assert record.host == "localhost"
+
+
 def test_owned_discovery_rejects_wrong_process_id(tmp_path: Path):
     _write_record(tmp_path, 1234, _native_record(5678))
 
@@ -53,6 +61,15 @@ def test_owned_discovery_rejects_non_native_plugin_type(tmp_path: Path):
 @pytest.mark.parametrize("port", [None, 0, -1, "abc"])
 def test_owned_discovery_rejects_invalid_port(tmp_path: Path, port):
     _write_record(tmp_path, 1234, _native_record(1234, port=port))
+
+    with pytest.raises(DiscoveryError, match="port"):
+        OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
+
+
+def test_owned_discovery_rejects_missing_port(tmp_path: Path):
+    record = _native_record(1234)
+    del record["port"]
+    _write_record(tmp_path, 1234, record)
 
     with pytest.raises(DiscoveryError, match="port"):
         OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
