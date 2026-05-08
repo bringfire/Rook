@@ -1868,7 +1868,7 @@ Copy-Item -Force src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json "C:\Users\a
 
 Expected: files copy successfully. Do not run if Rhino has the plugin loaded.
 
-- [ ] **Step 5: Manual smoke checklist**
+- [x] **Step 5: Manual smoke checklist**
 
 In Rhino:
 
@@ -1884,6 +1884,12 @@ rg -n "fal\.media|queue\.fal\.run|rest\.fal\.ai|api\.fal\.ai|start_image_url|end
 ```
 
 Expected: no forbidden provider/source URL strings in durable Rook ledger or artifact metadata. Ignore unrelated logs only after inspecting the exact file path.
+
+Manual smoke result, 2026-05-08:
+
+- Kling v3 Standard I2V completed a fresh Rhino round trip and materialized the local video artifact after the fal lifecycle endpoint fix.
+- Seedance 2.0 I2V completed a full round trip at `1080p` and `15` seconds after exposing `1080p` and correcting the 1080p cost estimate.
+- Durable URL/privacy scan over `%APPDATA%\Rook` found no forbidden provider/source URL strings.
 
 - [x] **Step 6: Final commit if verification fixes were needed**
 
