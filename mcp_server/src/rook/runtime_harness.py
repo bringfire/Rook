@@ -445,7 +445,19 @@ def run_rhino_runtime_harness(
         return result
 
     discovery = discovery or OwnedRhinoDiscovery()
-    process = subprocess.Popen([str(rhino_exe)])
+    try:
+        process = subprocess.Popen([str(rhino_exe)])
+    except OSError as exc:
+        result = RhinoHarnessResult(
+            run_id=run_id,
+            artifact_dir=artifact_dir,
+            pid=0,
+            port=0,
+            warnings=[f"Rhino launch failed: {exc}"],
+        )
+        copy_temp_rook_artifacts(result, temp_rook_dir, "launch-failure")
+        result.write_manifest()
+        return result
     pid = int(process.pid)
     port = 0
     before_shutdown_copied = False
@@ -478,18 +490,23 @@ def run_rhino_runtime_harness(
                 "ROOK_RHINO_PROCESS_ID": str(record.pid),
                 "NATIVE_PORT": str(record.port),
             }
-            smoke = run_smoke_command(
-                smoke_command,
-                smoke_env,
-                cwd=smoke_cwd,
-                timeout_seconds=smoke_timeout_seconds,
-            )
-            result = replace(result, smoke=smoke)
-            copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
-            before_shutdown_copied = True
-            if not smoke.succeeded:
-                warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
+            try:
+                smoke = run_smoke_command(
+                    smoke_command,
+                    smoke_env,
+                    cwd=smoke_cwd,
+                    timeout_seconds=smoke_timeout_seconds,
+                )
+            except OSError as exc:
+                warnings.append(f"Rhino smoke command failed before result: {exc}")
                 copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+            else:
+                result = replace(result, smoke=smoke)
+                copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+                before_shutdown_copied = True
+                if not smoke.succeeded:
+                    warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
+                    copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
     finally:
         if not before_shutdown_copied:
             copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
