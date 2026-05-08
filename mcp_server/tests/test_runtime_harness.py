@@ -31,6 +31,19 @@ class PingRecorder:
         return False
 
 
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
 class FakeAsyncClient:
     response = httpx.Response(200, text="")
     urls: list[str] = []
@@ -233,6 +246,44 @@ def test_wait_for_ready_times_out_when_ping_never_succeeds(tmp_path: Path):
 
     assert ping.urls
     assert set(ping.urls) == {("127.0.0.1", 9821)}
+
+
+def test_wait_for_ready_yields_when_poll_seconds_is_zero(tmp_path: Path):
+    pid = 1234
+    clock = FakeClock()
+
+    with pytest.raises(
+        DiscoveryError,
+        match="Rhino exited with code 9 before RookNative discovery appeared",
+    ):
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            pid,
+            FakeProcess(pid, [None, 9]),
+            PingRecorder([True]),
+            timeout_seconds=1.0,
+            poll_seconds=0,
+            _monotonic=clock.monotonic,
+            _sleep=clock.sleep,
+        )
+
+    assert clock.sleeps == [pytest.approx(0.001)]
+
+
+def test_wait_for_ready_reports_process_exit_after_discovery_before_ping(tmp_path: Path):
+    pid = 1234
+    _write_record(tmp_path, pid, _native_record(pid, host="127.0.0.1", port=9821))
+
+    with pytest.raises(
+        DiscoveryError,
+        match="Rhino exited with code 9 before RookNative became pingable",
+    ):
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            pid,
+            FakeProcess(pid, [None, 9]),
+            PingRecorder([False]),
+            timeout_seconds=1.0,
+            poll_seconds=0,
+        )
 
 
 @pytest.mark.asyncio

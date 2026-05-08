@@ -14,6 +14,7 @@ import httpx
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
+MIN_POLL_SECONDS = 0.001
 
 
 class DiscoveryError(RuntimeError):
@@ -122,14 +123,21 @@ class OwnedRhinoDiscovery:
         ping: PingFunction = ping_native,
         timeout_seconds: float = 30.0,
         poll_seconds: float = 0.25,
+        *,
+        _monotonic: Callable[[], float] = time.monotonic,
+        _sleep: Callable[[float], None] = time.sleep,
     ) -> OwnedRhinoRecord:
-        deadline = time.monotonic() + timeout_seconds
+        deadline = _monotonic() + timeout_seconds
         last_discovery_error: DiscoveryError | None = None
         saw_discovery = False
 
         while True:
             exit_code = process.poll()
             if exit_code is not None:
+                if saw_discovery:
+                    raise DiscoveryError(
+                        f"Rhino exited with code {exit_code} before RookNative became pingable"
+                    )
                 raise DiscoveryError(
                     f"Rhino exited with code {exit_code} before RookNative discovery appeared"
                 )
@@ -146,7 +154,8 @@ class OwnedRhinoDiscovery:
                 if ping_result:
                     return record
 
-            if time.monotonic() >= deadline:
+            now = _monotonic()
+            if now >= deadline:
                 if saw_discovery:
                     raise DiscoveryError(
                         f"owned RookNative discovery for Rhino pid {pid} did not become pingable"
@@ -155,5 +164,5 @@ class OwnedRhinoDiscovery:
                     raise DiscoveryError(str(last_discovery_error)) from last_discovery_error
                 raise DiscoveryError(f"owned Rhino discovery file not found for pid {pid}")
 
-            if poll_seconds > 0:
-                time.sleep(poll_seconds)
+            wait_seconds = poll_seconds if poll_seconds > 0 else MIN_POLL_SECONDS
+            _sleep(min(wait_seconds, deadline - now))
