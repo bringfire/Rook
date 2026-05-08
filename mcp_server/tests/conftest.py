@@ -5,8 +5,11 @@ do not need Rhino running. Those tests do not request any of the fixtures
 below; they will not be affected by this conftest.
 
 The fixtures here exist for the `@pytest.mark.requires_rhino` live-integration
-tests (see test_block_replace_object_geometry_live.py). They are opt-in via
-fixture request — no autouse, no surprise side-effects for the unit suite.
+tests (see test_block_replace_object_geometry_live.py). The live document reset
+fixture is opt-in via fixture request. The only autouse fixture here scopes
+Rhino bridge requests for marked live tests when the owned runtime harness sets
+`ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID`, so unit tests still avoid live
+Rhino side effects.
 
 Run live tests with:
     pytest -m requires_rhino mcp_server/tests/
