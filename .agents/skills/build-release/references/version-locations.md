@@ -48,8 +48,16 @@ info["pluginVersion"] = "OLD";  -->  info["pluginVersion"] = "NEW";
 
 After all edits, run:
 
-```bash
-grep -rn "NEW_VERSION" --include="*.toml" --include="*.iss" --include="*.csproj" --include="*.rc" --include="*.cpp" installer/ mcp_server/pyproject.toml src/
+```powershell
+$newVersion = "NEW_VERSION"
+Select-String -Path `
+  mcp_server\pyproject.toml, `
+  installer\RookSetup.iss, `
+  src\Rook\Rook.csproj, `
+  src\RookNative\RookNative.rc, `
+  src\RookNative\RookNativePlugin.cpp, `
+  src\RookNative\RookServer.cpp `
+  -Pattern ([regex]::Escape($newVersion))
 ```
 
 Expected: 6 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`,
@@ -57,10 +65,18 @@ the two string-value lines in `RookNative.rc`, `RookNativePlugin.cpp`,
 `RookServer.cpp`). The binary `FILEVERSION` / `PRODUCTVERSION` lines in the
 `.rc` file must be checked separately because they use comma-delimited values.
 
-More reliable: grep for the old version — should return 0 matches:
+More reliable: scan for the old version — should return 0 matches:
 
-```bash
-grep -rn "OLD_VERSION" --include="*.toml" --include="*.iss" --include="*.csproj" --include="*.rc" --include="*.cpp" installer/ mcp_server/pyproject.toml src/
+```powershell
+$oldVersion = "OLD_VERSION"
+Select-String -Path `
+  mcp_server\pyproject.toml, `
+  installer\RookSetup.iss, `
+  src\Rook\Rook.csproj, `
+  src\RookNative\RookNative.rc, `
+  src\RookNative\RookNativePlugin.cpp, `
+  src\RookNative\RookServer.cpp `
+  -Pattern ([regex]::Escape($oldVersion))
 ```
 
 This must return nothing. If it does, you missed a location.

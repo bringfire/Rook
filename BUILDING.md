@@ -201,22 +201,6 @@ set VCToolsVersion=14.44.35207
 msbuild src\RookNative\RookNative.vcxproj /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207 /v:minimal
 ```
 
-**From Bash (Git Bash, WSL, Claude Code):**
-
-Bash cannot source `vcvarsall.bat` directly. Write an ephemeral batch file:
-
-```bash
-cat > /tmp/build_native.bat << 'EOF'
-@echo off
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
-set VCToolsVersion=14.44.35207
-msbuild "%~1" /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207 /m /v:minimal
-echo EXIT_CODE=%ERRORLEVEL%
-EOF
-
-cmd //c /tmp/build_native.bat "src\\RookNative\\RookNative.vcxproj"
-```
-
 **From PowerShell:**
 ```powershell
 & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -HostArch amd64 *> $null
@@ -226,9 +210,8 @@ msbuild src\RookNative\RookNative.vcxproj /p:Configuration=Release /p:Platform=x
 
 ### Verify C++ Build
 
-```bash
-ls -la src/RookNative/bin/Release/x64/RookNative.rhp
-# Should exist and be ~2.5-3MB
+```powershell
+Get-Item src\RookNative\bin\Release\x64\RookNative.rhp
 ```
 
 ---
@@ -238,35 +221,33 @@ ls -la src/RookNative/bin/Release/x64/RookNative.rhp
 The C# companion handles Grasshopper operations and the embedded chat panel.
 It targets .NET Framework 4.8 and .NET 7.0 (multi-target).
 
-### Option A: MSBuild (matches release build exactly)
+### Option A: release build
 
-```bash
-"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" \
-  "src\\Rook\\Rook.csproj" \
-  "-p:Configuration=Release" "-p:Platform=x64" "-p:TargetFramework=net48" "-v:minimal"
+```powershell
+dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
 ```
 
-Output: `src\Rook\bin\x64\Release\net48\Rook.rhp`
+Output: `src\Rook\bin\Release\net7.0\Rook.rhp`
 
-**Critical:** The `-p:Platform=x64` flag changes the output directory to
-`bin\x64\Release\net48\`, NOT `bin\Release\net48\`. This matters for deployment.
+**Critical:** Rook's source installer and release installer register the net7.0
+companion output. Older framework outputs are not supported for registration.
 
-### Option B: dotnet CLI
+### Option B: build both target frameworks for development
 
-```bash
-dotnet build src/Rook -c Release
+```powershell
+dotnet build src\Rook\Rook.csproj -c Release
 ```
 
-Output: `src\Rook\bin\Release\net48\Rook.rhp` (note: different path than MSBuild
-with Platform=x64)
+Use this only when you need to compile all project targets. Deploy and release
+from the net7.0 output.
 
 ### Verify C# Build
 
-```bash
-ls -la src/Rook/bin/x64/Release/net48/Rook.rhp    # MSBuild path
-# or
-ls -la src/Rook/bin/Release/net48/Rook.rhp         # dotnet CLI path
-# Should exist and be ~600-700KB
+```powershell
+Test-Path src\Rook\bin\Release\net7.0\Rook.rhp
+Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
+Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
+Test-Path src\Rook\bin\Release\net7.0\runtimes
 ```
 
 ---
@@ -283,10 +264,13 @@ New-Item -ItemType Directory -Path $dest -Force | Out-Null
 Copy-Item "src\RookNative\bin\Release\x64\RookNative.rhp" $dest -Force
 Copy-Item "src\RookNative\bin\Release\x64\RookNative.pdb" $dest -Force -ErrorAction SilentlyContinue
 
-# C# plugin (from MSBuild with Platform=x64)
-Copy-Item "src\Rook\bin\x64\Release\net48\Rook.rhp" $dest -Force
-Copy-Item "src\Rook\bin\x64\Release\net48\Rook.rui" $dest -Force -ErrorAction SilentlyContinue
-Copy-Item "src\Rook\bin\x64\Release\net48\*.dll" $dest -Force
+# C# companion plugin (net7.0)
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.rhp" $dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.rui" $dest -Force -ErrorAction SilentlyContinue
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.deps.json" $dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json" $dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\*.dll" $dest -Force
+Copy-Item "src\Rook\bin\Release\net7.0\runtimes" $dest -Recurse -Force
 ```
 
 Then register the plugins with Rhino:
@@ -367,8 +351,8 @@ If Rhino is not reachable, each test is skipped cleanly (not failed) — the
 will fail with "file in use" errors. Always close Rhino before building.
 
 Check if Rhino is running:
-```bash
-tasklist | grep -i rhinoceros
+```powershell
+Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
 ```
 
 ---
@@ -382,7 +366,7 @@ tasklist | grep -i rhinoceros
 | `error MSB4019: The imported project was not found` (other) | C++ Desktop workload not installed | Open VS Installer, add "Desktop development with C++" |
 | `LNK1104: cannot open file 'mfc140u.lib'` | MFC libs missing for the pinned toolset | Install the exact MFC component matching v14.44.35207 |
 | `error CS0246: type or namespace not found` | Missing NuGet packages for C# build | Run `dotnet restore src/Rook` before building |
-| C# output not found at expected path | Platform flag changes output dir | MSBuild with `-p:Platform=x64` outputs to `bin\x64\Release\net48\`. Without it: `bin\Release\net48\` |
+| C# output not found at expected path | Wrong target framework or output path | Build with `dotnet build src\Rook\Rook.csproj -f net7.0 -c Release`; release output is `bin\Release\net7.0\` |
 | Access denied / file in use | Rhino has the DLL loaded | Close Rhino, then rebuild |
 | `error MSB8020: ... v143 ... cannot be found` | v143 toolset not installed (common on VS2026) | VS Installer > Individual Components > install "MSVC v143 - VS 2022 C++ x64/x86 build tools" |
 | `vcvarsall.bat` not found | VS not at expected path | May be Professional/Enterprise instead of Community, or VS2026 (`\18\` instead of `\2022\`) |

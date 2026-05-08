@@ -12,13 +12,16 @@ All paths are relative to the repo root.
 |------|--------|
 | `src/RookNative/bin/Release/x64/RookNative.rhp` | C++ build output |
 | `src/RookNative/bin/Release/x64/RookNative.pdb` | C++ debug symbols |
-| `src/Rook/bin/x64/Release/net48/Rook.rhp` | C# build output |
-| `src/Rook/bin/x64/Release/net48/Rook.rui` | Rhino toolbar file |
-| `src/Rook/bin/x64/Release/net48/*.dll` | C# dependency DLLs (expect ~9) |
+| `src/Rook/bin/Release/net7.0/Rook.rhp` | C# build output |
+| `src/Rook/bin/Release/net7.0/Rook.rui` | Rhino toolbar file |
+| `src/Rook/bin/Release/net7.0/Rook.deps.json` | C# dependency manifest |
+| `src/Rook/bin/Release/net7.0/Rook.runtimeconfig.json` | C# runtime metadata; must declare net7.0 |
+| `src/Rook/bin/Release/net7.0/*.dll` | C# dependency DLLs |
+| `src/Rook/bin/Release/net7.0/runtimes/` | C# runtime assets |
 
-**CRITICAL:** The C# companion builds to `bin/x64/Release/net48/` when using
-`/p:Platform=x64`. The .iss `CompanionDir` must reference this path, NOT
-`bin/Release/net48/` (which is the output without the Platform flag).
+**CRITICAL:** The installer must package the net7.0 companion output from
+`src/Rook/bin/Release/net7.0/`. Older framework outputs are not supported for
+registration or release packaging.
 
 ## Python MCP Server
 
@@ -92,69 +95,69 @@ installed CLAUDE.md.
 
 Run this to check all paths at once:
 
-```bash
-REPO="<your-rook-repo-path>"
-MISSING=0
+```powershell
+$Repo = "C:\Users\aryan\source\repos\Rook"
+$missing = New-Object System.Collections.Generic.List[string]
 
-for f in \
-  "$REPO/src/RookNative/bin/Release/x64/RookNative.rhp" \
-  "$REPO/src/RookNative/bin/Release/x64/RookNative.pdb" \
-  "$REPO/src/Rook/bin/x64/Release/net48/Rook.rhp" \
-  "$REPO/src/Rook/bin/x64/Release/net48/Rook.rui" \
-  "$REPO/mcp_server/pyproject.toml" \
-  "$REPO/../Chirp/pyproject.toml" \
-  "$REPO/.claude-plugin/plugin.json" \
-  "$REPO/.claude-plugin/marketplace.json" \
-  "$REPO/hooks/hooks.json" \
-  "$REPO/scripts/session-start.sh" \
-  "$REPO/installer/post_install.py" \
-  "$REPO/installer/rook-icon.ico" \
-  "$REPO/installer/pre-install-readme.txt" \
-  "$REPO/installer/CLAUDE.md" \
-  "$REPO/installer/AGENTS.md" \
-  "$REPO/mcp_server/README.md" \
-  "$REPO/docs/ONBOARDING_NEW_CLAUDE.md" \
-  "$REPO/docs/CURRENT_ARCHITECTURE.md" \
-  "$REPO/docs/AGENT_ARCHITECTURE.md" \
-  "$REPO/docs/TROUBLESHOOTING.md" \
-  "$REPO/QUICK_START.md" \
-  "$REPO/AGENT_SETUP.md" \
-  "$REPO/BUILDING.md" \
-  "$REPO/LICENSE"
-do
-  if [ ! -e "$f" ]; then
-    echo "MISSING: $f"
-    MISSING=$((MISSING + 1))
-  fi
-done
+$files = @(
+  "src\RookNative\bin\Release\x64\RookNative.rhp",
+  "src\RookNative\bin\Release\x64\RookNative.pdb",
+  "src\Rook\bin\Release\net7.0\Rook.rhp",
+  "src\Rook\bin\Release\net7.0\Rook.rui",
+  "src\Rook\bin\Release\net7.0\Rook.deps.json",
+  "src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json",
+  "mcp_server\pyproject.toml",
+  "..\Chirp\pyproject.toml",
+  ".claude-plugin\plugin.json",
+  ".claude-plugin\marketplace.json",
+  "hooks\hooks.json",
+  "scripts\session-start.sh",
+  "installer\post_install.py",
+  "installer\rook-icon.ico",
+  "installer\pre-install-readme.txt",
+  "installer\CLAUDE.md",
+  "installer\AGENTS.md",
+  "mcp_server\README.md",
+  "docs\ONBOARDING_NEW_CLAUDE.md",
+  "docs\CURRENT_ARCHITECTURE.md",
+  "docs\AGENT_ARCHITECTURE.md",
+  "docs\TROUBLESHOOTING.md",
+  "QUICK_START.md",
+  "AGENT_SETUP.md",
+  "BUILDING.md",
+  "LICENSE"
+)
 
-# Check directories are non-empty
-for d in \
-  "$REPO/mcp_server/src/rook" \
-  "$REPO/../Chirp/src/chirp" \
-  "$REPO/knowledge/commands" \
-  "$REPO/knowledge/gh" \
-  "$REPO/.claude/skills" \
-  "$REPO/.claude/agents" \
-  "$REPO/.agents/skills"
-do
-  if [ ! -d "$d" ] || [ -z "$(ls -A "$d" 2>/dev/null)" ]; then
-    echo "MISSING OR EMPTY: $d"
-    MISSING=$((MISSING + 1))
-  fi
-done
+foreach ($file in $files) {
+  $path = Join-Path $Repo $file
+  if (-not (Test-Path $path)) { $missing.Add("MISSING: $path") }
+}
 
-# Check C# DLLs exist
-DLL_COUNT=$(ls "$REPO/src/Rook/bin/x64/Release/net48/"*.dll 2>/dev/null | wc -l)
-if [ "$DLL_COUNT" -lt 1 ]; then
-  echo "MISSING: C# dependency DLLs"
-  MISSING=$((MISSING + 1))
-fi
+$directories = @(
+  "mcp_server\src\rook",
+  "..\Chirp\src\chirp",
+  "knowledge\commands",
+  "knowledge\gh",
+  ".claude\skills",
+  ".claude\agents",
+  ".agents\skills",
+  "src\Rook\bin\Release\net7.0\runtimes"
+)
 
-echo ""
-if [ "$MISSING" -eq 0 ]; then
-  echo "ALL CHECKS PASSED"
-else
-  echo "FAILED: $MISSING items missing"
-fi
+foreach ($directory in $directories) {
+  $path = Join-Path $Repo $directory
+  if (-not (Test-Path $path) -or -not (Get-ChildItem -Path $path -Force | Select-Object -First 1)) {
+    $missing.Add("MISSING OR EMPTY: $path")
+  }
+}
+
+$dllCount = @(Get-ChildItem -Path (Join-Path $Repo "src\Rook\bin\Release\net7.0") -Filter *.dll).Count
+if ($dllCount -lt 1) { $missing.Add("MISSING: C# dependency DLLs") }
+
+if ($missing.Count -eq 0) {
+  "ALL CHECKS PASSED"
+} else {
+  $missing
+  throw "FAILED: $($missing.Count) items missing"
+}
 ```

@@ -40,27 +40,29 @@ The argument is a semver version (X.Y.Z). If omitted, ask the user.
 
 Run all of these before touching any files:
 
-```bash
-# 1. Parse version from argument — must match X.Y.Z
-echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'
+```powershell
+# 1. Parse version from argument - must match X.Y.Z
+if ($VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Version must be X.Y.Z" }
 
 # 2. Clean git status (no uncommitted changes)
-git status --porcelain
+$dirty = git status --porcelain
+if ($dirty) { git status --short; throw "Working tree is dirty" }
 
 # 3. Rhino not running (would lock DLLs)
-tasklist | grep -i rhinoceros || echo "Rhino not running - OK"
+$rhino = Get-Process | Where-Object { $_.ProcessName -match '^(Rhino|Rhinoceros)$' }
+if ($rhino) { $rhino | Select-Object ProcessName, Id; throw "Close Rhino before building" }
 
 # 4. VS build tools exist
-ls "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvarsall.bat"
+$requiredPaths = @(
+  "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat",
+  "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\atlmfc",
+  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+  "..\Chirp\pyproject.toml"
+)
 
-# 5. MFC libraries exist for the required toolset
-ls "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/atlmfc/"
-
-# 6. Inno Setup exists
-ls "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
-
-# 7. Chirp sibling repo exists
-ls "../Chirp/pyproject.toml"
+foreach ($path in $requiredPaths) {
+  if (-not (Test-Path $path)) { throw "Missing required release path: $path" }
+}
 ```
 
 If Rhino is running, tell the user to close it — DLL locks will cause build failures.
@@ -79,8 +81,15 @@ Update all 6 files using the Edit tool. The .rc file requires 4 separate edits
 
 After all edits, verify with:
 
-```bash
-grep -rn "X.Y.Z" --include="*.toml" --include="*.iss" --include="*.csproj" --include="*.rc" --include="*.cpp" installer/ mcp_server/pyproject.toml src/
+```powershell
+Select-String -Path `
+  mcp_server\pyproject.toml, `
+  installer\RookSetup.iss, `
+  src\Rook\Rook.csproj, `
+  src\RookNative\RookNative.rc, `
+  src\RookNative\RookNativePlugin.cpp, `
+  src\RookNative\RookServer.cpp `
+  -Pattern "X.Y.Z"
 ```
 
 Expect 6 string matches (`pyproject.toml`, `RookSetup.iss`, `Rook.csproj`, the two
@@ -89,19 +98,21 @@ Then verify the binary version lines in `RookNative.rc` separately.
 
 ## Step 2: Build C++ Native Plugin
 
-Write an ephemeral batch file and execute it:
+Write an ephemeral batch file and execute it from PowerShell:
 
-```bash
-cat > /tmp/rook_build.bat << 'BEOF'
+```powershell
+$buildBat = Join-Path $env:TEMP "rook_build_native_release.bat"
+@'
 @echo off
 set "VSCMD_START_DIR=%CD%"
 call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
 set VCToolsVersion=14.44.35207
 msbuild "%~1" /p:Configuration=Release /p:Platform=x64 /p:VCToolsVersion=14.44.35207 /m /v:minimal
 echo EXIT_CODE=%ERRORLEVEL%
-BEOF
+'@ | Set-Content -Path $buildBat -Encoding ASCII
 
-"/tmp/rook_build.bat" "c:\\Users\\aryan\\source\\repos\\Rook\\src\\RookNative\\RookNative.vcxproj" 2>&1 | grep -E "(EXIT_CODE|Build succeeded|Build FAILED|error MSB|error C[0-9])"
+& $buildBat "C:\Users\aryan\source\repos\Rook\src\RookNative\RookNative.vcxproj" 2>&1 |
+  Select-String -Pattern "EXIT_CODE|Build succeeded|Build FAILED|error MSB|error C[0-9]"
 ```
 
 **Key gotchas:**
@@ -111,29 +122,27 @@ BEOF
 - The /p: flags with forward slashes get mangled by bash — route through .bat to avoid this
 
 Verify: `EXIT_CODE=0` in output and file exists:
-```bash
-ls -la src/RookNative/bin/Release/x64/RookNative.rhp
+```powershell
+Test-Path src\RookNative\bin\Release\x64\RookNative.rhp
 ```
 
 ## Step 3: Build C# Companion Plugin
 
-Reuse the same batch file approach, or call MSBuild directly (C# doesn't need MFC):
+Call `dotnet build` directly (C# doesn't need MFC):
 
-```bash
-"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" \
-  "src\\Rook\\Rook.csproj" \
-  "-p:Configuration=Release" "-p:Platform=x64" "-p:TargetFramework=net48" "-v:minimal" \
-  2>&1 | grep -E "(EXIT_CODE|Build succeeded|Build FAILED|error MSB|Rook ->)"
+```powershell
+dotnet build src\Rook\Rook.csproj -f net7.0 -c Release
 ```
 
-Or append the C# build to the same .bat file from Step 2 (preferred — keeps vcvarsall active).
-
-**Key gotcha:** With `/p:Platform=x64`, the output goes to `bin\x64\Release\net48\`,
-NOT `bin\Release\net48\`. The .iss file's CompanionDir must point to the correct path.
+**Key gotcha:** The release installer must package the net7.0 companion output.
+Do not package or register older framework outputs.
 
 Verify:
-```bash
-ls -la src/Rook/bin/x64/Release/net48/Rook.rhp
+```powershell
+Test-Path src\Rook\bin\Release\net7.0\Rook.rhp
+Test-Path src\Rook\bin\Release\net7.0\Rook.deps.json
+Test-Path src\Rook\bin\Release\net7.0\Rook.runtimeconfig.json
+Test-Path src\Rook\bin\Release\net7.0\runtimes
 ```
 
 ## Step 4: Verify All .iss Source Paths
@@ -149,14 +158,15 @@ the version bump** (not stale from a previous build).
 
 ## Step 5: Run Inno Setup Compiler
 
-```bash
-"C:/Program Files (x86)/Inno Setup 6/ISCC.exe" "c:\\Users\\aryan\\source\\repos\\Rook\\installer\\RookSetup.iss" 2>&1
+```powershell
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "C:\Users\aryan\source\repos\Rook\installer\RookSetup.iss"
 ```
 
 Check the tail of the output for `Successful compile`. Verify:
 
-```bash
-ls -la installer/output/Rook-Setup-X.Y.Z.exe
+```powershell
+$installer = Get-Item installer\output\Rook-Setup-X.Y.Z.exe
+$installer.Length
 ```
 
 Sanity check: file size should be > 5MB (current baseline is ~12MB). If significantly
@@ -164,15 +174,9 @@ smaller, something was excluded.
 
 ## Step 6: Commit & Push
 
-```bash
+```powershell
 # Stage only the version-bumped files
-git add \
-  mcp_server/pyproject.toml \
-  installer/RookSetup.iss \
-  src/Rook/Rook.csproj \
-  src/RookNative/RookNative.rc \
-  src/RookNative/RookNativePlugin.cpp \
-  src/RookNative/RookServer.cpp
+git add mcp_server\pyproject.toml installer\RookSetup.iss src\Rook\Rook.csproj src\RookNative\RookNative.rc src\RookNative\RookNativePlugin.cpp src\RookNative\RookServer.cpp
 
 git commit -m "release: bump versions to X.Y.Z"
 
@@ -181,11 +185,8 @@ git push origin main
 
 ## Step 7: GitHub Release
 
-```bash
-gh release create vX.Y.Z \
-  "installer/output/Rook-Setup-X.Y.Z.exe" \
-  --title "Rook vX.Y.Z" \
-  --generate-notes
+```powershell
+gh release create vX.Y.Z "installer/output/Rook-Setup-X.Y.Z.exe" --title "Rook vX.Y.Z" --generate-notes
 ```
 
 Report the release URL to the user when done.
@@ -193,8 +194,8 @@ Report the release URL to the user when done.
 ## Cleanup
 
 Delete the ephemeral .bat file:
-```bash
-rm -f /tmp/rook_build.bat
+```powershell
+Remove-Item (Join-Path $env:TEMP "rook_build_native_release.bat") -Force -ErrorAction SilentlyContinue
 ```
 
 ## Troubleshooting
@@ -202,7 +203,7 @@ rm -f /tmp/rook_build.bat
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `error MSB8041: MFC libraries are required` | vcvarsall.bat not sourced, or wrong VCToolsVersion | Must call vcvarsall.bat before msbuild, and set VCToolsVersion=14.44.35207 |
-| C# output at wrong path | Platform=x64 changes output dir | Output is at `bin\x64\Release\net48\`, not `bin\Release\net48\` |
+| C# output at wrong path | Installer expects the dotnet net7.0 output | Build with `dotnet build src\Rook\Rook.csproj -f net7.0 -c Release`; output is at `bin\Release\net7.0\` |
 | MSBuild `/p:` flags ignored | Bash mangles forward-slash flags | Use .bat file or quote as `"-p:Configuration=Release"` |
 | ISCC can't find source file | Path mismatch in .iss | Check CompanionDir matches actual build output path |
 | `error MSB1008: Only one project` | MSBuild.exe invoked from bash with /p flags | Bash interprets /p as a path; use `-p:` or route through .bat |

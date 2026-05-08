@@ -22,7 +22,7 @@
 #define RepoRoot ".."
 #define NativePlugin RepoRoot + "\src\RookNative\bin\Release\x64\RookNative.rhp"
 #define NativePdb    RepoRoot + "\src\RookNative\bin\Release\x64\RookNative.pdb"
-#define CompanionDir RepoRoot + "\src\Rook\bin\x64\Release\net48"
+#define CompanionDir RepoRoot + "\src\Rook\bin\Release\net7.0"
 #define McpServerDir RepoRoot + "\mcp_server"
 #define KnowledgeDir RepoRoot + "\knowledge"
 #define ScriptsDir   RepoRoot + "\scripts"
@@ -82,14 +82,17 @@ Name: "codex"; Description: "OpenAI Codex CLI Configuration + user skills (requi
 
 [Files]
 ; --- Rhino Plugins ---
-; C++ native plugin (x64 only) — optional, may not be built
-Source: "{#NativePlugin}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion skipifsourcedoesntexist
+; C++ native plugin (x64 only) — required public Rhino surface
+Source: "{#NativePlugin}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#NativePdb}"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion skipifsourcedoesntexist
 
-; C# companion plugin (net48) + dependencies
+; C# companion plugin (net7.0) + dependencies
 Source: "{#CompanionDir}\Rook.rhp"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionDir}\Rook.rui"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionDir}\Rook.deps.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionDir}\Rook.runtimeconfig.json"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
 Source: "{#CompanionDir}\*.dll"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative"; Components: plugins; Flags: ignoreversion
+Source: "{#CompanionDir}\runtimes\*"; DestDir: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\runtimes"; Components: plugins; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; --- Python MCP Server ---
 Source: "{#McpServerDir}\pyproject.toml"; DestDir: "{app}\mcp_server"; Components: mcp; Flags: ignoreversion
@@ -145,7 +148,7 @@ Source: "AGENTS.md"; DestDir: "{localappdata}\Rook"; Components: codex; Flags: i
 [Registry]
 ; RookNative (C++ plugin) — load at startup
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "Name"; ValueData: "RookNative"; Components: plugins; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\RookNative.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "0"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-A6BD-7EDBC2CB1906"; ValueType: dword; ValueName: "LoadMode"; ValueData: "1"; Components: plugins
@@ -153,7 +156,7 @@ Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\A38E0E8F-E06E-40D2-
 
 ; Rook Companion (C# plugin) — load when needed
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "Name"; ValueData: "Rook"; Components: plugins; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\Rook.rhp"; Components: plugins
+Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B\PlugIn"; ValueType: string; ValueName: "FileName"; ValueData: "{userappdata}\McNeel\Rhinoceros\8.0\Plug-ins\RookNative\Rook.rhp"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "Type"; ValueData: "16"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "IsDotNETPlugIn"; ValueData: "1"; Components: plugins
 Root: HKCU; Subkey: "Software\McNeel\Rhinoceros\8.0\Plug-Ins\B7E4A8C9-1F62-4C7E-9A2B-5D4E8F1C3A7B"; ValueType: dword; ValueName: "LoadMode"; ValueData: "2"; Components: plugins
