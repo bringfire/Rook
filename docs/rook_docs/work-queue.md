@@ -1,6 +1,6 @@
 # Work Queue
 
-**Last triaged:** 2026-05-06 (**Issue #112 net48 companion hardening implemented directly on `main` and ready to push/close.** The installer/register path can no longer silently deploy or register a Rhino 8 companion built from `net48`: `install.ps1` selects/builds only `net7.0`, release-package `plugin\Rook.rhp` requires adjacent `Rook.runtimeconfig.json` with `runtimeOptions.tfm == net7.0`, and `scripts/register-companion.ps1` validates explicit, discovered, colocated, and suite-delegated paths before registry writes. Verification passed: Issue #112 PowerShell guard tests, managed `net7.0` Release build, installer dry-run, forbidden fallback scan, and `git diff --check`. **Promoted to Now:** Kling 3.0 I2V design pass, because PR-18/PR-19 shipped and #112 removed the deploy/runtime confusion that could derail WebView panel smoke. **Promoted to Next:** decide whether #113 or #114 is the next small test-debt cleanup before returning to product work; both are lower-risk follow-ups from the PR #111 deploy/smoke window. **Still open after #112 closes:** #113, #114, #53, #37, #34, #29, and stale #26.)
+**Last triaged:** 2026-05-08 (**Rook v1.5.2 released and installer workflow reconciled with the current net7 companion architecture.** Since the previous triage, Kling v3 Standard I2V shipped on `main`, live Rhino/fal smoke passed after lifecycle-root and artifact-fetch robustness fixes, Seedance 1080p support/pricing was corrected and smoke-tested, the Inno installer was hardened to package `src\Rook\bin\Release\net7.0` companion artifacts (`Rook.rhp`, `Rook.deps.json`, `Rook.runtimeconfig.json`, DLLs, `runtimes\*`), `RookNative.rhp` is now a required installer source, Rhino registry `FileName` writes match the known-good `...\PlugIn\FileName` script path, and release docs/skills were updated to the Windows/PowerShell net7 workflow. Release guard coverage now pins installer net7 packaging, no stale net48/bash release guidance, native-required packaging, registry subkeys, and runtimeconfig `runtimeOptions.tfm == net7.0`. `v1.5.2` was built with the pinned native MSVC/MFC toolset, the managed net7 companion, and Inno Setup, then published to GitHub with `Rook-Setup-1.5.2.exe`. **Promoted to Now:** #113 / #114 test-debt triage, because Kling and the release are shipped and those were the queued low-risk cleanup decisions. **Promoted to Next:** choose the next product or polish lane after #113/#114 are closed or explicitly deferred. **Still open after this release:** #113, #114, #53, #37, #34, #29, and stale #26.)
 
 **Last triaged:** 2026-05-06 (**PR-19 Seedance source-frame transport shipped as PR #141.** PR #141 removes the Seedance data-URI source-frame path and always uploads start/end source frames through the provider-private fal CDN initiate + PUT flow before queue submit. Scope stayed managed-provider-private: no native route, MCP tool, public bridge op, ledger schema change, durable source media, or public fal source URL exposure. Source uploads use the confirmed fal REST contract (`rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3` -> raw PUT to fal media upload URL -> submit returned `file_url`) with `X-Fal-Object-Lifecycle` fixed at one hour; queue submit sends `X-Fal-Object-Lifecycle-Preference`, `X-Fal-Store-IO: 0`, and `X-Fal-No-Retry: 1`. Seedance durable handles remain request-id-only, upload failures happen before queue submit, transient upload HTTP failures and non-caller timeout cancellation retry safely, caller cancellation propagates, and queue submit retry remains limited to the PR-18 connection-establishment case. Privacy tests now pin raw JSONL, artifact metadata, provider/public errors, and handler payloads against `fal.media`, `rest.fal.ai`, `api.fal.ai`, `image_url`, `end_image_url`, and `data:image` leakage. **Verification before merge:** focused PR-19 suite passed `219/219`, full managed suite passed `1877/1877`, managed `net7.0` Release build/deploy passed with deployed `Rook.rhp` hash matching the worktree build, boundary scan found no source-upload exposure in `src/RookNative`, `mcp_server`, or `src/Rook\InternalBridge`, live non-generation fal upload smoke passed against `v3b.fal.media`, and user live Seedance smoke passed after local deploy. **Promoted to Next:** Kling 3.0 I2V remains the likely next curated video model now that fal source transport is hardened; keep its heavier schema (`multi_prompt`, negative prompt, cfg/reference/element/audio branches) behind a fresh spec/review pass.)
 
@@ -152,22 +152,21 @@ Each item carries:
 
 ## Now
 
-**Active item: Kling 3.0 I2V curated video model design pass.**
+**Active item: #113 / #114 test-debt triage.**
 
-- **Type:** feature / provider catalog
-- **Stage:** brainstorm
-- **Risk:** M/High (Kling schema is heavier than Seedance: `multi_prompt`, negative prompt, cfg/reference/element/audio branches, provider queue lifecycle, cost, source semantics, and privacy boundaries)
-- **Why_now:** PR-18 and PR-19 shipped the Seedance I2V workflow and hardened fal source-frame transport. With #112 fixed, the WebView-backed Vision/KG panels have a safer deploy path for the next live provider smoke cycle.
-- **Source_doc:** PR-18/PR-19 Seedance design and implementation history; `docs/superpowers/specs/2026-05-05-pr-18-seedance-2-i2v-design.md`; `docs/superpowers/specs/2026-05-06-pr-19-seedance-source-transport-design.md`; fal/Kling provider docs to be re-verified before implementation.
+- **Type:** test hardening / architecture guard
+- **Stage:** triage
+- **Risk:** Low-M (small test-debt issues, but may need Rhino/native harness clarity)
+- **Why_now:** The Kling provider slice and `v1.5.2` release are shipped. #113 and #114 were already queued as the lowest-risk cleanup decisions from the PR #111 deploy/smoke window, and resolving or explicitly deferring them will give the next product lane a cleaner rationale.
+- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; PR #111 runtime smoke notes.
 
 **Expected scope:**
-- Design first, no implementation before a fresh scope pass.
-- Pick exactly one Kling 3.0 image-to-video workflow slice and decide whether it uses the existing fal source-upload transport or needs a model-specific transport seam.
-- Define provider/model id, source/reference semantics, request schema subset, pricing/cost behavior, lifecycle reconstruction, result materialization, restart/cancel behavior, and leakage/privacy tests.
-- Preserve managed Vision/video lifecycle boundaries unless the design identifies a concrete need for native/MCP/public parity.
-- Keep provider knobs conservative; avoid broad catalog discovery or generic option sprawl.
+- Re-open #113 and #114 and decide whether either still needs code or can be closed from runtime/static evidence.
+- Prefer the smaller, more deterministic test gap first.
+- Avoid expanding into native harness redesign unless the issue proves impossible to cover with existing patterns.
+- If neither is worth doing before product work, document that decision and close/defer with evidence.
 
-**Acceptance direction:** Produce a narrow, reviewable design for one curated Kling 3.0 workflow. The design should explicitly explain how it differs from Seedance and which PR-18/PR-19 substrate pieces it reuses.
+**Acceptance direction:** Pick one follow-up, close it with evidence, or explicitly defer both so the next product/polish lane starts from an accurate issue state.
 
 ---
 
@@ -188,27 +187,26 @@ Each item carries:
 
 ## Next
 
-**Next: #113 / #114 test-debt triage.**
+**Next: post-release product/polish lane selection.**
 
-- **Type:** test hardening / architecture guard
-- **Stage:** triage
-- **Risk:** Low-M (small test-debt issues, but may need Rhino/native harness clarity)
-- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; PR #111 runtime smoke notes.
+- **Type:** triage / product sequencing
+- **Stage:** queue selection
+- **Risk:** Low-M (depends on selected lane)
+- **Source_doc:** This work queue, GitHub issues, and the shipped `v1.5.2` release state.
 
 **Expected scope:**
-- Re-open #113 and #114 after #112 closes and decide whether either still needs code or can be closed from runtime/static evidence.
-- Prefer the smaller, more deterministic test gap first.
-- Avoid expanding into native harness redesign unless the issue proves impossible to cover with existing patterns.
-- If neither is worth doing before product work, document that decision and keep Kling 3.0 I2V as the product lane.
+- After #113/#114 are resolved or explicitly deferred, choose one concrete next lane rather than keeping multiple active candidates.
+- Candidate lanes include video provider polish/parameter expansion, PR-V4 video MCP parity, RookVision v1 polish, or a parked architecture/hygiene item whose trigger has fired.
+- Preserve the design-first rule for new provider surfaces or public/native/MCP expansion.
 
-**Acceptance direction:** Pick one follow-up, close it with evidence, or explicitly defer both so the next product design starts with a clean issue rationale.
+**Acceptance direction:** Promote exactly one item into `Now`, demote any displaced candidate to Parked/Deferred with a trigger, and update GitHub issue state where relevant.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
 - **PR-14a mode UX:** parked unless real use shows confusion around Generate prompt-only vs source-image workflows, Studio compatibility, or async job affordances.
 - **Provider discovery substrate:** useful as background research for Replicate/fal.ai catalogs, but should not become an uncurated dynamic model list without a separate design.
 - **Native/MCP/public HTTP parity for image job ops:** still deferred until an agent/Rhino workflow specifically needs non-bridge access.
-- **PR-V4 — MCP tools for video:** `rhino_render_video`, `rhino_video_jobs`, `rhino_video_status`, `rhino_video_cancel` + tool-catalog wiring per the parity rule. Still valuable, but multi-provider work is currently the active product lane.
+- **PR-V4 — MCP tools for video:** `rhino_render_video`, `rhino_video_jobs`, `rhino_video_status`, `rhino_video_cancel` + tool-catalog wiring per the parity rule. Still valuable, but wait until an agent/Rhino workflow specifically needs non-bridge video access or the next product-lane triage selects parity work.
 - **Bigger strategic moves** (each needs design-first framing before any PR):
   - WebUI substrate Phase 1 — nonce auth + virtual host + CDN asset migration; unblocks Knowledge Graph / 2D-to-3D / Scene Graph / NLE dashboard modules (design in `project_webui_substrate_architecture.md`). **Note:** RookVision module already ships on an equivalent Pattern A substrate (`connect-src 'none'` + virtual-host origin + embedded-resource serving) via PR #99, so parts of this work may collapse into generalizing what VisionWebSurface proved rather than green-field design.
   - HAWPv3 / image-to-CAD spike resume — foundation substrate (artifact store, DPAPI-wrapped secrets, Pattern A JS bridge, virtual `/blob/{id}/{role}` resolver) now fully shipped via the image track; HAWPv3 can consume these directly rather than waiting on primitives. Branch state uncertain — check `feature/image-to-cad-spike`.
@@ -267,6 +265,9 @@ has a documented re-entry condition.
 
 | PR | Item | Merged |
 |----|------|--------|
+| release | **Rook v1.5.2 full installer release.** Released from `main` on 2026-05-08 as tag `v1.5.2` with GitHub asset `Rook-Setup-1.5.2.exe` (~14.3 MB). Version metadata was bumped across `mcp_server/pyproject.toml`, `installer/RookSetup.iss`, `src/Rook/Rook.csproj`, `RookNative.rc`, `RookNativePlugin.cpp`, and `RookServer.cpp`. Release build used the pinned native MSVC/MFC 14.44 toolset, managed `net7.0` Release companion, source-path preflight, release installer guards, Issue #112 guards, and Inno Setup. GitHub release URL: `https://github.com/bringfire/Rook/releases/tag/v1.5.2`. | 2026-05-08 |
+| direct | **Release installer companion packaging hardening.** Committed on `main` as `a15c4cc` before the 1.5.2 release. Reconciles the Inno installer with the source install/register path: packages `src\Rook\bin\Release\net7.0` companion artifacts including `Rook.deps.json`, `Rook.runtimeconfig.json`, DLLs, and `runtimes\*`; requires `RookNative.rhp` as the public Rhino surface; keeps native PDB optional; writes Rhino plugin `FileName` values under `...\PlugIn\FileName`; updates build-release skills/docs and `BUILDING.md` to PowerShell/net7 guidance; adds `scripts/tests/release-installer-guards.tests.ps1` covering net7 packaging, runtimeconfig TFM, stale net48/bash release guidance, registry shape, and native-required packaging. | 2026-05-08 |
+| direct | **Kling v3 Standard I2V video support.** Merged to `main` as `a6bdfc4` after design/spec review, implementation, live smoke, and release deployment checks. Adds curated fal model `fal-ai/kling-video/v3/standard/image-to-video` for `I2V` and `Interp` only, requires prompt, uses provider-private fal source-frame upload, sends `start_image_url`, optional `end_image_url`, selected duration, and fixed `generate_audio: false`, keeps durable fal handles request-id-only with explicit model identity, and preserves no-provider-URL leakage posture. Follow-up smoke fixes split Kling submit vs lifecycle routing to the fal queue root, added transient video artifact fetch retry robustness, and verified live Kling round trips. | 2026-05-08 |
 | direct | **Issue #112 net48 companion registration hardening.** Implemented directly on `main` on 2026-05-06. Removes automatic `net48` companion fallback/reuse/success paths from `install.ps1`; source installs now select/build only `src\Rook\bin\Release\net7.0\Rook.rhp`. Release-package `plugin\Rook.rhp` now requires adjacent `Rook.runtimeconfig.json` with `runtimeOptions.tfm == net7.0`. `scripts/register-companion.ps1` now rejects explicit `net48` path segments and framework-less package paths whose runtime metadata is missing, malformed, or not `net7.0`, before any registry write or success output. Added PS5-compatible guard tests in `scripts/tests/issue112-net48-companion-guards.tests.ps1`. Verification passed: guard tests, managed `net7.0` Release build, installer dry-run, forbidden fallback scan, and `git diff --check`. | 2026-05-06 |
 | direct | **Knowledge Graph bootstrap hotfix.** Committed directly on `main` as `3b7487f` on 2026-05-06 after live Rhino verification. Fixes the KG panel failure where the frontend emitted "Could not connect to Rook service" after 15 seconds if `PanelShown` missed/lagged service bootstrap. Adds an internal `KnowledgeGraphBootstrapCoordinator`, starts bootstrap from both `PanelShown` and `RookWebSurface.OnWebViewReady`, caches/replays bootstrap scripts until the WebView can accept them, injects explicit service-unavailable failures, and makes `knowledge-graph.js` event/function-driven so late bootstrap can still load `/knowledge/graph`. Tests cover request-before-ready, request-after-ready, service-unavailable messaging, and retry after failed bootstrap; focused WebSurface/Chat/KG tests passed `38/38`; managed `net7.0` Release build/deploy passed; user confirmed the issue was fixed in Rhino. | 2026-05-06 |
 | #141 | **PR-19 Seedance source-frame transport.** Merged as `a014f61` on 2026-05-06. Replaces Seedance 2.0 data-URI start/end frame transport with provider-private fal CDN upload (`rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3` + raw PUT + returned `file_url`) before queue submit. Keeps scope managed-provider-private: no native route, MCP tool, public bridge op, ledger schema change, durable source media, or durable/public fal source URL exposure. Upload failures happen before queue submit; source media lifetime is one hour; queue submit disables fal platform retries with `X-Fal-No-Retry: 1`; Seedance durable handles remain request-id-only. Privacy tests pin raw JSONL, artifact metadata, provider/public errors, and handler payloads against `fal.media`, `rest.fal.ai`, `api.fal.ai`, `image_url`, `end_image_url`, and `data:image` leakage. Focused PR-19 suite passed `219/219`, full managed suite passed `1877/1877`, managed `net7.0` Release build/deploy passed, boundary scan found no source-upload exposure, non-generation fal upload smoke passed, and user live Seedance smoke passed. | 2026-05-06 |
