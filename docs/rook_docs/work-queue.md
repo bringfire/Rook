@@ -1,5 +1,7 @@
 # Work Queue
 
+**Last triaged:** 2026-05-08 (**PR #142 Rhino runtime harness shipped and merged.** The first #114 slice is now complete: `scripts\run_rhino_runtime_harness.py` starts one owned Rhino process, waits only for `%TEMP%\rook\instance-{PID}-native.json` matching `Popen.pid`, verifies `/ping` on that exact owned port, scopes selected live pytest smoke with `ROOK_RHINO_PORT` + `ROOK_RHINO_PROCESS_ID`, captures run artifacts under `.scratch\rhino-runtime-harness`, snapshots owned discovery before shutdown, saves dirty smoke documents into the run artifact folder before external close, and closes only the owned Rhino process. Live verification covered `--smoke ping-only` and `--smoke pytest-select`; `pytest-select` passed all 13 selected live tests with `cleanup.status: graceful_exit` and no stale native discovery. **Promoted to Now:** #113 native unit-test gap, because the harness foundation is shipped and the remaining known test-debt item is small and explicit. **Promoted to Next:** #114 lifecycle-wrapper follow-up, limited to deciding the next evidence-backed slice for `RookPlugin.OnLoad` / `OnShutdown` try/catch coverage now that process-owned live smoke exists.)
+
 **Last triaged:** 2026-05-08 (**Promoted #114 Rhino runtime harness to Now.** After reviewing the existing live-Rhino test foundation, we are not starting from zero: `mcp_server/tests/*_live.py`, `pytest -m requires_rhino`, `scripts/validate_rhino_operational_suite.py`, `scripts/validate_gh_runtime.py`, `scripts/validate_gh_operational_suite.py`, and the installer/register scripts already cover parts of the runtime-validation story. The missing piece is a process-owning harness that starts Rhino, waits for RookNative discovery/health, runs selected live smoke/tests, captures `%TEMP%\rook` logs, shuts Rhino down, verifies cleanup, and can later grow failure-injection seams for `RookPlugin.OnLoad` / `OnShutdown` wrapper coverage. **Promoted to Now:** #114 as the concrete next build item. **Promoted to Next:** #113 native unit-test gap or explicit follow-up after the harness slice is scoped, because #113 is smaller but less leverage than the harness foundation now selected.)
 
 **Last triaged:** 2026-05-08 (**Rook v1.5.2 released and installer workflow reconciled with the current net7 companion architecture.** Since the previous triage, Kling v3 Standard I2V shipped on `main`, live Rhino/fal smoke passed after lifecycle-root and artifact-fetch robustness fixes, Seedance 1080p support/pricing was corrected and smoke-tested, the Inno installer was hardened to package `src\Rook\bin\Release\net7.0` companion artifacts (`Rook.rhp`, `Rook.deps.json`, `Rook.runtimeconfig.json`, DLLs, `runtimes\*`), `RookNative.rhp` is now a required installer source, Rhino registry `FileName` writes match the known-good `...\PlugIn\FileName` script path, and release docs/skills were updated to the Windows/PowerShell net7 workflow. Release guard coverage now pins installer net7 packaging, no stale net48/bash release guidance, native-required packaging, registry subkeys, and runtimeconfig `runtimeOptions.tfm == net7.0`. `v1.5.2` was built with the pinned native MSVC/MFC toolset, the managed net7 companion, and Inno Setup, then published to GitHub with `Rook-Setup-1.5.2.exe`. **Promoted to Now:** #113 / #114 test-debt triage, because Kling and the release are shipped and those were the queued low-risk cleanup decisions. **Promoted to Next:** choose the next product or polish lane after #113/#114 are closed or explicitly deferred. **Still open after this release:** #113, #114, #53, #37, #34, #29, and stale #26.)
@@ -154,22 +156,39 @@ Each item carries:
 
 ## Now
 
-**Active item: #114 Rhino runtime harness.**
+**Active item: #113 native unit-test gap.**
 
 - **Type:** test hardening / architecture guard
-- **Stage:** brainstorm / plan
-- **Risk:** M (process-owning Rhino automation touches local runtime state and must avoid destructive cleanup)
-- **Why_now:** A real Rhino runtime harness is the highest-leverage follow-up from #114. Existing live tests assume Rhino is already running; we need a repeatable harness that owns Rhino startup, plugin readiness, live smoke execution, log capture, shutdown, and cleanup before adding deeper lifecycle wrapper coverage.
-- **Source_doc:** GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; `BUILDING.md` live-Rhino test notes; `mcp_server/tests/*_live.py`; `scripts/validate_rhino_operational_suite.py`; `scripts/validate_gh_runtime.py`; `scripts/validate_gh_operational_suite.py`; PR #111 runtime smoke notes.
+- **Stage:** triage / narrow implementation decision
+- **Risk:** Low-M (native test gap; may be source-level only if no native unit-test project exists)
+- **Why_now:** #114's process-owned live harness is shipped, so the remaining explicit test-debt item is #113. Decide whether to close it with a narrow source-level/native helper regression, defer it behind a real native unit-test project, or replace it with a better evidence-backed gap discovered during the harness work.
+- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; PR #111 runtime smoke notes; PR #142 Rhino runtime harness.
 
 **Expected scope:**
-- Inventory the existing live-Rhino tests, operational validation scripts, install/register scripts, and discovery/health mechanisms before designing anything new.
-- Build the smallest process-owning harness slice that can start fresh Rhino, wait for RookNative readiness, run a targeted live smoke/test selection, collect `%TEMP%\rook` logs, request graceful shutdown, and verify no stale Rhino process remains.
-- Keep the first slice focused on harness reliability; add failure-injection seams for `RookPlugin.OnLoad` / `OnShutdown` only after the basic lifecycle runner is proven.
-- Make the harness safe by default: do not kill unrelated Rhino work without an explicit guard, and keep install/deploy steps opt-in or clearly bounded.
-- Reuse existing `requires_rhino` pytest tests and validation scripts where possible instead of creating a parallel test universe.
+- Re-read the exact #113 gap and the PR #111 code path before choosing the shape of the closeout.
+- Prefer a small, source-level or existing-test-suite pin if it meaningfully covers the C++ `body["job_id"]` path-id injection behavior.
+- Do not create a broad native unit-test project just to close one low-risk issue unless the investigation finds a repeatable pattern of native helper gaps.
+- If the runtime harness gives a cheaper live validation path for the same risk, document that explicitly and close/defer #113 with evidence.
 
-**Acceptance direction:** A documented harness entry point can run a minimal live Rhino smoke from a clean local state, prove RookNative readiness, preserve useful failure logs, clean up Rhino deterministically, and establish the path for #114 lifecycle wrapper coverage.
+**Acceptance direction:** Close or explicitly defer #113 with evidence, update the GitHub issue, and leave a clear note about whether future native helper gaps should use source-level tests, live harness smoke, or a true native unit-test project.
+
+**Rhino runtime harness usage notes for future work:**
+
+Use the harness as the fast "does this actually work in Rhino?" gate when a change touches live routing, discovery, native readiness, selected live tests, or process cleanup. It is not a replacement for unit tests; run focused unit tests first, then use the harness for owned-process proof.
+
+Primary commands:
+
+```powershell
+python scripts\run_rhino_runtime_harness.py --smoke ping-only
+python scripts\run_rhino_runtime_harness.py --smoke pytest-select
+```
+
+- `ping-only` is the non-mutating startup/readiness/cleanup diagnostic. It proves Rhino launches, RookNative writes the owned discovery file, `/ping` answers on the exact owned port, artifacts are captured, and external close works.
+- `pytest-select` is the first real live smoke. It proves selected `requires_rhino` tests run against the owned PID/port and that dirty-document cleanup exits cleanly after the harness saves the owned document into the artifact folder.
+- Harness mode uses `ROOK_RHINO_PORT=<port>` and `ROOK_RHINO_PROCESS_ID=<pid>`. For pytest, this pair is the safety contract; do not rely on `NATIVE_PORT` alone.
+- Run artifacts live under `.scratch\rhino-runtime-harness\<run-id>\`; inspect `manifest.json`, owned discovery snapshots, copied `%TEMP%\rook` files, smoke stdout/stderr, cleanup status, and warnings when debugging.
+- Good prompt to invoke it: "Use the Rhino runtime harness to validate this change against a real owned Rhino session. Start with `--smoke ping-only`, then run `--smoke pytest-select`. Inspect the manifests and tell me whether readiness, scoped pytest routing, artifact capture, and cleanup were green. If anything fails, debug from the harness artifacts instead of using an already-running Rhino."
+- Feature-specific prompt: "I changed `<route/fixture/discovery path>`. Use the runtime harness to run the selected live smoke against an owned Rhino process. Confirm the smoke env only targets the owned PID/port, verify the selected live tests pass, and check that cleanup is `graceful_exit`."
 
 ---
 
@@ -190,19 +209,20 @@ Each item carries:
 
 ## Next
 
-**Next: #113 native unit-test gap or post-harness follow-up.**
+**Next: #114 lifecycle-wrapper coverage follow-up.**
 
 - **Type:** test hardening / triage
-- **Stage:** queue selection
-- **Risk:** Low-M
-- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; GitHub #114 follow-up after the harness slice; this work queue.
+- **Stage:** queue selection / design-needed
+- **Risk:** M (touches plugin lifecycle behavior and failure classification)
+- **Source_doc:** GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; PR #142 Rhino runtime harness; `mcp_server/src/rook/runtime_harness.py`; `BUILDING.md`.
 
 **Expected scope:**
-- After the harness slice is scoped or shipped, decide whether #113 should be closed with a narrow native/source-level test or deferred behind a future native unit-test project.
-- If the harness exposes a more urgent #114 lifecycle gap, promote that follow-up ahead of #113 with explicit evidence.
-- After #113/#114 are resolved or explicitly deferred, choose one product or polish lane rather than keeping multiple active candidates.
+- Do not add failure injection casually. First decide the smallest next slice that proves `RookPlugin.OnLoad` / `OnShutdown` wrapper behavior without compromising the non-invasive harness model.
+- Consider whether lifecycle coverage should be source-level, managed companion tests, controlled environment toggles, or an opt-in harness smoke. Keep native shutdown/test-control routes out unless a fresh design proves they are necessary.
+- Preserve the PR #142 safety invariant: the harness owns one PID, trusts only `instance-{PID}-native.json`, scopes tests by PID+port, and never kills unrelated Rhino sessions.
+- If #113 uncovers a more urgent harness/lifecycle gap, update this entry with the evidence before promoting it.
 
-**Acceptance direction:** Close or explicitly defer #113 with evidence, then promote exactly one product/polish item into `Now` and update GitHub issue state where relevant.
+**Acceptance direction:** A design note or narrow follow-up plan identifies the next safe lifecycle-wrapper coverage slice, including how it will be verified through the existing harness or why a different test seam is required.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
@@ -268,6 +288,7 @@ has a documented re-entry condition.
 
 | PR | Item | Merged |
 |----|------|--------|
+| #142 | **Rhino runtime harness.** Squash-merged as `035d6f4` on 2026-05-08. Adds the first process-owned Rhino live-test/development harness: starts one Rhino process, waits only for `%TEMP%\rook\instance-{PID}-native.json` matching the owned `Popen.pid`, pings the exact discovered RookNative port, re-checks owned discovery before smoke, runs selected live smoke with `ROOK_RHINO_PORT` + `ROOK_RHINO_PROCESS_ID`, captures `%TEMP%\rook` artifacts and smoke output into `.scratch\rhino-runtime-harness`, and cleans up only the owned Rhino process. Pytest harness mode fails closed on malformed/partial env and preserves ambient `requires_rhino` skip behavior when no harness env is present. `ping-only` provides non-mutating readiness/cleanup diagnostics; `pytest-select` reuses `test_select_additive_live.py`; mutating smoke cleanup saves the owned document into the run artifact folder before `WM_CLOSE` so dirty-doc prompts do not force cleanup. Live verification: `ping-only` passed with `graceful_exit`; `pytest-select` passed all 13 selected live tests with scoped env containing only `ROOK_RHINO_PORT` and `ROOK_RHINO_PROCESS_ID`, `cleanup.status: graceful_exit`, `warnings: []`, and no stale native discovery. | 2026-05-08 |
 | release | **Rook v1.5.2 full installer release.** Released from `main` on 2026-05-08 as tag `v1.5.2` with GitHub asset `Rook-Setup-1.5.2.exe` (~14.3 MB). Version metadata was bumped across `mcp_server/pyproject.toml`, `installer/RookSetup.iss`, `src/Rook/Rook.csproj`, `RookNative.rc`, `RookNativePlugin.cpp`, and `RookServer.cpp`. Release build used the pinned native MSVC/MFC 14.44 toolset, managed `net7.0` Release companion, source-path preflight, release installer guards, Issue #112 guards, and Inno Setup. GitHub release URL: `https://github.com/bringfire/Rook/releases/tag/v1.5.2`. | 2026-05-08 |
 | direct | **Release installer companion packaging hardening.** Committed on `main` as `a15c4cc` before the 1.5.2 release. Reconciles the Inno installer with the source install/register path: packages `src\Rook\bin\Release\net7.0` companion artifacts including `Rook.deps.json`, `Rook.runtimeconfig.json`, DLLs, and `runtimes\*`; requires `RookNative.rhp` as the public Rhino surface; keeps native PDB optional; writes Rhino plugin `FileName` values under `...\PlugIn\FileName`; updates build-release skills/docs and `BUILDING.md` to PowerShell/net7 guidance; adds `scripts/tests/release-installer-guards.tests.ps1` covering net7 packaging, runtimeconfig TFM, stale net48/bash release guidance, registry shape, and native-required packaging. | 2026-05-08 |
 | direct | **Kling v3 Standard I2V video support.** Merged to `main` as `a6bdfc4` after design/spec review, implementation, live smoke, and release deployment checks. Adds curated fal model `fal-ai/kling-video/v3/standard/image-to-video` for `I2V` and `Interp` only, requires prompt, uses provider-private fal source-frame upload, sends `start_image_url`, optional `end_image_url`, selected duration, and fixed `generate_audio: false`, keeps durable fal handles request-id-only with explicit model identity, and preserves no-provider-URL leakage posture. Follow-up smoke fixes split Kling submit vs lifecycle routing to the fal queue root, added transient video artifact fetch retry robustness, and verified live Kling round trips. | 2026-05-08 |
