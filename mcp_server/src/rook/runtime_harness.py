@@ -24,6 +24,7 @@ DEFAULT_DISCOVERY_DIR = Path(tempfile.gettempdir()) / "rook"
 MIN_POLL_SECONDS = 0.001
 HARNESS_ENV_KEYS = ("ROOK_RHINO_PORT", "ROOK_RHINO_PROCESS_ID", "NATIVE_PORT")
 FINAL_SMOKE_DRAIN_TIMEOUT_SECONDS = 1.0
+WM_CLOSE = 0x0010
 
 
 class DiscoveryError(RuntimeError):
@@ -167,6 +168,59 @@ def _smoke_popen_kwargs() -> dict[str, Any]:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def _windows_user32() -> ctypes.WinDLL:
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.PostMessageW.restype = wintypes.BOOL
+    return user32
+
+
+def close_windows_for_pid(pid: int) -> int:
+    if os.name != "nt":
+        return 0
+
+    user32 = _windows_user32()
+    posted_count = 0
+
+    def enum_window(hwnd, lparam):
+        nonlocal posted_count
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        window_pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+        if window_pid.value == pid and user32.PostMessageW(hwnd, WM_CLOSE, 0, 0):
+            posted_count += 1
+        return True
+
+    enum_windows_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows(enum_windows_proc(enum_window), 0)
+    return posted_count
+
+
+def request_external_graceful_close(
+    process,
+    timeout_seconds: float,
+    close_windows_for_pid_fn: Callable[[int], int] = close_windows_for_pid,
+) -> bool:
+    close_windows_for_pid_fn(process.pid)
+    try:
+        process.wait(timeout=timeout_seconds)
+        return False
+    except Exception:
+        process.kill()
+        try:
+            process.wait(timeout=1.0)
+        except Exception:
+            pass
+        return True
 
 
 def _windows_kernel32() -> ctypes.WinDLL:

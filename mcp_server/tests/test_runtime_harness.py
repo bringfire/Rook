@@ -16,7 +16,9 @@ from rook.runtime_harness import (
     RhinoHarnessResult,
     SmokeCommandResult,
     classify_cleanup_status,
+    close_windows_for_pid,
     copy_temp_rook_artifacts,
+    request_external_graceful_close,
     run_smoke_command,
     ping_native,
 )
@@ -147,6 +149,26 @@ def _harness_result(tmp_path: Path, *, smoke: SmokeCommandResult | None = None) 
         smoke=smoke,
         run_started_at=100.0,
     )
+
+
+class FakeExternalProcess:
+    def __init__(self, pid: int, wait_results: list[object]):
+        self.pid = pid
+        self.wait_results = wait_results
+        self.wait_timeouts: list[float | None] = []
+        self.kill_calls = 0
+
+    def wait(self, timeout=None):
+        self.wait_timeouts.append(timeout)
+        if not self.wait_results:
+            return 0
+        result = self.wait_results.pop(0)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    def kill(self):
+        self.kill_calls += 1
 
 
 def test_owned_discovery_accepts_exact_native_pid(tmp_path: Path):
@@ -608,6 +630,102 @@ def test_run_smoke_command_timeout_recovery_never_uses_unbounded_final_drain(mon
     assert "could not drain" in result.stderr.lower()
     assert fake_process.kill_called is True
     assert fake_process.communicate_timeouts == [0.2, 5, 1]
+
+
+def test_request_external_graceful_close_targets_owned_pid_and_does_not_kill():
+    process = FakeExternalProcess(pid=4242, wait_results=[0])
+    closed_pids: list[int] = []
+
+    forced = request_external_graceful_close(
+        process,
+        timeout_seconds=2.5,
+        close_windows_for_pid_fn=lambda pid: closed_pids.append(pid) or 1,
+    )
+
+    assert forced is False
+    assert closed_pids == [4242]
+    assert process.kill_calls == 0
+    assert process.wait_timeouts == [2.5]
+
+
+def test_request_external_graceful_close_force_kills_owned_process_after_timeout():
+    process = FakeExternalProcess(
+        pid=5252,
+        wait_results=[
+            subprocess.TimeoutExpired(cmd=["rhino"], timeout=0.1),
+            0,
+        ],
+    )
+    closed_pids: list[int] = []
+
+    forced = request_external_graceful_close(
+        process,
+        timeout_seconds=0.1,
+        close_windows_for_pid_fn=lambda pid: closed_pids.append(pid) or 2,
+    )
+
+    assert forced is True
+    assert closed_pids == [5252]
+    assert process.kill_calls == 1
+    assert process.wait_timeouts == [0.1, pytest.approx(1.0)]
+
+
+def test_request_external_graceful_close_force_kills_owned_process_when_no_windows_close():
+    process = FakeExternalProcess(
+        pid=6262,
+        wait_results=[
+            subprocess.TimeoutExpired(cmd=["rhino"], timeout=0.2),
+            0,
+        ],
+    )
+    closed_pids: list[int] = []
+
+    forced = request_external_graceful_close(
+        process,
+        timeout_seconds=0.2,
+        close_windows_for_pid_fn=lambda pid: closed_pids.append(pid) or 0,
+    )
+
+    assert forced is True
+    assert closed_pids == [6262]
+    assert process.kill_calls == 1
+    assert process.wait_timeouts == [0.2, pytest.approx(1.0)]
+
+
+def test_close_windows_for_pid_posts_close_only_to_visible_top_level_owned_windows(monkeypatch):
+    import rook.runtime_harness as runtime_harness
+
+    hwnds = [1001, 1002, 1003, 1004]
+    visible = {1001: True, 1002: False, 1003: True, 1004: True}
+    pids = {1001: 42, 1002: 42, 1003: 99, 1004: 42}
+    posted: list[tuple[int, int, int, int]] = []
+
+    class FakeUser32:
+        def EnumWindows(self, callback, lparam):
+            for hwnd in hwnds:
+                if not callback(hwnd, lparam):
+                    return 0
+            return 1
+
+        def IsWindowVisible(self, hwnd):
+            return bool(visible[hwnd])
+
+        def GetWindowThreadProcessId(self, hwnd, pid_pointer):
+            pid_pointer._obj.value = pids[hwnd]
+            return 1
+
+        def PostMessageW(self, hwnd, message, wparam, lparam):
+            posted.append((hwnd, message, wparam, lparam))
+            return 1
+
+    monkeypatch.setattr(runtime_harness.os, "name", "nt")
+    monkeypatch.setattr(runtime_harness, "_windows_user32", lambda: FakeUser32())
+
+    assert close_windows_for_pid(42) == 2
+    assert posted == [
+        (1001, runtime_harness.WM_CLOSE, 0, 0),
+        (1004, runtime_harness.WM_CLOSE, 0, 0),
+    ]
 
 
 def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path: Path):
