@@ -95,16 +95,10 @@ class RhinoHarnessResult:
 
     @property
     def success(self) -> bool:
-        non_green_cleanup_statuses = {
-            CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER,
-            CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL,
-            CleanupStatus.ALREADY_EXITED_BEFORE_CLEANUP,
-            CleanupStatus.FORCE_KILL_FAILED,
-        }
         return (
             self.smoke is not None
             and self.smoke.succeeded
-            and self.cleanup_status not in non_green_cleanup_statuses
+            and self.cleanup_status == CleanupStatus.GRACEFUL_EXIT
         )
 
     @property
@@ -414,6 +408,7 @@ def run_rhino_runtime_harness(
     rhino_exe: Path,
     artifact_root: Path,
     smoke_command: list[str],
+    smoke_kind: str = "pytest-select",
     smoke_cwd: Path | None = None,
     smoke_timeout_seconds: float | None = None,
     discovery: OwnedRhinoDiscovery | None = None,
@@ -429,6 +424,7 @@ def run_rhino_runtime_harness(
     """
     run_id = _new_run_id()
     artifact_dir = artifact_root / run_id
+    run_started_at = time.time()
     warnings: list[str] = []
 
     rhino_exe = Path(rhino_exe)
@@ -439,6 +435,7 @@ def run_rhino_runtime_harness(
             artifact_dir=artifact_dir,
             pid=0,
             port=0,
+            run_started_at=run_started_at,
             warnings=[f"Rhino executable not found: {rhino_exe}"],
         )
         result.write_manifest()
@@ -453,6 +450,7 @@ def run_rhino_runtime_harness(
             artifact_dir=artifact_dir,
             pid=0,
             port=0,
+            run_started_at=run_started_at,
             warnings=[f"Rhino launch failed: {exc}"],
         )
         copy_temp_rook_artifacts(result, temp_rook_dir, "launch-failure")
@@ -466,6 +464,7 @@ def run_rhino_runtime_harness(
         artifact_dir=artifact_dir,
         pid=pid,
         port=port,
+        run_started_at=run_started_at,
         warnings=warnings,
     )
 
@@ -482,31 +481,49 @@ def run_rhino_runtime_harness(
             warnings.append(f"Rhino readiness failed: {exc}")
             copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
         else:
-            port = record.port
-            ready_record_path = discovery.snapshot_owned_record(record, artifact_dir)
-            result = replace(result, port=port, ready_record_path=ready_record_path)
-            smoke_env = {
-                "ROOK_RHINO_PORT": str(record.port),
-                "ROOK_RHINO_PROCESS_ID": str(record.pid),
-                "NATIVE_PORT": str(record.port),
-            }
             try:
-                smoke = run_smoke_command(
-                    smoke_command,
-                    smoke_env,
-                    cwd=smoke_cwd,
-                    timeout_seconds=smoke_timeout_seconds,
-                )
-            except Exception as exc:
-                warnings.append(f"Rhino smoke command failed before result: {exc}")
-                copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+                confirmed_record = discovery.read_owned_record(pid)
+            except DiscoveryError as exc:
+                warnings.append(f"Rhino discovery changed after ping: {exc}")
+                copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+                confirmed_record = None
             else:
-                result = replace(result, smoke=smoke)
-                copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
-                before_shutdown_copied = True
-                if not smoke.succeeded:
-                    warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
+                if confirmed_record.port != record.port or confirmed_record.pid != record.pid:
+                    warnings.append(
+                        "Rhino discovery changed after ping: "
+                        f"was pid {record.pid} port {record.port}, "
+                        f"now pid {confirmed_record.pid} port {confirmed_record.port}"
+                    )
+                    copy_temp_rook_artifacts(result, temp_rook_dir, "readiness-failure")
+                    confirmed_record = None
+            if confirmed_record is not None:
+                record = confirmed_record
+                port = record.port
+                ready_record_path = discovery.snapshot_owned_record(record, artifact_dir)
+                result = replace(result, port=port, ready_record_path=ready_record_path)
+                smoke_env = {
+                    "ROOK_RHINO_PORT": str(record.port),
+                    "ROOK_RHINO_PROCESS_ID": str(record.pid),
+                }
+                if smoke_kind == "rhino-operational":
+                    smoke_env["NATIVE_PORT"] = str(record.port)
+                try:
+                    smoke = run_smoke_command(
+                        smoke_command,
+                        smoke_env,
+                        cwd=smoke_cwd,
+                        timeout_seconds=smoke_timeout_seconds,
+                    )
+                except Exception as exc:
+                    warnings.append(f"Rhino smoke command failed before result: {exc}")
                     copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
+                else:
+                    result = replace(result, smoke=smoke)
+                    copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")
+                    before_shutdown_copied = True
+                    if not smoke.succeeded:
+                        warnings.append(f"Rhino smoke command failed with exit code {smoke.returncode}")
+                        copy_temp_rook_artifacts(result, temp_rook_dir, "smoke-failure")
     finally:
         if not before_shutdown_copied:
             copy_temp_rook_artifacts(result, temp_rook_dir, "before-shutdown")

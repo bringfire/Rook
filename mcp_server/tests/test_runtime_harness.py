@@ -207,12 +207,15 @@ class FakeHarnessDiscovery:
         port: int = 9921,
         fail_ready: bool = False,
         leftover: bool = False,
+        reread_port: int | None = None,
     ):
         self.pid = pid
         self.port = port
         self.fail_ready = fail_ready
         self.leftover = leftover
+        self.reread_port = reread_port
         self.wait_calls: list[dict[str, object]] = []
+        self.read_calls: list[int] = []
         self.snapshot_calls: list[Path] = []
 
     def owned_path(self, pid: int):
@@ -239,6 +242,22 @@ class FakeHarnessDiscovery:
                 "pluginType": "native",
                 "host": "127.0.0.1",
                 "port": self.port,
+            },
+        )
+
+    def read_owned_record(self, pid: int):
+        self.read_calls.append(pid)
+        port = self.port if self.reread_port is None else self.reread_port
+        return OwnedRhinoRecord(
+            pid=self.pid,
+            host="127.0.0.1",
+            port=port,
+            path=Path(f"instance-{self.pid}-native.json"),
+            raw={
+                "processId": self.pid,
+                "pluginType": "native",
+                "host": "127.0.0.1",
+                "port": port,
             },
         )
 
@@ -860,9 +879,23 @@ def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path:
             "path": "not_attempted",
         },
         "warnings": ["artifact copy skipped"],
-        "status": "success",
-        "success": True,
+        "status": "non_green",
+        "success": False,
     }
+
+
+def test_harness_success_requires_graceful_cleanup(tmp_path: Path):
+    result = RhinoHarnessResult(
+        run_id="run-no-cleanup",
+        artifact_dir=tmp_path,
+        pid=2222,
+        port=9010,
+        smoke=_smoke_result(0),
+        cleanup_status=CleanupStatus.NOT_ATTEMPTED,
+    )
+
+    assert result.success is False
+    assert result.status == HarnessStatus.NON_GREEN
 
 
 def test_copy_temp_rook_artifacts_missing_temp_dir_warns_and_returns_empty(tmp_path: Path):
@@ -1206,7 +1239,6 @@ def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_s
             {
                 "ROOK_RHINO_PORT": "9921",
                 "ROOK_RHINO_PROCESS_ID": "4321",
-                "NATIVE_PORT": "9921",
             },
             tmp_path,
             None,
@@ -1221,6 +1253,130 @@ def test_runtime_harness_successful_flow_uses_exact_owned_discovery_and_scoped_s
     manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["success"] is True
     assert manifest["ready"]["record_snapshot_path"] == str(result.ready_record_path)
+
+
+def test_runtime_harness_validation_smoke_receives_native_port(tmp_path: Path, monkeypatch):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+    smoke_envs: list[dict[str, str]] = []
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda command, env_additions, cwd=None, timeout_seconds=None: smoke_envs.append(
+            env_additions
+        )
+        or SmokeCommandResult(command, _scoped_env_subset(env_additions), 0, "", "", 0.01),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: cleanup_process.wait(timeout_seconds) or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        smoke_kind="rhino-operational",
+        discovery=discovery,
+    )
+
+    assert result.success is True
+    assert smoke_envs == [
+        {
+            "ROOK_RHINO_PORT": "9921",
+            "ROOK_RHINO_PROCESS_ID": "4321",
+            "NATIVE_PORT": "9921",
+        }
+    ]
+
+
+def test_runtime_harness_fails_if_discovery_changes_after_ping_before_smoke(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921, reread_port=9922)
+    smoke_calls: list[object] = []
+
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda *args, **kwargs: smoke_calls.append(args),
+    )
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", lambda *args: [])
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: cleanup_process.wait(timeout_seconds) or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+    )
+
+    manifest = json.loads((result.artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert discovery.read_calls == [4321]
+    assert smoke_calls == []
+    assert result.smoke is None
+    assert result.success is False
+    assert any("changed after ping" in warning for warning in result.warnings)
+    assert manifest["warnings"] == result.warnings
+
+
+def test_runtime_harness_run_started_at_covers_rhino_launch(
+    tmp_path: Path,
+    monkeypatch,
+):
+    rhino_exe = tmp_path / "Rhino.exe"
+    rhino_exe.write_text("fake", encoding="utf-8")
+    process = FakeHarnessProcess(pid=4321, poll_results=[None, None])
+    discovery = FakeHarnessDiscovery(pid=4321, port=9921)
+    monotonic_times = iter([10.0, 10.5])
+    copied_started_at: list[float] = []
+
+    monkeypatch.setattr("rook.runtime_harness.time.time", lambda: next(monotonic_times))
+    monkeypatch.setattr("rook.runtime_harness.subprocess.Popen", lambda command: process)
+    monkeypatch.setattr(
+        "rook.runtime_harness.run_smoke_command",
+        lambda command, env_additions, cwd=None, timeout_seconds=None: SmokeCommandResult(
+            command,
+            _scoped_env_subset(env_additions),
+            0,
+            "",
+            "",
+            0.01,
+        ),
+    )
+
+    def record_artifact_copy(result, temp_rook_dir, label):
+        if label == "before-shutdown":
+            copied_started_at.append(result.run_started_at)
+        return []
+
+    monkeypatch.setattr("rook.runtime_harness.copy_temp_rook_artifacts", record_artifact_copy)
+    monkeypatch.setattr(
+        "rook.runtime_harness.request_external_graceful_close",
+        lambda cleanup_process, timeout_seconds: cleanup_process.wait(timeout_seconds) or False,
+    )
+
+    result = run_rhino_runtime_harness(
+        rhino_exe=rhino_exe,
+        artifact_root=tmp_path / "artifacts",
+        smoke_command=["smoke"],
+        discovery=discovery,
+    )
+
+    assert result.success is True
+    assert result.run_started_at == 10.0
+    assert copied_started_at == [10.0]
 
 
 def test_runtime_harness_readiness_failure_captures_artifacts_and_cleans_owned_process(

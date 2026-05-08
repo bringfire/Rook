@@ -70,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         rhino_exe=args.rhino_exe,
         artifact_root=artifact_root,
         smoke_command=command,
+        smoke_kind=args.smoke,
         smoke_cwd=cwd,
     )
     print(f"Artifact directory: {result.artifact_dir}")
