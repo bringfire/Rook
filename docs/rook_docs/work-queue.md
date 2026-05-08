@@ -1,5 +1,7 @@
 # Work Queue
 
+**Last triaged:** 2026-05-08 (**Promoted #114 Rhino runtime harness to Now.** After reviewing the existing live-Rhino test foundation, we are not starting from zero: `mcp_server/tests/*_live.py`, `pytest -m requires_rhino`, `scripts/validate_rhino_operational_suite.py`, `scripts/validate_gh_runtime.py`, `scripts/validate_gh_operational_suite.py`, and the installer/register scripts already cover parts of the runtime-validation story. The missing piece is a process-owning harness that starts Rhino, waits for RookNative discovery/health, runs selected live smoke/tests, captures `%TEMP%\rook` logs, shuts Rhino down, verifies cleanup, and can later grow failure-injection seams for `RookPlugin.OnLoad` / `OnShutdown` wrapper coverage. **Promoted to Now:** #114 as the concrete next build item. **Promoted to Next:** #113 native unit-test gap or explicit follow-up after the harness slice is scoped, because #113 is smaller but less leverage than the harness foundation now selected.)
+
 **Last triaged:** 2026-05-08 (**Rook v1.5.2 released and installer workflow reconciled with the current net7 companion architecture.** Since the previous triage, Kling v3 Standard I2V shipped on `main`, live Rhino/fal smoke passed after lifecycle-root and artifact-fetch robustness fixes, Seedance 1080p support/pricing was corrected and smoke-tested, the Inno installer was hardened to package `src\Rook\bin\Release\net7.0` companion artifacts (`Rook.rhp`, `Rook.deps.json`, `Rook.runtimeconfig.json`, DLLs, `runtimes\*`), `RookNative.rhp` is now a required installer source, Rhino registry `FileName` writes match the known-good `...\PlugIn\FileName` script path, and release docs/skills were updated to the Windows/PowerShell net7 workflow. Release guard coverage now pins installer net7 packaging, no stale net48/bash release guidance, native-required packaging, registry subkeys, and runtimeconfig `runtimeOptions.tfm == net7.0`. `v1.5.2` was built with the pinned native MSVC/MFC toolset, the managed net7 companion, and Inno Setup, then published to GitHub with `Rook-Setup-1.5.2.exe`. **Promoted to Now:** #113 / #114 test-debt triage, because Kling and the release are shipped and those were the queued low-risk cleanup decisions. **Promoted to Next:** choose the next product or polish lane after #113/#114 are closed or explicitly deferred. **Still open after this release:** #113, #114, #53, #37, #34, #29, and stale #26.)
 
 **Last triaged:** 2026-05-06 (**PR-19 Seedance source-frame transport shipped as PR #141.** PR #141 removes the Seedance data-URI source-frame path and always uploads start/end source frames through the provider-private fal CDN initiate + PUT flow before queue submit. Scope stayed managed-provider-private: no native route, MCP tool, public bridge op, ledger schema change, durable source media, or public fal source URL exposure. Source uploads use the confirmed fal REST contract (`rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3` -> raw PUT to fal media upload URL -> submit returned `file_url`) with `X-Fal-Object-Lifecycle` fixed at one hour; queue submit sends `X-Fal-Object-Lifecycle-Preference`, `X-Fal-Store-IO: 0`, and `X-Fal-No-Retry: 1`. Seedance durable handles remain request-id-only, upload failures happen before queue submit, transient upload HTTP failures and non-caller timeout cancellation retry safely, caller cancellation propagates, and queue submit retry remains limited to the PR-18 connection-establishment case. Privacy tests now pin raw JSONL, artifact metadata, provider/public errors, and handler payloads against `fal.media`, `rest.fal.ai`, `api.fal.ai`, `image_url`, `end_image_url`, and `data:image` leakage. **Verification before merge:** focused PR-19 suite passed `219/219`, full managed suite passed `1877/1877`, managed `net7.0` Release build/deploy passed with deployed `Rook.rhp` hash matching the worktree build, boundary scan found no source-upload exposure in `src/RookNative`, `mcp_server`, or `src/Rook\InternalBridge`, live non-generation fal upload smoke passed against `v3b.fal.media`, and user live Seedance smoke passed after local deploy. **Promoted to Next:** Kling 3.0 I2V remains the likely next curated video model now that fal source transport is hardened; keep its heavier schema (`multi_prompt`, negative prompt, cfg/reference/element/audio branches) behind a fresh spec/review pass.)
@@ -152,21 +154,22 @@ Each item carries:
 
 ## Now
 
-**Active item: #113 / #114 test-debt triage.**
+**Active item: #114 Rhino runtime harness.**
 
 - **Type:** test hardening / architecture guard
-- **Stage:** triage
-- **Risk:** Low-M (small test-debt issues, but may need Rhino/native harness clarity)
-- **Why_now:** The Kling provider slice and `v1.5.2` release are shipped. #113 and #114 were already queued as the lowest-risk cleanup decisions from the PR #111 deploy/smoke window, and resolving or explicitly deferring them will give the next product lane a cleaner rationale.
-- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; PR #111 runtime smoke notes.
+- **Stage:** brainstorm / plan
+- **Risk:** M (process-owning Rhino automation touches local runtime state and must avoid destructive cleanup)
+- **Why_now:** A real Rhino runtime harness is the highest-leverage follow-up from #114. Existing live tests assume Rhino is already running; we need a repeatable harness that owns Rhino startup, plugin readiness, live smoke execution, log capture, shutdown, and cleanup before adding deeper lifecycle wrapper coverage.
+- **Source_doc:** GitHub #114 "Plugin lifecycle integration test for RookPlugin.OnLoad / OnShutdown try/catch wrappers"; `BUILDING.md` live-Rhino test notes; `mcp_server/tests/*_live.py`; `scripts/validate_rhino_operational_suite.py`; `scripts/validate_gh_runtime.py`; `scripts/validate_gh_operational_suite.py`; PR #111 runtime smoke notes.
 
 **Expected scope:**
-- Re-open #113 and #114 and decide whether either still needs code or can be closed from runtime/static evidence.
-- Prefer the smaller, more deterministic test gap first.
-- Avoid expanding into native harness redesign unless the issue proves impossible to cover with existing patterns.
-- If neither is worth doing before product work, document that decision and close/defer with evidence.
+- Inventory the existing live-Rhino tests, operational validation scripts, install/register scripts, and discovery/health mechanisms before designing anything new.
+- Build the smallest process-owning harness slice that can start fresh Rhino, wait for RookNative readiness, run a targeted live smoke/test selection, collect `%TEMP%\rook` logs, request graceful shutdown, and verify no stale Rhino process remains.
+- Keep the first slice focused on harness reliability; add failure-injection seams for `RookPlugin.OnLoad` / `OnShutdown` only after the basic lifecycle runner is proven.
+- Make the harness safe by default: do not kill unrelated Rhino work without an explicit guard, and keep install/deploy steps opt-in or clearly bounded.
+- Reuse existing `requires_rhino` pytest tests and validation scripts where possible instead of creating a parallel test universe.
 
-**Acceptance direction:** Pick one follow-up, close it with evidence, or explicitly defer both so the next product/polish lane starts from an accurate issue state.
+**Acceptance direction:** A documented harness entry point can run a minimal live Rhino smoke from a clean local state, prove RookNative readiness, preserve useful failure logs, clean up Rhino deterministically, and establish the path for #114 lifecycle wrapper coverage.
 
 ---
 
@@ -187,19 +190,19 @@ Each item carries:
 
 ## Next
 
-**Next: post-release product/polish lane selection.**
+**Next: #113 native unit-test gap or post-harness follow-up.**
 
-- **Type:** triage / product sequencing
+- **Type:** test hardening / triage
 - **Stage:** queue selection
-- **Risk:** Low-M (depends on selected lane)
-- **Source_doc:** This work queue, GitHub issues, and the shipped `v1.5.2` release state.
+- **Risk:** Low-M
+- **Source_doc:** GitHub #113 "Native unit-test gap: DispatchVisionOpWithPathId path-id field parameterization"; GitHub #114 follow-up after the harness slice; this work queue.
 
 **Expected scope:**
-- After #113/#114 are resolved or explicitly deferred, choose one concrete next lane rather than keeping multiple active candidates.
-- Candidate lanes include video provider polish/parameter expansion, PR-V4 video MCP parity, RookVision v1 polish, or a parked architecture/hygiene item whose trigger has fired.
-- Preserve the design-first rule for new provider surfaces or public/native/MCP expansion.
+- After the harness slice is scoped or shipped, decide whether #113 should be closed with a narrow native/source-level test or deferred behind a future native unit-test project.
+- If the harness exposes a more urgent #114 lifecycle gap, promote that follow-up ahead of #113 with explicit evidence.
+- After #113/#114 are resolved or explicitly deferred, choose one product or polish lane rather than keeping multiple active candidates.
 
-**Acceptance direction:** Promote exactly one item into `Now`, demote any displaced candidate to Parked/Deferred with a trigger, and update GitHub issue state where relevant.
+**Acceptance direction:** Close or explicitly defer #113 with evidence, then promote exactly one product/polish item into `Now` and update GitHub issue state where relevant.
 
 **Deferred candidates** (any can promote if analysis or user direction surfaces a reason to pivot):
 
