@@ -49,7 +49,13 @@ class OwnedRhinoDiscovery:
         if plugin_type != "native":
             raise DiscoveryError(f"unexpected pluginType in owned Rhino discovery file: {plugin_type}")
 
-        host = (raw.get("host") or "127.0.0.1").strip().lower()
+        raw_host = raw.get("host")
+        if raw_host is None or raw_host == "":
+            host = "127.0.0.1"
+        elif not isinstance(raw_host, str):
+            raise DiscoveryError(f"owned Rhino discovery host must be loopback: {raw_host}")
+        else:
+            host = raw_host.strip().lower()
         if host not in LOOPBACK_HOSTS:
             raise DiscoveryError(f"owned Rhino discovery host must be loopback: {host}")
 

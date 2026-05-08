@@ -90,6 +90,13 @@ def test_owned_discovery_rejects_non_loopback_host(tmp_path: Path):
         OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
 
 
+def test_owned_discovery_rejects_non_string_host(tmp_path: Path):
+    _write_record(tmp_path, 1234, _native_record(1234, host=123))
+
+    with pytest.raises(DiscoveryError, match="host|loopback"):
+        OwnedRhinoDiscovery(tmp_path).read_owned_record(1234)
+
+
 def test_owned_discovery_snapshots_json(tmp_path: Path):
     artifact_dir = tmp_path / "artifacts"
     _write_record(tmp_path, 1234, _native_record(1234, host=""))
