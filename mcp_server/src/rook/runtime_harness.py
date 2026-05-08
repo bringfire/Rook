@@ -7,10 +7,11 @@ import inspect
 import json
 import os
 import signal
+import shutil
 import subprocess
 import time
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
@@ -40,6 +41,11 @@ class OwnedRhinoRecord:
 
 class CleanupStatus(Enum):
     NOT_ATTEMPTED = "not_attempted"
+    GRACEFUL_EXIT = "graceful_exit"
+    GRACEFUL_EXIT_DISCOVERY_LEFTOVER = "graceful_exit_discovery_leftover"
+    GRACEFUL_TIMEOUT_FORCED_KILL = "graceful_timeout_forced_kill"
+    ALREADY_EXITED_BEFORE_CLEANUP = "already_exited_before_cleanup"
+    FORCE_KILL_FAILED = "force_kill_failed"
 
 
 class HarnessStatus(Enum):
@@ -82,10 +88,22 @@ class RhinoHarnessResult:
     ready_record_path: Path | None = None
     smoke: SmokeCommandResult | None = None
     cleanup_status: CleanupStatus = CleanupStatus.NOT_ATTEMPTED
+    run_started_at: float = field(default_factory=time.time)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
-        return self.smoke is not None and self.smoke.succeeded
+        non_green_cleanup_statuses = {
+            CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER,
+            CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL,
+            CleanupStatus.ALREADY_EXITED_BEFORE_CLEANUP,
+            CleanupStatus.FORCE_KILL_FAILED,
+        }
+        return (
+            self.smoke is not None
+            and self.smoke.succeeded
+            and self.cleanup_status not in non_green_cleanup_statuses
+        )
 
     @property
     def status(self) -> HarnessStatus:
@@ -106,7 +124,9 @@ class RhinoHarnessResult:
             "smoke": self.smoke.to_manifest_dict() if self.smoke else None,
             "cleanup": {
                 "status": self.cleanup_status.value,
+                "path": self.cleanup_status.value,
             },
+            "warnings": self.warnings,
             "status": self.status.value,
             "success": self.success,
         }
@@ -282,6 +302,60 @@ def run_smoke_command(
         stderr=stderr,
         duration_seconds=duration_seconds,
     )
+
+
+def copy_temp_rook_artifacts(
+    result: RhinoHarnessResult,
+    temp_rook_dir: Path,
+    label: str,
+    mtime_slop_seconds: float = 0.0,
+) -> list[Path]:
+    if not temp_rook_dir.exists():
+        result.warnings.append(f"temp Rook artifact directory is missing: {temp_rook_dir}")
+        return []
+    if not temp_rook_dir.is_dir():
+        result.warnings.append(f"temp Rook artifact path is not a directory: {temp_rook_dir}")
+        return []
+
+    copied: list[Path] = []
+    destination_root = result.artifact_dir / label
+    min_mtime = result.run_started_at - mtime_slop_seconds
+
+    for source_path in sorted(temp_rook_dir.rglob("*")):
+        if not source_path.is_file():
+            continue
+        try:
+            if source_path.stat().st_mtime < min_mtime:
+                continue
+            relative_path = source_path.relative_to(temp_rook_dir)
+            destination_path = destination_root / relative_path
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, destination_path)
+        except OSError as exc:
+            result.warnings.append(f"could not copy temp Rook artifact {source_path}: {exc}")
+            continue
+        copied.append(destination_path)
+
+    return copied
+
+
+def classify_cleanup_status(
+    *,
+    already_exited_before_cleanup: bool,
+    process_exited_after_cleanup: bool,
+    discovery_leftover: bool,
+    forced: bool,
+    force_failed: bool,
+) -> CleanupStatus:
+    if already_exited_before_cleanup:
+        return CleanupStatus.ALREADY_EXITED_BEFORE_CLEANUP
+    if force_failed or not process_exited_after_cleanup:
+        return CleanupStatus.FORCE_KILL_FAILED
+    if forced:
+        return CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL
+    if discovery_leftover:
+        return CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER
+    return CleanupStatus.GRACEFUL_EXIT
 
 
 def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:

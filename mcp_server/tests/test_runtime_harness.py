@@ -14,6 +14,9 @@ from rook.runtime_harness import (
     HarnessStatus,
     OwnedRhinoDiscovery,
     RhinoHarnessResult,
+    SmokeCommandResult,
+    classify_cleanup_status,
+    copy_temp_rook_artifacts,
     run_smoke_command,
     ping_native,
 )
@@ -121,6 +124,29 @@ def _wait_until_pid_exits(pid: int, timeout_seconds: float = 1.0) -> bool:
             return True
         time.sleep(0.05)
     return not _pid_is_running(pid)
+
+
+def _smoke_result(returncode: int = 0, timed_out: bool = False) -> SmokeCommandResult:
+    return SmokeCommandResult(
+        command=["smoke"],
+        scoped_env={},
+        returncode=returncode,
+        stdout="",
+        stderr="",
+        duration_seconds=0.01,
+        timed_out=timed_out,
+    )
+
+
+def _harness_result(tmp_path: Path, *, smoke: SmokeCommandResult | None = None) -> RhinoHarnessResult:
+    return RhinoHarnessResult(
+        run_id="run-artifacts",
+        artifact_dir=tmp_path / "artifacts",
+        pid=1234,
+        port=9010,
+        smoke=smoke,
+        run_started_at=100.0,
+    )
 
 
 def test_owned_discovery_accepts_exact_native_pid(tmp_path: Path):
@@ -604,6 +630,7 @@ def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path:
         ready_record_path=ready_path,
         smoke=smoke,
         cleanup_status=CleanupStatus.NOT_ATTEMPTED,
+        warnings=["artifact copy skipped"],
     )
 
     manifest_path = harness.write_manifest()
@@ -634,7 +661,202 @@ def test_harness_manifest_contains_future_cleanup_and_readiness_fields(tmp_path:
         },
         "cleanup": {
             "status": "not_attempted",
+            "path": "not_attempted",
         },
+        "warnings": ["artifact copy skipped"],
         "status": "success",
         "success": True,
     }
+
+
+def test_copy_temp_rook_artifacts_missing_temp_dir_warns_and_returns_empty(tmp_path: Path):
+    harness = _harness_result(tmp_path)
+
+    copied = copy_temp_rook_artifacts(harness, tmp_path / "missing-temp-rook", "temp-rook")
+
+    assert copied == []
+    assert harness.warnings
+    assert "missing" in harness.warnings[0].lower()
+
+
+def test_copy_temp_rook_artifacts_preserves_relative_paths_and_contents(tmp_path: Path):
+    temp_rook = tmp_path / "temp-rook-source"
+    (temp_rook / "nested").mkdir(parents=True)
+    (temp_rook / "root.log").write_text("root", encoding="utf-8")
+    (temp_rook / "nested" / "trace.json").write_text('{"ok":true}', encoding="utf-8")
+    harness = _harness_result(tmp_path)
+
+    copied = copy_temp_rook_artifacts(harness, temp_rook, "copied")
+
+    assert copied == [
+        harness.artifact_dir / "copied" / "nested" / "trace.json",
+        harness.artifact_dir / "copied" / "root.log",
+    ]
+    assert (harness.artifact_dir / "copied" / "root.log").read_text(encoding="utf-8") == "root"
+    assert (
+        harness.artifact_dir / "copied" / "nested" / "trace.json"
+    ).read_text(encoding="utf-8") == '{"ok":true}'
+    assert harness.warnings == []
+
+
+def test_copy_temp_rook_artifacts_skips_files_before_run_start_window(tmp_path: Path):
+    temp_rook = tmp_path / "temp-rook-source"
+    temp_rook.mkdir()
+    old_file = temp_rook / "old.log"
+    new_file = temp_rook / "new.log"
+    old_file.write_text("old", encoding="utf-8")
+    new_file.write_text("new", encoding="utf-8")
+    os.utime(old_file, (89.0, 89.0))
+    os.utime(new_file, (96.0, 96.0))
+    harness = _harness_result(tmp_path)
+
+    copied = copy_temp_rook_artifacts(
+        harness,
+        temp_rook,
+        "copied",
+        mtime_slop_seconds=5.0,
+    )
+
+    assert copied == [harness.artifact_dir / "copied" / "new.log"]
+    assert not (harness.artifact_dir / "copied" / "old.log").exists()
+    assert (harness.artifact_dir / "copied" / "new.log").read_text(encoding="utf-8") == "new"
+
+
+def test_copy_temp_rook_artifacts_continues_after_individual_copy_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    temp_rook = tmp_path / "temp-rook-source"
+    temp_rook.mkdir()
+    bad_file = temp_rook / "bad.log"
+    good_file = temp_rook / "good.log"
+    bad_file.write_text("bad", encoding="utf-8")
+    good_file.write_text("good", encoding="utf-8")
+    harness = _harness_result(tmp_path)
+
+    import rook.runtime_harness as runtime_harness
+
+    original_copy2 = runtime_harness.shutil.copy2
+
+    def fail_for_bad(src: Path, dst: Path):
+        if Path(src).name == "bad.log":
+            raise OSError("permission denied")
+        return original_copy2(src, dst)
+
+    monkeypatch.setattr(runtime_harness.shutil, "copy2", fail_for_bad)
+
+    copied = copy_temp_rook_artifacts(harness, temp_rook, "copied")
+
+    assert copied == [harness.artifact_dir / "copied" / "good.log"]
+    assert (harness.artifact_dir / "copied" / "good.log").read_text(encoding="utf-8") == "good"
+    assert harness.warnings
+    assert "bad.log" in harness.warnings[0]
+    assert "permission denied" in harness.warnings[0]
+
+
+@pytest.mark.parametrize(
+    (
+        "kwargs",
+        "expected_status",
+        "expected_green_with_successful_smoke",
+    ),
+    [
+        (
+            {"already_exited_before_cleanup": True},
+            CleanupStatus.ALREADY_EXITED_BEFORE_CLEANUP,
+            False,
+        ),
+        (
+            {"force_failed": True},
+            CleanupStatus.FORCE_KILL_FAILED,
+            False,
+        ),
+        (
+            {"process_exited_after_cleanup": False},
+            CleanupStatus.FORCE_KILL_FAILED,
+            False,
+        ),
+        (
+            {"forced": True},
+            CleanupStatus.GRACEFUL_TIMEOUT_FORCED_KILL,
+            False,
+        ),
+        (
+            {"discovery_leftover": True},
+            CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER,
+            False,
+        ),
+        (
+            {},
+            CleanupStatus.GRACEFUL_EXIT,
+            True,
+        ),
+    ],
+)
+def test_cleanup_classification_priority_and_green_status(
+    tmp_path: Path,
+    kwargs,
+    expected_status,
+    expected_green_with_successful_smoke,
+):
+    inputs = {
+        "already_exited_before_cleanup": False,
+        "process_exited_after_cleanup": True,
+        "discovery_leftover": False,
+        "forced": False,
+        "force_failed": False,
+    }
+    inputs.update(kwargs)
+
+    cleanup_status = classify_cleanup_status(**inputs)
+    harness = RhinoHarnessResult(
+        run_id="run-cleanup",
+        artifact_dir=tmp_path,
+        pid=1234,
+        port=9010,
+        smoke=_smoke_result(returncode=0),
+        cleanup_status=cleanup_status,
+    )
+
+    assert cleanup_status == expected_status
+    assert harness.success is expected_green_with_successful_smoke
+    if expected_green_with_successful_smoke:
+        assert harness.status == HarnessStatus.SUCCESS
+    else:
+        assert harness.status == HarnessStatus.NON_GREEN
+
+
+def test_graceful_cleanup_is_non_green_when_smoke_failed(tmp_path: Path):
+    harness = RhinoHarnessResult(
+        run_id="run-failed-smoke",
+        artifact_dir=tmp_path,
+        pid=1234,
+        port=9010,
+        smoke=_smoke_result(returncode=7),
+        cleanup_status=CleanupStatus.GRACEFUL_EXIT,
+    )
+
+    assert harness.success is False
+    assert harness.status == HarnessStatus.NON_GREEN
+
+
+def test_manifest_records_cleanup_path_status_and_warnings(tmp_path: Path):
+    harness = RhinoHarnessResult(
+        run_id="run-warning",
+        artifact_dir=tmp_path,
+        pid=1234,
+        port=9010,
+        smoke=_smoke_result(),
+        cleanup_status=CleanupStatus.GRACEFUL_EXIT_DISCOVERY_LEFTOVER,
+        warnings=["could not copy C:/Temp/rook/bad.log: permission denied"],
+    )
+
+    manifest = json.loads(harness.write_manifest().read_text(encoding="utf-8"))
+
+    assert manifest["cleanup"] == {
+        "status": "graceful_exit_discovery_leftover",
+        "path": "graceful_exit_discovery_leftover",
+    }
+    assert manifest["warnings"] == ["could not copy C:/Temp/rook/bad.log: permission denied"]
+    assert manifest["status"] == "non_green"
+    assert manifest["success"] is False
