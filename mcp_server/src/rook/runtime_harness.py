@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import time
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable, Protocol
+
+import httpx
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
@@ -22,6 +27,40 @@ class OwnedRhinoRecord:
     port: int
     path: Path
     raw: dict[str, Any]
+
+
+class ProcessLike(Protocol):
+    pid: int
+    returncode: int | None
+
+    def poll(self) -> int | None: ...
+
+
+PingFunction = Callable[[str, int], bool | Awaitable[bool]]
+
+
+def _run_awaitable_sync(awaitable: Awaitable[bool]) -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return bool(asyncio.run(awaitable))
+    if inspect.iscoroutine(awaitable):
+        awaitable.close()
+    raise DiscoveryError("async ping function cannot be used from a running event loop")
+
+
+async def ping_native(host: str, port: int) -> bool:
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        response = await client.get(f"http://{host}:{port}/ping")
+    if response.text.strip() == "pong":
+        return True
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+    if data == "pong":
+        return True
+    return isinstance(data, dict) and (data.get("data") == "pong" or data.get("success") is True)
 
 
 class OwnedRhinoDiscovery:
@@ -72,3 +111,46 @@ class OwnedRhinoDiscovery:
         snapshot_path = artifact_dir / f"owned-discovery-{record.path.name}"
         snapshot_path.write_text(json.dumps(record.raw, indent=2), encoding="utf-8")
         return snapshot_path
+
+    def wait_for_ready(
+        self,
+        pid: int,
+        process: ProcessLike,
+        ping: PingFunction = ping_native,
+        timeout_seconds: float = 30.0,
+        poll_seconds: float = 0.25,
+    ) -> OwnedRhinoRecord:
+        deadline = time.monotonic() + timeout_seconds
+        last_discovery_error: DiscoveryError | None = None
+        saw_discovery = False
+
+        while True:
+            exit_code = process.poll()
+            if exit_code is not None:
+                raise DiscoveryError(
+                    f"Rhino exited with code {exit_code} before RookNative discovery appeared"
+                )
+
+            try:
+                record = self.read_owned_record(pid)
+            except DiscoveryError as exc:
+                last_discovery_error = exc
+            else:
+                saw_discovery = True
+                ping_result = ping(record.host, record.port)
+                if inspect.isawaitable(ping_result):
+                    ping_result = _run_awaitable_sync(ping_result)
+                if ping_result:
+                    return record
+
+            if time.monotonic() >= deadline:
+                if saw_discovery:
+                    raise DiscoveryError(
+                        f"owned RookNative discovery for Rhino pid {pid} did not become pingable"
+                    )
+                if last_discovery_error is not None:
+                    raise DiscoveryError(str(last_discovery_error)) from last_discovery_error
+                raise DiscoveryError(f"owned Rhino discovery file not found for pid {pid}")
+
+            if poll_seconds > 0:
+                time.sleep(poll_seconds)

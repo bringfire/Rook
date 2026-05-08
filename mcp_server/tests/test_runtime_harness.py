@@ -1,9 +1,52 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
-from rook.runtime_harness import DiscoveryError, OwnedRhinoDiscovery
+from rook.runtime_harness import DiscoveryError, OwnedRhinoDiscovery, ping_native
+
+
+class FakeProcess:
+    def __init__(self, pid: int, poll_results: list[int | None]):
+        self.pid = pid
+        self.returncode = None
+        self._poll_results = poll_results
+
+    def poll(self) -> int | None:
+        if self._poll_results:
+            self.returncode = self._poll_results.pop(0)
+        return self.returncode
+
+
+class PingRecorder:
+    def __init__(self, results: list[bool]):
+        self.results = results
+        self.urls: list[tuple[str, int]] = []
+
+    async def __call__(self, host: str, port: int) -> bool:
+        self.urls.append((host, port))
+        if self.results:
+            return self.results.pop(0)
+        return False
+
+
+class FakeAsyncClient:
+    response = httpx.Response(200, text="")
+    urls: list[str] = []
+
+    def __init__(self, timeout: float):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return None
+
+    async def get(self, url: str):
+        self.urls.append(url)
+        return self.response
 
 
 def _write_record(discovery_dir: Path, pid: int, record: dict) -> Path:
@@ -130,3 +173,79 @@ def test_owned_discovery_never_reads_other_healthy_rhino(tmp_path: Path):
 
     with pytest.raises(DiscoveryError, match="not found"):
         discovery.read_owned_record(2222)
+
+
+def test_wait_for_ready_reports_owned_process_exit_before_discovery(tmp_path: Path):
+    pid = 1234
+    process = FakeProcess(pid, [None, 17])
+    ping = PingRecorder([True])
+
+    with pytest.raises(
+        DiscoveryError,
+        match="Rhino exited with code 17 before RookNative discovery appeared",
+    ):
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            pid,
+            process,
+            ping,
+            timeout_seconds=1.0,
+            poll_seconds=0,
+        )
+
+    assert ping.urls == []
+
+
+def test_wait_for_ready_pings_exact_owned_port(tmp_path: Path):
+    pid = 1234
+    _write_record(tmp_path, pid, _native_record(pid, host="localhost", port=9821))
+    ping = PingRecorder([False, True])
+
+    record = OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+        pid,
+        FakeProcess(pid, [None, None]),
+        ping,
+        timeout_seconds=1.0,
+        poll_seconds=0,
+    )
+
+    assert record.pid == pid
+    assert record.host == "localhost"
+    assert record.port == 9821
+    assert ping.urls == [("localhost", 9821), ("localhost", 9821)]
+
+
+def test_wait_for_ready_times_out_when_ping_never_succeeds(tmp_path: Path):
+    pid = 1234
+    _write_record(tmp_path, pid, _native_record(pid, host="127.0.0.1", port=9821))
+    ping = PingRecorder([False, False, False])
+
+    with pytest.raises(DiscoveryError, match="did not become pingable"):
+        OwnedRhinoDiscovery(tmp_path).wait_for_ready(
+            pid,
+            FakeProcess(pid, [None, None, None]),
+            ping,
+            timeout_seconds=0.01,
+            poll_seconds=0,
+        )
+
+    assert ping.urls
+    assert set(ping.urls) == {("127.0.0.1", 9821)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, text="pong"),
+        httpx.Response(200, json={"data": "pong"}),
+        httpx.Response(200, json={"success": True}),
+    ],
+)
+async def test_ping_native_accepts_supported_pong_shapes(monkeypatch, response):
+    FakeAsyncClient.response = response
+    FakeAsyncClient.urls = []
+    monkeypatch.setattr("rook.runtime_harness.httpx.AsyncClient", FakeAsyncClient)
+
+    assert await ping_native("localhost", 9821) is True
+
+    assert FakeAsyncClient.urls == ["http://localhost:9821/ping"]
