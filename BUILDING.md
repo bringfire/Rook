@@ -349,6 +349,7 @@ The owned Rhino runtime harness is an opt-in helper for focused live smoke
 verification when you want the test runner to own the Rhino process lifecycle:
 
 ```powershell
+# From the repo root
 python scripts\run_rhino_runtime_harness.py --smoke pytest-select
 ```
 
