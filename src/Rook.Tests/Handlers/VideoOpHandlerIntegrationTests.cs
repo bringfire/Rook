@@ -38,13 +38,12 @@ namespace Rook.Tests.Handlers
     /// temp-rooted <see cref="ArtifactStore"/>. The default
     /// <c>%APPDATA%\Rook\video\job-ledger.jsonl</c> is NEVER touched.
     ///
-    /// Native path coverage gap (acknowledged): the trampoline's C++
+    /// Native path note: the trampoline's C++
     /// <c>DispatchVisionOpWithPathId</c> injects <c>body["job_id"]</c>
     /// from the matched URL segment. These tests start from "the
     /// trampoline did its job correctly" and exercise downstream
-    /// behavior. A true bridge-shim smoke that confirms <c>job_id</c>
-    /// traverses the C++ injection layer requires Rhino-runtime
-    /// integration tests outside this PR's scope.
+    /// behavior; <see cref="NativeVisionDispatchSourceTests"/> pins the
+    /// native source wiring for artifact-id versus job-id path routes.
     /// </summary>
     public class VideoOpHandlerIntegrationTests : IDisposable
     {

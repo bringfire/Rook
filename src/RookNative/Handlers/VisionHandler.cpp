@@ -139,10 +139,9 @@ void DispatchVisionOp(
 //
 // V2 (Codex review of step 2 follow-ups): the field name was previously
 // hardcoded to "artifact_id". Image-side artifact routes still pass
-// "artifact_id"; video-side routes pass "job_id". A native unit-test
-// gap remains for this helper — the function lives in an anonymous
-// namespace to avoid project-file churn. Coverage lands in C# at the
-// vision_dispatch boundary (step 8 video route smoke tests).
+// "artifact_id"; video-side routes pass "job_id". The helper stays in
+// this anonymous namespace to avoid project-file churn; source-level
+// regression tests pin the route wiring and the parameterized body field.
 void DispatchVisionOpWithPathId(
     const httplib::Request& req,
     httplib::Response& res,
