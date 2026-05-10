@@ -1,51 +1,23 @@
+using System;
 using Rhino;
 using Rhino.Commands;
 using Rhino.UI;
-using Rook.UI.Chat;
+using Rook.UI.Vision;
 
 namespace Rook.Commands
 {
     /// <summary>
-    /// Command to open (or focus) the Vision tab inside the Rook Chat
-    /// panel. The Vision UI is a tab-within-a-panel rather than its own
-    /// Rhino panel, so this command ensures the chat panel is visible
-    /// first and then delegates to <c>RookChatPanel.OpenOrFocusVisionTab</c>
-    /// on the doc-scoped panel instance. No-op if the chat panel cannot
-    /// be resolved — the command never throws at the user.
+    /// Command to open (or focus) the native Rook Vision panel.
     /// </summary>
     public class ShowRookVisionCommand : Command
     {
         public override string EnglishName => "ShowRookVision";
 
+        internal static Guid TargetPanelId => RookVisionPanel.PanelId;
+
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
-            var panelId = RookChatPanel.PanelId;
-
-            // Make the chat panel visible before locating the instance —
-            // GetPanel<T> returns null for docs that have never shown the
-            // panel, and the Vision tab has nowhere to live without it.
-            var openPanels = Panels.GetOpenPanelIds();
-            var alreadyVisible = false;
-            foreach (var id in openPanels)
-            {
-                if (id == panelId) { alreadyVisible = true; break; }
-            }
-
-            if (!alreadyVisible)
-            {
-                Panels.OpenPanel(panelId);
-            }
-
-            var chatPanel = Panels.GetPanel<RookChatPanel>(doc);
-            if (chatPanel == null)
-            {
-                RhinoApp.WriteLine(
-                    "Rook: Vision tab cannot be opened — chat panel instance not available. " +
-                    "Try running /ShowRookChat first, then retry.");
-                return Result.Failure;
-            }
-
-            chatPanel.OpenOrFocusVisionTab();
+            Panels.OpenPanel(TargetPanelId);
             return Result.Success;
         }
     }

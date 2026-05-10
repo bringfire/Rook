@@ -101,6 +101,12 @@ namespace Rook
                 System.Drawing.SystemIcons.Information,
                 PanelType.PerDoc);
 
+            // Register the Rook Vision panel (AI image/video UI)
+            var visionPanelType = typeof(UI.Vision.RookVisionPanel);
+            Panels.RegisterPanel(this, visionPanelType, "Rook Vision",
+                System.Drawing.SystemIcons.Information,
+                PanelType.PerDoc);
+
             // Register the Knowledge Graph panel (WebUI module)
             var kgPanelType = typeof(UI.Knowledge.KnowledgeGraphPanel);
             Panels.RegisterPanel(this, kgPanelType, "Knowledge Graph",

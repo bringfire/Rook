@@ -40,7 +40,6 @@ namespace Rook.UI.Vision
         {
             if (_closed) return;
             _surface.RequestWebViewRepaint(reason);
-            _surface.ReloadAfterHostActivation(reason);
         }
 
         /// <summary>

@@ -176,23 +176,22 @@ namespace Rook.UI.Chat
             return page;
         }
 
-        // ─── Vision tab entry point ─────────────────────────────────────
+        // ─── Legacy Vision tab entry point ──────────────────────────────
 
         /// <summary>
-        /// Tab label used for the Vision surface. Exposed as a constant so
-        /// the command-level entry point (<c>ShowRookVisionCommand</c>)
-        /// and the focus-or-create dedupe check use the same string.
+        /// Tab label used for the legacy Vision surface. The public
+        /// <c>ShowRookVisionCommand</c> now opens the native
+        /// <see cref="Rook.UI.Vision.RookVisionPanel"/> host; this path
+        /// remains only for older in-process callers that may already have
+        /// a Vision tab inside the chat panel.
         /// </summary>
         public const string VisionTabLabel = "Vision";
 
         /// <summary>
-        /// Open the Vision tab for the current document, or focus the
-        /// existing one if already present. Called from
-        /// <c>ShowRookVisionCommand</c> after the chat panel has been
-        /// made visible. Deduplication is by tab-label equality — the
-        /// panel owns at most one Vision tab per document, matching the
-        /// Settings/Gallery single-instance expectation users bring in
-        /// from other IDEs.
+        /// Open the legacy Vision tab for the current document, or focus
+        /// the existing one if already present. Deduplication is by
+        /// tab-label equality — the panel owns at most one Vision tab per
+        /// document.
         /// </summary>
         public void OpenOrFocusVisionTab()
         {
