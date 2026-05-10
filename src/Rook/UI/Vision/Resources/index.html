@@ -578,6 +578,13 @@
                                 </svg>
                             </button>
                         </div>
+                        <div id="video-queue-filters" class="video-queue-filters" role="group" aria-label="Filter video queue">
+                            <button type="button" class="video-queue-filter active" data-queue-filter="active" aria-pressed="true">Active <span class="video-queue-filter-count">0</span></button>
+                            <button type="button" class="video-queue-filter" data-queue-filter="complete" aria-pressed="false">Complete <span class="video-queue-filter-count">0</span></button>
+                            <button type="button" class="video-queue-filter" data-queue-filter="error" aria-pressed="false">Failed <span class="video-queue-filter-count">0</span></button>
+                            <button type="button" class="video-queue-filter" data-queue-filter="all" aria-pressed="false">All <span class="video-queue-filter-count">0</span></button>
+                        </div>
+                        <div id="video-queue-filter-summary" class="video-queue-filter-summary hidden" aria-live="polite"></div>
                         <div id="video-queue-warnings" class="video-queue-warnings hidden"></div>
                         <div id="video-queue-list" class="video-queue-list">
                             <div class="video-queue-empty">

@@ -1967,7 +1967,11 @@ body {
 }
 
 .video-form-panel { padding: var(--space-4); }
-.video-queue-panel { padding: var(--space-3) var(--space-4); }
+.video-queue-panel {
+    padding: var(--space-3) var(--space-4);
+    min-height: 0;
+    align-self: start;
+}
 
 .video-form-panel .options-grid {
     margin: var(--space-3) 0;
@@ -2125,12 +2129,68 @@ body {
 
 /* Queue panel */
 
+.video-queue-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(104px, 100%), 1fr));
+    gap: 4px;
+    margin: var(--space-2) 0;
+    padding: 4px;
+    border: 1px solid var(--rule);
+    background: var(--paper-tone);
+}
+
+.video-queue-filter {
+    border: 0;
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-family: var(--type-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    min-width: 0;
+    padding: 6px 4px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.video-queue-filter:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+
+.video-queue-filter:hover,
+.video-queue-filter.active {
+    background: var(--ink);
+    color: var(--paper-bright);
+}
+
+.video-queue-filter-count {
+    font-feature-settings: var(--tabular);
+    margin-left: 2px;
+}
+
+.video-queue-filter-summary {
+    margin: 0 0 var(--space-2);
+    padding: 6px var(--space-2);
+    border: 1px solid var(--accent-amber);
+    background: var(--paper-tone);
+    border: 1px solid color-mix(in srgb, var(--accent-amber) 70%, var(--rule));
+    background: color-mix(in srgb, var(--accent-amber) 16%, var(--paper));
+    color: var(--ink);
+    font-size: 12px;
+}
+
 .video-queue-list {
     display: flex;
     flex-direction: column;
     gap: 1px;
     background: var(--rule);
     border: 1px solid var(--rule);
+    max-height: clamp(220px, 42vh, 420px);
+    min-height: 180px;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 
 .video-queue-empty {
@@ -2209,7 +2269,17 @@ body {
 .video-queue-row-error {
     color: var(--accent-red);
     font-size: 12px;
+    line-height: 1.35;
     margin-top: 4px;
+    max-height: 3.3em;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+.video-queue-list.filter-error .video-queue-row-error,
+.video-queue-list.filter-all .video-queue-row-error {
+    max-height: none;
+    overflow: visible;
 }
 
 .video-queue-row-actions {

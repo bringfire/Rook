@@ -1921,6 +1921,8 @@ const Video = (() => {
     const IN_FLIGHT_STATES = new Set([
         "queued", "submitting", "polling", "downloading", "saving",
     ]);
+    const FAILED_STATES = new Set(["error", "cancelled", "interrupted"]);
+    let queueFilter = "active";
 
     // DOM cache (filled by cacheEls()).
     const ve = {};
@@ -1954,6 +1956,8 @@ const Video = (() => {
         ve.generateSpinner = $("video-generate-spinner");
         ve.statusMessage = $("video-status-message");
         ve.refreshQueueBtn = $("video-refresh-queue");
+        ve.queueFilterButtons = document.querySelectorAll("[data-queue-filter]");
+        ve.queueFilterSummary = $("video-queue-filter-summary");
         ve.queueList = $("video-queue-list");
         ve.queueWarnings = $("video-queue-warnings");
 
@@ -2004,6 +2008,9 @@ const Video = (() => {
         });
         ve.generateBtn.addEventListener("click", onGenerateClicked);
         ve.refreshQueueBtn.addEventListener("click", refreshQueue);
+        ve.queueFilterButtons.forEach(btn => {
+            btn.addEventListener("click", () => setQueueFilter(btn.dataset.queueFilter));
+        });
 
         // Cost modal.
         ve.costModalClose.addEventListener("click", closeCostModal);
@@ -2749,21 +2756,98 @@ const Video = (() => {
         }
     }
 
+    function setQueueFilter(filter) {
+        if (!["active", "complete", "error", "all"].includes(filter)) return;
+        queueFilter = filter;
+        ve.queueFilterButtons.forEach(btn => {
+            const isActive = btn.dataset.queueFilter === filter;
+            btn.classList.toggle("active", isActive);
+            btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+        renderQueue();
+    }
+
+    function filterQueueEntries(entries) {
+        switch (queueFilter) {
+            case "active":
+                return entries.filter(j => IN_FLIGHT_STATES.has(j.state));
+            case "complete":
+                return entries.filter(j => j.state === "complete");
+            case "error":
+                return entries.filter(j => FAILED_STATES.has(j.state));
+            case "all":
+            default:
+                return entries;
+        }
+    }
+
+    function updateQueueFilterCounts(entries) {
+        const counts = {
+            active: entries.filter(j => IN_FLIGHT_STATES.has(j.state)).length,
+            complete: entries.filter(j => j.state === "complete").length,
+            error: entries.filter(j => FAILED_STATES.has(j.state)).length,
+            all: entries.length,
+        };
+
+        ve.queueFilterButtons.forEach(btn => {
+            const count = btn.querySelector(".video-queue-filter-count");
+            if (count) count.textContent = String(counts[btn.dataset.queueFilter] || 0);
+        });
+    }
+
+    function renderQueueFilterSummary(entries) {
+        const failedCount = entries.filter(j => FAILED_STATES.has(j.state)).length;
+        if (!failedCount || queueFilter === "error" || queueFilter === "all") {
+            ve.queueFilterSummary.classList.add("hidden");
+            ve.queueFilterSummary.textContent = "";
+            return;
+        }
+
+        ve.queueFilterSummary.classList.remove("hidden");
+        ve.queueFilterSummary.textContent =
+            `${failedCount} failed job${failedCount === 1 ? "" : "s"} hidden. Open Failed to inspect.`;
+    }
+
+    function applyQueueFilterClasses() {
+        ve.queueList.classList.toggle("filter-error", queueFilter === "error");
+        ve.queueList.classList.toggle("filter-all", queueFilter === "all");
+    }
+
+    function queueEmptyCopy() {
+        switch (queueFilter) {
+            case "active":
+                return ["No active jobs", "Queued and running videos appear here."];
+            case "complete":
+                return ["No completed jobs", "Finished videos appear here."];
+            case "error":
+                return ["No failed jobs", "Failed, cancelled, and interrupted videos appear here."];
+            case "all":
+            default:
+                return ["No jobs yet", "Generate a video to see it tracked here."];
+        }
+    }
+
     function renderQueue() {
         const entries = [...queue.values()]
             .map(st => st.entry)
             .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+        const visibleEntries = filterQueueEntries(entries);
 
-        if (entries.length === 0) {
+        updateQueueFilterCounts(entries);
+        renderQueueFilterSummary(entries);
+        applyQueueFilterClasses();
+
+        if (visibleEntries.length === 0) {
+            const [headline, detail] = queueEmptyCopy();
             ve.queueList.innerHTML = `
                 <div class="video-queue-empty">
-                    <span>No jobs yet</span>
-                    <p>Generate a video to see it tracked here.</p>
+                    <span>${escapeHtml(headline)}</span>
+                    <p>${escapeHtml(detail)}</p>
                 </div>`;
             return;
         }
 
-        ve.queueList.innerHTML = entries.map(j => {
+        ve.queueList.innerHTML = visibleEntries.map(j => {
             const inFlight = IN_FLIGHT_STATES.has(j.state);
             const summary = j.request_summary || {};
             const subtitle = [
@@ -2787,7 +2871,7 @@ const Video = (() => {
                         <div class="video-queue-row-state">${escapeHtml(j.state)}</div>
                         <div class="video-queue-row-id" title="${escapeAttr(j.job_id)}">${escapeHtml(j.job_id.slice(0, 8))}</div>
                         <div class="video-queue-row-summary">${escapeHtml(subtitle)}</div>
-                        ${errMsg ? `<div class="video-queue-row-error">${escapeHtml(errMsg)}</div>` : ""}
+                        ${errMsg ? `<div class="video-queue-row-error" title="${escapeAttr(errMsg)}">${escapeHtml(errMsg)}</div>` : ""}
                     </div>
                     <div class="video-queue-row-actions">${actions.join("")}</div>
                 </div>`;
