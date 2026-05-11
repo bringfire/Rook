@@ -28,17 +28,17 @@ Done:
 
 Current next slice:
 
-- Run the live provider payload audit as an explicitly cost-approved verification task.
+- Run the live provider/model payload audit as an explicitly cost-approved verification task.
 
 ## Slice Tracker
 
 | Slice | Status | Goal | Exit Criteria |
 | --- | --- | --- | --- |
 | 0. Sidecar contract substrate | Done | Lock role semantics and role-level picker consumption before producing sidecars. | `poster` stays display-only; `start_frame` / `end_frame` are the only generated-video picker roles; provider fields are not inferred. |
-| 1. Provider payload audit | Next | Run one approved Veo job and one approved fal job, sanitize payloads, and record evidence. | Findings state whether either provider returns a trustworthy display poster and whether any provider output can supply frame-exact sidecars. |
-| 2. Producer strategy decision | Pending | Choose provider-poster ingestion, MP4 extraction, or both. | A reviewed decision names which roles each producer may create and which roles remain extraction-only. |
+| 1. Provider/model payload audit | Next | Run one approved Veo job and one approved fal model-family job, sanitize payloads, and record evidence. | Findings are scoped only to the audited provider/model response shape and state whether that exact shape returns a trustworthy display poster or frame-exact sidecar candidates. |
+| 2. Producer strategy decision | Pending | Choose provider/model-specific poster ingestion, MP4 extraction, or both. | A reviewed decision names the exact provider/model family each mapping applies to, which roles that producer may create, and which roles remain extraction-only. |
 | 3. Extraction tooling design | Pending | Select and design the frame extraction mechanism. | Windows Media Foundation, ffmpeg, or another path is chosen with packaging, licensing, failure, and threading implications documented. |
-| 4. ArtifactStore sidecar append API | Pending | Add a safe way to attach new role files to an existing generated-video artifact. | Appends are atomic, manifest/index updates are recoverable, and role collisions are deterministic. |
+| 4. Sidecar publication semantics | Pending | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, or both. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and backfill/reconcile has a supported path. |
 | 5. Poster thumbnail producer | Pending | Produce `poster` for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; `poster` remains picker-ineligible. |
 | 6. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
 | 7. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
@@ -46,9 +46,9 @@ Current next slice:
 
 ## Sequencing Rules
 
-- Do not implement provider-poster ingestion before Slice 1 produces evidence and Slice 2 approves the mapping.
+- Do not implement provider-poster ingestion before Slice 1 produces provider/model-specific evidence and Slice 2 approves the exact mapping.
 - Do not implement MP4 extraction before Slice 3 chooses the tooling path.
-- Do not produce sidecars in `VideoJobManager` until Slice 4 defines the append semantics.
+- Do not produce sidecars in `VideoJobManager` until Slice 4 defines the publication semantics.
 - Do not treat `poster` as a frame source in any slice.
 - Do not start GH NLE token work until generated-video `start_frame` and `end_frame` production exists or a deliberate fixture-only spike is approved.
 
