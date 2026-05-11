@@ -16,7 +16,7 @@ Full support means:
 
 ## Current State
 
-The substrate-first sidecar contract and local MP4 extraction tooling spike are complete and merged to `main`.
+The substrate-first sidecar contract, local MP4 extraction tooling spike, and sidecar publication semantics are complete and merged to `main`.
 
 Done:
 
@@ -27,10 +27,13 @@ Done:
 - The provider payload audit procedure and sanitized placeholder fixtures exist.
 - The local MP4 extraction spike proved `ffmpeg.exe` can extract a poster candidate from an existing generated-video MP4 as a replaceable external process.
 - Spike findings are recorded in `docs/rook_docs/video-extraction-spike-findings.md`.
+- `ArtifactStore.AppendBlob(...)` provides atomic append-style artifact blob publication.
+- `VideoSidecarPublisher` provides generated-video sidecar policy for `poster`, `start_frame`, and `end_frame`.
+- Duplicate sidecar roles are idempotent skips at the video layer, while storage remains strict append-only.
 
 Current next slice:
 
-- Define sidecar publication semantics before wiring extraction into completed video jobs.
+- Produce display-only `poster` sidecars from completed generated-video MP4 artifacts.
 
 ## Slice Tracker
 
@@ -38,8 +41,8 @@ Current next slice:
 | --- | --- | --- | --- |
 | 0. Sidecar contract substrate | Done | Lock role semantics and role-level picker consumption before producing sidecars. | `poster` stays display-only; `start_frame` / `end_frame` are the only generated-video picker roles; provider fields are not inferred. |
 | 1. Extraction tooling design + spike | Done | Decide whether Rook should use Windows Media Foundation, ffmpeg, or another local decoder path by proving one local MP4 poster extraction. | `ffmpeg.exe` external-process extraction produced a 1920x1080 poster candidate from a local generated-video MP4; no artifacts, providers, installer packaging, or production integrations were changed; findings recommend ffmpeg as the production extraction path candidate. |
-| 2. Sidecar publication semantics | Next | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
-| 3. Poster thumbnail producer | Pending | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
+| 2. Sidecar publication semantics | Done | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
+| 3. Poster thumbnail producer | Next | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
 | 4. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
 | 5. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
 | 6. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
@@ -49,7 +52,7 @@ Current next slice:
 
 - Treat local MP4 extraction as the default producer for `poster`, `start_frame`, and `end_frame`.
 - Do not implement production extraction before Slice 1 chooses the tooling path from spike evidence.
-- Do not produce sidecars in `VideoJobManager` until Slice 2 defines the publication semantics.
+- Production sidecar writes must go through `VideoSidecarPublisher`; do not introduce a parallel storage path.
 - Do not implement provider-poster ingestion without provider/model-specific evidence and an approved exact mapping.
 - Do not treat `poster` as a frame source in any slice.
 - Do not start GH NLE token work until generated-video `start_frame` and `end_frame` production exists or a deliberate fixture-only spike is approved.

@@ -44,12 +44,14 @@ namespace Rook.UI.Knowledge
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
         {
             _documentSerialNumber = documentSerialNumber;
+            _surface.ReconcileHostVisibility(true, "PanelShown:" + reason);
 
             _ = Task.Run(() => _bootstrap.RequestBootstrapAsync(default));
         }
 
         public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
         {
+            _surface.ReconcileHostVisibility(false, "PanelHidden:" + reason);
         }
 
         public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)

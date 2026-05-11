@@ -7,16 +7,14 @@ namespace Rook.Services.Vision.Image.Fal
 {
     internal sealed class FalGptImage2EditSourcePayload
     {
-        public const long MaxRawBytes = 1024 * 1024;
-
-        private FalGptImage2EditSourcePayload(string mimeType, string dataUri)
+        private FalGptImage2EditSourcePayload(byte[] bytes, string mimeType)
         {
+            Bytes = bytes;
             MimeType = mimeType;
-            DataUri = dataUri;
         }
 
+        public byte[] Bytes { get; }
         public string MimeType { get; }
-        public string DataUri { get; }
 
         public static (
             FalGptImage2EditSourcePayload? Payload,
@@ -55,12 +53,6 @@ namespace Rook.Services.Vision.Image.Fal
                     "GPT Image 2 Edit source image is empty.",
                     "input_image_path"));
 
-            if (resolved.Bytes.LongLength > MaxRawBytes)
-                return (null, InvalidSource(
-                    "Source image is too large for GPT Image 2 Edit data URI upload; " +
-                    "capture a smaller viewport or lower resolution.",
-                    "input_image_path"));
-
             var detectedMime = ImageMimeDetector.Detect(resolved.Bytes);
             if (!ImageMimeDetector.IsPngJpegOrWebp(detectedMime))
                 return (null, InvalidSource(
@@ -78,9 +70,7 @@ namespace Rook.Services.Vision.Image.Fal
                     "input_image_path"));
             }
 
-            var dataUri =
-                $"data:{detectedMime};base64,{Convert.ToBase64String(resolved.Bytes)}";
-            return (new FalGptImage2EditSourcePayload(detectedMime, dataUri), null);
+            return (new FalGptImage2EditSourcePayload(resolved.Bytes, detectedMime), null);
         }
 
         private static GenerationError InvalidSource(string message, string field) =>

@@ -291,7 +291,7 @@ namespace Rook.Tests.UI.Web
         }
 
         [Fact]
-        public void WebViewFocusBlackoutWorkaround_CoversFocusLossAndHostRecovery()
+        public void WebViewHostVisibilitySynchronization_CoversFocusLossAndHostRecovery()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
 
@@ -299,15 +299,93 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("_webView.Shown += OnWebViewShown;", source);
             Assert.Contains("Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;", source);
             Assert.Contains("Application.Instance.IsActiveChanged -= OnApplicationIsActiveChanged;", source);
-            Assert.Contains("if (!Application.Instance.IsActive)", source);
             Assert.DoesNotContain("_webView.LostFocus += OnWebViewLostFocus;", source);
-            Assert.Contains("RequestWebViewRepaint", source);
-            Assert.Contains("ScheduleWebViewRepaint", source);
-            Assert.Contains("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND", source);
-            Assert.Contains("request-repaint-skip", source);
+            Assert.Contains("ReconcileHostVisibility(bool visible, string reason)", source);
+            Assert.Contains("ScheduleHostVisibilityReconcile", source);
+            Assert.Contains("RunHostVisibilityReconcile", source);
+            Assert.Contains("EnsureControllerVisibleAndPositioned", source);
+            Assert.Contains("NotifyParentWindowPositionChanged", source);
+            Assert.DoesNotContain("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND", source);
+            Assert.DoesNotContain("request-repaint-skip", source);
             Assert.Contains("ROOK_ENABLE_WEBVIEW_FOCUS_DIAGNOSTICS", source);
             Assert.Contains("if (IsWebViewFocusDiagnosticsEnabled())", source);
             Assert.Contains("if (!IsWebViewFocusDiagnosticsEnabled())", source);
+        }
+
+        [Fact]
+        public void WebViewHostVisibilitySynchronization_UsesLifecycleLogs()
+        {
+            var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
+
+            Assert.Contains("host-visibility-reconcile-request", source);
+            Assert.Contains("host-visibility-reconcile-queued", source);
+            Assert.Contains("host-visibility-reconcile-run", source);
+            Assert.Contains("host-controller-visible-set", source);
+            Assert.Contains("host-controller-position-notified", source);
+            Assert.Contains("host-visibility-reconcile-skip", source);
+            Assert.Contains("host-visibility-reconcile-failed", source);
+        }
+
+        [Fact]
+        public void HostVisibilityCoordinator_HiddenHost_IgnoresActivationRefresh()
+        {
+            var coordinator = new WebViewHostVisibilityCoordinator();
+
+            var hide = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
+            Assert.True(hide.ShouldSchedule);
+            Assert.False(hide.Visible);
+            Assert.False(coordinator.DrainQueued()!.Value.Visible);
+
+            var activation = coordinator.RecordVisibleRefresh("ApplicationActivated");
+
+            Assert.False(activation.ShouldSchedule);
+            Assert.True(activation.Skipped);
+            Assert.Equal("host-hidden", activation.SkipReason);
+            Assert.False(coordinator.HasQueuedReconcile);
+        }
+
+        [Fact]
+        public void HostVisibilityCoordinator_ControllerAvailable_ReplaysLastDesiredVisibility()
+        {
+            var coordinator = new WebViewHostVisibilityCoordinator();
+
+            coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
+            _ = coordinator.DrainQueued();
+
+            var replayHidden = coordinator.RecordControllerAvailable("WebView2Configured");
+
+            Assert.True(replayHidden.ShouldSchedule);
+            Assert.False(replayHidden.Visible);
+            Assert.Equal("WebView2Configured:PanelHidden:Hide", replayHidden.Reason);
+
+            _ = coordinator.DrainQueued();
+            coordinator.RecordHostVisibility(true, "PanelShown:Show");
+            _ = coordinator.DrainQueued();
+
+            var replayVisible = coordinator.RecordControllerAvailable("WebView2Configured");
+
+            Assert.True(replayVisible.ShouldSchedule);
+            Assert.True(replayVisible.Visible);
+            Assert.Equal("WebView2Configured:PanelShown:Show", replayVisible.Reason);
+        }
+
+        [Fact]
+        public void HostVisibilityCoordinator_CoalescesToLatestDesiredVisibility()
+        {
+            var coordinator = new WebViewHostVisibilityCoordinator();
+
+            var shown = coordinator.RecordHostVisibility(true, "PanelShown:Show");
+            var hidden = coordinator.RecordHostVisibility(false, "PanelHidden:Hide");
+
+            Assert.True(shown.ShouldSchedule);
+            Assert.False(hidden.ShouldSchedule);
+            Assert.True(hidden.Coalesced);
+
+            var queued = coordinator.DrainQueued();
+
+            Assert.NotNull(queued);
+            Assert.False(queued!.Value.Visible);
+            Assert.Equal("PanelHidden:Hide", queued.Value.Reason);
         }
 
         [Fact]
@@ -329,11 +407,11 @@ namespace Rook.Tests.UI.Web
             Assert.Contains("resource-error", source);
             Assert.Contains("layout-snapshot", source);
             Assert.Contains("appRect", source);
-            Assert.Contains("host-activation-reload", source);
+            Assert.DoesNotContain("host-activation-reload", source);
         }
 
         [Fact]
-        public void WebViewFocusBlackoutWorkaround_ResolvesNestedWebView2Control()
+        public void WebViewHostVisibilitySynchronization_ResolvesNestedWebView2Control()
         {
             var source = ReadSourceFile("src", "Rook", "UI", "Web", "RookWebSurface.cs");
 

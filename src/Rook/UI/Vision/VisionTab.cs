@@ -36,10 +36,10 @@ namespace Rook.UI.Vision
             Content = _surface.CreateWebContent();
         }
 
-        internal void RecoverAfterHostActivation(string reason)
+        internal void ReconcileHostVisibility(bool visible, string reason)
         {
             if (_closed) return;
-            _surface.RequestWebViewRepaint(reason);
+            _surface.ReconcileHostVisibility(visible, reason);
         }
 
         /// <summary>

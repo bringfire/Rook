@@ -188,6 +188,12 @@ namespace Rook.UI.Chat
             return true;
         }
 
+        internal void ReconcileHostVisibility(bool visible, string reason)
+        {
+            if (_tabClosed) return;
+            _webSurface.ReconcileHostVisibility(visible, reason);
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)

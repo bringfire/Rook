@@ -143,7 +143,7 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         }
 
         [Fact]
-        public async Task SubmitAsync_gpt_image_2_rejects_oversized_source_before_http_call()
+        public async Task SubmitAsync_gpt_image_2_source_upload_failure_returns_retryable_dependency_failure()
         {
             var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, "{}"));
             var bytes = PngBytes();
@@ -164,9 +164,142 @@ namespace Rook.Tests.Services.Vision.Image.Fal
                 CancellationToken.None);
 
             var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
+            Assert.Equal(GenerationErrorCode.DependencyUnavailable, failed.Error.Code);
+            Assert.True(failed.Error.Retryable);
             Assert.Equal("input_image_path", failed.Error.Field);
-            Assert.Contains("GPT Image 2 Edit data URI upload", failed.Error.Message);
-            Assert.Empty(handler.Requests);
+            Assert.Contains("GPT Image 2 Edit source upload failed", failed.Error.Message);
+            Assert.Equal(2, handler.Requests.Count);
+            Assert.Equal("rest.fal.ai", handler.Requests[0].RequestUri!.Host);
+            Assert.Equal("rest.fal.ai", handler.Requests[1].RequestUri!.Host);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_gpt_image_2_uploads_large_source_and_posts_file_url()
+        {
+            string? initiateBody = null;
+            string? uploadContentType = null;
+            byte[]? uploadBytes = null;
+            string? queueBody = null;
+            var (provider, handler) = MakeProvider(req =>
+            {
+                if (req.RequestUri!.Host == "rest.fal.ai")
+                {
+                    initiateBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    return JsonResponse(HttpStatusCode.OK, """
+                        {
+                          "upload_url": "https://uploads.example.test/gpt-image-source",
+                          "file_url": "https://v3b.fal.media/files/gpt-image-source.png"
+                        }
+                        """);
+                }
+
+                if (req.RequestUri!.Host == "uploads.example.test")
+                {
+                    uploadContentType = req.Content!.Headers.ContentType!.MediaType;
+                    uploadBytes = req.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
+                queueBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return JsonResponse(HttpStatusCode.Created, """
+                    { "request_id": "fal-gpt-large-source" }
+                    """);
+            });
+            var bytes = PngBytes();
+            Array.Resize(ref bytes, 1024 * 1024 + 1);
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    new(bytes, "image/png"),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal(3, handler.Requests.Count);
+            Assert.Equal(
+                "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
+                handler.Requests[0].RequestUri!.ToString());
+            Assert.Contains("\"content_type\":\"image/png\"", initiateBody);
+            Assert.Contains("\"file_name\":\"gpt-image-2-source-", initiateBody);
+            Assert.Equal("image/png", uploadContentType);
+            Assert.Equal(bytes, uploadBytes);
+            Assert.Equal(
+                "https://queue.fal.run/openai/gpt-image-2/edit",
+                handler.Requests[2].RequestUri!.ToString());
+
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(queueBody!));
+            var urls = Assert.IsType<JsonArray>(root["image_urls"]);
+            var imageUrl = Assert.Single(urls)!.GetValue<string>();
+            Assert.Equal("https://v3b.fal.media/files/gpt-image-source.png", imageUrl);
+            Assert.DoesNotContain("data:", queueBody);
+        }
+
+        [Fact]
+        public async Task SubmitAsync_gpt_image_2_retries_one_transient_source_upload_failure()
+        {
+            var uploadInitiateAttempts = 0;
+            string? queueBody = null;
+            var (provider, handler) = MakeProvider(req =>
+            {
+                if (req.RequestUri!.Host == "rest.fal.ai")
+                {
+                    uploadInitiateAttempts++;
+                    if (uploadInitiateAttempts == 1)
+                        throw new TaskCanceledException("transient upload timeout");
+
+                    return JsonResponse(HttpStatusCode.OK, """
+                        {
+                          "upload_url": "https://uploads.example.test/gpt-image-source",
+                          "file_url": "https://v3b.fal.media/files/gpt-image-source.png"
+                        }
+                        """);
+                }
+
+                if (req.RequestUri!.Host == "uploads.example.test")
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+                queueBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return JsonResponse(HttpStatusCode.Created, """
+                    { "request_id": "fal-gpt-upload-retry" }
+                    """);
+            });
+            var media = new Dictionary<MediaRef, ResolvedMedia>
+            {
+                [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
+                    PngMedia(),
+            };
+
+            var outcome = await provider.SubmitAsync(
+                Request(
+                    model: FalImageCapabilities.GptImage2Edit,
+                    resolution: "auto",
+                    aspectRatio: "match_input_image",
+                    referenceImages: Array.Empty<MediaRef>()),
+                media,
+                CancellationToken.None);
+
+            var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
+            Assert.Equal("fal-gpt-upload-retry", queued.Handle.ProviderJobId);
+            Assert.Equal(2, uploadInitiateAttempts);
+            Assert.Equal(4, handler.Requests.Count);
+            Assert.Equal("rest.fal.ai", handler.Requests[0].RequestUri!.Host);
+            Assert.Equal("rest.fal.ai", handler.Requests[1].RequestUri!.Host);
+            Assert.Equal("uploads.example.test", handler.Requests[2].RequestUri!.Host);
+            Assert.Equal("queue.fal.run", handler.Requests[3].RequestUri!.Host);
+
+            var root = Assert.IsType<JsonObject>(JsonNode.Parse(queueBody!));
+            var urls = Assert.IsType<JsonArray>(root["image_urls"]);
+            Assert.Equal(
+                "https://v3b.fal.media/files/gpt-image-source.png",
+                Assert.Single(urls)!.GetValue<string>());
         }
 
         [Theory]
@@ -224,11 +357,24 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         }
 
         [Fact]
-        public async Task SubmitAsync_gpt_image_2_posts_queue_request_with_data_uri_and_request_id_only_handle()
+        public async Task SubmitAsync_gpt_image_2_posts_queue_request_with_uploaded_file_url_and_request_id_only_handle()
         {
             string? capturedBody = null;
             var (provider, handler) = MakeProvider(req =>
             {
+                if (req.RequestUri!.Host == "rest.fal.ai")
+                {
+                    return JsonResponse(HttpStatusCode.OK, """
+                        {
+                          "upload_url": "https://uploads.example.test/gpt-image-source",
+                          "file_url": "https://v3b.fal.media/files/gpt-image-source.png"
+                        }
+                        """);
+                }
+
+                if (req.RequestUri!.Host == "uploads.example.test")
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+
                 capturedBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
                 return JsonResponse(HttpStatusCode.Created, """
                     {
@@ -255,7 +401,8 @@ namespace Rook.Tests.Services.Vision.Image.Fal
                 media,
                 CancellationToken.None);
 
-            var request = Assert.Single(handler.Requests);
+            Assert.Equal(3, handler.Requests.Count);
+            var request = handler.Requests[2];
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal(
                 "https://queue.fal.run/openai/gpt-image-2/edit",
@@ -271,11 +418,8 @@ namespace Rook.Tests.Services.Vision.Image.Fal
             Assert.False(root.ContainsKey("mask_url"));
 
             var urls = Assert.IsType<JsonArray>(root["image_urls"]);
-            var dataUri = Assert.Single(urls)!.GetValue<string>();
-            Assert.StartsWith(
-                "data:image/png;base64,",
-                dataUri,
-                StringComparison.Ordinal);
+            var imageUrl = Assert.Single(urls)!.GetValue<string>();
+            Assert.Equal("https://v3b.fal.media/files/gpt-image-source.png", imageUrl);
 
             var queued = Assert.IsType<QueuedSubmitOutcome>(outcome);
             Assert.Equal("fal-gpt-1", queued.Handle.ProviderJobId);
@@ -294,9 +438,25 @@ namespace Rook.Tests.Services.Vision.Image.Fal
         public async Task SubmitAsync_gpt_image_2_rejects_unsafe_request_id_before_handle_persistence(
             string requestId)
         {
-            var (provider, handler) = MakeProvider(_ => JsonResponse(HttpStatusCode.Created, $$"""
-                { "request_id": {{JsonValue.Create(requestId)!.ToJsonString()}} }
-                """));
+            var (provider, handler) = MakeProvider(req =>
+            {
+                if (req.RequestUri!.Host == "rest.fal.ai")
+                {
+                    return JsonResponse(HttpStatusCode.OK, """
+                        {
+                          "upload_url": "https://uploads.example.test/gpt-image-source",
+                          "file_url": "https://v3b.fal.media/files/gpt-image-source.png"
+                        }
+                        """);
+                }
+
+                if (req.RequestUri!.Host == "uploads.example.test")
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+                return JsonResponse(HttpStatusCode.Created, $$"""
+                    { "request_id": {{JsonValue.Create(requestId)!.ToJsonString()}} }
+                    """);
+            });
             var media = new Dictionary<MediaRef, ResolvedMedia>
             {
                 [MediaRef.ForPath("C:/tmp/input.png", ImageMediaRoles.InputImage)] =
@@ -312,7 +472,7 @@ namespace Rook.Tests.Services.Vision.Image.Fal
                 media,
                 CancellationToken.None);
 
-            Assert.Single(handler.Requests);
+            Assert.Equal(3, handler.Requests.Count);
             var failed = Assert.IsType<FailedSubmitOutcome>(outcome);
             Assert.Equal(GenerationErrorCode.ExecutionFailed, failed.Error.Code);
             Assert.Equal("provider_job_id", failed.Error.Field);

@@ -13,6 +13,113 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Rook.UI.Web
 {
+    internal readonly struct WebViewHostVisibilityDecision
+    {
+        public WebViewHostVisibilityDecision(
+            bool shouldSchedule,
+            bool visible,
+            string reason,
+            bool skipped = false,
+            string skipReason = "",
+            bool coalesced = false)
+        {
+            ShouldSchedule = shouldSchedule;
+            Visible = visible;
+            Reason = reason;
+            Skipped = skipped;
+            SkipReason = skipReason;
+            Coalesced = coalesced;
+        }
+
+        public bool ShouldSchedule { get; }
+        public bool Visible { get; }
+        public string Reason { get; }
+        public bool Skipped { get; }
+        public string SkipReason { get; }
+        public bool Coalesced { get; }
+    }
+
+    internal sealed class WebViewHostVisibilityCoordinator
+    {
+        private bool _desiredHostVisible = true;
+        private string _desiredHostVisibilityReason = "InitialHostVisible";
+        private bool _reconcileQueued;
+        private bool _queuedVisible;
+        private string _queuedReason = "";
+
+        public bool HasQueuedReconcile => _reconcileQueued;
+
+        public WebViewHostVisibilityDecision RecordHostVisibility(
+            bool visible,
+            string reason)
+        {
+            _desiredHostVisible = visible;
+            _desiredHostVisibilityReason = reason;
+            return QueueLatest(visible, reason);
+        }
+
+        public WebViewHostVisibilityDecision RecordVisibleRefresh(string reason)
+        {
+            if (!_desiredHostVisible)
+            {
+                return new WebViewHostVisibilityDecision(
+                    shouldSchedule: false,
+                    visible: false,
+                    reason: reason,
+                    skipped: true,
+                    skipReason: "host-hidden");
+            }
+
+            return QueueLatest(true, reason);
+        }
+
+        public WebViewHostVisibilityDecision RecordControllerAvailable(string reason)
+        {
+            return QueueLatest(
+                _desiredHostVisible,
+                reason + ":" + _desiredHostVisibilityReason);
+        }
+
+        public WebViewHostVisibilityDecision? DrainQueued()
+        {
+            if (!_reconcileQueued)
+                return null;
+
+            var decision = new WebViewHostVisibilityDecision(
+                shouldSchedule: false,
+                visible: _queuedVisible,
+                reason: _queuedReason);
+            _reconcileQueued = false;
+            return decision;
+        }
+
+        public void ClearQueued()
+        {
+            _reconcileQueued = false;
+        }
+
+        private WebViewHostVisibilityDecision QueueLatest(bool visible, string reason)
+        {
+            _queuedVisible = visible;
+            _queuedReason = reason;
+
+            if (_reconcileQueued)
+            {
+                return new WebViewHostVisibilityDecision(
+                    shouldSchedule: false,
+                    visible: visible,
+                    reason: reason,
+                    coalesced: true);
+            }
+
+            _reconcileQueued = true;
+            return new WebViewHostVisibilityDecision(
+                shouldSchedule: true,
+                visible: visible,
+                reason: reason);
+        }
+    }
+
     /// <summary>
     /// Reusable hardened WebView host for Rook WebUI surfaces.
     ///
@@ -56,7 +163,7 @@ namespace Rook.UI.Web
         private object? _nativeControlWithInitHandler;
         private EventInfo? _initEvent;
         private EventHandler<CoreWebView2InitializationCompletedEventArgs>? _initHandler;
-        private bool _repaintQueued;
+        private readonly WebViewHostVisibilityCoordinator _hostVisibility = new();
 #endif
 
         // ─── Constructor ──────────────────────────────────────────────
@@ -225,71 +332,14 @@ namespace Rook.UI.Web
             };
         }
 
-        internal void ReloadAfterHostActivation(string reason)
-        {
-            if (_disposed)
-                return;
-
-#if NET7_0_OR_GREATER
-            TraceWebViewFocus("host-activation-reload", reason);
-#endif
-            RequestWebViewRepaint("pre-reload:" + reason);
-            _webViewReady = false;
-
-            try
-            {
-                Application.Instance.AsyncInvoke(() =>
-                {
-                    if (_disposed || _webView == null)
-                        return;
-
-                    try
-                    {
-#if NET7_0_OR_GREATER
-                        if (_coreWebView2 != null)
-                        {
-                            _coreWebView2.Reload();
-                        }
-                        else
-#endif
-                        {
-                            _webView.Reload();
-                        }
-
-                        Log($"Rook: WebView reload requested after host activation for surface " +
-                            $"'{ResourceRoot}' (reason={reason})");
-                        RequestWebViewRepaint("post-reload:" + reason);
-                    }
-                    catch (Exception reloadEx)
-                    {
-                        Log($"Rook: WebView host-activation reload failed: {reloadEx.Message}");
-#if NET7_0_OR_GREATER
-                        if (_coreWebView2 != null)
-                        {
-                            TryRenavigateAfterReloadFailure(_coreWebView2);
-                        }
-#endif
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                Log($"Rook: WebView host-activation reload dispatch failed: {ex.Message}");
-            }
-        }
-
-        internal void RequestWebViewRepaint(string reason)
+        internal void ReconcileHostVisibility(bool visible, string reason)
         {
 #if NET7_0_OR_GREATER
-            TraceWebViewFocus("request-repaint", reason);
-            if (!IsWebViewRepaintWorkaroundEnabled())
-            {
-                TraceWebViewFocus("request-repaint-skip", "workaround-disabled");
-                return;
-            }
-
-            ScheduleWebViewRepaint();
+            TraceWebViewFocus("host-visibility-reconcile-request", $"{visible};{reason}");
+            ScheduleHostVisibilityReconcile(
+                _hostVisibility.RecordHostVisibility(visible, reason));
 #else
+            _ = visible;
             _ = reason;
 #endif
         }
@@ -321,23 +371,13 @@ namespace Rook.UI.Web
                 _disposeWebView = DisposeWebView;
 
 #if NET7_0_OR_GREATER
-                // Recurring focus-blackout fix (see memory:
-                // project_webview_focus_blackout.md). When the host
-                // window or Eto tab loses focus and regains it, the
-                // WebView2 swap chain can land in a state where it
-                // renders solid background-color until something
-                // forces a re-present. Wiring app reactivation, GotFocus,
-                // and Shown to toggle the controller's IsVisible flag
-                // (and notify it of position changes) is the documented
-                // workaround for the WebView2 black-screen-on-focus-loss
-                // bug. The app-level hook covers returning focus to Rhino
-                // without focusing the WebView itself.
-                if (IsWebViewRepaintWorkaroundEnabled())
-                {
-                    _webView.GotFocus += OnWebViewGotFocus;
-                    _webView.Shown += OnWebViewShown;
-                    Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
-                }
+                // Rhino panels can be shown, hidden, floated, docked, and
+                // reparented without recreating the panel instance. Keep
+                // WebView2's controller visibility synchronized with that
+                // host lifecycle so the live document keeps presenting.
+                _webView.GotFocus += OnWebViewGotFocus;
+                _webView.Shown += OnWebViewShown;
+                Application.Instance.IsActiveChanged += OnApplicationIsActiveChanged;
                 TraceWebViewFocus("create-web-content");
 
                 if (TrySetupVirtualHost())
@@ -356,154 +396,227 @@ namespace Rook.UI.Web
         }
 
 #if NET7_0_OR_GREATER
-        /// <summary>
-        /// Force the WebView2 swap chain to re-present after a focus
-        /// transition that left the surface stale. Pulls the
-        /// <c>CoreWebView2Controller</c> off the native control via
-        /// reflection (the property name is the same on the WPF and
-        /// WinForms hosts), then runs the documented two-step
-        /// IsVisible toggle plus a parent-window-position-changed
-        /// notification. All operations are best-effort: a failure
-        /// here must never throw, since these handlers fire on every
-        /// focus transition for the lifetime of the panel.
-        /// </summary>
-        private void TryForceWebViewRepaint()
+        private void ScheduleHostVisibilityReconcile(WebViewHostVisibilityDecision decision)
         {
-            if (_disposed || _webView == null) return;
+            if (_disposed || _webView == null)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"disposed-or-no-webview;{decision.Visible};{decision.Reason}");
+                _hostVisibility.ClearQueued();
+                return;
+            }
+
+            if (decision.Skipped)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"{decision.SkipReason};{decision.Visible};{decision.Reason}");
+                return;
+            }
+
+            if (decision.Coalesced)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"already-queued;{decision.Visible};{decision.Reason}");
+                return;
+            }
+
+            if (!decision.ShouldSchedule)
+                return;
+
+            TraceWebViewFocus("host-visibility-reconcile-queued",
+                $"{decision.Visible};{decision.Reason}");
+
             try
             {
-                TraceWebViewFocus("force-repaint-start");
-                var nativeControl = _webView.ControlObject;
-                if (nativeControl == null)
+                Application.Instance.AsyncInvoke(() =>
                 {
-                    TraceWebViewFocus("force-repaint-skip", "native-control-null");
-                    return;
-                }
-                var webView2Control = GetWebView2NativeControl(nativeControl);
-                if (webView2Control == null)
-                {
-                    TraceWebViewFocus("force-repaint-skip", "webview2-control-null");
-                    return;
-                }
+                    var queued = _hostVisibility.DrainQueued();
+                    if (queued == null)
+                    {
+                        TraceWebViewFocus("host-visibility-reconcile-skip",
+                            "queue-empty");
+                        return;
+                    }
 
-                var controllerProp = GetInstanceProperty(
-                    webView2Control.GetType(),
-                    "CoreWebView2Controller");
-                if (controllerProp == null)
-                {
-                    TraceWebViewFocus("force-repaint-skip", "controller-prop-null");
-                    return;
-                }
+                    TraceWebViewFocus("host-visibility-reconcile-run",
+                        $"{queued.Value.Visible};{queued.Value.Reason}");
+                    RunHostVisibilityReconcile(
+                        queued.Value.Visible,
+                        queued.Value.Reason);
+                });
+            }
+            catch (Exception ex)
+            {
+                _hostVisibility.ClearQueued();
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    $"dispatch;{decision.Visible};{decision.Reason};{ex.Message}");
+                Log($"Rook: WebView host visibility dispatch failed for surface " +
+                    $"'{ResourceRoot}' (reason={decision.Reason}): {ex.Message}");
+                RunHostVisibilityReconcile(decision.Visible, decision.Reason);
+            }
+        }
 
-                var controller = controllerProp.GetValue(webView2Control);
+        private void RunHostVisibilityReconcile(bool visible, string reason)
+        {
+            if (_disposed || _webView == null)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"disposed-or-no-webview;{visible};{reason}");
+                return;
+            }
+
+            try
+            {
+                var controller = TryGetCoreWebView2Controller();
                 if (controller == null)
                 {
-                    TraceWebViewFocus("force-repaint-skip", "controller-null");
+                    TraceWebViewFocus("host-visibility-reconcile-skip",
+                        $"controller-null;{visible};{reason}");
                     return;
                 }
 
-                var controllerType = controller.GetType();
-
-                // Toggle IsVisible false → true. The off-frame is what
-                // actually clears the bad swap-chain state; the on-frame
-                // re-presents the live document.
-                var isVisibleProp = GetInstanceProperty(controllerType, "IsVisible");
-                if (isVisibleProp != null && isVisibleProp.CanWrite)
+                if (visible)
                 {
-                    try
-                    {
-                        isVisibleProp.SetValue(controller, false);
-                        isVisibleProp.SetValue(controller, true);
-                        TraceWebViewFocus("force-repaint-visible-toggle");
-                    }
-                    catch (Exception ex)
-                    {
-                        TraceWebViewFocus("force-repaint-visible-toggle-failed", ex.Message);
-                    }
+                    EnsureControllerVisibleAndPositioned(controller, reason);
                 }
-
-                // Belt-and-suspenders: notify the controller that the
-                // parent window may have moved/resized, which forces a
-                // recompute of the visual bounds and another present.
-                var notifyMethod = controllerType.GetMethod(
-                    "NotifyParentWindowPositionChanged",
-                    Type.EmptyTypes);
-                try
+                else
                 {
-                    notifyMethod?.Invoke(controller, null);
-                    TraceWebViewFocus("force-repaint-notify-parent");
-                }
-                catch (Exception ex)
-                {
-                    TraceWebViewFocus("force-repaint-notify-parent-failed", ex.Message);
+                    SetControllerVisible(controller, false, reason);
+                    TraceWebViewFocus("host-visibility-hidden", reason);
                 }
             }
             catch (Exception ex)
             {
-                TraceWebViewFocus("force-repaint-failed", ex.Message);
-                // Never let a focus-handler exception escape — would
-                // create an unhandled-exception loop on every focus
-                // transition.
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    $"{visible};{reason};{ex.Message}");
+                Log($"Rook: WebView host visibility reconcile failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+            }
+        }
+
+        private void EnsureControllerVisibleAndPositioned(object controller, string reason)
+        {
+            SetControllerVisible(controller, true, reason);
+            NotifyParentWindowPositionChanged(controller, reason);
+            TraceWebViewFocus("host-visibility-reconciled", reason);
+        }
+
+        private void RequestHostVisibleRefresh(string reason)
+        {
+            TraceWebViewFocus("host-visibility-reconcile-request",
+                $"visible-refresh;{reason}");
+            ScheduleHostVisibilityReconcile(
+                _hostVisibility.RecordVisibleRefresh(reason));
+        }
+
+        private bool SetControllerVisible(object controller, bool visible, string reason)
+        {
+            var isVisibleProp = GetInstanceProperty(controller.GetType(), "IsVisible");
+            if (isVisibleProp == null || !isVisibleProp.CanWrite)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"controller-isvisible-unavailable;{visible};{reason}");
+                return false;
+            }
+
+            try
+            {
+                isVisibleProp.SetValue(controller, visible);
+                TraceWebViewFocus("host-controller-visible-set", $"{visible};{reason}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    $"set-visible;{visible};{reason};{ex.Message}");
+                Log($"Rook: WebView2 controller visibility set failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
+                return false;
+            }
+        }
+
+        private void NotifyParentWindowPositionChanged(object controller, string reason)
+        {
+            var notifyMethod = controller.GetType().GetMethod(
+                "NotifyParentWindowPositionChanged",
+                Type.EmptyTypes);
+
+            if (notifyMethod == null)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-skip",
+                    $"notify-parent-unavailable;{reason}");
+                return;
+            }
+
+            try
+            {
+                notifyMethod.Invoke(controller, null);
+                TraceWebViewFocus("host-controller-position-notified", reason);
+            }
+            catch (Exception ex)
+            {
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    $"notify-parent;{reason};{ex.Message}");
+                Log($"Rook: WebView2 parent-position notification failed for surface " +
+                    $"'{ResourceRoot}' (reason={reason}): {ex.Message}");
             }
         }
 
         private void OnWebViewGotFocus(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-got-focus");
-            ScheduleWebViewRepaint();
+            RequestHostVisibleRefresh("WebViewGotFocus");
         }
 
         private void OnWebViewShown(object? sender, EventArgs e)
         {
             TraceWebViewFocus("webview-shown");
-            ScheduleWebViewRepaint();
+            ReconcileHostVisibility(true, "WebViewShown");
         }
 
         private void OnApplicationIsActiveChanged(object? sender, EventArgs e)
         {
-            TraceWebViewFocus("app-active-changed", Application.Instance.IsActive ? "active" : "inactive");
-            if (!Application.Instance.IsActive)
+            var active = Application.Instance.IsActive;
+            TraceWebViewFocus("app-active-changed", active ? "active" : "inactive");
+            if (!active)
                 return;
 
-            ScheduleWebViewRepaint();
+            RequestHostVisibleRefresh("ApplicationActivated");
         }
 
-        private void ScheduleWebViewRepaint()
+        private object? TryGetCoreWebView2Controller()
         {
-            if (!IsWebViewRepaintWorkaroundEnabled())
+            var nativeControl = _webView?.ControlObject;
+            if (nativeControl == null)
             {
-                TraceWebViewFocus("schedule-repaint-skip", "workaround-disabled");
-                return;
+                TraceWebViewFocus("host-visibility-reconcile-skip", "native-control-null");
+                return null;
             }
 
-            if (_disposed || _webView == null)
+            var webView2Control = GetWebView2NativeControl(nativeControl);
+            if (webView2Control == null)
             {
-                TraceWebViewFocus("schedule-repaint-skip", "disposed-or-no-webview");
-                return;
+                TraceWebViewFocus("host-visibility-reconcile-skip", "webview2-control-null");
+                return null;
             }
 
-            if (_repaintQueued)
+            var controllerProp = GetInstanceProperty(
+                webView2Control.GetType(),
+                "CoreWebView2Controller");
+            if (controllerProp == null)
             {
-                TraceWebViewFocus("schedule-repaint-skip", "already-queued");
-                return;
+                TraceWebViewFocus("host-visibility-reconcile-skip", "controller-prop-null");
+                return null;
             }
 
-            _repaintQueued = true;
-            TraceWebViewFocus("schedule-repaint-queued");
-            try
-            {
-                Application.Instance.AsyncInvoke(() =>
-                {
-                    _repaintQueued = false;
-                    TraceWebViewFocus("schedule-repaint-run");
-                    TryForceWebViewRepaint();
-                });
-            }
+            try { return controllerProp.GetValue(webView2Control); }
             catch (Exception ex)
             {
-                _repaintQueued = false;
-                TraceWebViewFocus("schedule-repaint-dispatch-failed", ex.Message);
-                TryForceWebViewRepaint();
+                TraceWebViewFocus("host-visibility-reconcile-failed",
+                    "controller-read;" + ex.Message);
+                Log($"Rook: WebView2 controller lookup failed for surface " +
+                    $"'{ResourceRoot}': {ex.Message}");
+                return null;
             }
         }
 
@@ -604,12 +717,6 @@ namespace Rook.UI.Web
             try { return read() ? "true" : "false"; }
             catch { return "unknown"; }
         }
-
-        private static bool IsWebViewRepaintWorkaroundEnabled()
-            => string.Equals(
-                Environment.GetEnvironmentVariable("ROOK_ENABLE_WEBVIEW_REPAINT_WORKAROUND"),
-                "1",
-                StringComparison.Ordinal);
 
         private static bool IsWebViewFocusDiagnosticsEnabled()
             => string.Equals(
@@ -988,6 +1095,8 @@ namespace Rook.UI.Web
                 coreWebView2.NavigationStarting += OnNavigationStarting;
                 coreWebView2.NavigationCompleted += OnNavigationCompleted;
                 _coreWebView2 = coreWebView2;
+                ScheduleHostVisibilityReconcile(
+                    _hostVisibility.RecordControllerAvailable("WebView2Configured"));
 
                 // Inject document-creation scripts in the locked order:
                 // nonce, bridge shim, surface bootstrap.

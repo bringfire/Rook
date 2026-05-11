@@ -12,6 +12,7 @@ namespace Rook.Services.Vision.Image.Fal
 {
     public sealed class FalImageProvider : IModelAwareImageProvider
     {
+        private const int SourceMediaExpirationSeconds = 3600;
         private static readonly Uri FluxSchnellEndpoint =
             new("https://fal.run/fal-ai/flux/schnell");
         private static readonly Uri GptImage2EditQueueEndpoint =
@@ -90,9 +91,16 @@ namespace Rook.Services.Vision.Image.Fal
             {
                 if (isGptImage2Edit)
                 {
+                    var upload = await TryUploadGptImage2SourceAsync(
+                        apiKey!,
+                        gptSourcePayload!,
+                        ct).ConfigureAwait(false);
+                    if (upload.Error is not null)
+                        return new FailedSubmitOutcome(upload.Error);
+
                     bodyJson = BuildGptImage2EditRequestJson(
                         request,
-                        gptSourcePayload);
+                        upload.Url);
                     endpoint = GptImage2EditQueueEndpoint;
                 }
                 else
@@ -107,6 +115,12 @@ namespace Rook.Services.Vision.Image.Fal
                     GenerationErrorCode.InvalidRequest,
                     "fal image request has an unsupported aspect ratio.",
                     "aspect_ratio");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return FailedSubmit(
+                    GenerationErrorCode.Interrupted,
+                    "Request cancelled (bridge timeout).");
             }
 
             FalHttpResponse response;
@@ -236,22 +250,107 @@ namespace Rook.Services.Vision.Image.Fal
 
         private static string BuildGptImage2EditRequestJson(
             ImageGenerationRequest request,
-            FalGptImage2EditSourcePayload? sourcePayload)
+            string? sourceImageUrl)
         {
-            if (sourcePayload is null)
+            if (string.IsNullOrWhiteSpace(sourceImageUrl))
                 throw new InvalidOperationException(
-                    "GPT Image 2 Edit source payload was not prepared.");
+                    "GPT Image 2 Edit source image URL was not prepared.");
 
             return new JsonObject
             {
                 ["prompt"] = request.Prompt,
-                ["image_urls"] = new JsonArray { sourcePayload.DataUri },
+                ["image_urls"] = new JsonArray { sourceImageUrl },
                 ["image_size"] = "auto",
                 ["quality"] = "high",
                 ["num_images"] = 1,
                 ["output_format"] = "png",
             }.ToJsonString();
         }
+
+        private async Task<(string? Url, GenerationError? Error)> TryUploadGptImage2SourceAsync(
+            string apiKey,
+            FalGptImage2EditSourcePayload sourcePayload,
+            CancellationToken ct)
+        {
+            try
+            {
+                return (
+                    await UploadGptImage2SourceAsync(
+                        apiKey,
+                        sourcePayload,
+                        ct).ConfigureAwait(false),
+                    null);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (FalApiException)
+            {
+                return (null, GptImage2SourceUploadFailed());
+            }
+            catch (TaskCanceledException)
+            {
+                return (null, GptImage2SourceUploadFailed());
+            }
+        }
+
+        private async Task<string> UploadGptImage2SourceAsync(
+            string apiKey,
+            FalGptImage2EditSourcePayload sourcePayload,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await UploadGptImage2SourceOnceAsync(
+                    apiKey,
+                    sourcePayload,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (FalApiException)
+            {
+                return await UploadGptImage2SourceOnceAsync(
+                    apiKey,
+                    sourcePayload,
+                    ct).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+                return await UploadGptImage2SourceOnceAsync(
+                    apiKey,
+                    sourcePayload,
+                    ct).ConfigureAwait(false);
+            }
+        }
+
+        private Task<string> UploadGptImage2SourceOnceAsync(
+            string apiKey,
+            FalGptImage2EditSourcePayload sourcePayload,
+            CancellationToken ct) =>
+            _client.UploadFileToCdnAsync(
+                apiKey,
+                BuildGptImage2SourceFileName(sourcePayload.MimeType),
+                sourcePayload.Bytes,
+                sourcePayload.MimeType,
+                FalUploadPlatformHeaders.ForSourceUpload(
+                    SourceMediaExpirationSeconds),
+                ct);
+
+        private static string BuildGptImage2SourceFileName(string mimeType) =>
+            $"gpt-image-2-source-{Guid.NewGuid():N}.{ExtensionForMime(mimeType)}";
+
+        private static string ExtensionForMime(string mimeType) =>
+            mimeType switch
+            {
+                "image/png" => "png",
+                "image/jpeg" => "jpg",
+                "image/webp" => "webp",
+                _ => throw new ArgumentOutOfRangeException(nameof(mimeType)),
+            };
 
         private static ProviderSubmitOutcome ParseGptImage2EditSubmit(
             string responseJson)
@@ -626,6 +725,13 @@ namespace Rook.Services.Vision.Image.Fal
                 Message: message,
                 Retryable: retryable,
                 Field: field));
+
+        private static GenerationError GptImage2SourceUploadFailed() =>
+            new(
+                Code: GenerationErrorCode.DependencyUnavailable,
+                Message: "fal GPT Image 2 Edit source upload failed.",
+                Retryable: true,
+                Field: "input_image_path");
 
         private static ProviderSubmitOutcome SyncFailed(
             GenerationErrorCode code,

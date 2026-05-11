@@ -9,6 +9,25 @@ using Rook.UI.Vision;
 
 namespace Rook.UI.Chat
 {
+    internal static class HostedWebSurfaceVisibility
+    {
+        public static IReadOnlyList<bool> Resolve(
+            int pageCount,
+            int selectedIndex,
+            bool panelVisible)
+        {
+            var visibility = new bool[Math.Max(0, pageCount)];
+            if (!panelVisible)
+                return visibility;
+
+            if (selectedIndex < 0 || selectedIndex >= visibility.Length)
+                return visibility;
+
+            visibility[selectedIndex] = true;
+            return visibility;
+        }
+    }
+
     /// <summary>
     /// Eto panel hosting a tabbed collection of chat sessions. Each tab is either a
     /// <see cref="ClaudeCodeTab"/> (persistent CLI subprocess) or an
@@ -22,6 +41,7 @@ namespace Rook.UI.Chat
         private uint _documentSerialNumber;
         private readonly Panel _tabHost;
         private readonly Dictionary<uint, TabControl> _tabControlsByDocument = new();
+        private bool _panelHostVisible;
 
         /// <summary>
         /// Per-TabPage disposal callback registry. Lets the panel run
@@ -91,6 +111,7 @@ namespace Rook.UI.Chat
             }
 
             var created = new TabControl();
+            created.SelectedIndexChanged += OnTabSelectedIndexChanged;
             _tabControlsByDocument[documentSerialNumber] = created;
             return created;
         }
@@ -210,18 +231,29 @@ namespace Rook.UI.Chat
             AddPanelTab(VisionTabLabel, tab, tab.OnTabClosed);
         }
 
-        private static void RecoverVisionSurfaceAfterPanelShown(
+        private static void ReconcileHostedWebSurfaces(
             TabControl tabControl,
-            ShowPanelReason reason)
+            bool panelVisible,
+            string reason)
         {
-            foreach (var page in tabControl.Pages)
-            {
-                if (!string.Equals(page.Text, VisionTabLabel, StringComparison.Ordinal))
-                    continue;
+            var visibility = HostedWebSurfaceVisibility.Resolve(
+                tabControl.Pages.Count,
+                tabControl.SelectedIndex,
+                panelVisible);
 
-                if (page.Content is VisionTab visionTab)
+            for (var i = 0; i < tabControl.Pages.Count; i++)
+            {
+                var page = tabControl.Pages[i];
+                var visible = visibility[i];
+                var reconcileReason = reason + (visible ? ":Selected" : ":Unselected");
+
+                if (page.Content is ChatTab chatTab)
                 {
-                    visionTab.RecoverAfterHostActivation(reason.ToString());
+                    chatTab.ReconcileHostVisibility(visible, reconcileReason);
+                }
+                else if (page.Content is VisionTab visionTab)
+                {
+                    visionTab.ReconcileHostVisibility(visible, reconcileReason);
                 }
             }
         }
@@ -274,6 +306,7 @@ namespace Rook.UI.Chat
         {
             _cleanup.FireAndRemove(page);
             owner.Pages.Remove(page);
+            ReconcileHostedWebSurfaces(owner, _panelHostVisible, "TabRemoved");
         }
 
         // ─── "+" button handler ─────────────────────────────────────────
@@ -318,6 +351,14 @@ namespace Rook.UI.Chat
             }
         }
 
+        private void OnTabSelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (sender is TabControl tabControl)
+            {
+                ReconcileHostedWebSurfaces(tabControl, _panelHostVisible, "TabSelectionChanged");
+            }
+        }
+
         #region IPanel Implementation
 
         /// <summary>
@@ -326,6 +367,7 @@ namespace Rook.UI.Chat
         public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
         {
             documentSerialNumber = NormalizeDocumentSerialNumber(documentSerialNumber);
+            _panelHostVisible = true;
             ShowDocumentTabs(documentSerialNumber);
 
             // Auto-open Agent Chat on first show so the tab captures the active
@@ -336,10 +378,8 @@ namespace Rook.UI.Chat
                 AddAgentTab("architect", "Architect", Color.FromArgb(0xc0, 0x84, 0xfc));
             }
 
-            if (PanelShowReasonRecovery.ShouldRecoverVisionSurface(reason.ToString()))
-            {
-                RecoverVisionSurfaceAfterPanelShown(tabControl, reason);
-            }
+            ReconcileHostedWebSurfaces(tabControl, true, "PanelShown:" + reason);
+
         }
 
         /// <summary>
@@ -347,7 +387,12 @@ namespace Rook.UI.Chat
         /// </summary>
         public void PanelHidden(uint documentSerialNumber, ShowPanelReason reason)
         {
-            // Panel hidden
+            _panelHostVisible = false;
+            documentSerialNumber = NormalizeDocumentSerialNumber(documentSerialNumber);
+            if (_tabControlsByDocument.TryGetValue(documentSerialNumber, out var tabControl))
+            {
+                ReconcileHostedWebSurfaces(tabControl, false, "PanelHidden:" + reason);
+            }
         }
 
         /// <summary>
@@ -374,21 +419,13 @@ namespace Rook.UI.Chat
                 _cleanup.DrainAll();
                 foreach (var tabControl in _tabControlsByDocument.Values)
                 {
+                    tabControl.SelectedIndexChanged -= OnTabSelectedIndexChanged;
                     tabControl.Pages.Clear();
                 }
                 _tabControlsByDocument.Clear();
             }
 
             base.Dispose(disposing);
-        }
-    }
-
-    internal static class PanelShowReasonRecovery
-    {
-        public static bool ShouldRecoverVisionSurface(string reason)
-        {
-            return string.Equals(reason, "Show", StringComparison.Ordinal) ||
-                   string.Equals(reason, "ShowOnDeactivate", StringComparison.Ordinal);
         }
     }
 }
