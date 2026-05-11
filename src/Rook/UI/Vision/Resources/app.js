@@ -2285,6 +2285,37 @@ const Video = (() => {
 
     // ─── Frame picker ───────────────────────────────────────────────
 
+    const GENERATED_VIDEO_FRAME_PICKER_ROLES = new Set(["start_frame", "end_frame"]);
+
+    function isGeneratedVideoFramePickerRole(role) {
+        return GENERATED_VIDEO_FRAME_PICKER_ROLES.has(role);
+    }
+
+    function buildFramePickerChoices(artifact) {
+        if (!artifact || !artifact.artifact_id || !Array.isArray(artifact.files)) {
+            return [];
+        }
+
+        if (artifact.kind === "generated_video") {
+            return artifact.files
+                .filter(file => file && isGeneratedVideoFramePickerRole(file.role))
+                .map(file => ({
+                    artifact,
+                    role: file.role,
+                    thumbRole: file.role,
+                    label: file.role === "start_frame" ? "Start frame" : "End frame",
+                }));
+        }
+
+        const role = pickDisplayRole(artifact) || "image";
+        return [{
+            artifact,
+            role,
+            thumbRole: role,
+            label: artifact.kind || "",
+        }];
+    }
+
     async function openPicker(slot) {
         // Defense-in-depth: refuse to open the picker for a slot that's
         // not allowed in the current mode + capability combination.
@@ -2305,43 +2336,49 @@ const Video = (() => {
         ve.pickerModal.classList.remove("hidden");
 
         try {
-            // PR-V3: image-kind artifacts only (videos cannot serve as
-            // input frames). list_artifacts takes a single `kind`, so
-            // we issue parallel calls for the three image-bearing kinds
-            // — generated_image, captured_viewport, depth_map — and
-            // merge by created_at desc with artifact_id desc as the
-            // deterministic tie-breaker.
-            const [genData, capData, depthData] = await Promise.all([
+            // Image artifacts are direct frame inputs. Generated-video
+            // artifacts are role-level candidates only when they already
+            // carry frame-exact sidecars. `poster` stays display-only and
+            // `video` stays playback-only.
+            const [genData, capData, depthData, vidData] = await Promise.all([
                 bridgeCall("list_artifacts", { kind: "generated_image", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "captured_viewport", limit: 100 }),
                 bridgeCall("list_artifacts", { kind: "depth_map", limit: 100 }),
+                bridgeCall("list_artifacts", { kind: "generated_video", limit: 100 }),
             ]);
             const items = [
                 ...(genData.artifacts || []),
                 ...(capData.artifacts || []),
                 ...(depthData.artifacts || []),
-            ].sort((a, b) => {
-                const t = (b.created_at || "").localeCompare(a.created_at || "");
-                if (t !== 0) return t;
-                return (b.artifact_id || "").localeCompare(a.artifact_id || "");
-            });
+                ...(vidData.artifacts || []),
+            ]
+                .flatMap(buildFramePickerChoices)
+                .sort((a, b) => {
+                    const t = (b.artifact.created_at || "").localeCompare(a.artifact.created_at || "");
+                    if (t !== 0) return t;
+                    const idCompare = (b.artifact.artifact_id || "").localeCompare(a.artifact.artifact_id || "");
+                    if (idCompare !== 0) return idCompare;
+                    return (a.role || "").localeCompare(b.role || "");
+                });
             if (items.length === 0) {
                 ve.pickerGrid.innerHTML = `
                     <div class="gallery-empty">
                         <span>No image artifacts</span>
-                        <p>Generate an image, capture a viewport, or capture depth to use it as a frame.</p>
+                        <p>Generate an image, capture a viewport, capture depth, or use a generated video with frame sidecars.</p>
                     </div>`;
                 return;
             }
-            ve.pickerGrid.innerHTML = items.map(a => {
-                const role = pickDisplayRole(a) || "image";
-                const url = `/blob/${encodeURIComponent(a.artifact_id)}/${encodeURIComponent(role)}`;
-                const when = formatTimestamp(a.created_at);
-                const kind = a.kind || "";
+            ve.pickerGrid.innerHTML = items.map(choice => {
+                const artifact = choice.artifact;
+                const url = `/blob/${encodeURIComponent(artifact.artifact_id)}/${encodeURIComponent(choice.thumbRole)}`;
+                const when = formatTimestamp(artifact.created_at);
+                const kind = artifact.kind || "";
+                const label = choice.label || kind;
                 return `
-                    <div class="video-picker-item" data-id="${escapeAttr(a.artifact_id)}" data-role="${escapeAttr(role)}">
+                    <div class="video-picker-item" data-id="${escapeAttr(choice.artifact.artifact_id)}" data-role="${escapeAttr(choice.role)}">
                         <div class="video-picker-thumb"><img src="${url}" alt="Picker thumbnail"></div>
                         <span class="video-picker-meta">${escapeHtml(kind)}</span>
+                        <span class="video-picker-meta">${escapeHtml(label)}</span>
                         <span class="video-picker-meta">${escapeHtml(when)}</span>
                     </div>`;
             }).join("");
