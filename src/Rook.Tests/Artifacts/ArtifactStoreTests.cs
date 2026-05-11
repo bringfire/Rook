@@ -52,6 +52,20 @@ namespace Rook.Tests.Artifacts
         private void WriteRawManifest(string artifactDir, string content)
             => File.WriteAllText(Path.Combine(artifactDir, "manifest.json"), content);
 
+        private string ArtifactDir(Guid id)
+            => Directory.EnumerateDirectories(_root)
+                .SelectMany(Directory.EnumerateDirectories)
+                .Single(d => Path.GetFileName(d) == id.ToString("D"));
+
+        private string ManifestPath(Guid id)
+            => Path.Combine(ArtifactDir(id), "manifest.json");
+
+        private string BlobPath(Guid id, string fileName)
+            => Path.Combine(ArtifactDir(id), fileName);
+
+        private string ManifestText(Guid id)
+            => File.ReadAllText(ManifestPath(id));
+
         private static string ValidManifest(
             Guid id,
             string kind = "image_capture",
@@ -850,6 +864,193 @@ namespace Rook.Tests.Artifacts
             Assert.Equal(
                 "alpha",
                 ((JsonObject)reloaded!.Flags["tag"]!)["label"]!.GetValue<string>());
+        }
+
+        // ─── AppendBlob: atomic blob append ─────────────────────────
+
+        [Fact]
+        public void AppendBlob_Success_AddsBlobAndManifestRole()
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+
+            var result = _store.AppendBlob(created.Id, "poster", Bytes("jpg"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.Succeeded, result.Code);
+            Assert.NotNull(result.Artifact);
+            Assert.Equal(created.Id, result.Artifact!.Id);
+            Assert.Contains(result.Artifact.Files, f => f.Role == "video" && f.Path == "video.mp4");
+            Assert.Contains(result.Artifact.Files, f => f.Role == "poster" && f.Path == "poster.jpg");
+            Assert.True(File.Exists(BlobPath(created.Id, "poster.jpg")));
+            Assert.Equal("jpg", File.ReadAllText(BlobPath(created.Id, "poster.jpg")));
+
+            var reloaded = _store.Get(created.Id);
+            Assert.NotNull(reloaded);
+            Assert.Contains(reloaded!.Files, f => f.Role == "poster" && f.Path == "poster.jpg");
+            Assert.Equal(BlobPath(created.Id, "poster.jpg"), _store.GetBlobAbsolutePath(created.Id, "poster"));
+        }
+
+        [Fact]
+        public void AppendBlob_DuplicateRole_ReturnsDuplicateRole_AndLeavesArtifactUnchanged()
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            var before = ManifestText(created.Id);
+
+            var result = _store.AppendBlob(created.Id, "video", Bytes("new"), "mp4");
+
+            Assert.Equal(AppendBlobResultCode.DuplicateRole, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal(before, ManifestText(created.Id));
+            Assert.Equal("mp4", File.ReadAllText(BlobPath(created.Id, "video.mp4")));
+            Assert.False(File.Exists(BlobPath(created.Id, "video.mp4.tmp")));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("UPPER")]
+        [InlineData("a/b")]
+        [InlineData("a.b")]
+        public void AppendBlob_InvalidRole_ReturnsInvalidRole_AndWritesNothing(string role)
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            var before = ManifestText(created.Id);
+
+            var result = _store.AppendBlob(created.Id, role, Bytes("x"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.InvalidRole, result.Code);
+            Assert.Equal(before, ManifestText(created.Id));
+            Assert.Equal(
+                new[] { "manifest.json", "video.mp4" },
+                Directory.EnumerateFiles(ArtifactDir(created.Id))
+                    .Select(Path.GetFileName)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(".jpg")]
+        [InlineData("JPG")]
+        [InlineData("jpg.gz")]
+        public void AppendBlob_InvalidExtension_ReturnsInvalidExtension_AndWritesNothing(string extension)
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            var before = ManifestText(created.Id);
+
+            var result = _store.AppendBlob(created.Id, "poster", Bytes("x"), extension);
+
+            Assert.Equal(AppendBlobResultCode.InvalidExtension, result.Code);
+            Assert.Equal(before, ManifestText(created.Id));
+            Assert.Equal(
+                new[] { "manifest.json", "video.mp4" },
+                Directory.EnumerateFiles(ArtifactDir(created.Id))
+                    .Select(Path.GetFileName)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        [Fact]
+        public void AppendBlob_MissingArtifact_ReturnsArtifactNotFound()
+        {
+            var result = _store.AppendBlob(Guid.NewGuid(), "poster", Bytes("x"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.ArtifactNotFound, result.Code);
+            Assert.Null(result.Artifact);
+        }
+
+        [Fact]
+        public void AppendBlob_CorruptManifest_ReturnsManifestReadFailed_AndWritesNothing()
+        {
+            var id = Guid.NewGuid();
+            var dir = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dir, "video.mp4"), Bytes("mp4"));
+            WriteRawManifest(dir, "{ not valid json");
+
+            var result = _store.AppendBlob(id, "poster", Bytes("x"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.ManifestReadFailed, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal("{ not valid json", File.ReadAllText(Path.Combine(dir, "manifest.json")));
+            Assert.False(File.Exists(Path.Combine(dir, "poster.jpg")));
+        }
+
+        [Fact]
+        public void AppendBlob_DuplicateUuidAcrossBuckets_ReturnsManifestReadFailed_AndWritesNothing()
+        {
+            var id = Guid.NewGuid();
+            var dirA = CreateRawArtifactDir("2026-04-20", id);
+            var dirB = CreateRawArtifactDir("2026-04-22", id);
+            File.WriteAllBytes(Path.Combine(dirA, "video.mp4"), Bytes("a"));
+            File.WriteAllBytes(Path.Combine(dirB, "video.mp4"), Bytes("b"));
+            WriteRawManifest(dirA, ValidManifest(id,
+                kind: "generated_video",
+                filesJson: @"[{""role"":""video"",""path"":""video.mp4""}]"));
+            WriteRawManifest(dirB, ValidManifest(id,
+                kind: "generated_video",
+                filesJson: @"[{""role"":""video"",""path"":""video.mp4""}]"));
+
+            var result = _store.AppendBlob(id, "poster", Bytes("jpg"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.ManifestReadFailed, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.False(File.Exists(Path.Combine(dirA, "poster.jpg")));
+            Assert.False(File.Exists(Path.Combine(dirB, "poster.jpg")));
+            Assert.DoesNotContain(
+                Directory.EnumerateFiles(dirA),
+                f => Path.GetFileName(f).Contains("poster"));
+            Assert.DoesNotContain(
+                Directory.EnumerateFiles(dirB),
+                f => Path.GetFileName(f).Contains("poster"));
+        }
+
+        [Fact]
+        public void AppendBlob_FinalFileCollision_ReturnsFinalFileCollision_AndDoesNotOverwrite()
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            File.WriteAllText(BlobPath(created.Id, "poster.jpg"), "orphan");
+            var before = ManifestText(created.Id);
+
+            var result = _store.AppendBlob(created.Id, "poster", Bytes("new"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.FinalFileCollision, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal(before, ManifestText(created.Id));
+            Assert.Equal("orphan", File.ReadAllText(BlobPath(created.Id, "poster.jpg")));
+            var loaded = _store.Get(created.Id);
+            Assert.DoesNotContain(loaded!.Files, f => f.Role == "poster");
+        }
+
+        [Fact]
+        public void LooseFiles_AreIgnoredByReaders_UntilManifestReferencesThem()
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            File.WriteAllText(BlobPath(created.Id, "poster.jpg"), "orphan");
+
+            var loaded = _store.Get(created.Id);
+
+            Assert.NotNull(loaded);
+            Assert.DoesNotContain(loaded!.Files, f => f.Role == "poster");
+            Assert.Throws<KeyNotFoundException>(() => _store.GetBlobAbsolutePath(created.Id, "poster"));
+        }
+
+        [Fact]
+        public void AppendBlob_ManifestReplaceFailure_ReturnsManifestReplaceFailed_WithValidOriginalManifest()
+        {
+            var created = _store.Create("generated_video", OneBlob("video", "mp4", "mp4"));
+            var before = ManifestText(created.Id);
+            _store.AppendBlobManifestReplaceOverrideForTests = (_, _) =>
+                throw new IOException("simulated replace failure");
+
+            var result = _store.AppendBlob(created.Id, "poster", Bytes("jpg"), "jpg");
+
+            Assert.Equal(AppendBlobResultCode.ManifestReplaceFailed, result.Code);
+            Assert.Null(result.Artifact);
+            Assert.Equal(before, ManifestText(created.Id));
+            Assert.True(File.Exists(BlobPath(created.Id, "poster.jpg")));
+
+            var loaded = _store.Get(created.Id);
+            Assert.NotNull(loaded);
+            Assert.DoesNotContain(loaded!.Files, f => f.Role == "poster");
+            Assert.Throws<KeyNotFoundException>(() => _store.GetBlobAbsolutePath(created.Id, "poster"));
         }
 
         // ─── on-disk JSON casing ────────────────────────────────────
