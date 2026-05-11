@@ -888,6 +888,39 @@ namespace Rook.Tests.Services.Vision.Video.Fal
         }
 
         [Fact]
+        public async Task Fetch_with_sidecar_like_fields_returns_only_video_artifact()
+        {
+            var handler = new TestHttpMessageHandler
+            {
+                OnSend = _ => Json(HttpStatusCode.OK, @"{
+                  ""actual_prompt"": ""expanded prompt"",
+                  ""seed"": 42,
+                  ""posterUrl"": ""https://v3b.fal.media/files/poster.jpg"",
+                  ""firstFrame"": ""https://v3b.fal.media/files/first.jpg"",
+                  ""lastFrame"": ""https://v3b.fal.media/files/last.jpg"",
+                  ""video"": {
+                    ""url"": ""https://v3b.fal.media/files/out.mp4"",
+                    ""content_type"": ""video/mp4"",
+                    ""thumbnail"": ""https://v3b.fal.media/files/thumb.jpg"",
+                    ""posterUrl"": ""https://v3b.fal.media/files/video-poster.jpg"",
+                    ""firstFrame"": ""https://v3b.fal.media/files/video-first.jpg"",
+                    ""lastFrame"": ""https://v3b.fal.media/files/video-last.jpg""
+                  }
+                }"),
+            };
+            var provider = Provider(handler);
+
+            var outcome = await provider.FetchResultAsync(Handle(), CancellationToken.None);
+
+            var success = Assert.IsType<SuccessResultOutcome>(outcome);
+            var artifact = Assert.Single(success.Envelope.Artifacts);
+            Assert.Equal(VideoMediaRoles.Video, artifact.Role);
+            Assert.DoesNotContain(success.Envelope.Artifacts, a => a.Role == VideoMediaRoles.Poster);
+            Assert.DoesNotContain(success.Envelope.Artifacts, a => a.Role == VideoMediaRoles.StartFrame);
+            Assert.DoesNotContain(success.Envelope.Artifacts, a => a.Role == VideoMediaRoles.EndFrame);
+        }
+
+        [Fact]
         public async Task Fetch_seedance_reconstructs_response_url_and_drops_provider_metadata()
         {
             var handler = new TestHttpMessageHandler

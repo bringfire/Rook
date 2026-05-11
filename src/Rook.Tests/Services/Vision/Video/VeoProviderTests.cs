@@ -131,6 +131,39 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task GetStatusAsync_done_with_sidecar_like_fields_keeps_only_video_uri_token()
+        {
+            var json = """
+                {
+                  "done": true,
+                  "response": {
+                    "generateVideoResponse": {
+                      "generatedSamples": [
+                        {
+                          "video": { "uri": "https://veo/result/xyz" },
+                          "posterUrl": "https://provider.invalid/poster.jpg",
+                          "thumbnail": { "uri": "https://provider.invalid/thumb.jpg" },
+                          "firstFrame": { "uri": "https://provider.invalid/first.jpg" },
+                          "lastFrame": { "uri": "https://provider.invalid/last.jpg" }
+                        }
+                      ]
+                    }
+                  }
+                }
+                """;
+            var (provider, _) = MakeProvider(_ => JsonResponse(HttpStatusCode.OK, json));
+
+            var outcome = await provider.GetStatusAsync(
+                new ProviderJobHandle("operations/abc"), CancellationToken.None);
+
+            var complete = Assert.IsType<ProviderCompleteStatusOutcome>(outcome);
+            Assert.Equal(
+                "https://veo/result/xyz",
+                complete.UpdatedHandle.ProviderResultToken);
+            Assert.Null(complete.UpdatedHandle.ProviderMetadata);
+        }
+
+        [Fact]
         public async Task GetStatusAsync_operation_error_returns_terminal_failure()
         {
             var json = """
