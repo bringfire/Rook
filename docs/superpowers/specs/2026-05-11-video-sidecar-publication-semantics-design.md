@@ -72,6 +72,8 @@ Storage-level responsibilities:
 
 The storage layer treats `role` only as a blob role string. It does not know whether `poster`, `start_frame`, or `end_frame` are video sidecars.
 
+Per-sidecar metadata and provenance are deferred. The current artifact manifest file entry model is `role + path`, so Slice 2 does not add file-level metadata, source labels, or provenance fields.
+
 ### 2. Video Policy Wrapper
 
 `VideoSidecarPublisher` is the video-domain wrapper around `ArtifactStore.AppendBlob(...)`.
