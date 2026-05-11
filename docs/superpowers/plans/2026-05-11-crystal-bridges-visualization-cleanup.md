@@ -442,6 +442,16 @@ Expected: no mutation; produce candidate rules only. Representative sampling is 
 Create a candidate set containing every item that may be remapped. Include both name-token matches and block definitions whose internal layers already sit on AIA/source layers that map to the target taxonomy:
 
 ```powershell
+if ($null -eq $inventory) {
+  $latestInventoryPath = Get-ChildItem "H:\AI EXPERIMENTS\CRYSTAL_BRIDGES\.rook\cleanup\*-inventory.json" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+  if ($null -eq $latestInventoryPath) {
+    throw "No inventory JSON found. Complete Task 3 before building candidates."
+  }
+  $inventory = Get-Content $latestInventoryPath.FullName -Raw | ConvertFrom-Json
+}
+
 $nameTokenBlocks = @($blocks | Where-Object {
   $_.name -match 'System Panel - Glazed|Rectangular Mullion|W-Wide Flange|HSS|Railing|Door|Storefront|Roof'
 })
@@ -1144,7 +1154,7 @@ If layer/block/dependency/viewport verification fails, call:
 }
 ```
 
-Expected: `LatestCompletedRunId` is not written. Stop and report the verification failure instead of saving the cleaned file as completed.
+Expected: `LatestCompletedRunId` is not written. Stop and report the verification failure instead of saving or marking the cleaned file as completed.
 
 - [ ] **Step 4: If mutation aborts before verification, write aborted status**
 
@@ -1164,7 +1174,23 @@ If a mutation step fails and the operator stops before verification, call:
 
 Expected: `LatestCompletedRunId` is not written. Update the cleanup report with the failed operation and stop.
 
-- [ ] **Step 5: Update manifest as completed only after verification succeeds**
+- [ ] **Step 5: Save verified geometry before completion metadata**
+
+Call:
+
+```json
+{
+  "tool": "rhino_document_ops",
+  "params": {
+    "action": "save",
+    "path": "H:\\AI EXPERIMENTS\\CRYSTAL_BRIDGES\\0_REVIT EXPORT_ALL_BACKUP-02.3dm"
+  }
+}
+```
+
+Expected: save succeeds. If this save fails, write `RookCleanup::RunStatus=verification_failed`, update the cleanup report with the save failure, and do not set `RookCleanup::LatestCompletedRunId`.
+
+- [ ] **Step 6: Update manifest as completed only after verified geometry is saved**
 
 Call:
 
@@ -1183,7 +1209,7 @@ Call:
 
 Expected: document user strings show completed run status.
 
-- [ ] **Step 6: Save the cleaned Rhino file**
+- [ ] **Step 7: Save completed manifest**
 
 Call:
 
@@ -1197,4 +1223,4 @@ Call:
 }
 ```
 
-Expected: save succeeds.
+Expected: save succeeds. If this second save fails, write an external cleanup report note that the Rhino document reached `completed` in-memory but the completed manifest may not be durable on disk; do not report the run as durably complete until a follow-up save succeeds.
