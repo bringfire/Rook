@@ -26,6 +26,7 @@ If none is available, the runner must stop with a clear message and make no find
 
 - Create `src/Rook/Services/Vision/Video/Extraction/FfmpegBinaryResolver.cs`
   - Resolves explicit configured ffmpeg path or `PATH` lookup.
+  - Treats "file exists" as discovery success; actual executability is validated by the extractor's structured process-start result.
   - Does not know about Rook settings, installer paths, or dev-machine paths.
 
 - Create `src/Rook/Services/Vision/Video/Extraction/FfmpegPosterFrameExtractor.cs`
@@ -256,6 +257,7 @@ namespace Rook.Services.Vision.Video.Extraction
     {
         InputMissing,
         BinaryMissing,
+        ProcessStartFailed,
         ProcessFailed,
         TimedOut,
         OutputMissing,
@@ -508,6 +510,30 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
         }
 
         [Fact]
+        public async Task ExtractPosterAsync_ProcessStartExceptionFailsStructurally()
+        {
+            var ffmpeg = Touch(Path.Combine(_root, "ffmpeg.exe"));
+            var input = Touch(Path.Combine(_root, "input.mp4"));
+            var output = Path.Combine(_root, "poster.jpg");
+            var runner = new FakeProcessRunner(_ =>
+                throw new InvalidOperationException("not a valid executable"));
+            var extractor = new FfmpegPosterFrameExtractor(runner);
+
+            var result = await extractor.ExtractPosterAsync(
+                ffmpegPath: ffmpeg,
+                inputPath: input,
+                outputPath: output,
+                timeout: TimeSpan.FromSeconds(5),
+                CancellationToken.None);
+
+            Assert.False(result.Success);
+            Assert.Null(result.ExitCode);
+            Assert.Equal(FfmpegPosterExtractionError.ProcessStartFailed, result.ErrorCode);
+            Assert.Contains("not a valid executable", result.Stderr);
+            Assert.Single(runner.Starts);
+        }
+
+        [Fact]
         public async Task ExtractPosterAsync_NonzeroExitFailsWithStderr()
         {
             var ffmpeg = Touch(Path.Combine(_root, "ffmpeg.exe"));
@@ -704,7 +730,9 @@ namespace Rook.Services.Vision.Video.Extraction
                         stderr.AppendLine(e.Data);
                 };
 
-                process.Start();
+                if (!process.Start())
+                    throw new InvalidOperationException("ffmpeg process did not start.");
+
                 process.BeginErrorReadLine();
 
                 var timeoutMs = timeout <= TimeSpan.Zero
@@ -804,8 +832,27 @@ namespace Rook.Services.Vision.Video.Extraction
                 RedirectStandardOutput = false,
             };
 
-            var run = await _runner.RunAsync(startInfo, timeout, cancellationToken)
-                .ConfigureAwait(false);
+            ProcessRunResult run;
+            try
+            {
+                run = await _runner.RunAsync(startInfo, timeout, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return FfmpegPosterExtractionResult.Failed(
+                    commandLine,
+                    exitCode: null,
+                    stderr: ex.Message,
+                    outputPath: outputPath,
+                    elapsed: TimeSpan.Zero,
+                    FfmpegPosterExtractionError.ProcessStartFailed,
+                    "ffmpeg process could not be started.");
+            }
 
             if (run.TimedOut)
             {
@@ -1005,7 +1052,6 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
             sb.AppendLine("## Environment");
             sb.AppendLine();
             sb.AppendLine($"- OS: {Environment.OSVersion}");
-            sb.AppendLine($"- Machine: {Environment.MachineName}");
             sb.AppendLine($"- .NET runtime: {Environment.Version}");
             sb.AppendLine();
             sb.AppendLine("## Input");
@@ -1026,7 +1072,7 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
             sb.AppendLine("## Extraction Result");
             sb.AppendLine();
             sb.AppendLine($"- Success: `{result.Success}`");
-            sb.AppendLine($"- Command/API shape: `{SanitizeCommand(result.CommandLine)}`");
+            sb.AppendLine($"- Command/API shape: `{SanitizeCommand(result.CommandLine, input, resolution.Path, result.OutputPath)}`");
             sb.AppendLine($"- Exit code: `{result.ExitCode}`");
             sb.AppendLine($"- Error code: `{result.ErrorCode}`");
             sb.AppendLine($"- Output path shape: `{Sanitize(result.OutputPath)}`");
@@ -1043,6 +1089,7 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
             sb.AppendLine();
             sb.AppendLine("- Missing ffmpeg is represented as a structured binary-discovery failure.");
             sb.AppendLine("- Missing input fails before process start.");
+            sb.AppendLine("- Process-start failure is represented as a structured extraction failure for invalid or non-executable configured paths.");
             sb.AppendLine("- Nonzero exit, timeout, missing output, and invalid image output are covered by unit tests.");
             sb.AppendLine();
             sb.AppendLine("## Recommendation");
@@ -1065,9 +1112,20 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
                 : Path.Combine("...", parent, file);
         }
 
-        private static string SanitizeCommand(string command)
+        private static string SanitizeCommand(
+            string command,
+            string inputPath,
+            string? ffmpegPath,
+            string outputPath)
         {
             var sanitized = command;
+            sanitized = ReplaceIfPresent(sanitized, inputPath, "<INPUT_MP4>");
+            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(inputPath), "<INPUT_MP4>");
+            sanitized = ReplaceIfPresent(sanitized, ffmpegPath, "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(ffmpegPath), "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, outputPath, "<OUTPUT_IMAGE>");
+            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(outputPath), "<OUTPUT_IMAGE>");
+
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (!string.IsNullOrWhiteSpace(userProfile))
                 sanitized = sanitized.Replace(userProfile, "<USERPROFILE>");
@@ -1078,6 +1136,26 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
 
             return sanitized;
         }
+
+        private static string SafeFullPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return "";
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        private static string ReplaceIfPresent(string value, string? search, string replacement) =>
+            string.IsNullOrWhiteSpace(search)
+                ? value
+                : value.Replace(search, replacement);
 
         private static string Trim(string value, int max) =>
             string.IsNullOrEmpty(value) || value.Length <= max
@@ -1238,9 +1316,9 @@ Expected:
 - Contains fixture policy.
 - Contains environment.
 - Contains sanitized input path shape, not full private path.
-- Contains command/API shape.
+- Contains command/API shape with exact input, output, and resolved ffmpeg paths replaced by placeholders.
 - Contains exit code, dimensions, elapsed time, failure observations, and recommendation.
-- Does not contain API keys, provider URLs, full `%USERPROFILE%` paths, or raw video bytes.
+- Does not contain API keys, provider URLs, full local input/output/ffmpeg paths, machine name, full `%USERPROFILE%` paths, or raw video bytes.
 
 - [ ] **Step 4: Commit findings**
 
@@ -1308,10 +1386,11 @@ Focus areas:
 - Local MP4 extraction must remain the default sidecar producer.
 - ffmpeg must be invoked only as a replaceable external process.
 - Binary discovery must cover configured path, PATH lookup, and missing-binary failure without hardcoded dev-machine paths.
+- Extraction must convert process-start failures, including an existing but invalid/non-executable ffmpeg path, into structured `ProcessStartFailed` findings.
 - The spike must not commit ffmpeg binaries or MP4 fixtures.
 - The spike must not modify installer packaging.
 - The spike must not integrate with ArtifactStore, VideoJobManager, provider calls, Gallery, or GH NLE.
-- The committed findings document must preserve the evidence needed to choose ffmpeg vs WMF: input used, environment, final command/API shape, measurements, failure observations, and recommendation.
+- The committed findings document must preserve the evidence needed to choose ffmpeg vs WMF: sanitized input shape, sanitized environment, final command/API shape, measurements, failure observations, and recommendation.
 - The manual spike test should be inert in normal test runs unless explicitly enabled.
 
 Please report critical, important, and minor issues, and give a readiness verdict for moving to the sidecar publication semantics slice.
