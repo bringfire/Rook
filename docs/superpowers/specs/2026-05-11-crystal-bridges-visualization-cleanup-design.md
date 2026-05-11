@@ -107,7 +107,7 @@ Confidence levels:
 - `low`: only generic layer, color, or geometry heuristics apply.
 - `review`: conflicting or insufficient evidence.
 
-Only `high` and reviewed `medium` classifications should be remapped automatically. `low` and `review` items should remain isolated in `G-REF::G-REF-UNCLASSIFIED` or stay on their source layer until explicitly approved.
+Only `high` and reviewed `medium` classifications should be remapped automatically. `low` and `review` items stay on their source layers by default. They may move to `G-REF::G-REF-UNCLASSIFIED` only when the reviewed audit explicitly approves moving unresolved items into that bucket.
 
 ## Metadata Strategy
 
@@ -136,6 +136,8 @@ RookCleanup::Reviewed
 
 `RookCleanup::Signals` should be compact JSON stored as a string. It should include the evidence used for classification, such as matched block-name tokens, source layer, geometry class, and scene graph class.
 
+Typed usertext write routes reject empty-string values because OpenNURBS treats empty strings as delete sentinels. Cleanup metadata must never write `""`. If a source value is missing or empty, omit that key or encode the field inside a non-empty JSON value such as `{"value":null}` in `RookCleanup::Signals`.
+
 For block definitions, use `rhino_block_user_strings` to maintain block-level summary metadata:
 
 ```text
@@ -151,14 +153,19 @@ At document level, use document user strings for a cleanup manifest:
 ```text
 RookCleanup::SchemaVersion
 RookCleanup::LatestRunId
+RookCleanup::LatestCompletedRunId
+RookCleanup::RunStatus
 RookCleanup::ConventionName
 RookCleanup::TargetLayerTaxonomy
 RookCleanup::ClassificationStats
 RookCleanup::ReviewQueueSummary
 RookCleanup::AuditTimestamp
+RookCleanup::StartedAt
+RookCleanup::CompletedAt
+RookCleanup::BackupPath
 ```
 
-The manifest lets future Rook sessions discover that this file has already been classified and understand how the current layer structure was produced.
+The manifest lets future Rook sessions discover cleanup state without assuming partial work completed. `LatestRunId` identifies the active or most recent attempted run. `RunStatus` must distinguish `audit_started`, `audit_complete`, `mutation_started`, `verification_failed`, `completed`, and `aborted`. `LatestCompletedRunId` and `CompletedAt` must update only after verification succeeds.
 
 ## Audit Workflow
 
@@ -170,7 +177,8 @@ The manifest lets future Rook sessions discover that this file has already been 
 6. Use `rhino_block_compare` on candidate duplicate families before any merge decision.
 7. Query `scene_graph` and `scene_query` for spatial and shape context.
 8. Build a proposed classification table with counts by target layer and confidence.
-9. Present the report for review before mutation.
+9. Detect shared block definitions where different instance contexts imply different target layers.
+10. Present the report for review before mutation.
 
 The audit report should include:
 
@@ -182,6 +190,7 @@ The audit report should include:
 - Empty layers that are directly deletable.
 - Empty layers blocked by block-definition references.
 - Candidate duplicate block families for dry-run merge.
+- Shared block-definition conflicts where definition-level remapping would affect instances that need different targets.
 
 ## Execution Workflow
 
@@ -189,14 +198,15 @@ All mutation must be gated by user approval.
 
 1. Create a backup copy of the `.3dm` file.
 2. Create approved target layers.
-3. Write provenance metadata to document objects, block-definition objects, block definitions, and document manifest.
-4. Remap block-definition object layers with `rhino_block_set_layers` or `rhino_block_set_layers_batch`.
+3. Write provenance metadata to document objects, block-definition objects, block definitions, and document manifest. Mark the manifest `RunStatus` as `mutation_started`, but do not update `LatestCompletedRunId`.
+4. Remap block-definition object layers. Use `rhino_block_set_layers` with per-object `mappings` for heterogeneous definitions, such as blocks containing glazing, mullions, frames, and panels. Reserve `rhino_block_set_layers_batch` for homogeneous whole-block moves where every object in each listed block definition maps to the same target layer.
 5. Move document-level loose objects to approved target layers.
 6. Assign or create materials after layer grouping is stable.
 7. Dry-run block merges with `rhino_block_merge` before execution.
 8. Purge unused block definitions after remapping.
 9. Delete only layers proven empty and dependency-free.
 10. Verify with fresh layer, block, dependency, and viewport checks.
+11. After successful verification, update the document manifest with `RunStatus=completed`, `CompletedAt`, and `LatestCompletedRunId`.
 
 ## Safety Rules
 
@@ -205,6 +215,7 @@ All mutation must be gated by user approval.
 - Never remap ambiguous items without review.
 - Preserve original context in user strings before moving geometry.
 - Prefer block-definition object remapping over exploding blocks.
+- Remap block-definition objects only when all instance contexts agree with the proposed target mapping. If a shared definition is used in conflicting contexts, leave it in review or require an approved block-duplication strategy before remapping.
 - Use block merge only where `rhino_block_compare` shows compatible definitions and dry-run confirms expected instance counts.
 - Keep `G-REF::G-REF-UNCLASSIFIED` as an explicit review bucket instead of hiding uncertain geometry.
 
