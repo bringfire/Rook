@@ -69,7 +69,9 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal(VideoSidecarPublishResultCode.RejectedUnsupportedRole, result.Code);
             var loaded = _store.Get(video.Id);
             Assert.NotNull(loaded);
-            Assert.DoesNotContain(loaded!.Files, f => f.Role == role);
+            Assert.Equal(
+                video.Files.OrderBy(f => f.Role).ThenBy(f => f.Path),
+                loaded!.Files.OrderBy(f => f.Role).ThenBy(f => f.Path));
         }
 
         [Fact]
@@ -103,9 +105,10 @@ namespace Rook.Tests.Services.Vision.Video
             var second = _publisher.Publish(video.Id, VideoMediaRoles.Poster, Bytes("two"), "jpg");
 
             Assert.Equal(VideoSidecarPublishResultCode.SkippedAlreadyExists, second.Code);
+            Assert.True(second.Success);
             var loaded = _store.Get(video.Id);
             Assert.NotNull(loaded);
-            Assert.Single(loaded!.Files.Where(f => f.Role == VideoMediaRoles.Poster));
+            Assert.Single(loaded!.Files, f => f.Role == VideoMediaRoles.Poster);
             Assert.Equal("one", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.Poster)));
         }
 
