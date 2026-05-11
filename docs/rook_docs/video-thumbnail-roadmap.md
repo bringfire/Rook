@@ -16,7 +16,7 @@ Full support means:
 
 ## Current State
 
-The substrate-first sidecar contract is complete and merged to `main`.
+The substrate-first sidecar contract and local MP4 extraction tooling spike are complete and merged to `main`.
 
 Done:
 
@@ -25,18 +25,20 @@ Done:
 - `poster` and `video` are excluded from frame-picker input paths.
 - Unknown provider payload fields are inert.
 - The provider payload audit procedure and sanitized placeholder fixtures exist.
+- The local MP4 extraction spike proved `ffmpeg.exe` can extract a poster candidate from an existing generated-video MP4 as a replaceable external process.
+- Spike findings are recorded in `docs/rook_docs/video-extraction-spike-findings.md`.
 
 Current next slice:
 
-- Design and spike local MP4 frame extraction before choosing the production extraction path.
+- Define sidecar publication semantics before wiring extraction into completed video jobs.
 
 ## Slice Tracker
 
 | Slice | Status | Goal | Exit Criteria |
 | --- | --- | --- | --- |
 | 0. Sidecar contract substrate | Done | Lock role semantics and role-level picker consumption before producing sidecars. | `poster` stays display-only; `start_frame` / `end_frame` are the only generated-video picker roles; provider fields are not inferred. |
-| 1. Extraction tooling design + spike | Next | Decide whether Rook should use Windows Media Foundation, ffmpeg, or another local decoder path by proving one local MP4 poster extraction. | A narrow spike extracts one poster candidate frame from a local MP4 fixture, writes no artifacts, calls no providers, changes no installer packaging, compares WMF and ffmpeg feasibility if practical, documents results, and chooses the implementation path. |
-| 2. Sidecar publication semantics | Pending | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
+| 1. Extraction tooling design + spike | Done | Decide whether Rook should use Windows Media Foundation, ffmpeg, or another local decoder path by proving one local MP4 poster extraction. | `ffmpeg.exe` external-process extraction produced a 1920x1080 poster candidate from a local generated-video MP4; no artifacts, providers, installer packaging, or production integrations were changed; findings recommend ffmpeg as the production extraction path candidate. |
+| 2. Sidecar publication semantics | Next | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
 | 3. Poster thumbnail producer | Pending | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
 | 4. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
 | 5. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
@@ -56,5 +58,8 @@ Current next slice:
 
 - `docs/superpowers/specs/2026-05-10-video-sidecar-contract-design.md`
 - `docs/superpowers/plans/2026-05-10-video-sidecar-contract.md`
+- `docs/superpowers/specs/2026-05-11-local-mp4-extraction-tooling-spike-design.md`
+- `docs/superpowers/plans/2026-05-11-local-mp4-extraction-tooling-spike.md`
+- `docs/rook_docs/video-extraction-spike-findings.md`
 - `docs/rook_docs/video-provider-payload-audit.md`
 - `docs/rook_docs/2026-04-08-sa-banana-integration.md`
