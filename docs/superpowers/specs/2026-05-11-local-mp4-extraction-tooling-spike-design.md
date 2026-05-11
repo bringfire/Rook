@@ -56,7 +56,7 @@ The implementation must not hardcode a development-machine path. Discovery behav
 
 ### 3. Local MP4 Input Only
 
-The spike uses local MP4 input only. The input may be:
+The spike uses local MP4 input only. The implementation plan must choose the fixture policy before any code is written or any binary file is added. The input may be:
 
 - a small checked-in or generated test fixture, if suitable for repository policy; or
 - an existing local generated-video artifact copied/read from the developer machine for manual spike execution.
@@ -77,7 +77,7 @@ For each attempted extraction path, record:
 - elapsed time;
 - any dependency or environment assumptions.
 
-The result document should be enough for a reviewer to understand whether the path is production-worthy.
+The committed findings document must be enough for a reviewer to understand whether the path is production-worthy.
 
 ### 5. WMF Feasibility Check
 
@@ -133,8 +133,10 @@ For production, sidecar extraction failures should not make the original video g
 ## Acceptance Criteria
 
 - A local MP4 can be tested without any provider call.
+- The implementation plan chooses an explicit fixture policy before adding any binary fixture.
 - ffmpeg discovery behavior is designed and tested separately from extraction behavior.
 - The spike records command/API shape, exit code or exception, diagnostics, output path, dimensions, and elapsed time.
+- A committed spike findings document records the input used, environment, final command/API shape, measurements, failure observations, and production-path recommendation.
 - No hardcoded developer-machine ffmpeg path is introduced.
 - No ffmpeg binary is committed.
 - No installer/package behavior changes.
