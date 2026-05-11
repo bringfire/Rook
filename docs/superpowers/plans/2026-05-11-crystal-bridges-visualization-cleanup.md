@@ -439,15 +439,27 @@ Expected: no mutation; produce candidate rules only. Representative sampling is 
 
 - [ ] **Step 5: Build the complete candidate universe**
 
-Create a candidate set containing every item that may be remapped:
+Create a candidate set containing every item that may be remapped. Include both name-token matches and block definitions whose internal layers already sit on AIA/source layers that map to the target taxonomy:
 
 ```powershell
-$candidateBlocks = @($blocks | Where-Object {
+$nameTokenBlocks = @($blocks | Where-Object {
   $_.name -match 'System Panel - Glazed|Rectangular Mullion|W-Wide Flange|HSS|Railing|Door|Storefront|Roof'
 })
 
+$taxonomyLayerPattern = 'A-GLAZ|A-DOOR|A-WALL|A-FLOR|A-ROOF|S-BEAM|S-COLS|S-FSTN|L-SITE|EXPANSION'
+$censusLayerBlocks = @($inventory.blockLayerCensus.blocks | Where-Object {
+  @($_.layers | Where-Object { $_.layer -match $taxonomyLayerPattern }).Count -gt 0
+} | ForEach-Object {
+  $blockName = $_.name
+  $blocks | Where-Object { $_.name -eq $blockName }
+})
+
+$candidateBlocks = @($nameTokenBlocks + $censusLayerBlocks |
+  Where-Object { $_ -ne $null } |
+  Sort-Object name -Unique)
+
 $candidateLooseLayerGroups = @($layers | Where-Object {
-  $_.objectCount -gt 0 -and $_.fullPath -match 'A-GLAZ|A-DOOR|A-WALL|A-FLOR|A-ROOF|S-BEAM|S-COLS|S-FSTN|L-SITE|EXPANSION'
+  $_.objectCount -gt 0 -and $_.fullPath -match $taxonomyLayerPattern
 })
 
 [pscustomobject]@{
@@ -456,7 +468,7 @@ $candidateLooseLayerGroups = @($layers | Where-Object {
 }
 ```
 
-Expected: the candidate set includes every block definition or loose-object/layer group that the first mutation batch might touch. Nothing outside this set may be remapped in later mutation tasks.
+Expected: the candidate set includes every block definition or loose-object/layer group that the first mutation batch might touch, whether the useful signal comes from block name, block-internal layer, or loose-object source layer. Nothing outside this set may be remapped in later mutation tasks.
 
 - [ ] **Step 6: Read full detail for every candidate block that may be remapped**
 
@@ -790,46 +802,99 @@ For each approved block definition record from the audit, call:
 
 Expected: only non-empty string values are written.
 
-- [ ] **Step 3: Prevalidate all provenance payloads**
+- [ ] **Step 3: Materialize and prevalidate exact outbound provenance payloads**
 
-Before writing any object or block-object user strings, validate the approved audit records:
+Before writing any object or block-object user strings, build the exact route payloads that will be sent. Optional fields are omitted when empty. Required fields must be non-empty. Then validate every outbound value is a non-empty string.
 
 ```powershell
-$invalidMetadata = @($approvedRecords | Where-Object {
-  $_.userStrings.PSObject.Properties.Value -contains ""
-})
-if ($invalidMetadata.Count -gt 0) {
-  throw "Metadata prevalidation failed: empty user-string values are not allowed."
+function Add-NonEmptyString {
+  param(
+    [hashtable]$Map,
+    [string]$Key,
+    $Value,
+    [bool]$Required = $false
+  )
+  $text = if ($null -eq $Value) { "" } else { [string]$Value }
+  if ([string]::IsNullOrWhiteSpace($text)) {
+    if ($Required) { throw "Required metadata value '$Key' is empty." }
+    return
+  }
+  $Map[$Key] = $text
+}
+
+function New-RookCleanupUserStrings {
+  param($Record, [string]$RunId)
+
+  $signalsJson = ($Record.signals | ConvertTo-Json -Depth 8 -Compress)
+  if ([string]::IsNullOrWhiteSpace($signalsJson) -or $signalsJson -eq "null") {
+    throw "Record has no non-empty signals JSON."
+  }
+
+  $map = @{}
+  Add-NonEmptyString $map "RookCleanup::SchemaVersion" "1" $true
+  Add-NonEmptyString $map "RookCleanup::RunId" $RunId $true
+  Add-NonEmptyString $map "RookCleanup::OriginalLayer" $Record.sourceLayer $true
+  Add-NonEmptyString $map "RookCleanup::OriginalBlock" $Record.blockName $false
+  Add-NonEmptyString $map "RookCleanup::OriginalBlockObjectIndex" $Record.objectIndex $false
+  Add-NonEmptyString $map "RookCleanup::InferredLayer" $Record.targetLayer $true
+  Add-NonEmptyString $map "RookCleanup::InferredMaterial" $Record.inferredMaterial $false
+  Add-NonEmptyString $map "RookCleanup::Confidence" $Record.confidence $true
+  Add-NonEmptyString $map "RookCleanup::Reason" $Record.reason $false
+  Add-NonEmptyString $map "RookCleanup::Signals" $signalsJson $true
+  Add-NonEmptyString $map "RookCleanup::Reviewed" $Record.reviewedString $false
+  return $map
+}
+
+$blockObjectUserStringPayloads = @()
+foreach ($record in @($approvedRecords | Where-Object { $_.recordType -eq "block_definition_object" })) {
+  $blockObjectUserStringPayloads += [pscustomobject]@{
+    blockName = $record.blockName
+    objectIndex = [int]$record.objectIndex
+    userStrings = New-RookCleanupUserStrings -Record $record -RunId $runId
+  }
+}
+
+$looseObjectUserStringPayloads = @()
+foreach ($record in @($approvedRecords | Where-Object { $_.recordType -eq "loose_object_group" })) {
+  foreach ($objectId in @($record.objectIds)) {
+    $looseObjectUserStringPayloads += [pscustomobject]@{
+      id = $objectId
+      sourceLayer = $record.sourceLayer
+      targetLayer = $record.targetLayer
+      userStrings = New-RookCleanupUserStrings -Record $record -RunId $runId
+    }
+  }
+}
+
+$allUserStringMaps = @($blockObjectUserStringPayloads.userStrings + $looseObjectUserStringPayloads.userStrings)
+$invalidValues = @()
+foreach ($map in $allUserStringMaps) {
+  foreach ($prop in $map.GetEnumerator()) {
+    if ($prop.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($prop.Value)) {
+      $invalidValues += [pscustomobject]@{ key = $prop.Key; value = $prop.Value }
+    }
+  }
+}
+if ($invalidValues.Count -gt 0) {
+  throw "Metadata prevalidation failed: outbound user-string payload contains empty or non-string values."
 }
 ```
 
-Expected: zero empty-string metadata values. Missing source values are omitted or encoded inside non-empty `RookCleanup::Signals` JSON.
+Expected: `$blockObjectUserStringPayloads` and `$looseObjectUserStringPayloads` contain the exact outbound route payload data. Optional empty values are omitted. Every value in every `userStrings` map is a non-empty string.
 
 - [ ] **Step 4: Write per-object provenance for approved block-object remaps**
 
-For each approved block definition with object-index mappings, call `rhino_block_set_object_user_strings` before layer remapping:
+For each approved block definition with object-index mappings, call `rhino_block_set_object_user_strings` before layer remapping. Build `mappings` from `$blockObjectUserStringPayloads` grouped by `blockName`:
 
 ```json
 {
   "tool": "rhino_block_set_object_user_strings",
   "params": {
-    "name": "$record.blockName",
+    "name": "$payloadGroup.blockName",
     "mappings": [
       {
-        "index": "$record.objectIndex",
-        "userStrings": {
-          "RookCleanup::SchemaVersion": "1",
-          "RookCleanup::RunId": "$runId",
-          "RookCleanup::OriginalLayer": "$record.sourceLayer",
-          "RookCleanup::OriginalBlock": "$record.blockName",
-          "RookCleanup::OriginalBlockObjectIndex": "$record.objectIndexAsString",
-          "RookCleanup::InferredLayer": "$record.targetLayer",
-          "RookCleanup::InferredMaterial": "$record.inferredMaterial",
-          "RookCleanup::Confidence": "$record.confidence",
-          "RookCleanup::Reason": "$record.reason",
-          "RookCleanup::Signals": "$record.signalsJson",
-          "RookCleanup::Reviewed": "$record.reviewedString"
-        }
+        "index": "$payload.objectIndex",
+        "userStrings": "$payload.userStrings"
       }
     ]
   }
@@ -840,24 +905,14 @@ Expected: every approved block-object remap has durable per-index provenance bef
 
 - [ ] **Step 5: Write provenance for approved loose objects**
 
-For each approved loose object id in a loose-object group, call `rhino_usertext_object_set` before layer movement:
+For each approved loose object id in `$looseObjectUserStringPayloads`, call `rhino_usertext_object_set` before layer movement:
 
 ```json
 {
   "tool": "rhino_usertext_object_set",
   "params": {
-    "id": "$objectId",
-    "userStrings": {
-      "RookCleanup::SchemaVersion": "1",
-      "RookCleanup::RunId": "$runId",
-      "RookCleanup::OriginalLayer": "$record.sourceLayer",
-      "RookCleanup::InferredLayer": "$record.targetLayer",
-      "RookCleanup::InferredMaterial": "$record.inferredMaterial",
-      "RookCleanup::Confidence": "$record.confidence",
-      "RookCleanup::Reason": "$record.reason",
-      "RookCleanup::Signals": "$record.signalsJson",
-      "RookCleanup::Reviewed": "$record.reviewedString"
-    }
+    "id": "$payload.id",
+    "userStrings": "$payload.userStrings"
   }
 }
 ```
@@ -917,25 +972,70 @@ For any audit record with `reviewSharedDefinition`, skip mutation and add it to 
 **Files:**
 - Mutates document object layers after approval.
 
-- [ ] **Step 1: Move only approved loose-object groups**
+- [ ] **Step 1: Prove each approved loose-object group covers the whole current source layer**
 
-For each approved source-to-target move from the audit, call:
+`rhino_layer_move_objects` moves all direct objects on the source layer. Use it only when the approved audit `objectIds` exactly equal all current direct objects on that source layer.
+
+For each approved loose-object group, page the current direct source-layer objects:
+
+```powershell
+function Get-AllRhinoObjectsOnLayer {
+  param([string]$BaseUrl, [string]$Layer)
+  $all = @()
+  $offset = 0
+  $encodedLayer = [System.Web.HttpUtility]::UrlEncode($Layer)
+  do {
+    $page = Invoke-RestMethod "$BaseUrl/objects?layer=$encodedLayer&limit=500&offset=$offset"
+    $all += @($page.data.objects)
+    $offset += 500
+  } while ($all.Count -lt $page.data.totalCount)
+  return $all
+}
+
+$looseMovePayloads = @()
+foreach ($move in @($approvedRecords | Where-Object { $_.recordType -eq "loose_object_group" })) {
+  $currentObjects = @(Get-AllRhinoObjectsOnLayer -BaseUrl $base -Layer $move.sourceLayer)
+  $currentIds = @($currentObjects | ForEach-Object { $_.id } | Sort-Object)
+  $approvedIds = @($move.objectIds | Sort-Object)
+
+  $sameCount = $currentIds.Count -eq $approvedIds.Count
+  $sameIds = -not (Compare-Object -ReferenceObject $currentIds -DifferenceObject $approvedIds)
+
+  if ($sameCount -and $sameIds) {
+    $looseMovePayloads += [pscustomobject]@{
+      sourceLayer = $move.sourceLayer
+      targetLayer = $move.targetLayer
+      objectIds = $approvedIds
+      mode = "whole_layer_move_allowed"
+    }
+  } else {
+    $move.mutationMode = "skipped_requires_different_strategy"
+    $move.reason = "Approved objectIds do not exactly equal all current direct objects on source layer; rhino_layer_move_objects would move unapproved objects."
+  }
+}
+```
+
+Expected: only groups in `$looseMovePayloads` may use `rhino_layer_move_objects`. Any partial-layer group is skipped and returned to review unless the user approves a different strategy.
+
+- [ ] **Step 2: Move only whole-layer approved loose-object groups**
+
+For each payload in `$looseMovePayloads`, call:
 
 ```json
 {
   "tool": "rhino_layer_move_objects",
   "params": {
-    "source": "$move.sourceLayer",
-    "target": "$move.targetLayer"
+    "source": "$payload.sourceLayer",
+    "target": "$payload.targetLayer"
   }
 }
 ```
 
-Expected: source object count decreases and target object count increases. Do not use this for layers containing mixed material categories unless the audit proves the whole layer is homogeneous.
+Expected: source object count decreases and target object count increases. Do not use this for layers containing mixed material categories or unapproved direct objects.
 
-- [ ] **Step 2: Keep unresolved loose objects on source layers**
+- [ ] **Step 3: Keep unresolved and partial-layer loose objects on source layers**
 
-No tool call. Confirm unresolved items remain untouched in the report.
+No tool call. Confirm unresolved items and skipped partial-layer groups remain untouched in the report.
 
 ## Task 10: Purge And Delete Only Proven-Safe Items
 
