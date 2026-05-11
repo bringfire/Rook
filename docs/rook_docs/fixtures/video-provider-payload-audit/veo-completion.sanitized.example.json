@@ -1,0 +1,28 @@
+{
+  "provider": "veo",
+  "payload_kind": "completed_operation",
+  "sanitized": true,
+  "note": "Example shape only. Not live provider evidence.",
+  "operation": {
+    "name": "<REDACTED_PROVIDER_JOB_ID>",
+    "done": true,
+    "response": {
+      "generateVideoResponse": {
+        "generatedSamples": [
+          {
+            "video": {
+              "uri": "https://provider.invalid/redacted-video.mp4"
+            },
+            "posterUrl": "https://provider.invalid/redacted-poster-candidate.jpg",
+            "firstFrame": "https://provider.invalid/redacted-first-frame-candidate.jpg",
+            "lastFrame": "https://provider.invalid/redacted-last-frame-candidate.jpg"
+          }
+        ]
+      }
+    }
+  },
+  "contract": {
+    "unknown_fields_are_inert": true,
+    "inferred_roles": []
+  }
+}
