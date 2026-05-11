@@ -81,6 +81,8 @@ namespace Rook.Artifacts
             _root = overrideRoot ?? RookPaths.ArtifactsRoot;
         }
 
+        internal Action<string, string>? AppendBlobManifestReplaceOverrideForTests { get; set; }
+
         // ─── public API ─────────────────────────────────────────────
 
         public Artifact Create(
@@ -295,6 +297,143 @@ namespace Rook.Artifacts
                 destinationBackupFileName: null);
 
             return updated;
+        }
+
+        public AppendBlobResult AppendBlob(
+            Guid id,
+            string role,
+            byte[] content,
+            string fileExtension)
+        {
+            try
+            {
+                ValidateRoleArg(role);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is ArgumentNullException)
+            {
+                return AppendBlobResult.Fail(AppendBlobResultCode.InvalidRole, ex.Message);
+            }
+
+            try
+            {
+                ValidateExtensionArg(fileExtension);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is ArgumentNullException)
+            {
+                return AppendBlobResult.Fail(AppendBlobResultCode.InvalidExtension, ex.Message);
+            }
+
+            if (content is null)
+            {
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.StagedWriteFailed,
+                    "AppendBlob content is null.");
+            }
+
+            var dirs = FindFinalizedDirs(id);
+            if (dirs.Count == 0)
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.ArtifactNotFound,
+                    $"Artifact '{id}' not found.");
+            if (dirs.Count > 1)
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.ManifestReadFailed,
+                    DuplicateUuid(id).Message);
+
+            var artifactDir = dirs[0];
+            Artifact existing;
+            try
+            {
+                existing = ReadArtifact(artifactDir);
+            }
+            catch (Exception ex)
+            {
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.ManifestReadFailed,
+                    ex.Message);
+            }
+
+            if (existing.Files.Any(f => f.Role == role))
+            {
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.DuplicateRole,
+                    $"Role '{role}' already exists in artifact '{id}'.");
+            }
+
+            var finalFileName = $"{role}.{fileExtension}";
+            var finalPath = Path.Combine(artifactDir, finalFileName);
+            if (File.Exists(finalPath))
+            {
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.FinalFileCollision,
+                    $"File '{finalFileName}' already exists in artifact '{id}' without a manifest role.");
+            }
+
+            var stagedFileName = $"{role}.{Guid.NewGuid():N}.{fileExtension}.tmp";
+            var stagedPath = Path.Combine(artifactDir, stagedFileName);
+
+            try
+            {
+                File.WriteAllBytes(stagedPath, content);
+            }
+            catch (Exception ex)
+            {
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.StagedWriteFailed,
+                    ex.Message);
+            }
+
+            try
+            {
+                File.Move(stagedPath, finalPath);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(stagedPath);
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.FinalizeBlobFailed,
+                    ex.Message);
+            }
+
+            var updatedFiles = existing.Files
+                .Concat(new[] { new ArtifactFile(role, finalFileName) })
+                .ToList();
+            var updated = new Artifact(
+                existing.Id,
+                existing.Kind,
+                existing.CreatedAt,
+                updatedFiles,
+                existing.ParentIds,
+                existing.Metadata,
+                existing.Flags);
+
+            var manifestPath = Path.Combine(artifactDir, ManifestFileName);
+            var tmpManifestPath = Path.Combine(artifactDir, ManifestFileName + ".tmp");
+
+            try
+            {
+                File.WriteAllText(tmpManifestPath, SerializeManifest(updated));
+                if (AppendBlobManifestReplaceOverrideForTests is not null)
+                {
+                    AppendBlobManifestReplaceOverrideForTests(tmpManifestPath, manifestPath);
+                }
+                else
+                {
+                    File.Replace(
+                        sourceFileName: tmpManifestPath,
+                        destinationFileName: manifestPath,
+                        destinationBackupFileName: null);
+                }
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(tmpManifestPath);
+                return AppendBlobResult.Fail(
+                    AppendBlobResultCode.ManifestReplaceFailed,
+                    ex.Message);
+            }
+
+            return AppendBlobResult.Succeeded(updated);
         }
 
         public string GetBlobAbsolutePath(Guid id, string role)
@@ -530,6 +669,16 @@ namespace Rook.Artifacts
 
         private static string CanonicalDir(string dir)
             => Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
+
+        private static void TryDeleteFile(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch { /* best-effort cleanup only */ }
+        }
 
         private static InvalidDataException Bad(string manifestPath, string reason)
             => new($"Manifest '{manifestPath}': {reason}.");

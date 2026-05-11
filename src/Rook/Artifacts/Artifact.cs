@@ -29,4 +29,34 @@ namespace Rook.Artifacts
     /// The store builds the on-disk filename as <c>{Role}.{FileExtension}</c>.
     /// </summary>
     public sealed record BlobInput(string Role, byte[] Content, string FileExtension);
+
+    public enum AppendBlobResultCode
+    {
+        Succeeded,
+        ArtifactNotFound,
+        ManifestReadFailed,
+        InvalidRole,
+        InvalidExtension,
+        DuplicateRole,
+        FinalFileCollision,
+        StagedWriteFailed,
+        FinalizeBlobFailed,
+        ManifestReplaceFailed,
+    }
+
+    public sealed record AppendBlobResult(
+        AppendBlobResultCode Code,
+        Artifact? Artifact = null,
+        string? Message = null)
+    {
+        public bool Success => Code == AppendBlobResultCode.Succeeded;
+
+        public static AppendBlobResult Succeeded(Artifact artifact) =>
+            new(AppendBlobResultCode.Succeeded, artifact);
+
+        public static AppendBlobResult Fail(
+            AppendBlobResultCode code,
+            string message) =>
+            new(code, null, message);
+    }
 }
