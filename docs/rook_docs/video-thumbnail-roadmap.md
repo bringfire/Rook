@@ -11,7 +11,7 @@ Full support means:
 - Generated videos show reliable Gallery thumbnails.
 - Generated videos can carry frame-exact `start_frame` and `end_frame` sidecars.
 - `poster` remains display-only and is never used as a frame input.
-- Provider payload evidence and extraction decisions are made explicitly, not inferred from plausible field names.
+- Local extraction is the default producer for thumbnails and frame sidecars; provider payloads are optional display optimizations, not the foundation.
 - Later Grasshopper NLE work consumes stable artifact roles rather than inventing a parallel media model.
 
 ## Current State
@@ -28,27 +28,27 @@ Done:
 
 Current next slice:
 
-- Run the live provider/model payload audit as an explicitly cost-approved verification task.
+- Design and spike local MP4 frame extraction before choosing the production extraction path.
 
 ## Slice Tracker
 
 | Slice | Status | Goal | Exit Criteria |
 | --- | --- | --- | --- |
 | 0. Sidecar contract substrate | Done | Lock role semantics and role-level picker consumption before producing sidecars. | `poster` stays display-only; `start_frame` / `end_frame` are the only generated-video picker roles; provider fields are not inferred. |
-| 1. Provider/model payload audit | Next | Run one approved Veo job and one approved fal model-family job, sanitize payloads, and record evidence. | Findings are scoped only to the audited provider/model response shape and state whether that exact shape returns a trustworthy display poster or frame-exact sidecar candidates. |
-| 2. Producer strategy decision | Pending | Choose provider/model-specific poster ingestion, MP4 extraction, or both. | A reviewed decision names the exact provider/model family each mapping applies to, which roles that producer may create, and which roles remain extraction-only. |
-| 3. Extraction tooling design | Pending | Select and design the frame extraction mechanism. | Windows Media Foundation, ffmpeg, or another path is chosen with packaging, licensing, failure, and threading implications documented. |
-| 4. Sidecar publication semantics | Pending | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, or both. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and backfill/reconcile has a supported path. |
-| 5. Poster thumbnail producer | Pending | Produce `poster` for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; `poster` remains picker-ineligible. |
-| 6. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
-| 7. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
-| 8. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
+| 1. Extraction tooling design + spike | Next | Decide whether Rook should use Windows Media Foundation, ffmpeg, or another local decoder path by proving one local MP4 poster extraction. | A narrow spike extracts one poster candidate frame from a local MP4 fixture, writes no artifacts, calls no providers, changes no installer packaging, compares WMF and ffmpeg feasibility if practical, documents results, and chooses the implementation path. |
+| 2. Sidecar publication semantics | Pending | Define how sidecar files are published: append to an existing artifact, atomic multi-blob creation at initial publish, a reconcile/backfill service, or a combination. | Publication is atomic, manifest/index updates are recoverable, role collisions are deterministic, and both new-video production and existing-video backfill have a supported path. |
+| 3. Poster thumbnail producer | Pending | Produce display-only `poster` from the local MP4 for completed generated videos. | New completed videos show Gallery thumbnails without eager MP4 preload; video generation still succeeds if poster extraction fails; `poster` remains picker-ineligible. |
+| 4. Frame-exact sidecar producer | Pending | Produce `start_frame` and `end_frame` from the local MP4 for completed generated videos. | Generated videos expose distinct role-level picker choices for frame sidecars; extracted frames are not confused with posters. |
+| 5. Existing-video reconcile/backfill | Pending | Populate missing sidecars for older video artifacts from local MP4 files when possible. | Reconcile is idempotent, bounded, observable, and does not rerun provider jobs. |
+| 6. Provider/model payload audit | Optional/Parallel | Audit provider/model-specific payloads only for opportunistic display-poster ingestion. | Findings are scoped only to the audited provider/model response shape; no provider payload is used for frame-exact chaining unless a future reviewed contract explicitly proves frame semantics. |
+| 7. Grasshopper NLE integration | Pending | Introduce `VideoClip` / `VideoFrame` token behavior and chaining workflows. | GH NLE components consume artifact ids and explicit roles; no whole-artifact default frame inference is introduced. |
 
 ## Sequencing Rules
 
-- Do not implement provider-poster ingestion before Slice 1 produces provider/model-specific evidence and Slice 2 approves the exact mapping.
-- Do not implement MP4 extraction before Slice 3 chooses the tooling path.
-- Do not produce sidecars in `VideoJobManager` until Slice 4 defines the publication semantics.
+- Treat local MP4 extraction as the default producer for `poster`, `start_frame`, and `end_frame`.
+- Do not implement production extraction before Slice 1 chooses the tooling path from spike evidence.
+- Do not produce sidecars in `VideoJobManager` until Slice 2 defines the publication semantics.
+- Do not implement provider-poster ingestion without provider/model-specific evidence and an approved exact mapping.
 - Do not treat `poster` as a frame source in any slice.
 - Do not start GH NLE token work until generated-video `start_frame` and `end_frame` production exists or a deliberate fixture-only spike is approved.
 
