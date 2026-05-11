@@ -203,7 +203,36 @@ public void AppendBlob_CorruptManifest_ReturnsManifestReadFailed_AndWritesNothin
 }
 ```
 
-- [ ] **Step 6: Add failing final-collision and loose-file tests**
+- [ ] **Step 6: Add failing duplicate-UUID corruption test**
+
+```csharp
+[Fact]
+public void AppendBlob_DuplicateUuidAcrossBuckets_ReturnsManifestReadFailed_AndWritesNothing()
+{
+    var id = Guid.NewGuid();
+    var dirA = CreateRawArtifactDir("2026-04-20", id);
+    var dirB = CreateRawArtifactDir("2026-04-22", id);
+    File.WriteAllBytes(Path.Combine(dirA, "video.mp4"), Bytes("a"));
+    File.WriteAllBytes(Path.Combine(dirB, "video.mp4"), Bytes("b"));
+    WriteRawManifest(dirA, ValidManifest(id,
+        kind: "generated_video",
+        filesJson: @"[{""role"":""video"",""path"":""video.mp4""}]"));
+    WriteRawManifest(dirB, ValidManifest(id,
+        kind: "generated_video",
+        filesJson: @"[{""role"":""video"",""path"":""video.mp4""}]"));
+
+    var result = _store.AppendBlob(id, "poster", Bytes("jpg"), "jpg");
+
+    Assert.Equal(AppendBlobResultCode.ManifestReadFailed, result.Code);
+    Assert.Null(result.Artifact);
+    Assert.False(File.Exists(Path.Combine(dirA, "poster.jpg")));
+    Assert.False(File.Exists(Path.Combine(dirB, "poster.jpg")));
+    Assert.False(Directory.EnumerateFiles(dirA).Any(f => Path.GetFileName(f).Contains("poster")));
+    Assert.False(Directory.EnumerateFiles(dirB).Any(f => Path.GetFileName(f).Contains("poster")));
+}
+```
+
+- [ ] **Step 7: Add failing final-collision and loose-file tests**
 
 ```csharp
 [Fact]
@@ -237,7 +266,7 @@ public void LooseFiles_AreIgnoredByReaders_UntilManifestReferencesThem()
 }
 ```
 
-- [ ] **Step 7: Add failing manifest-replace failure test**
+- [ ] **Step 8: Add failing manifest-replace failure test**
 
 This test uses an internal test hook that Task 2 will add to `ArtifactStore`.
 
@@ -264,7 +293,7 @@ public void AppendBlob_ManifestReplaceFailure_ReturnsManifestReplaceFailed_WithV
 }
 ```
 
-- [ ] **Step 8: Run failing ArtifactStore tests**
+- [ ] **Step 9: Run failing ArtifactStore tests**
 
 Run:
 
@@ -276,7 +305,7 @@ Expected:
 
 - build fails because `AppendBlob`, `AppendBlobResultCode`, and `AppendBlobManifestReplaceOverrideForTests` do not exist yet.
 
-- [ ] **Step 9: Commit failing tests**
+- [ ] **Step 10: Commit failing tests**
 
 ```powershell
 git add src\Rook.Tests\Artifacts\ArtifactStoreTests.cs
@@ -502,6 +531,8 @@ dotnet test src\Rook.Tests\Rook.Tests.csproj --no-restore --filter FullyQualifie
 Expected:
 
 - all `ArtifactStoreTests` pass.
+
+Note: `StagedWriteFailed` and `FinalizeBlobFailed` remain structured result codes, but this plan does not require OS-level failure injection tests for those branches. They are lower-value branches to force deterministically on Windows without adding broader filesystem abstractions. If a small local seam becomes necessary during implementation, add focused tests; otherwise rely on the structured catch paths plus the higher-value manifest/collision/corruption tests above.
 
 - [ ] **Step 5: Run focused storage regression**
 
