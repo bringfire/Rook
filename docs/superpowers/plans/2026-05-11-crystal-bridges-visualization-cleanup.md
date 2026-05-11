@@ -1,10 +1,10 @@
 # Crystal Bridges Visualization Cleanup Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for live Rhino operations. Execute mutation tasks in one inline operator session because the shared state is the open `.3dm`, Rhino undo stack, active document, and viewport. Subagents may be used only for read-only artifact review after JSON/report files are written. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Clean the active Crystal Bridges Revit-export Rhino file into an AIA parent/child visualization layer structure while preserving source provenance as queryable user metadata.
 
-**Architecture:** Use existing Rook MCP tools and native HTTP routes. The workflow is audit-first: collect live Rhino state, classify by weighted signals, write review artifacts, get approval, then mutate layers/block-definition object layers with provenance and manifest safeguards.
+**Architecture:** Use existing Rook MCP tools and native HTTP routes from one live Rhino operator session. The workflow is audit-first: collect live Rhino state, classify every candidate that may be remapped, write review artifacts, get approval, then mutate layers/block-definition object layers with provenance and manifest safeguards.
 
 **Tech Stack:** Rhino 8, RookNative HTTP routes, Rook MCP tools, PowerShell for local JSON artifact aggregation, Rhino user strings for durable metadata.
 
@@ -85,7 +85,17 @@ New-Item -ItemType Directory -Force -Path "H:\AI EXPERIMENTS\CRYSTAL_BRIDGES\.ro
 
 Expected: directory exists.
 
-- [ ] **Step 4: Save a Rhino backup through the document route**
+- [ ] **Step 4: Ask for explicit preflight backup/save approval**
+
+Before any save call, ask:
+
+```text
+The file is modified. Creating an in-memory-accurate backup requires Rhino save operations: SaveAs to the backup path, then SaveAs back to the original path so the working file remains the intended document. This writes to disk before the mutation approval gate. Approve this preflight backup/save?
+```
+
+Expected: user explicitly approves. If not approved, stop before calling `rhino_document_ops`.
+
+- [ ] **Step 5: Save a Rhino backup through the document route**
 
 Set the backup path:
 
@@ -102,7 +112,7 @@ Call `rhino_document_ops` with:
 
 Expected: save succeeds. This captures current in-memory Rhino state, including unsaved modifications.
 
-- [ ] **Step 5: Save back to the original path**
+- [ ] **Step 6: Save back to the original path**
 
 Call:
 
@@ -118,7 +128,23 @@ Call:
 
 Expected: save succeeds and the active working file remains the original path.
 
-- [ ] **Step 6: Commit checkpoint**
+- [ ] **Step 7: Confirm the active document path after backup**
+
+Call:
+
+```json
+{"tool":"rhino_document","params":{}}
+```
+
+Expected:
+
+```json
+{"path":"H:\\AI EXPERIMENTS\\CRYSTAL_BRIDGES\\0_REVIT EXPORT_ALL_BACKUP-02.3dm"}
+```
+
+If the active path is not the original path, stop and correct the active document before continuing.
+
+- [ ] **Step 8: Commit checkpoint**
 
 No git commit is required for Rhino-only backup work. Record the backup path in the cleanup report and later in `RookCleanup::BackupPath`.
 
@@ -337,7 +363,7 @@ $inventoryPath
 
 Expected: a timestamped inventory path is printed.
 
-## Task 4: Sample And Classify Representative Blocks
+## Task 4: Discover Rules And Build Complete Candidate Audit
 
 **Files:**
 - Create: timestamped classification audit JSON under `H:\AI EXPERIMENTS\CRYSTAL_BRIDGES\.rook\cleanup`
@@ -392,7 +418,7 @@ For each representative block, call `rhino_block_objects_detailed` with the actu
 
 Expected: each result includes object index, layer, material/color/name, visibility, bounding box, and typed geometry details.
 
-- [ ] **Step 4: Apply deterministic first-pass classification rules**
+- [ ] **Step 4: Apply deterministic first-pass classification rules to representative blocks**
 
 Use these exact rule defaults for the first audit:
 
@@ -409,9 +435,125 @@ No rule match -> low, stay on source layer
 Conflicting instance contexts for one block definition -> review_shared_definition
 ```
 
-Expected: no mutation; produce proposed records only.
+Expected: no mutation; produce candidate rules only. Representative sampling is for rule discovery, not sufficient evidence for mutation.
 
-- [ ] **Step 5: Write the classification audit JSON**
+- [ ] **Step 5: Build the complete candidate universe**
+
+Create a candidate set containing every item that may be remapped:
+
+```powershell
+$candidateBlocks = @($blocks | Where-Object {
+  $_.name -match 'System Panel - Glazed|Rectangular Mullion|W-Wide Flange|HSS|Railing|Door|Storefront|Roof'
+})
+
+$candidateLooseLayerGroups = @($layers | Where-Object {
+  $_.objectCount -gt 0 -and $_.fullPath -match 'A-GLAZ|A-DOOR|A-WALL|A-FLOR|A-ROOF|S-BEAM|S-COLS|S-FSTN|L-SITE|EXPANSION'
+})
+
+[pscustomobject]@{
+  candidateBlockDefinitions = $candidateBlocks.Count
+  candidateLooseLayerGroups = $candidateLooseLayerGroups.Count
+}
+```
+
+Expected: the candidate set includes every block definition or loose-object/layer group that the first mutation batch might touch. Nothing outside this set may be remapped in later mutation tasks.
+
+- [ ] **Step 6: Read full detail for every candidate block that may be remapped**
+
+For every candidate block definition, call `rhino_block_objects_detailed` with `geometry=true`:
+
+```json
+{
+  "tool": "rhino_block_objects_detailed",
+  "params": {
+    "name": "$candidateBlock.name",
+    "geometry": true
+  }
+}
+```
+
+Expected: every block definition proposed for remapping has complete object-index detail. Blocks that cannot be read successfully are classified as `review` and cannot be mutated in the first batch.
+
+- [ ] **Step 7: Determine shared instance context for every candidate block**
+
+For every candidate block definition, call:
+
+```json
+{
+  "tool": "rhino_block_instances",
+  "params": {
+    "name": "$candidateBlock.name",
+    "depth": 0
+  }
+}
+```
+
+Expected: every block candidate has `instanceContextDecision`:
+
+```json
+{
+  "blockName": "$candidateBlock.name",
+  "instanceLayerTargetsAgree": true,
+  "instanceLayers": ["A-GLAZ-CURT"],
+  "decision": "definition_remap_allowed"
+}
+```
+
+If instance contexts imply different target layers, set:
+
+```json
+{
+  "blockName": "$candidateBlock.name",
+  "instanceLayerTargetsAgree": false,
+  "decision": "review_shared_definition"
+}
+```
+
+Any `review_shared_definition` block is excluded from mutation unless the user approves a block-duplication strategy.
+
+- [ ] **Step 8: Build complete remap records**
+
+Every approved-candidate record must include exact mutation inputs:
+
+```json
+{
+  "recordType": "block_definition_object",
+  "blockName": "System Panel - Glazed-114458-_3D - kmacnichol_",
+  "objectIndex": 0,
+  "sourceLayer": "A-GLAZ-CURT",
+  "targetLayer": "A-GLAZ::A-GLAZ-GLASS",
+  "inferredMaterial": "glass",
+  "confidence": "high",
+  "instanceContextDecision": "definition_remap_allowed",
+  "mutationMode": "per_object_mapping",
+  "signals": {
+    "blockNameTokens": ["System Panel", "Glazed"],
+    "sourceLayer": "A-GLAZ-CURT",
+    "geometryType": "Brep"
+  }
+}
+```
+
+Loose-object group records must include:
+
+```json
+{
+  "recordType": "loose_object_group",
+  "sourceLayer": "L-SITE",
+  "targetLayer": "L-SITE::L-SITE-GRADE",
+  "objectIds": ["guid-1", "guid-2"],
+  "confidence": "high",
+  "mutationMode": "layer_move",
+  "signals": {
+    "sourceLayer": "L-SITE",
+    "classificationReason": "homogeneous site layer approved for first batch"
+  }
+}
+```
+
+No mutation task may invent a block name, object index, object id, source layer, or target layer that is absent from the approved audit JSON.
+
+- [ ] **Step 9: Write the classification audit JSON**
 
 The audit JSON must have this shape:
 
@@ -433,13 +575,18 @@ The audit JSON must have this shape:
   "reviewQueue": [],
   "sharedDefinitionConflicts": [],
   "emptyLayerDependencies": [],
-  "unusedBlocks": []
+  "unusedBlocks": [],
+  "completeCandidatePass": {
+    "blockDefinitionsConsidered": 0,
+    "looseLayerGroupsConsidered": 0,
+    "candidateRecordsWritten": 0
+  }
 }
 ```
 
 Expected: every record with an empty source value either omits that field or encodes it inside non-empty `signals` JSON. No metadata value is `""`.
 
-- [ ] **Step 6: Write the cleanup report markdown**
+- [ ] **Step 10: Write the cleanup report markdown**
 
 The report must include:
 
@@ -643,15 +790,79 @@ For each approved block definition record from the audit, call:
 
 Expected: only non-empty string values are written.
 
-- [ ] **Step 3: Defer object-level provenance when no route can write block-object user strings safely**
+- [ ] **Step 3: Prevalidate all provenance payloads**
 
-If the current available route for block-definition object user strings cannot preserve non-empty per-object provenance for the selected block objects, do not fake it. Record provenance at the block-definition summary level and keep the per-object details in the audit JSON. Add a report note:
+Before writing any object or block-object user strings, validate the approved audit records:
 
-```text
-Per-object block provenance is represented in the cleanup audit artifact for this batch. Rhino block object user strings were not written because the available route did not support the required non-empty per-object provenance shape for this operation.
+```powershell
+$invalidMetadata = @($approvedRecords | Where-Object {
+  $_.userStrings.PSObject.Properties.Value -contains ""
+})
+if ($invalidMetadata.Count -gt 0) {
+  throw "Metadata prevalidation failed: empty user-string values are not allowed."
+}
 ```
 
-Expected: no empty user strings are attempted.
+Expected: zero empty-string metadata values. Missing source values are omitted or encoded inside non-empty `RookCleanup::Signals` JSON.
+
+- [ ] **Step 4: Write per-object provenance for approved block-object remaps**
+
+For each approved block definition with object-index mappings, call `rhino_block_set_object_user_strings` before layer remapping:
+
+```json
+{
+  "tool": "rhino_block_set_object_user_strings",
+  "params": {
+    "name": "$record.blockName",
+    "mappings": [
+      {
+        "index": "$record.objectIndex",
+        "userStrings": {
+          "RookCleanup::SchemaVersion": "1",
+          "RookCleanup::RunId": "$runId",
+          "RookCleanup::OriginalLayer": "$record.sourceLayer",
+          "RookCleanup::OriginalBlock": "$record.blockName",
+          "RookCleanup::OriginalBlockObjectIndex": "$record.objectIndexAsString",
+          "RookCleanup::InferredLayer": "$record.targetLayer",
+          "RookCleanup::InferredMaterial": "$record.inferredMaterial",
+          "RookCleanup::Confidence": "$record.confidence",
+          "RookCleanup::Reason": "$record.reason",
+          "RookCleanup::Signals": "$record.signalsJson",
+          "RookCleanup::Reviewed": "$record.reviewedString"
+        }
+      }
+    ]
+  }
+}
+```
+
+Expected: every approved block-object remap has durable per-index provenance before its layer is changed. If any provenance write fails, do not remap that block definition in Task 8.
+
+- [ ] **Step 5: Write provenance for approved loose objects**
+
+For each approved loose object id in a loose-object group, call `rhino_usertext_object_set` before layer movement:
+
+```json
+{
+  "tool": "rhino_usertext_object_set",
+  "params": {
+    "id": "$objectId",
+    "userStrings": {
+      "RookCleanup::SchemaVersion": "1",
+      "RookCleanup::RunId": "$runId",
+      "RookCleanup::OriginalLayer": "$record.sourceLayer",
+      "RookCleanup::InferredLayer": "$record.targetLayer",
+      "RookCleanup::InferredMaterial": "$record.inferredMaterial",
+      "RookCleanup::Confidence": "$record.confidence",
+      "RookCleanup::Reason": "$record.reason",
+      "RookCleanup::Signals": "$record.signalsJson",
+      "RookCleanup::Reviewed": "$record.reviewedString"
+    }
+  }
+}
+```
+
+Expected: every loose object that will move in Task 9 has non-empty provenance user strings first. If any provenance write fails, remove that object or group from the approved mutation batch.
 
 ## Task 8: Remap Approved Block-Definition Object Layers
 
@@ -783,6 +994,8 @@ Expected: deletion succeeds. If any deletion fails, record it and continue with 
 - Mutates document user strings only after verification.
 - Updates cleanup report artifact with final status.
 
+Failure rule for Tasks 7-11: if any approved mutation fails and cannot be cleanly skipped, write `RookCleanup::RunStatus=aborted`. If verification fails after mutations ran, write `RookCleanup::RunStatus=verification_failed`. In both cases, update the cleanup report with the failed step and do not set `RookCleanup::LatestCompletedRunId`.
+
 - [ ] **Step 1: Re-read layer, block, and dependency state**
 
 Call:
@@ -815,7 +1028,43 @@ Call:
 
 Expected: viewport image path is returned and image is nonblank.
 
-- [ ] **Step 3: Update manifest as completed only after verification succeeds**
+- [ ] **Step 3: If verification fails, write failure status and stop**
+
+If layer/block/dependency/viewport verification fails, call:
+
+```json
+{
+  "tool": "rhino_usertext_document_set",
+  "params": {
+    "userStrings": {
+      "RookCleanup::RunStatus": "verification_failed",
+      "RookCleanup::ReviewQueueSummary": "{\"status\":\"verification_failed\",\"failedStep\":\"Task 11\",\"latestCompletedRunIdSet\":false}"
+    }
+  }
+}
+```
+
+Expected: `LatestCompletedRunId` is not written. Stop and report the verification failure instead of saving the cleaned file as completed.
+
+- [ ] **Step 4: If mutation aborts before verification, write aborted status**
+
+If a mutation step fails and the operator stops before verification, call:
+
+```json
+{
+  "tool": "rhino_usertext_document_set",
+  "params": {
+    "userStrings": {
+      "RookCleanup::RunStatus": "aborted",
+      "RookCleanup::ReviewQueueSummary": "{\"status\":\"aborted\",\"latestCompletedRunIdSet\":false}"
+    }
+  }
+}
+```
+
+Expected: `LatestCompletedRunId` is not written. Update the cleanup report with the failed operation and stop.
+
+- [ ] **Step 5: Update manifest as completed only after verification succeeds**
 
 Call:
 
@@ -834,7 +1083,7 @@ Call:
 
 Expected: document user strings show completed run status.
 
-- [ ] **Step 4: Save the cleaned Rhino file**
+- [ ] **Step 6: Save the cleaned Rhino file**
 
 Call:
 
