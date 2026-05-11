@@ -1018,10 +1018,55 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
                     FfmpegPosterExtractionError.BinaryMissing,
                     resolution.Message);
 
-            WriteFindings(findingsPath, input, resolution, result);
+            WriteFindings(findingsPath, input, configuredFfmpeg, resolution, result);
 
             Assert.True(resolution.Success, resolution.Message);
             Assert.True(result.Success, result.Message + Environment.NewLine + result.Stderr);
+        }
+
+        [Fact]
+        public void WriteFindings_RedactsLocalPathsFromMessagesAndDiagnostics()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "rook-video-findings-redaction-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var input = Path.Combine(root, "client", "input.mp4");
+                var ffmpeg = Path.Combine(root, "tools", "ffmpeg.exe");
+                var output = Path.Combine(root, "out", "poster.jpg");
+                var findings = Path.Combine(root, "findings.md");
+                Directory.CreateDirectory(Path.GetDirectoryName(input)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(ffmpeg)!);
+                File.WriteAllText(input, "fake mp4");
+                File.WriteAllText(ffmpeg, "fake ffmpeg");
+
+                var resolution = FfmpegBinaryResolution.Failed(
+                    FfmpegBinaryResolutionError.ConfiguredPathMissing,
+                    $"Configured ffmpeg path does not exist: {ffmpeg}");
+                var result = FfmpegPosterExtractionResult.Failed(
+                    $"{ffmpeg} -i {input} {output}",
+                    null,
+                    $"ffmpeg failed while reading {input}, writing {output}, and using {ffmpeg}",
+                    output,
+                    TimeSpan.Zero,
+                    FfmpegPosterExtractionError.ProcessStartFailed,
+                    "ffmpeg process could not be started.");
+
+                WriteFindings(findings, input, ffmpeg, resolution, result);
+
+                var text = File.ReadAllText(findings);
+                Assert.Contains("<INPUT_MP4>", text);
+                Assert.Contains("<OUTPUT_IMAGE>", text);
+                Assert.Contains("<FFMPEG_EXE>", text);
+                Assert.DoesNotContain(input, text);
+                Assert.DoesNotContain(output, text);
+                Assert.DoesNotContain(ffmpeg, text);
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+            }
         }
 
         private static string RequiredEnv(string name)
@@ -1035,6 +1080,7 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
         private static void WriteFindings(
             string findingsPath,
             string input,
+            string? configuredFfmpeg,
             FfmpegBinaryResolution resolution,
             FfmpegPosterExtractionResult result)
         {
@@ -1067,19 +1113,19 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
             sb.AppendLine($"- Source: `{resolution.Source}`");
             sb.AppendLine($"- Error code: `{resolution.ErrorCode}`");
             sb.AppendLine($"- Resolved path shape: `{Sanitize(resolution.Path)}`");
-            sb.AppendLine($"- Message: {EscapeMarkdown(resolution.Message)}");
+            sb.AppendLine($"- Message: {EscapeMarkdown(RedactPaths(resolution.Message, input, configuredFfmpeg, resolution.Path, result.OutputPath))}");
             sb.AppendLine();
             sb.AppendLine("## Extraction Result");
             sb.AppendLine();
             sb.AppendLine($"- Success: `{result.Success}`");
-            sb.AppendLine($"- Command/API shape: `{SanitizeCommand(result.CommandLine, input, resolution.Path, result.OutputPath)}`");
+            sb.AppendLine($"- Command/API shape: `{RedactPaths(result.CommandLine, input, configuredFfmpeg, resolution.Path, result.OutputPath)}`");
             sb.AppendLine($"- Exit code: `{result.ExitCode}`");
             sb.AppendLine($"- Error code: `{result.ErrorCode}`");
             sb.AppendLine($"- Output path shape: `{Sanitize(result.OutputPath)}`");
             sb.AppendLine($"- Output exists: `{File.Exists(result.OutputPath)}`");
             sb.AppendLine($"- Output dimensions: `{result.Width}x{result.Height}`");
             sb.AppendLine($"- Elapsed ms: `{result.Elapsed.TotalMilliseconds:0}`");
-            sb.AppendLine($"- Diagnostic summary: {EscapeMarkdown(Trim(result.Stderr, 600))}");
+            sb.AppendLine($"- Diagnostic summary: {EscapeMarkdown(Trim(RedactPaths(result.Stderr, input, configuredFfmpeg, resolution.Path, result.OutputPath), 600))}");
             sb.AppendLine();
             sb.AppendLine("## WMF Feasibility");
             sb.AppendLine();
@@ -1112,17 +1158,20 @@ namespace Rook.Tests.Services.Vision.Video.Extraction
                 : Path.Combine("...", parent, file);
         }
 
-        private static string SanitizeCommand(
-            string command,
+        private static string RedactPaths(
+            string value,
             string inputPath,
-            string? ffmpegPath,
+            string? configuredFfmpegPath,
+            string? resolvedFfmpegPath,
             string outputPath)
         {
-            var sanitized = command;
+            var sanitized = value;
             sanitized = ReplaceIfPresent(sanitized, inputPath, "<INPUT_MP4>");
             sanitized = ReplaceIfPresent(sanitized, SafeFullPath(inputPath), "<INPUT_MP4>");
-            sanitized = ReplaceIfPresent(sanitized, ffmpegPath, "<FFMPEG_EXE>");
-            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(ffmpegPath), "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, configuredFfmpegPath, "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(configuredFfmpegPath), "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, resolvedFfmpegPath, "<FFMPEG_EXE>");
+            sanitized = ReplaceIfPresent(sanitized, SafeFullPath(resolvedFfmpegPath), "<FFMPEG_EXE>");
             sanitized = ReplaceIfPresent(sanitized, outputPath, "<OUTPUT_IMAGE>");
             sanitized = ReplaceIfPresent(sanitized, SafeFullPath(outputPath), "<OUTPUT_IMAGE>");
 
@@ -1246,7 +1295,7 @@ Run:
 dotnet test src\Rook.Tests\Rook.Tests.csproj --no-restore --filter FullyQualifiedName~VideoExtractionSpikeManualTests
 ```
 
-Expected: PASS without requiring ffmpeg or an MP4 because `ROOK_RUN_VIDEO_EXTRACTION_SPIKE` is unset.
+Expected: PASS without requiring ffmpeg or an MP4 because the actual extraction test returns early when `ROOK_RUN_VIDEO_EXTRACTION_SPIKE` is unset. The findings redaction assertion still runs because it uses only temp files and fake diagnostics.
 
 - [ ] **Step 4: Commit manual runner**
 
@@ -1316,7 +1365,7 @@ Expected:
 - Contains fixture policy.
 - Contains environment.
 - Contains sanitized input path shape, not full private path.
-- Contains command/API shape with exact input, output, and resolved ffmpeg paths replaced by placeholders.
+- Contains command/API shape, discovery message, and diagnostic summary with exact input, output, configured ffmpeg, and resolved ffmpeg paths replaced by placeholders.
 - Contains exit code, dimensions, elapsed time, failure observations, and recommendation.
 - Does not contain API keys, provider URLs, full local input/output/ffmpeg paths, machine name, full `%USERPROFILE%` paths, or raw video bytes.
 
@@ -1344,7 +1393,7 @@ Run:
 dotnet test src\Rook.Tests\Rook.Tests.csproj --no-restore --filter "FullyQualifiedName~FfmpegBinaryResolverTests|FullyQualifiedName~FfmpegPosterFrameExtractorTests|FullyQualifiedName~VideoExtractionSpikeManualTests"
 ```
 
-Expected: PASS. The manual test must remain inert unless `ROOK_RUN_VIDEO_EXTRACTION_SPIKE=1`.
+Expected: PASS. The actual extraction test must remain inert unless `ROOK_RUN_VIDEO_EXTRACTION_SPIKE=1`; the findings redaction assertion may run normally because it uses only temp files and fake diagnostics.
 
 - [ ] **Step 2: Run video smoke slice**
 
