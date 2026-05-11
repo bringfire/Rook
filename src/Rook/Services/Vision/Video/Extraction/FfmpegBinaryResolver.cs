@@ -36,13 +36,16 @@ namespace Rook.Services.Vision.Video.Extraction
                 "ffmpeg.exe was not found. Provide an explicit path or add ffmpeg.exe to PATH.");
         }
 
-        private static string[] SplitPath(string? pathEnvironment) =>
-            string.IsNullOrWhiteSpace(pathEnvironment)
-                ? Array.Empty<string>()
-                : pathEnvironment
-                    .Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(p => p.Trim().Trim('"'))
-                    .Where(p => p.Length > 0)
-                    .ToArray();
+        private static string[] SplitPath(string? pathEnvironment)
+        {
+            if (string.IsNullOrWhiteSpace(pathEnvironment))
+                return Array.Empty<string>();
+
+            return pathEnvironment!
+                .Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim().Trim('"'))
+                .Where(p => p.Length > 0)
+                .ToArray();
+        }
     }
 }
