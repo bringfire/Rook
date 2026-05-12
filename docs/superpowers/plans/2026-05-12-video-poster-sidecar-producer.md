@@ -6,7 +6,7 @@
 
 **Architecture:** Add a managed `VideoPosterSidecarProducer` with seams for ffmpeg resolution, extraction, temp files, poster byte reads, and sidecar publication. Refactor `VideoJobManager` so both polled and sync completion paths use one generated-video finalization helper: save `video`, attempt poster, append `Complete`.
 
-**Tech Stack:** C# net7.0, xUnit, `ArtifactStore`, `VideoSidecarPublisher`, `FfmpegBinaryResolver`, `FfmpegPosterFrameExtractor`, managed Rook video subsystem.
+**Tech Stack:** C# managed Rook video subsystem (`src/Rook` multi-targets `net7.0;net48`; `src/Rook.Tests` targets `net48`), xUnit, `ArtifactStore`, `VideoSidecarPublisher`, `FfmpegBinaryResolver`, `FfmpegPosterFrameExtractor`.
 
 ---
 
@@ -212,7 +212,7 @@ namespace Rook.Tests.Services.Vision.Video
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
 ```
 
 Expected: build fails with missing types such as `VideoPosterSidecarProducer`, `IVideoPosterFfmpegResolver`, `IVideoPosterExtractor`, `IVideoPosterTempFiles`, `IVideoPosterByteReader`, and `VideoPosterSidecarResultCode`.
@@ -489,7 +489,7 @@ namespace Rook.Services.Vision.Video
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
 ```
 
 Expected: the two new tests pass.
@@ -739,7 +739,7 @@ Replace `FakePosterBytes.ReadAllBytes(...)` and add `ThrowOnRead`:
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
 ```
 
 Expected: at least the local I/O, cancellation, and cleanup tests fail because Task 1 has not mapped those exceptions yet.
@@ -940,7 +940,7 @@ Replace `TryPublishPosterAsync` and add helpers in `VideoPosterSidecarProducer`:
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests" --no-restore
 ```
 
 Expected: all `VideoPosterSidecarProducerTests` pass.
@@ -1161,7 +1161,7 @@ Add these tests near `Happy_path_reaches_Complete_with_artifact_id`:
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoJobManagerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoJobManagerTests" --no-restore
 ```
 
 Expected: build fails because `VideoJobManager` does not accept `posterProducer`, or the new tests fail because the producer is not called.
@@ -1262,7 +1262,7 @@ and:
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoJobManagerTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoJobManagerTests" --no-restore
 ```
 
 Expected: all `VideoJobManagerTests` pass.
@@ -1291,7 +1291,7 @@ Expected: commit succeeds.
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
 ```
 
 Expected: tests pass and continue to pin:
@@ -1309,7 +1309,7 @@ Assert.DoesNotContain("\"video\"", generatedVideoBranch);
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests|FullyQualifiedName~VideoJobManagerTests|FullyQualifiedName~VideoSidecarPublisherTests|FullyQualifiedName~FfmpegPosterFrameExtractorTests|FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests|FullyQualifiedName~VideoJobManagerTests|FullyQualifiedName~VideoSidecarPublisherTests|FullyQualifiedName~FfmpegPosterFrameExtractorTests|FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
 ```
 
 Expected: all selected tests pass.
@@ -1403,7 +1403,7 @@ Expected: commit succeeds.
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests|FullyQualifiedName~VideoJobManagerTests|FullyQualifiedName~VideoSidecarPublisherTests|FullyQualifiedName~FfmpegPosterFrameExtractorTests|FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --filter "FullyQualifiedName~VideoPosterSidecarProducerTests|FullyQualifiedName~VideoJobManagerTests|FullyQualifiedName~VideoSidecarPublisherTests|FullyQualifiedName~FfmpegPosterFrameExtractorTests|FullyQualifiedName~VisionVideoSidecarContractSourceTests" --no-restore
 ```
 
 Expected: all selected tests pass.
@@ -1413,7 +1413,7 @@ Expected: all selected tests pass.
 Run:
 
 ```powershell
-dotnet test src\Rook.Tests\Rook.Tests.csproj -f net7.0 --no-restore
+dotnet test src\Rook.Tests\Rook.Tests.csproj -f net48 --no-restore
 ```
 
 Expected: all tests pass. If this is too slow or blocked by local environment issues, capture the exact failure and run the focused suite from Step 1.
