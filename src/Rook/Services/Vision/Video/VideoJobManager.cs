@@ -46,6 +46,7 @@ namespace Rook.Services.Vision.Video
         private readonly IVideoCostEstimator _estimator;
         private readonly ArtifactStore _artifactStore;
         private readonly VideoArtifactMaterializer _materializer;
+        private readonly IVideoPosterSidecarProducer _posterProducer;
         private readonly IVideoJobClock _clock;
         private readonly IVideoJobIdGenerator _idGenerator;
         private readonly TimeSpan _pollInterval;
@@ -74,7 +75,8 @@ namespace Rook.Services.Vision.Video
                 idGenerator,
                 pollInterval,
                 maxConcurrentJobs,
-                materializer: null)
+                materializer: null,
+                posterProducer: null)
         {
         }
 
@@ -88,7 +90,8 @@ namespace Rook.Services.Vision.Video
             IVideoJobIdGenerator? idGenerator,
             TimeSpan? pollInterval,
             int maxConcurrentJobs,
-            VideoArtifactMaterializer? materializer)
+            VideoArtifactMaterializer? materializer,
+            IVideoPosterSidecarProducer? posterProducer = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
@@ -96,6 +99,7 @@ namespace Rook.Services.Vision.Video
             _estimator = estimator ?? throw new ArgumentNullException(nameof(estimator));
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _materializer = materializer ?? new VideoArtifactMaterializer();
+            _posterProducer = posterProducer ?? new VideoPosterSidecarProducer(_artifactStore);
             _clock = clock ?? new SystemVideoJobClock();
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
             _pollInterval = pollInterval ?? DefaultPollInterval;
@@ -942,18 +946,11 @@ namespace Rook.Services.Vision.Video
                         return;
                     }
 
-                    var ext = ExtensionFromMime(materialized.MimeType!);
-                    var artifact = _artifactStore.Create(
-                        kind: "generated_video",
-                        blobs: new[] { new BlobInput("video", materialized.Bytes!, ext) },
-                        parentIds: CollectMediaParents(request));
-
-                    // Complete (artifact-first per v3.1 D4 ordering;
-                    // result(jobId) never returns a missing artifact_id).
-                    current = AppendTransition(
-                        current, VideoJobState.Complete,
-                        resultArtifactId: artifact.Id);
-                    running.LatestRecord = current;
+                    current = await SaveGeneratedVideoAndCompleteAsync(
+                        current,
+                        running,
+                        request,
+                        materialized).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1095,17 +1092,44 @@ namespace Rook.Services.Vision.Video
                 return;
             }
 
+            await SaveGeneratedVideoAndCompleteAsync(
+                current,
+                running,
+                request,
+                materialized).ConfigureAwait(false);
+        }
+
+        private async Task<VideoJobRecord> SaveGeneratedVideoAndCompleteAsync(
+            VideoJobRecord current,
+            RunningJob running,
+            VideoGenerationRequest request,
+            VideoArtifactMaterializationResult materialized)
+        {
             var ext = ExtensionFromMime(materialized.MimeType!);
             var artifact = _artifactStore.Create(
                 kind: "generated_video",
-                blobs: new[] { new BlobInput("video", materialized.Bytes!, ext) },
+                blobs: new[] { new BlobInput(VideoMediaRoles.Video, materialized.Bytes!, ext) },
                 parentIds: CollectMediaParents(request));
+
+            try
+            {
+                await _posterProducer.TryPublishPosterAsync(
+                    artifact.Id,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception)
+            {
+            }
 
             current = AppendTransition(
                 current,
                 VideoJobState.Complete,
                 resultArtifactId: artifact.Id);
             running.LatestRecord = current;
+            return current;
         }
 
         private static bool IsCancellationMaterializationFailure(

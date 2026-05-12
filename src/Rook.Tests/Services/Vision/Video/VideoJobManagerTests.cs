@@ -55,6 +55,7 @@ namespace Rook.Tests.Services.Vision.Video
             TimeSpan? pollInterval = null,
             IVideoCostEstimator? estimator = null,
             VideoArtifactMaterializer? materializer = null,
+            IVideoPosterSidecarProducer? posterProducer = null,
             IVideoProviderRegistry? registry = null,
             IVideoJobLedger? ledger = null) =>
             new(
@@ -67,7 +68,8 @@ namespace Rook.Tests.Services.Vision.Video
                 idGenerator: _idGen,
                 pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5),
                 maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
-                materializer: materializer);
+                materializer: materializer,
+                posterProducer: posterProducer);
 
         private VideoGenerationRequest T2vRequest() =>
             TestVideoFixtures.DefaultT2vRequest();
@@ -233,6 +235,156 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Equal("generated_video", artifact!.Kind);
             Assert.Single(artifact.Files);
             Assert.Equal("video", artifact.Files[0].Role);
+        }
+
+        [Fact]
+        public async Task Complete_video_publishes_poster_before_Complete_when_poster_succeeds()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var posterStarted = new TaskCompletionSource<Guid>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releasePoster = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var posterProducer = new FakePosterProducer(_artifactStore)
+            {
+                OnPublishAsync = async (artifact, _) =>
+                {
+                    posterStarted.TrySetResult(artifact.Id);
+                    await releasePoster.Task.ConfigureAwait(false);
+                    new VideoSidecarPublisher(_artifactStore).Publish(
+                        artifact.Id,
+                        VideoMediaRoles.Poster,
+                        new byte[] { 8, 8, 8 },
+                        "jpg");
+                    return VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.Published,
+                        artifact.Id);
+                },
+            };
+
+            var mgr = Manager(posterProducer: posterProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            await WaitForSignalAsync(
+                posterStarted.Task,
+                "Poster publisher did not start before job completion.");
+            var status = await mgr.GetStatusAsync(jobId, CancellationToken.None);
+            Assert.NotEqual(VideoJobState.Complete, status.State);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Complete);
+            Assert.Equal(
+                VideoJobState.Saving,
+                _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+
+            releasePoster.SetResult(true);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            var posterArtifactId = await posterStarted.Task;
+            Assert.Equal(posterArtifactId, final.ResultArtifactId);
+            var artifact = _artifactStore.Get(final.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
+            Assert.Contains(artifact.Files, f => f.Role == VideoMediaRoles.Poster);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_poster_fails()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var posterProducer = new FakePosterProducer(_artifactStore)
+            {
+                OnPublishAsync = (artifact, _) => Task.FromResult(
+                    VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.PublishFailed,
+                        artifact.Id)),
+            };
+
+            var mgr = Manager(posterProducer: posterProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            var artifact = _artifactStore.Get(final.ResultArtifactId!.Value);
+            Assert.NotNull(artifact);
+            Assert.Contains(artifact!.Files, f => f.Role == VideoMediaRoles.Video);
+            Assert.DoesNotContain(artifact.Files, f => f.Role == VideoMediaRoles.Poster);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Error);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_poster_duplicate_is_skipped()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var posterProducer = new FakePosterProducer(_artifactStore)
+            {
+                OnPublishAsync = (artifact, _) => Task.FromResult(
+                    VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.SkippedAlreadyExists,
+                        artifact.Id)),
+            };
+
+            var mgr = Manager(posterProducer: posterProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.Single(posterProducer.ArtifactIds);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Error || r.State == VideoJobState.Cancelled);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_poster_stage_observes_cancellation()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var posterProducer = new FakePosterProducer(_artifactStore)
+            {
+                OnPublishAsync = (_, _) => throw new OperationCanceledException(),
+            };
+
+            var mgr = Manager(posterProducer: posterProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Cancelled);
+        }
+
+        [Fact]
+        public async Task Sync_submit_completion_uses_same_poster_finalization()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) =>
+                new GenSyncSubmitOutcome(
+                    new GenSuccessResultOutcome(VideoSuccessEnvelope(FakeMp4, "video/mp4")));
+            var posterProducer = new FakePosterProducer(_artifactStore);
+
+            var mgr = Manager(posterProducer: posterProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.Single(posterProducer.ArtifactIds);
+            Assert.Equal(final.ResultArtifactId.Value, posterProducer.ArtifactIds[0]);
         }
 
         [Fact]
@@ -1970,6 +2122,50 @@ namespace Rook.Tests.Services.Vision.Video
                         ProviderMetadata: emptyMetadata),
                 },
                 emptyMetadata);
+        }
+
+        private static GenProviderResultEnvelope VideoSuccessEnvelope(
+            byte[] bytes,
+            string mimeType)
+        {
+            var emptyMetadata = new Dictionary<string, JsonNode>();
+            return new GenProviderResultEnvelope(
+                new[]
+                {
+                    new GenResultArtifact(
+                        Role: VideoMediaRoles.Video,
+                        Body: new GenInlineArtifactBody(bytes),
+                        DeclaredMimeType: mimeType,
+                        ProviderMetadata: emptyMetadata),
+                },
+                emptyMetadata);
+        }
+    }
+
+    internal sealed class FakePosterProducer : IVideoPosterSidecarProducer
+    {
+        private readonly ArtifactStore _store;
+
+        public FakePosterProducer(ArtifactStore store)
+        {
+            _store = store;
+        }
+
+        public List<Guid> ArtifactIds { get; } = new();
+
+        public Func<Artifact, CancellationToken, Task<VideoPosterSidecarResult>>
+            OnPublishAsync { get; set; } =
+                (artifact, _) => Task.FromResult(
+                    VideoPosterSidecarResult.From(
+                        VideoPosterSidecarResultCode.Published,
+                        artifact.Id));
+
+        public Task<VideoPosterSidecarResult> TryPublishPosterAsync(
+            Guid artifactId,
+            CancellationToken cancellationToken)
+        {
+            ArtifactIds.Add(artifactId);
+            return OnPublishAsync(_store.Get(artifactId)!, cancellationToken);
         }
     }
 
