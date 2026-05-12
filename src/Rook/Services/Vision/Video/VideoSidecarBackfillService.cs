@@ -166,6 +166,17 @@ namespace Rook.Services.Vision.Video
                 }
 
                 eligible++;
+                if (IsBudgetExhausted(startedAt, options))
+                {
+                    budgetExhausted = true;
+                    artifactResults.Add(new VideoSidecarBackfillArtifactResult(
+                        artifact.Id,
+                        VideoSidecarBackfillArtifactResultCode.StoppedByBudget,
+                        Array.Empty<string>(),
+                        Array.Empty<VideoSidecarBackfillRoleResult>()));
+                    break;
+                }
+
                 var missingRoles = MissingRoles(artifact);
                 if (missingRoles.Count == 0)
                 {

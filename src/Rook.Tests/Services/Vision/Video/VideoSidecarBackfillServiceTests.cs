@@ -223,6 +223,37 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task BackfillMissingSidecarsAsync_BudgetStopsBeforePlanningNextArtifactRoles()
+        {
+            var artifact = _store.Create(
+                "generated_video",
+                new[]
+                {
+                    new BlobInput(VideoMediaRoles.Video, Bytes("mp4"), "mp4"),
+                    new BlobInput(VideoMediaRoles.Poster, Bytes("poster"), "jpg"),
+                    new BlobInput(VideoMediaRoles.StartFrame, Bytes("start"), "jpg"),
+                    new BlobInput(VideoMediaRoles.EndFrame, Bytes("end"), "jpg"),
+                });
+            _clock.AdvanceAfterRead = TimeSpan.FromMinutes(5);
+            var service = CreateService();
+
+            var result = await service.BackfillMissingSidecarsAsync(
+                new VideoSidecarBackfillOptions(10, TimeSpan.FromSeconds(1)),
+                CancellationToken.None);
+
+            Assert.True(result.BudgetExhausted);
+            Assert.Equal(1, result.EligibleArtifacts);
+            Assert.Equal(0, result.ArtifactsAttempted);
+            Assert.Empty(_poster.ArtifactIds);
+            Assert.Empty(_frames.Requests);
+
+            var artifactResult = Assert.Single(result.Artifacts, a => a.ArtifactId == artifact.Id);
+            Assert.Equal(VideoSidecarBackfillArtifactResultCode.StoppedByBudget, artifactResult.Code);
+            Assert.Empty(artifactResult.MissingRoles);
+            Assert.Empty(artifactResult.RoleResults);
+        }
+
+        [Fact]
         public async Task BackfillMissingSidecarsAsync_RoleFailureDoesNotBlockLaterRole()
         {
             var artifact = GeneratedVideo();
@@ -306,11 +337,24 @@ namespace Rook.Tests.Services.Vision.Video
                 UtcNow = now;
             }
 
-            public DateTimeOffset UtcNow { get; private set; }
+            private DateTimeOffset _utcNow;
+
+            public DateTimeOffset UtcNow
+            {
+                get
+                {
+                    var value = _utcNow;
+                    _utcNow = _utcNow.Add(AdvanceAfterRead);
+                    return value;
+                }
+                private set => _utcNow = value;
+            }
+
+            public TimeSpan AdvanceAfterRead { get; set; }
 
             public void Advance(TimeSpan duration)
             {
-                UtcNow = UtcNow.Add(duration);
+                _utcNow = _utcNow.Add(duration);
             }
         }
     }
