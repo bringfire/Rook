@@ -166,17 +166,6 @@ namespace Rook.Services.Vision.Video
                 }
 
                 eligible++;
-                if (IsBudgetExhausted(startedAt, options))
-                {
-                    budgetExhausted = true;
-                    artifactResults.Add(new VideoSidecarBackfillArtifactResult(
-                        artifact.Id,
-                        VideoSidecarBackfillArtifactResultCode.StoppedByBudget,
-                        Array.Empty<string>(),
-                        Array.Empty<VideoSidecarBackfillRoleResult>()));
-                    break;
-                }
-
                 var missingRoles = MissingRoles(artifact);
                 if (missingRoles.Count == 0)
                 {
@@ -190,11 +179,16 @@ namespace Rook.Services.Vision.Video
 
                 attempted++;
                 var roleResults = new List<VideoSidecarBackfillRoleResult>();
-                foreach (var role in missingRoles)
+                for (var i = 0; i < missingRoles.Count; i++)
                 {
+                    var role = missingRoles[i];
                     if (IsBudgetExhausted(startedAt, options))
                     {
                         budgetExhausted = true;
+                        roleResults.AddRange(
+                            missingRoles
+                                .Skip(i)
+                                .Select(NotStartedBudgetExhausted));
                         break;
                     }
 
@@ -354,7 +348,8 @@ namespace Rook.Services.Vision.Video
                 eligible,
                 artifacts.Count(a => a.Code != VideoSidecarBackfillArtifactResultCode.Attempted),
                 attempted,
-                roleResults.Count,
+                roleResults.Count(r =>
+                    r.Code != VideoSidecarBackfillRoleResultCode.NotStartedBudgetExhausted),
                 roleResults.Count(r => r.Code == VideoSidecarBackfillRoleResultCode.Published),
                 roleResults.Count(r => r.Code == VideoSidecarBackfillRoleResultCode.SkippedAlreadyExists),
                 roleResults.Count(r => r.Code == VideoSidecarBackfillRoleResultCode.Failed),
@@ -362,5 +357,12 @@ namespace Rook.Services.Vision.Video
                 budgetExhausted,
                 artifacts);
         }
+
+        private static VideoSidecarBackfillRoleResult NotStartedBudgetExhausted(
+            string role)
+            => new VideoSidecarBackfillRoleResult(
+                role,
+                VideoSidecarBackfillRoleResultCode.NotStartedBudgetExhausted,
+                "Backfill budget was exhausted before this role started.");
     }
 }

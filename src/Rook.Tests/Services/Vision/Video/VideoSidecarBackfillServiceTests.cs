@@ -207,6 +207,19 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.True(result.BudgetExhausted);
             Assert.Equal(new[] { artifact.Id }, _poster.ArtifactIds);
             Assert.Empty(_frames.Requests);
+            Assert.Equal(1, result.RoleAttempts);
+
+            var artifactResult = Assert.Single(result.Artifacts, a => a.ArtifactId == artifact.Id);
+            Assert.Equal(
+                new[] { VideoMediaRoles.Poster, VideoMediaRoles.StartFrame, VideoMediaRoles.EndFrame },
+                artifactResult.RoleResults.Select(r => r.Role));
+            Assert.Equal(VideoSidecarBackfillRoleResultCode.Published, artifactResult.RoleResults[0].Code);
+            Assert.Equal(
+                VideoSidecarBackfillRoleResultCode.NotStartedBudgetExhausted,
+                artifactResult.RoleResults[1].Code);
+            Assert.Equal(
+                VideoSidecarBackfillRoleResultCode.NotStartedBudgetExhausted,
+                artifactResult.RoleResults[2].Code);
         }
 
         [Fact]
