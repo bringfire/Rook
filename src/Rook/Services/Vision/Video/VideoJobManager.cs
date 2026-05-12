@@ -47,6 +47,7 @@ namespace Rook.Services.Vision.Video
         private readonly ArtifactStore _artifactStore;
         private readonly VideoArtifactMaterializer _materializer;
         private readonly IVideoPosterSidecarProducer _posterProducer;
+        private readonly IVideoFrameSidecarProducer _frameProducer;
         private readonly IVideoJobClock _clock;
         private readonly IVideoJobIdGenerator _idGenerator;
         private readonly TimeSpan _pollInterval;
@@ -76,7 +77,8 @@ namespace Rook.Services.Vision.Video
                 pollInterval,
                 maxConcurrentJobs,
                 materializer: null,
-                posterProducer: null)
+                posterProducer: null,
+                frameProducer: null)
         {
         }
 
@@ -91,7 +93,8 @@ namespace Rook.Services.Vision.Video
             TimeSpan? pollInterval,
             int maxConcurrentJobs,
             VideoArtifactMaterializer? materializer,
-            IVideoPosterSidecarProducer? posterProducer = null)
+            IVideoPosterSidecarProducer? posterProducer = null,
+            IVideoFrameSidecarProducer? frameProducer = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _mediaResolver = mediaResolver ?? throw new ArgumentNullException(nameof(mediaResolver));
@@ -100,6 +103,7 @@ namespace Rook.Services.Vision.Video
             _artifactStore = artifactStore ?? throw new ArgumentNullException(nameof(artifactStore));
             _materializer = materializer ?? new VideoArtifactMaterializer();
             _posterProducer = posterProducer ?? new VideoPosterSidecarProducer(_artifactStore);
+            _frameProducer = frameProducer ?? new VideoFrameSidecarProducer(_artifactStore);
             _clock = clock ?? new SystemVideoJobClock();
             _idGenerator = idGenerator ?? new GuidVideoJobIdGenerator();
             _pollInterval = pollInterval ?? DefaultPollInterval;
@@ -1114,6 +1118,19 @@ namespace Rook.Services.Vision.Video
             try
             {
                 await _posterProducer.TryPublishPosterAsync(
+                    artifact.Id,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                await _frameProducer.TryPublishFrameSidecarsAsync(
                     artifact.Id,
                     CancellationToken.None).ConfigureAwait(false);
             }
