@@ -23,6 +23,7 @@ namespace Rook.Services.Vision.Video
         SkippedNoVideoRole,
         SkippedVideoBlobUnavailable,
         SkippedNoMissingRoles,
+        SkippedCreatedAfterSweepStart,
         StoppedByBudget,
     }
 
@@ -122,7 +123,7 @@ namespace Rook.Services.Vision.Video
             var stoppedByCap = false;
             var budgetExhausted = false;
 
-            foreach (var artifact in _store.List())
+            foreach (var artifact in _store.Enumerate())
             {
                 scanned++;
                 if (!string.Equals(artifact.Kind, GeneratedVideoKind, StringComparison.Ordinal))
@@ -132,6 +133,17 @@ namespace Rook.Services.Vision.Video
                         VideoSidecarBackfillArtifactResultCode.SkippedNotGeneratedVideo,
                         Array.Empty<string>(),
                         Array.Empty<VideoSidecarBackfillRoleResult>()));
+                    continue;
+                }
+
+                if (artifact.CreatedAt > startedAt)
+                {
+                    artifactResults.Add(new VideoSidecarBackfillArtifactResult(
+                        artifact.Id,
+                        VideoSidecarBackfillArtifactResultCode.SkippedCreatedAfterSweepStart,
+                        Array.Empty<string>(),
+                        Array.Empty<VideoSidecarBackfillRoleResult>(),
+                        "Artifact was created after this backfill sweep started."));
                     continue;
                 }
 

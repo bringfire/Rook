@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Rook.Artifacts;
@@ -24,7 +27,7 @@ namespace Rook.Tests.Services.Vision.Video
         {
             _root = Path.Combine(Path.GetTempPath(), $"rook-video-backfill-test-{Guid.NewGuid():N}");
             _store = new ArtifactStore(_root);
-            _clock = new FakeBackfillClock(DateTimeOffset.UtcNow);
+            _clock = new FakeBackfillClock(DateTimeOffset.UtcNow.AddDays(1));
         }
 
         public void Dispose()
@@ -105,6 +108,26 @@ namespace Rook.Tests.Services.Vision.Video
 
             var artifactResult = Assert.Single(result.Artifacts, a => a.ArtifactId == artifact.Id);
             Assert.Equal(VideoSidecarBackfillArtifactResultCode.SkippedNoMissingRoles, artifactResult.Code);
+            Assert.Empty(_poster.ArtifactIds);
+            Assert.Empty(_frames.Requests);
+        }
+
+        [Fact]
+        public async Task BackfillMissingSidecarsAsync_SkipsGeneratedVideoCreatedAfterSweepStart()
+        {
+            var artifact = GeneratedVideo();
+            RewriteCreatedAt(artifact, _clock.UtcNow.AddSeconds(1));
+            var service = CreateService();
+
+            var result = await service.BackfillMissingSidecarsAsync(
+                VideoSidecarBackfillOptions.StartupDefault,
+                CancellationToken.None);
+
+            var artifactResult = Assert.Single(result.Artifacts, a => a.ArtifactId == artifact.Id);
+            Assert.Equal(
+                VideoSidecarBackfillArtifactResultCode.SkippedCreatedAfterSweepStart,
+                artifactResult.Code);
+            Assert.Equal(0, result.EligibleArtifacts);
             Assert.Empty(_poster.ArtifactIds);
             Assert.Empty(_frames.Requests);
         }
@@ -281,6 +304,37 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
+        public async Task BackfillMissingSidecarsAsync_BudgetCanStopBeforeLaterManifestIsRead()
+        {
+            var artifact = _store.Create(
+                "generated_video",
+                new[]
+                {
+                    new BlobInput(VideoMediaRoles.Video, Bytes("mp4"), "mp4"),
+                    new BlobInput(VideoMediaRoles.Poster, Bytes("poster"), "jpg"),
+                    new BlobInput(VideoMediaRoles.StartFrame, Bytes("start"), "jpg"),
+                    new BlobInput(VideoMediaRoles.EndFrame, Bytes("end"), "jpg"),
+                });
+            CreateCorruptArtifactInBucket("2000-01-01");
+            _clock.AdvanceAfterRead = TimeSpan.FromMinutes(5);
+            var service = CreateService();
+
+            var result = await service.BackfillMissingSidecarsAsync(
+                new VideoSidecarBackfillOptions(10, TimeSpan.FromSeconds(1)),
+                CancellationToken.None);
+
+            Assert.True(result.BudgetExhausted);
+            Assert.Equal(1, result.ScannedArtifacts);
+            Assert.Equal(1, result.EligibleArtifacts);
+            Assert.Equal(0, result.ArtifactsAttempted);
+            Assert.Empty(_poster.ArtifactIds);
+            Assert.Empty(_frames.Requests);
+
+            var artifactResult = Assert.Single(result.Artifacts, a => a.ArtifactId == artifact.Id);
+            Assert.Equal(VideoSidecarBackfillArtifactResultCode.StoppedByBudget, artifactResult.Code);
+        }
+
+        [Fact]
         public async Task BackfillMissingSidecarsAsync_RoleFailureDoesNotBlockLaterRole()
         {
             var artifact = GeneratedVideo();
@@ -305,6 +359,38 @@ namespace Rook.Tests.Services.Vision.Video
             => _store.Create(
                 "generated_video",
                 new[] { new BlobInput(VideoMediaRoles.Video, Bytes("mp4"), "mp4") });
+
+        private void RewriteCreatedAt(Artifact artifact, DateTimeOffset createdAt)
+        {
+            var path = ManifestPath(artifact);
+            var node = JsonNode.Parse(File.ReadAllText(path));
+            var root = Assert.IsType<JsonObject>(node);
+            root["created_at"] = createdAt.ToString("O", CultureInfo.InvariantCulture);
+            File.WriteAllText(
+                path,
+                root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private string ManifestPath(Artifact artifact)
+        {
+            var expected = Path.Combine(
+                _root,
+                artifact.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                artifact.Id.ToString("D"),
+                "manifest.json");
+            if (File.Exists(expected))
+                return expected;
+
+            return Directory.EnumerateFiles(_root, "manifest.json", SearchOption.AllDirectories)
+                .Single(p => p.Contains(artifact.Id.ToString("D")));
+        }
+
+        private void CreateCorruptArtifactInBucket(string dayKey)
+        {
+            var dir = Path.Combine(_root, dayKey, Guid.NewGuid().ToString("D"));
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "manifest.json"), "{ broken");
+        }
 
         private static byte[] Bytes(string value) => Encoding.UTF8.GetBytes(value);
 
