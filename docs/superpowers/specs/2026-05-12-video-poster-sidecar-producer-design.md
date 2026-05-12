@@ -33,8 +33,9 @@ best-effort after the MP4 artifact exists.
 `ArtifactStore.Create(kind: "generated_video", blobs: video)` is the durable
 success boundary. Once that call succeeds, the video job must complete with the
 artifact id. Poster extraction, publication failure, timeout, missing ffmpeg,
-invalid output, duplicate poster, and cancellation observed during poster work
-must not convert that paid/saved video into `Error` or `Cancelled`.
+invalid output, duplicate poster, post-artifact local I/O failure, unexpected
+producer failure, and cancellation observed during poster work must not convert
+that paid/saved video into `Error` or `Cancelled`.
 
 This avoids a fire-and-forget background race while keeping `Complete` meaning
 "the video artifact was successfully saved," not "all derivative sidecars were
@@ -60,6 +61,8 @@ Responsibilities:
   "jpg")`.
 - Delete the temp poster file best-effort after success or failure.
 - Return a typed result object instead of throwing into job finalization.
+- Catch post-artifact local I/O failures and unexpected producer exceptions,
+  converting them to typed results with bounded diagnostics.
 
 `VideoJobManager` should extract shared generated-video finalization logic used
 by both completion paths:
@@ -82,9 +85,9 @@ Cancellation before artifact creation keeps the existing behavior and can still
 stop submit, polling, fetch, or materialization.
 
 After the generated-video artifact exists, poster production may observe
-cancellation, timeout, or extraction/publish errors, but it must convert those
-outcomes into warnings or no-op results and return control so
-`VideoJobManager` appends `Complete`.
+cancellation, timeout, local I/O failure, unexpected producer failure, or
+extraction/publish errors, but it must convert those outcomes into warnings or
+no-op results and return control so `VideoJobManager` appends `Complete`.
 
 Implementation can satisfy this either by using a non-job-cancelling token for
 poster work after artifact creation or by catching `OperationCanceledException`
@@ -104,11 +107,24 @@ codes:
 - `ExtractionFailed`
 - `InvalidOutput`
 - `PublishFailed`
+- `VideoBlobUnavailable`
+- `TempPathUnavailable`
+- `PosterReadFailed`
+- `FinalizerFailed`
 - `CancelledAfterArtifactCreated`
 
 `SkippedAlreadyExists` is idempotent success/no-op, not a warning. Other
 non-published outcomes are warnings for diagnostics, but they are not durable
 video job failures.
+
+`VideoBlobUnavailable` covers inability to resolve or access the final saved
+`video` blob through `ArtifactStore.GetBlobAbsolutePath(...)`.
+`TempPathUnavailable` covers failure to create or reserve the poster temp output
+path. `PosterReadFailed` covers failure to read extracted poster bytes before
+publication. `FinalizerFailed` is the catch-all for any unexpected producer
+exception after artifact creation. Cleanup exceptions are swallowed and captured
+as bounded diagnostic warnings; they must not replace a successful
+`Published`/`SkippedAlreadyExists` primary result or escape to the manager.
 
 Diagnostics must be bounded. The result can include a short message, an error
 code, and truncated stderr, but it must not retain unbounded ffmpeg output.
@@ -147,6 +163,12 @@ Producer tests should cover:
 - extraction process failure returns `ExtractionFailed`;
 - invalid image output returns `InvalidOutput`;
 - sidecar publish failure returns `PublishFailed`;
+- final video blob resolution/access failure returns `VideoBlobUnavailable`;
+- temp output path failure returns `TempPathUnavailable`;
+- poster byte read failure returns `PosterReadFailed`;
+- unexpected producer exception returns `FinalizerFailed`;
+- cleanup failure is swallowed with bounded diagnostics and does not override a
+  successful publish/idempotent primary result;
 - cancellation during poster work after artifact creation returns
   `CancelledAfterArtifactCreated`;
 - temp output cleanup is attempted after success and failure;
