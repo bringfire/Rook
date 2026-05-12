@@ -284,6 +284,29 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.Single(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.Poster);
         }
 
+        [Fact]
+        public void DefaultTempFiles_TryDeletePropagatesDeleteFailure()
+        {
+            var tempFiles = new DefaultVideoPosterTempFiles();
+            var path = tempFiles.CreatePosterTempPath(Guid.NewGuid());
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "locked poster");
+            File.SetAttributes(path, FileAttributes.ReadOnly);
+
+            try
+            {
+                Assert.ThrowsAny<Exception>(() => tempFiles.TryDelete(path));
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.SetAttributes(path, FileAttributes.Normal);
+                    File.Delete(path);
+                }
+            }
+        }
+
         private VideoPosterSidecarProducer CreateProducer(
             FakeVideoPosterExtractor extractor,
             string? posterTempPath = null,

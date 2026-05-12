@@ -361,15 +361,8 @@ namespace Rook.Services.Vision.Video
 
         public void TryDelete(string path)
         {
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                    File.Delete(path);
-            }
-            catch
-            {
-                // Best-effort cleanup; Task 2 will harden finalizer failure mapping.
-            }
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                File.Delete(path);
         }
     }
 
