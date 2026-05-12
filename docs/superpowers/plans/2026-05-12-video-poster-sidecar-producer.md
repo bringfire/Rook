@@ -1002,7 +1002,7 @@ Add this fake class near the other test helpers:
         }
 ```
 
-Add these tests near `Queued_job_completes_and_materializes_artifact`:
+Add these tests near `Happy_path_reaches_Complete_with_artifact_id`:
 
 ```csharp
         [Fact]
