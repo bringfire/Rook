@@ -117,6 +117,7 @@ namespace Rook.Services.Vision.Video
             var artifactResults = new List<VideoSidecarBackfillArtifactResult>();
             var scanned = 0;
             var eligible = 0;
+            var consideredForBackfill = 0;
             var attempted = 0;
             var stoppedByCap = false;
             var budgetExhausted = false;
@@ -159,12 +160,6 @@ namespace Rook.Services.Vision.Video
                     continue;
                 }
 
-                if (eligible >= options.MaxArtifacts)
-                {
-                    stoppedByCap = true;
-                    break;
-                }
-
                 eligible++;
                 if (IsBudgetExhausted(startedAt, options))
                 {
@@ -188,6 +183,13 @@ namespace Rook.Services.Vision.Video
                     continue;
                 }
 
+                if (consideredForBackfill >= options.MaxArtifacts)
+                {
+                    stoppedByCap = true;
+                    break;
+                }
+
+                consideredForBackfill++;
                 attempted++;
                 var roleResults = new List<VideoSidecarBackfillRoleResult>();
                 for (var i = 0; i < missingRoles.Count; i++)

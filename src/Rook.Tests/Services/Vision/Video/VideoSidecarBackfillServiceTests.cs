@@ -176,7 +176,7 @@ namespace Rook.Tests.Services.Vision.Video
         }
 
         [Fact]
-        public async Task BackfillMissingSidecarsAsync_MaxArtifactsCountsEligibleArtifactsOnly()
+        public async Task BackfillMissingSidecarsAsync_MaxArtifactsCountsArtifactsNeedingBackfillOnly()
         {
             _store.Create("generated_image", new[] { new BlobInput("image", Bytes("png"), "png") });
             var first = GeneratedVideo();
@@ -188,9 +188,36 @@ namespace Rook.Tests.Services.Vision.Video
                 CancellationToken.None);
 
             Assert.True(result.StoppedByCap);
-            Assert.Equal(1, result.EligibleArtifacts);
+            Assert.Equal(2, result.EligibleArtifacts);
+            Assert.Equal(1, result.ArtifactsAttempted);
             Assert.Single(_poster.ArtifactIds);
             Assert.Contains(_poster.ArtifactIds[0], new[] { first.Id, second.Id });
+        }
+
+        [Fact]
+        public async Task BackfillMissingSidecarsAsync_MaxArtifactsDoesNotCountCompleteGeneratedVideos()
+        {
+            _store.Create(
+                "generated_video",
+                new[]
+                {
+                    new BlobInput(VideoMediaRoles.Video, Bytes("mp4"), "mp4"),
+                    new BlobInput(VideoMediaRoles.Poster, Bytes("poster"), "jpg"),
+                    new BlobInput(VideoMediaRoles.StartFrame, Bytes("start"), "jpg"),
+                    new BlobInput(VideoMediaRoles.EndFrame, Bytes("end"), "jpg"),
+                });
+            var missing = GeneratedVideo();
+            var service = CreateService();
+
+            var result = await service.BackfillMissingSidecarsAsync(
+                new VideoSidecarBackfillOptions(1, TimeSpan.FromMinutes(1)),
+                CancellationToken.None);
+
+            Assert.Equal(2, result.EligibleArtifacts);
+            Assert.Equal(1, result.ArtifactsAttempted);
+            Assert.Equal(new[] { missing.Id }, _poster.ArtifactIds);
+            Assert.Equal(2, _frames.Requests.Count);
+            Assert.False(result.StoppedByCap);
         }
 
         [Fact]
