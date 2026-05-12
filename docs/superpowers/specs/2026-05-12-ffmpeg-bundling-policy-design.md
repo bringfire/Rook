@@ -83,9 +83,14 @@ It must not include:
 - broad hardware, subtitle, audio, network, device, or font stacks unless a
   concrete Rook sidecar fixture proves they are required.
 
-Validation must reject unexpected `--enable-lib*` flags by default. If a future
-Rook slice intentionally adds an external library, that slice must add a
-release-blocking source/license manifest for that library.
+Validation must extract every `--enable-*` flag from the runtime configure line
+and reject any flag that is not in the committed minimal allowlist or backed by
+explicit source/license provenance. The allowlist is intentionally broader than
+an `--enable-lib*` check because broad builds can enable external/system
+features through flags such as `--enable-zlib`, `--enable-iconv`, hardware
+surfaces, network stacks, or device integrations. If a future Rook slice
+intentionally adds any external or system feature, that slice must add a
+release-blocking source/license manifest entry for it.
 
 ### 4. Codec support is locked by evidence, not convenience
 
@@ -186,7 +191,8 @@ The build recipe must:
 
 1. download or consume the pinned official FFmpeg source archive;
 2. verify the source archive SHA-256;
-3. record PGP verification when available on the build machine;
+3. verify the official FFmpeg release signature with the FFmpeg release signing
+   key;
 4. apply no local patches unless they are recorded;
 5. generate `changes.diff`, even when empty;
 6. run the exact committed configure recipe;
@@ -217,8 +223,8 @@ Required fields:
 - `source_archive`;
 - `source_sha256`;
 - `source_signature_url`;
-- `source_signature_status`: for example `verified`, `unavailable`, or
-  `not-checked`;
+- `source_signature_status`: must be `verified` for official FFmpeg release
+  archives in the normal release path;
 - `build_recipe_path`;
 - `configure_recipe_path`;
 - `configure_line`;
@@ -234,6 +240,12 @@ Required fields:
 The implementation plan can refine field names, but it must keep the file
 machine-readable and complete enough to identify exact corresponding FFmpeg
 source and the generated release source bundle.
+
+Official FFmpeg release archives have published signatures. Release validation
+must reject official release-archive provenance unless
+`source_signature_status == verified`. Any exception must be an explicit
+release-owner override outside the normal packaging path and must not be
+silently accepted by the default validator.
 
 ## Release Source Bundle Manifest
 
@@ -294,22 +306,25 @@ Inno Setup or producing a release artifact. That step must:
 9. reject missing configure output;
 10. reject `--enable-gpl`;
 11. reject `--enable-nonfree`;
-12. reject unexpected `--enable-lib*`;
+12. extract all `--enable-*` flags and reject any flag not present in the
+    committed minimal allowlist or backed by explicit external source/license
+    provenance;
 13. verify source metadata and source checksum;
-14. verify `changes.diff` exists;
-15. verify the generated release source-bundle manifest exists;
-16. verify the generated release source-bundle SHA-256 matches the staging
+14. verify official release signature status is `verified`;
+15. verify `changes.diff` exists;
+16. verify the generated release source-bundle manifest exists;
+17. verify the generated release source-bundle SHA-256 matches the staging
     manifest;
-17. verify required installed compliance files exist;
-18. run the functional command smoke with the bundled binary;
-19. reject poster extraction failure;
-20. reject first-frame extraction failure;
-21. reject last-frame extraction failure;
-22. reject missing, empty, or unreadable JPEG outputs;
-23. verify installer script includes the FFmpeg payload files;
-24. verify release packaging publishes the FFmpeg source bundle beside the
+18. verify required installed compliance files exist;
+19. run the functional command smoke with the bundled binary;
+20. reject poster extraction failure;
+21. reject first-frame extraction failure;
+22. reject last-frame extraction failure;
+23. reject missing, empty, or unreadable JPEG outputs;
+24. verify installer script includes the FFmpeg payload files;
+25. verify release packaging publishes the FFmpeg source bundle beside the
     installer;
-25. report the accepted version, path, checksum, configure line, source bundle,
+26. report the accepted version, path, checksum, configure line, source bundle,
     and smoke result.
 
 The release guard must be deterministic and easy to run locally. A PowerShell
@@ -360,11 +375,14 @@ functional extraction smoke against the bundled FFmpeg payload.
 
 Required coverage:
 
-- release validation accepts a minimal Rook-owned metadata/configure line with
-  no GPL, nonfree, or unexpected external-library flags;
+- release validation accepts a minimal Rook-owned metadata/configure line whose
+  `--enable-*` flags are all present in the committed allowlist;
 - release validation rejects `--enable-gpl`;
 - release validation rejects `--enable-nonfree`;
-- release validation rejects unexpected `--enable-lib*`;
+- release validation rejects any `--enable-*` flag missing from the committed
+  allowlist unless explicit external source/license provenance is present;
+- release validation rejects official FFmpeg release source with a missing,
+  `unavailable`, or `not-checked` signature status;
 - release validation rejects broad third-party static builds that lack complete
   external-library source/license manifests;
 - release validation rejects missing configure line;
@@ -438,8 +456,10 @@ the policy:
 - Rook release packaging fails closed for missing, GPL-enabled, nonfree,
   checksum-mismatched, stale-metadata, broad-third-party, or
   unknown-provenance FFmpeg payloads.
-- Rook release packaging fails closed for unexpected `--enable-lib*` flags
-  unless complete external-library source/license provenance is present.
+- Rook release packaging fails closed for any unexpected `--enable-*` flag
+  unless complete external/system feature source/license provenance is present.
+- Rook release packaging fails closed for official FFmpeg release source unless
+  the source signature status is `verified`.
 - Rook release packaging fails closed if the generated FFmpeg source bundle is
   missing from release staging or does not match metadata.
 - Rook release packaging fails closed if the bundled FFmpeg cannot produce
