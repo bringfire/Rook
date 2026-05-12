@@ -13,7 +13,8 @@ namespace Rook.Services.Vision.Video
     internal sealed record VideoSubsystemBundle(
         VideoJobManager Manager,
         IVideoProviderRegistry Registry,
-        IVideoCostEstimator Estimator);
+        IVideoCostEstimator Estimator,
+        IVideoSidecarBackfillService SidecarBackfill);
 
     /// <summary>
     /// Pure composition for the video subsystem. Stateless; the same
@@ -43,7 +44,8 @@ namespace Rook.Services.Vision.Video
         public static VideoSubsystemBundle Build(
             IGenerationSecretStore generationSecrets,
             ArtifactStore artifactStore,
-            IVideoJobLedger? ledger = null)
+            IVideoJobLedger? ledger = null,
+            IVideoSidecarBackfillService? sidecarBackfill = null)
         {
             if (generationSecrets is null)
                 throw new ArgumentNullException(nameof(generationSecrets));
@@ -65,7 +67,17 @@ namespace Rook.Services.Vision.Video
                 estimator: estimator,
                 artifactStore: artifactStore);
 
-            return new VideoSubsystemBundle(manager, registry, estimator);
+            var actualSidecarBackfill = sidecarBackfill
+                ?? new VideoSidecarBackfillService(
+                    artifactStore,
+                    new VideoPosterSidecarProducer(artifactStore),
+                    new VideoFrameSidecarProducer(artifactStore));
+
+            return new VideoSubsystemBundle(
+                manager,
+                registry,
+                estimator,
+                actualSidecarBackfill);
         }
     }
 }

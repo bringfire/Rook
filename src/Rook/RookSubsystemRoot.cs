@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
@@ -10,6 +11,41 @@ using Rook.Services.Vision.Video;
 
 namespace Rook
 {
+    internal sealed record VideoSidecarBackfillStartupOptions(
+        bool Enabled,
+        VideoSidecarBackfillOptions ServiceOptions,
+        Action<VideoSidecarBackfillResult>? OnCompleted,
+        Action<Exception>? OnFailed)
+    {
+        public static VideoSidecarBackfillStartupOptions Default { get; } =
+            new VideoSidecarBackfillStartupOptions(
+                Enabled: true,
+                ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                OnCompleted: null,
+                OnFailed: null);
+
+        public static VideoSidecarBackfillStartupOptions Disabled { get; } =
+            new VideoSidecarBackfillStartupOptions(
+                Enabled: false,
+                ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                OnCompleted: null,
+                OnFailed: null);
+    }
+
+    internal interface IVideoSidecarBackfillTaskScheduler
+    {
+        void Schedule(Func<Task> work);
+    }
+
+    internal sealed class ThreadPoolVideoSidecarBackfillTaskScheduler
+        : IVideoSidecarBackfillTaskScheduler
+    {
+        public void Schedule(Func<Task> work)
+        {
+            _ = Task.Run(work);
+        }
+    }
+
     /// <summary>
     /// Neutral composition root for shared Rook subsystems. Owns the
     /// process-wide singletons that multiple subsystems must agree on:
@@ -48,6 +84,7 @@ namespace Rook
 
         private readonly Lazy<VideoSubsystemBundle> _video;
         private readonly Lazy<ImageJobSubsystemBundle> _imageJobs;
+        private readonly IVideoSidecarBackfillTaskScheduler _backfillScheduler;
 
         /// <summary>
         /// Resolves the lazy video subsystem. Throws
@@ -84,6 +121,7 @@ namespace Rook
         }
 
         private int _reconcileFired = 0;
+        private int _videoSidecarBackfillFired = 0;
         private int _imageReconcileFired = 0;
         private int _disposed = 0;
 
@@ -105,7 +143,9 @@ namespace Rook
             ArtifactStore? artifactStore,
             IGenerationSecretStore? generationSecretStore,
             IVideoJobLedger? ledger,
-            IImageJobLedger? imageLedger)
+            IImageJobLedger? imageLedger,
+            IVideoSidecarBackfillService? sidecarBackfill = null,
+            IVideoSidecarBackfillTaskScheduler? backfillScheduler = null)
         {
             SharedArtifactStore = artifactStore ?? new ArtifactStore();
             SharedGenerationSecretStore = generationSecretStore
@@ -113,8 +153,13 @@ namespace Rook
             SharedSecretStore = new VisionSecretStore(SharedGenerationSecretStore);
             _video = new Lazy<VideoSubsystemBundle>(
                 () => VideoSubsystemFactory.Build(
-                    SharedGenerationSecretStore, SharedArtifactStore, ledger),
+                    SharedGenerationSecretStore,
+                    SharedArtifactStore,
+                    ledger,
+                    sidecarBackfill),
                 LazyThreadSafetyMode.ExecutionAndPublication);
+            _backfillScheduler = backfillScheduler
+                ?? new ThreadPoolVideoSidecarBackfillTaskScheduler();
             _imageJobs = new Lazy<ImageJobSubsystemBundle>(
                 () =>
                 {
@@ -196,6 +241,65 @@ namespace Rook
                 Volatile.Write(ref _imageReconcileFired, 0);
                 throw;
             }
+        }
+
+        public void BackfillVideoSidecarsOnce(
+            VideoSidecarBackfillStartupOptions? startupOptions = null)
+        {
+            var options = startupOptions ?? VideoSidecarBackfillStartupOptions.Default;
+            if (!options.Enabled)
+                return;
+
+            if (Interlocked.CompareExchange(ref _videoSidecarBackfillFired, 1, 0) != 0)
+                return;
+
+            try
+            {
+                var bundle = Video;
+                _backfillScheduler.Schedule(async () =>
+                {
+                    try
+                    {
+                        var result = await bundle.SidecarBackfill
+                            .BackfillMissingSidecarsAsync(
+                                options.ServiceOptions,
+                                CancellationToken.None)
+                            .ConfigureAwait(false);
+                        TryInvokeCompleted(options.OnCompleted, result);
+                    }
+                    catch (Exception ex)
+                    {
+                        TryInvokeFailed(options.OnFailed, ex);
+                    }
+                });
+            }
+            catch
+            {
+                Volatile.Write(ref _videoSidecarBackfillFired, 0);
+                throw;
+            }
+        }
+
+        private static void TryInvokeCompleted(
+            Action<VideoSidecarBackfillResult>? callback,
+            VideoSidecarBackfillResult result)
+        {
+            if (callback is null)
+                return;
+
+            try { callback(result); }
+            catch { }
+        }
+
+        private static void TryInvokeFailed(
+            Action<Exception>? callback,
+            Exception exception)
+        {
+            if (callback is null)
+                return;
+
+            try { callback(exception); }
+            catch { }
         }
 
         /// <summary>

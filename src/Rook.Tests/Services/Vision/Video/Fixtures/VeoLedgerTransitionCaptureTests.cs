@@ -177,14 +177,10 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
                 TestVideoFixtures.DefaultT2vRequest(),
                 CancellationToken.None);
 
-            // Give the background loop a couple of poll cycles to land
-            // a Polling record before we cancel. Fixed sleep is
-            // acceptable in the capture path because the goldens
-            // themselves are clock-deterministic (FakeVideoJobClock)
-            // and the polling cycle is 5ms.
-            await Task.Delay(50);
+            await WaitForStateAsync(mgr, jobId, VideoJobState.Polling);
 
-            await mgr.CancelAsync(jobId, CancellationToken.None);
+            var cancel = await mgr.CancelAsync(jobId, CancellationToken.None);
+            Assert.Null(cancel.Error);
             await WaitForTerminalAsync(mgr, jobId, VideoJobState.Cancelled);
 
             AssertLedgerGolden("09_ledger_cancel_midflight.jsonl");
@@ -212,7 +208,28 @@ namespace Rook.Tests.Services.Vision.Video.Fixtures
                 artifactStore: _artifactStore,
                 clock: clock,
                 idGenerator: idGen,
-                pollInterval: TimeSpan.FromMilliseconds(5));
+                pollInterval: TimeSpan.FromMilliseconds(5),
+                maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
+                materializer: null,
+                posterProducer: new FakePosterProducer(_artifactStore),
+                frameProducer: new FakeFrameProducer(_artifactStore));
+        }
+
+        private static async Task WaitForStateAsync(
+            VideoJobManager mgr, Guid jobId, VideoJobState expected)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                var s = await mgr.GetStatusAsync(jobId, CancellationToken.None);
+                if (s.State == expected)
+                    return;
+
+                await Task.Delay(5);
+            }
+
+            throw new TimeoutException(
+                $"Job {jobId:D} did not reach state {expected}.");
         }
 
         private static async Task WaitForTerminalAsync(

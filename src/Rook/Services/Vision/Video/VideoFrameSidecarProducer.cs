@@ -22,6 +22,7 @@ namespace Rook.Services.Vision.Video
         PublishFailed,
         CancelledAfterArtifactCreated,
         FinalizerFailed,
+        UnsupportedRole,
     }
 
     internal sealed record VideoFrameSidecarRoleResult
@@ -77,6 +78,11 @@ namespace Rook.Services.Vision.Video
     {
         Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
             Guid artifactId,
+            CancellationToken cancellationToken);
+
+        Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
+            Guid artifactId,
+            IReadOnlyList<string> roles,
             CancellationToken cancellationToken);
     }
 
@@ -154,11 +160,38 @@ namespace Rook.Services.Vision.Video
             _publisher = publisher ?? new DefaultVideoFrameSidecarPublisher(_store);
         }
 
-        public async Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
+        public Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
             Guid artifactId,
             CancellationToken cancellationToken)
+            => TryPublishFrameSidecarsAsync(
+                artifactId,
+                new[] { VideoMediaRoles.StartFrame, VideoMediaRoles.EndFrame },
+                cancellationToken);
+
+        public async Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
+            Guid artifactId,
+            IReadOnlyList<string> roles,
+            CancellationToken cancellationToken)
         {
-            var rolePlans = CreateRolePlans();
+            var rolePlans = CreateRolePlans(roles);
+            var supportedCount = 0;
+            foreach (var plan in rolePlans)
+            {
+                if (plan.UnsupportedResult is null)
+                    supportedCount++;
+            }
+
+            if (supportedCount == 0)
+            {
+                var unsupportedResults = new List<VideoFrameSidecarRoleResult>(rolePlans.Count);
+                foreach (var plan in rolePlans)
+                {
+                    if (plan.UnsupportedResult is not null)
+                        unsupportedResults.Add(plan.UnsupportedResult);
+                }
+
+                return new VideoFrameSidecarResult(artifactId, unsupportedResults);
+            }
 
             string videoPath;
             try
@@ -206,6 +239,12 @@ namespace Rook.Services.Vision.Video
             var results = new List<VideoFrameSidecarRoleResult>(rolePlans.Count);
             foreach (var plan in rolePlans)
             {
+                if (plan.UnsupportedResult is not null)
+                {
+                    results.Add(plan.UnsupportedResult);
+                    continue;
+                }
+
                 var result = await TryPublishRoleAsync(
                         artifactId,
                         videoPath,
@@ -381,12 +420,44 @@ namespace Rook.Services.Vision.Video
             }
         }
 
-        private static List<VideoFrameSidecarRolePlan> CreateRolePlans()
-            => new List<VideoFrameSidecarRolePlan>
+        private static List<VideoFrameSidecarRolePlan> CreateRolePlans(IReadOnlyList<string> roles)
+        {
+            if (roles is null || roles.Count == 0)
+                return new List<VideoFrameSidecarRolePlan>();
+
+            var plans = new List<VideoFrameSidecarRolePlan>(roles.Count);
+            foreach (var role in roles)
             {
-                new VideoFrameSidecarRolePlan(VideoMediaRoles.StartFrame, VideoFrameSelector.First),
-                new VideoFrameSidecarRolePlan(VideoMediaRoles.EndFrame, VideoFrameSelector.Last),
-            };
+                if (string.Equals(role, VideoMediaRoles.StartFrame, StringComparison.Ordinal))
+                {
+                    plans.Add(new VideoFrameSidecarRolePlan(
+                        VideoMediaRoles.StartFrame,
+                        VideoFrameSelector.First,
+                        UnsupportedResult: null));
+                }
+                else if (string.Equals(role, VideoMediaRoles.EndFrame, StringComparison.Ordinal))
+                {
+                    plans.Add(new VideoFrameSidecarRolePlan(
+                        VideoMediaRoles.EndFrame,
+                        VideoFrameSelector.Last,
+                        UnsupportedResult: null));
+                }
+                else
+                {
+                    var unsupportedRole = role ?? "<null>";
+                    plans.Add(new VideoFrameSidecarRolePlan(
+                        unsupportedRole,
+                        VideoFrameSelector.FrameIndex(0),
+                        VideoFrameSidecarRoleResult.From(
+                            unsupportedRole,
+                            VideoFrameSelector.FrameIndex(0),
+                            VideoFrameSidecarRoleResultCode.UnsupportedRole,
+                            $"Role '{unsupportedRole}' is not a supported frame sidecar role.")));
+                }
+            }
+
+            return plans;
+        }
 
         private static IReadOnlyList<VideoFrameSidecarRoleResult> ResultsForAll(
             IReadOnlyList<VideoFrameSidecarRolePlan> plans,
@@ -397,12 +468,14 @@ namespace Rook.Services.Vision.Video
             var results = new List<VideoFrameSidecarRoleResult>(plans.Count);
             foreach (var plan in plans)
             {
-                results.Add(VideoFrameSidecarRoleResult.From(
-                    plan.Role,
-                    plan.Selector,
-                    code,
-                    message,
-                    diagnostic));
+                results.Add(
+                    plan.UnsupportedResult
+                    ?? VideoFrameSidecarRoleResult.From(
+                        plan.Role,
+                        plan.Selector,
+                        code,
+                        message,
+                        diagnostic));
             }
 
             return results;
@@ -449,7 +522,10 @@ namespace Rook.Services.Vision.Video
                 ? value
                 : value.Substring(0, MaxDiagnosticLength);
 
-        private sealed record VideoFrameSidecarRolePlan(string Role, VideoFrameSelector Selector);
+        private sealed record VideoFrameSidecarRolePlan(
+            string Role,
+            VideoFrameSelector Selector,
+            VideoFrameSidecarRoleResult? UnsupportedResult);
     }
 
     internal sealed class DefaultVideoFrameFfmpegResolver : IVideoFrameFfmpegResolver

@@ -283,6 +283,96 @@ namespace Rook.Tests.Services.Vision.Video
                 _store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame));
         }
 
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_TargetedEndOnlyPublishesOnlyEnd()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            var producer = CreateProducer(extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(
+                video.Id,
+                new[] { VideoMediaRoles.EndFrame },
+                CancellationToken.None);
+
+            var roleResult = Assert.Single(result.RoleResults);
+            Assert.Equal(VideoMediaRoles.EndFrame, roleResult.Role);
+            Assert.Equal(VideoFrameSelectorKind.Last, roleResult.Selector.Kind);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, roleResult.Code);
+            Assert.Equal(new[] { VideoFrameSelectorKind.Last }, extractor.Selectors.Select(s => s.Kind));
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.StartFrame);
+            Assert.Equal("end jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.EndFrame)));
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_TargetedStartOnlyPublishesOnlyStart()
+        {
+            var video = GeneratedVideo();
+            var extractor = new FakeFrameExtractor();
+            var producer = CreateProducer(extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(
+                video.Id,
+                new[] { VideoMediaRoles.StartFrame },
+                CancellationToken.None);
+
+            var roleResult = Assert.Single(result.RoleResults);
+            Assert.Equal(VideoMediaRoles.StartFrame, roleResult.Role);
+            Assert.Equal(VideoFrameSelectorKind.First, roleResult.Selector.Kind);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, roleResult.Code);
+            Assert.Equal(new[] { VideoFrameSelectorKind.First }, extractor.Selectors.Select(s => s.Kind));
+            Assert.Equal("start jpg", File.ReadAllText(_store.GetBlobAbsolutePath(video.Id, VideoMediaRoles.StartFrame)));
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == VideoMediaRoles.EndFrame);
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_AllUnknownRolesDoesNotResolveVideoOrFfmpeg()
+        {
+            var video = GeneratedVideo();
+            var resolver = FakeFrameFfmpegResolver.Found(Path.Combine(_root, "tools", "ffmpeg.exe"));
+            var extractor = new FakeFrameExtractor();
+            var tempFiles = new FakeFrameTempFiles(
+                Path.Combine(_root, "tmp", "start.jpg"),
+                Path.Combine(_root, "tmp", "end.jpg"));
+            var producer = CreateProducer(
+                resolver: resolver,
+                extractor: extractor,
+                tempFiles: tempFiles);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(
+                video.Id,
+                new[] { "bogus_role" },
+                CancellationToken.None);
+
+            var roleResult = Assert.Single(result.RoleResults);
+            Assert.Equal("bogus_role", roleResult.Role);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.UnsupportedRole, roleResult.Code);
+            Assert.Equal(0, resolver.ResolveCount);
+            Assert.Equal(0, tempFiles.CreateCallCount);
+            Assert.Empty(extractor.Selectors);
+            Assert.DoesNotContain(_store.Get(video.Id)!.Files, f => f.Role == "bogus_role");
+        }
+
+        [Fact]
+        public async Task TryPublishFrameSidecarsAsync_MixedUnknownAndKnownReportsUnknownAndAttemptsKnown()
+        {
+            var video = GeneratedVideo();
+            var resolver = FakeFrameFfmpegResolver.Found(Path.Combine(_root, "tools", "ffmpeg.exe"));
+            var extractor = new FakeFrameExtractor();
+            var producer = CreateProducer(resolver: resolver, extractor: extractor);
+
+            var result = await producer.TryPublishFrameSidecarsAsync(
+                video.Id,
+                new[] { "bogus_role", VideoMediaRoles.EndFrame },
+                CancellationToken.None);
+
+            Assert.Equal(new[] { "bogus_role", VideoMediaRoles.EndFrame }, result.RoleResults.Select(r => r.Role));
+            Assert.Equal(VideoFrameSidecarRoleResultCode.UnsupportedRole, result.RoleResults[0].Code);
+            Assert.Equal(VideoFrameSidecarRoleResultCode.Published, result.RoleResults[1].Code);
+            Assert.Equal(1, resolver.ResolveCount);
+            Assert.Equal(new[] { VideoFrameSelectorKind.Last }, extractor.Selectors.Select(s => s.Kind));
+        }
+
         private VideoFrameSidecarProducer CreateProducer(
             FakeFrameFfmpegResolver? resolver = null,
             FakeFrameExtractor? extractor = null,
@@ -345,9 +435,11 @@ namespace Rook.Tests.Services.Vision.Video
                     FfmpegBinaryResolution.Failed(FfmpegBinaryResolutionError.NotFound, message));
 
             public Exception? ThrowOnResolve { get; set; }
+            public int ResolveCount { get; private set; }
 
             public FfmpegBinaryResolution Resolve()
             {
+                ResolveCount++;
                 if (ThrowOnResolve is not null)
                     throw ThrowOnResolve;
                 return _resolution;
@@ -412,9 +504,11 @@ namespace Rook.Tests.Services.Vision.Video
             public Exception? ThrowOnCreateStart { get; set; }
             public Exception? ThrowOnCreateEnd { get; set; }
             public Exception? ThrowOnDelete { get; set; }
+            public int CreateCallCount { get; private set; }
 
             public string CreateFrameTempPath(Guid artifactId, string role)
             {
+                CreateCallCount++;
                 if (role == VideoMediaRoles.StartFrame && ThrowOnCreateStart is not null)
                     throw ThrowOnCreateStart;
                 if (role == VideoMediaRoles.EndFrame && ThrowOnCreateEnd is not null)

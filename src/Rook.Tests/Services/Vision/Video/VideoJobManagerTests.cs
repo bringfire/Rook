@@ -2307,6 +2307,12 @@ namespace Rook.Tests.Services.Vision.Video
             return OnPublishAsync(_store.Get(artifactId)!, cancellationToken);
         }
 
+        public Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
+            Guid artifactId,
+            IReadOnlyList<string> roles,
+            CancellationToken cancellationToken)
+            => TryPublishFrameSidecarsAsync(artifactId, cancellationToken);
+
         public static VideoFrameSidecarResult Result(
             Guid artifactId,
             VideoFrameSidecarRoleResultCode startCode,

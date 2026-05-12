@@ -81,7 +81,13 @@ namespace Rook.Tests.Handlers
                 ledger: _ledger,
                 estimator: estimator,
                 artifactStore: _store,
-                pollInterval: TimeSpan.FromMilliseconds(20));
+                clock: null,
+                idGenerator: null,
+                pollInterval: TimeSpan.FromMilliseconds(20),
+                maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
+                materializer: null,
+                posterProducer: new FakePosterProducer(_store),
+                frameProducer: new FakeFrameProducer(_store));
 
             _handler = new VideoOpHandler(_manager, registry, estimator);
         }

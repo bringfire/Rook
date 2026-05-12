@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Rook.Artifacts;
 using Rook.Services.Vision;
 using Rook.Services.Vision.Generation;
@@ -41,6 +44,7 @@ namespace Rook.Tests.Services.Vision.Video
                 Assert.NotNull(bundle.Manager);
                 Assert.NotNull(bundle.Registry);
                 Assert.NotNull(bundle.Estimator);
+                Assert.NotNull(bundle.SidecarBackfill);
             }
             finally { bundle.Manager.Dispose(); }
         }
@@ -245,12 +249,16 @@ namespace Rook.Tests.Services.Vision.Video
     {
         private static RookSubsystemRoot FreshRoot(
             IVideoJobLedger? ledger = null,
-            IImageJobLedger? imageLedger = null) =>
+            IImageJobLedger? imageLedger = null,
+            IVideoSidecarBackfillService? sidecarBackfill = null,
+            IVideoSidecarBackfillTaskScheduler? backfillScheduler = null) =>
             new(
                 artifactStore: new ArtifactStore(),
                 generationSecretStore: new DpapiGenerationSecretStore(),
                 ledger: ledger ?? new FakeVideoJobLedger(),
-                imageLedger: imageLedger ?? new FakeImageJobLedger());
+                imageLedger: imageLedger ?? new FakeImageJobLedger(),
+                sidecarBackfill: sidecarBackfill,
+                backfillScheduler: backfillScheduler);
 
         [Fact]
         public void Ctor_BuildsVisionSecretStoreAsShimOverSharedGenerationSecretStore()
@@ -488,6 +496,85 @@ namespace Rook.Tests.Services.Vision.Video
                 () => root.ReconcileImageJobsOnce());
         }
 
+        [Fact]
+        public void BackfillVideoSidecarsOnce_RepeatedCallsScheduleOnlyOnce()
+        {
+            var fakeBackfill = new FakeBackfillService();
+            var scheduler = new FakeBackfillScheduler();
+            var root = FreshRoot(sidecarBackfill: fakeBackfill, backfillScheduler: scheduler);
+            try
+            {
+                root.BackfillVideoSidecarsOnce();
+                root.BackfillVideoSidecarsOnce();
+                root.BackfillVideoSidecarsOnce();
+
+                Assert.Single(scheduler.WorkItems);
+            }
+            finally { root.DisposeVideoSubsystemIfCreated(); }
+        }
+
+        [Fact]
+        public void BackfillVideoSidecarsOnce_DisabledModeSchedulesNothingAndDoesNotRunBackfill()
+        {
+            var fakeBackfill = new FakeBackfillService();
+            var scheduler = new FakeBackfillScheduler();
+            var root = FreshRoot(sidecarBackfill: fakeBackfill, backfillScheduler: scheduler);
+
+            root.BackfillVideoSidecarsOnce(VideoSidecarBackfillStartupOptions.Disabled);
+
+            Assert.Empty(scheduler.WorkItems);
+            Assert.Equal(0, fakeBackfill.Calls);
+            root.DisposeVideoSubsystemIfCreated();
+        }
+
+        [Fact]
+        public async Task BackfillVideoSidecarsOnce_AsyncFailureDoesNotReopenGuard()
+        {
+            var fakeBackfill = new FakeBackfillService
+            {
+                ThrowAsync = new InvalidOperationException("backfill failed"),
+            };
+            var scheduler = new FakeBackfillScheduler();
+            var failures = new List<Exception>();
+            var root = FreshRoot(sidecarBackfill: fakeBackfill, backfillScheduler: scheduler);
+            try
+            {
+                root.BackfillVideoSidecarsOnce(new VideoSidecarBackfillStartupOptions(
+                    Enabled: true,
+                    ServiceOptions: VideoSidecarBackfillOptions.StartupDefault,
+                    OnCompleted: null,
+                    OnFailed: failures.Add));
+
+                await scheduler.RunAllAsync();
+                root.BackfillVideoSidecarsOnce();
+
+                Assert.Single(scheduler.WorkItems);
+                Assert.Single(failures);
+            }
+            finally { root.DisposeVideoSubsystemIfCreated(); }
+        }
+
+        [Fact]
+        public void BackfillVideoSidecarsOnce_SynchronousSchedulingFailureResetsForRetry()
+        {
+            var fakeBackfill = new FakeBackfillService();
+            var scheduler = new FakeBackfillScheduler
+            {
+                ThrowOnSchedule = new IOException("schedule failed"),
+            };
+            var root = FreshRoot(sidecarBackfill: fakeBackfill, backfillScheduler: scheduler);
+            try
+            {
+                Assert.Throws<IOException>(() => root.BackfillVideoSidecarsOnce());
+                scheduler.ThrowOnSchedule = null;
+
+                root.BackfillVideoSidecarsOnce();
+
+                Assert.Single(scheduler.WorkItems);
+            }
+            finally { root.DisposeVideoSubsystemIfCreated(); }
+        }
+
         private static VideoJobRecord MakePollingRecord()
         {
             var resolvedModel = TestVideoFixtures.VeoLiteResolved();
@@ -512,6 +599,53 @@ namespace Rook.Tests.Services.Vision.Video
                 Interlocked.Increment(ref ReadAttempts);
                 throw new System.IO.IOException(
                     "simulated ledger read failure");
+            }
+        }
+
+        private sealed class FakeBackfillService : IVideoSidecarBackfillService
+        {
+            public Exception? ThrowAsync { get; set; }
+            public int Calls { get; private set; }
+
+            public Task<VideoSidecarBackfillResult> BackfillMissingSidecarsAsync(
+                VideoSidecarBackfillOptions options,
+                CancellationToken cancellationToken)
+            {
+                Calls++;
+                if (ThrowAsync is not null)
+                    throw ThrowAsync;
+
+                return Task.FromResult(new VideoSidecarBackfillResult(
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    StoppedByCap: false,
+                    BudgetExhausted: false,
+                    Artifacts: Array.Empty<VideoSidecarBackfillArtifactResult>()));
+            }
+        }
+
+        private sealed class FakeBackfillScheduler : IVideoSidecarBackfillTaskScheduler
+        {
+            public List<Func<Task>> WorkItems { get; } = new List<Func<Task>>();
+            public Exception? ThrowOnSchedule { get; set; }
+
+            public void Schedule(Func<Task> work)
+            {
+                if (ThrowOnSchedule is not null)
+                    throw ThrowOnSchedule;
+                WorkItems.Add(work);
+            }
+
+            public async Task RunAllAsync()
+            {
+                foreach (var work in WorkItems)
+                    await work().ConfigureAwait(false);
             }
         }
     }

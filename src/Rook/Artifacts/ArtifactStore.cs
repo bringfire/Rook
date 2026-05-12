@@ -159,15 +159,21 @@ namespace Rook.Artifacts
         }
 
         public IReadOnlyList<Artifact> List()
+            => Enumerate()
+                .OrderByDescending(a => a.CreatedAt)
+                .ThenBy(a => a.Id)
+                .ToList();
+
+        internal IEnumerable<Artifact> Enumerate()
         {
-            if (!Directory.Exists(_root)) return Array.Empty<Artifact>();
+            if (!Directory.Exists(_root)) yield break;
 
             var seenIds = new HashSet<Guid>();
-            var artifacts = new List<Artifact>();
-
-            foreach (var dayDir in Directory.EnumerateDirectories(_root))
+            foreach (var dayDir in Directory.EnumerateDirectories(_root)
+                         .OrderByDescending(Path.GetFileName, StringComparer.Ordinal))
             {
-                foreach (var artifactDir in Directory.EnumerateDirectories(dayDir))
+                foreach (var artifactDir in Directory.EnumerateDirectories(dayDir)
+                             .OrderBy(Path.GetFileName, StringComparer.Ordinal))
                 {
                     var name = Path.GetFileName(artifactDir);
                     if (name.EndsWith(TempDirSuffix, StringComparison.Ordinal)) continue;
@@ -176,14 +182,9 @@ namespace Rook.Artifacts
 
                     if (!seenIds.Add(id)) throw DuplicateUuid(id);
 
-                    artifacts.Add(ReadArtifact(artifactDir));
+                    yield return ReadArtifact(artifactDir);
                 }
             }
-
-            return artifacts
-                .OrderByDescending(a => a.CreatedAt)
-                .ThenBy(a => a.Id)
-                .ToList();
         }
 
         public bool Delete(Guid id)
