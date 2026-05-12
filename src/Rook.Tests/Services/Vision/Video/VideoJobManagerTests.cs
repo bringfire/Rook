@@ -56,6 +56,7 @@ namespace Rook.Tests.Services.Vision.Video
             IVideoCostEstimator? estimator = null,
             VideoArtifactMaterializer? materializer = null,
             IVideoPosterSidecarProducer? posterProducer = null,
+            IVideoFrameSidecarProducer? frameProducer = null,
             IVideoProviderRegistry? registry = null,
             IVideoJobLedger? ledger = null) =>
             new(
@@ -69,7 +70,8 @@ namespace Rook.Tests.Services.Vision.Video
                 pollInterval: pollInterval ?? TimeSpan.FromMilliseconds(5),
                 maxConcurrentJobs: VideoJobManager.DefaultMaxConcurrentJobs,
                 materializer: materializer,
-                posterProducer: posterProducer);
+                posterProducer: posterProducer ?? new FakePosterProducer(_artifactStore),
+                frameProducer: frameProducer ?? new FakeFrameProducer(_artifactStore));
 
         private VideoGenerationRequest T2vRequest() =>
             TestVideoFixtures.DefaultT2vRequest();
@@ -385,6 +387,123 @@ namespace Rook.Tests.Services.Vision.Video
             Assert.NotNull(final.ResultArtifactId);
             Assert.Single(posterProducer.ArtifactIds);
             Assert.Equal(final.ResultArtifactId.Value, posterProducer.ArtifactIds[0]);
+        }
+
+        [Fact]
+        public async Task Complete_video_publishes_frame_sidecars_before_Complete()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var frameStarted = new TaskCompletionSource<Guid>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFrameSidecars = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var frameProducer = new FakeFrameProducer(_artifactStore)
+            {
+                OnPublishAsync = async (artifact, _) =>
+                {
+                    frameStarted.TrySetResult(artifact.Id);
+                    await releaseFrameSidecars.Task.ConfigureAwait(false);
+                    return FakeFrameProducer.Result(
+                        artifact.Id,
+                        VideoFrameSidecarRoleResultCode.Published,
+                        VideoFrameSidecarRoleResultCode.Published);
+                },
+            };
+
+            var mgr = Manager(frameProducer: frameProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+
+            await WaitForSignalAsync(
+                frameStarted.Task,
+                "Frame sidecar producer did not start before job completion.");
+            var status = await mgr.GetStatusAsync(jobId, CancellationToken.None);
+            Assert.NotEqual(VideoJobState.Complete, status.State);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Complete);
+            Assert.Equal(
+                VideoJobState.Saving,
+                _ledger.AllRecords.Last(r => r.JobId == jobId).State);
+
+            releaseFrameSidecars.SetResult(true);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            var frameArtifactId = await frameStarted.Task;
+            Assert.Equal(frameArtifactId, final.ResultArtifactId);
+            Assert.Single(frameProducer.ArtifactIds);
+            Assert.Equal(final.ResultArtifactId.Value, frameProducer.ArtifactIds[0]);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_frame_sidecars_partially_fail()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var frameProducer = new FakeFrameProducer(_artifactStore)
+            {
+                OnPublishAsync = (artifact, _) => Task.FromResult(
+                    FakeFrameProducer.Result(
+                        artifact.Id,
+                        VideoFrameSidecarRoleResultCode.Published,
+                        VideoFrameSidecarRoleResultCode.ExtractionFailed)),
+            };
+
+            var mgr = Manager(frameProducer: frameProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.Single(frameProducer.ArtifactIds);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Error || r.State == VideoJobState.Cancelled);
+        }
+
+        [Fact]
+        public async Task Complete_video_still_completes_when_frame_stage_observes_cancellation()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            ConfigureProviderHappyPath();
+            var frameProducer = new FakeFrameProducer(_artifactStore)
+            {
+                OnPublishAsync = (_, _) => throw new OperationCanceledException(),
+            };
+
+            var mgr = Manager(frameProducer: frameProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.DoesNotContain(
+                _ledger.AllRecords.Where(r => r.JobId == jobId),
+                r => r.State == VideoJobState.Cancelled);
+        }
+
+        [Fact]
+        public async Task Sync_submit_completion_uses_same_frame_sidecar_finalization()
+        {
+            var jobId = Guid.NewGuid();
+            _idGen.Sequence.Enqueue(jobId);
+            _provider.OnSubmit = (_, _) =>
+                new GenSyncSubmitOutcome(
+                    new GenSuccessResultOutcome(VideoSuccessEnvelope(FakeMp4, "video/mp4")));
+            var frameProducer = new FakeFrameProducer(_artifactStore);
+
+            var mgr = Manager(frameProducer: frameProducer);
+            await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
+            var final = await WaitForTerminalAsync(mgr, jobId);
+
+            Assert.Equal(VideoJobState.Complete, final.State);
+            Assert.NotNull(final.ResultArtifactId);
+            Assert.Single(frameProducer.ArtifactIds);
+            Assert.Equal(final.ResultArtifactId.Value, frameProducer.ArtifactIds[0]);
         }
 
         [Fact]
@@ -1069,15 +1188,7 @@ namespace Rook.Tests.Services.Vision.Video
                 inner: VeoCapabilities.Models["veo-3.1-lite-generate-preview"].PricingModel);
             var resolvedWithCounter = _resolvedModel with { PricingModel = counter };
             var registryWithCounter = new SingleModelRegistry(resolvedWithCounter);
-            var mgr = new VideoJobManager(
-                registry: registryWithCounter,
-                mediaResolver: _resolver,
-                ledger: _ledger,
-                estimator: _estimator,
-                artifactStore: _artifactStore,
-                clock: _clock,
-                idGenerator: _idGen,
-                pollInterval: TimeSpan.FromMilliseconds(5));
+            var mgr = Manager(registry: registryWithCounter);
 
             await mgr.SubmitAsync(T2vRequest(), CancellationToken.None);
             await WaitForTerminalAsync(mgr, jobId);
@@ -2167,6 +2278,52 @@ namespace Rook.Tests.Services.Vision.Video
             ArtifactIds.Add(artifactId);
             return OnPublishAsync(_store.Get(artifactId)!, cancellationToken);
         }
+    }
+
+    internal sealed class FakeFrameProducer : IVideoFrameSidecarProducer
+    {
+        private readonly ArtifactStore _store;
+
+        public FakeFrameProducer(ArtifactStore store)
+        {
+            _store = store;
+        }
+
+        public List<Guid> ArtifactIds { get; } = new();
+
+        public Func<Artifact, CancellationToken, Task<VideoFrameSidecarResult>>
+            OnPublishAsync { get; set; } =
+                (artifact, _) => Task.FromResult(
+                    Result(
+                        artifact.Id,
+                        VideoFrameSidecarRoleResultCode.Published,
+                        VideoFrameSidecarRoleResultCode.Published));
+
+        public Task<VideoFrameSidecarResult> TryPublishFrameSidecarsAsync(
+            Guid artifactId,
+            CancellationToken cancellationToken)
+        {
+            ArtifactIds.Add(artifactId);
+            return OnPublishAsync(_store.Get(artifactId)!, cancellationToken);
+        }
+
+        public static VideoFrameSidecarResult Result(
+            Guid artifactId,
+            VideoFrameSidecarRoleResultCode startCode,
+            VideoFrameSidecarRoleResultCode endCode)
+            => new(
+                artifactId,
+                new[]
+                {
+                    VideoFrameSidecarRoleResult.From(
+                        VideoMediaRoles.StartFrame,
+                        Rook.Services.Vision.Video.Extraction.VideoFrameSelector.First,
+                        startCode),
+                    VideoFrameSidecarRoleResult.From(
+                        VideoMediaRoles.EndFrame,
+                        Rook.Services.Vision.Video.Extraction.VideoFrameSelector.Last,
+                        endCode),
+                });
     }
 
     // Tiny media resolver for tests: synchronous, configurable.
